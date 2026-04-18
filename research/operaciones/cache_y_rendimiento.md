@@ -642,6 +642,49 @@ Eviction automática: cuando L1 supera el límite, eliminar por LRU empezando po
 
 ---
 
+## Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario. Identifican casos donde la
+> estrategia de caché o la política de artefactos necesita revisión.
+
+### Nota 1: La política "GDS siempre en .gitignore" no es universal
+
+La Sección 7 ("Tamaño de artefactos") clasifica `.gds` como artefacto de build que nunca va en git. Esta clasificación es correcta para flujos Magic→GDS, pero no para:
+
+- **KLayout-primary (IHP/GF180):** El `.gds` o `.oas` puede ser la fuente editada directamente. Ponerlo en `.gitignore` destruiría la fuente del layout.
+- **GDSFactory:** El `.gds` es output de Python, correcto que vaya en `.gitignore`. Pero el `.oas` puede ser el formato de entrega — no va en `.gitignore` si es el artefacto de tapeout que se versiona.
+- **GDS de PDK:** Los GDS de celdas estándar del PDK no se regeneran — son dependencias externas. Si el flujo los incluye en el repo (por reproducibilidad), van en LFS, no en `.gitignore`.
+
+**Extensión propuesta:** El `.gitignore` que genera `miku init` debe ser condicional al valor de `layout.source` en `miku.toml`. Si `layout.source = "magic"` → `*.gds` a `.gitignore`. Si `layout.source = "klayout"` → `*.gds` NO va a `.gitignore`.
+
+### Nota 2: OASIS como alternativa de storage para reducir tamaño
+
+La Sección 7 menciona `.oas` como formato gitignoreado junto a `.gds`. Hay un caso donde OASIS como formato de storage en caché tiene ventaja enorme sobre GDS:
+
+- OASIS puede ser **1000x más compacto** que GDS equivalente (ejemplo: 150 MB → 25 kB).
+- Para la caché L1/L2, almacenar artefactos en OASIS en lugar de GDS reduciría dramáticamente el costo de storage y la latencia de transferencia S3.
+- KLayout convierte GDS↔OASIS de forma transparente y sin pérdida.
+
+**Oportunidad:** Al almacenar XOR results y renders en caché, convertir automáticamente de GDS a OASIS. El ahorro de espacio y egress en S3 justifica el paso de conversión.
+
+Fuente: [KLayout forum — OASIS as GDS successor](https://www.klayout.de/forum/discussion/2152/oasis-the-successor-to-gds)
+
+### Nota 3: El hash del PDK en la clave de caché requiere PDK version pinning
+
+La Sección 4 ("Invalidación por PDK") propone incluir el hash del PDK en la clave de caché con la función `pdk_hash()`. Esto solo funciona si el PDK está instalado de forma reproducible y versionada.
+
+Sin PDK version pinning (con `volare` o `ciel`), dos máquinas del mismo equipo pueden tener versiones diferentes del PDK sin saberlo, produciendo cache misses constantemente o, peor, hits incorrectos si el hash no incluye el PDK correctamente.
+
+**Dependencia:** La estrategia de caché de este documento requiere que el equipo adopte PDK version pinning. Estos son complementarios — sin el pinning, la caché de PDK no es confiable.
+
+Fuente: [github.com/chipfoundry/volare](https://github.com/chipfoundry/volare)
+
+### Nota 4: Artefactos `.ext` de Magic son intermedios, no finales
+
+La tabla de `.gitignore` ya incluye `*.ext`. Confirmación de práctica real: los archivos `.ext` son intermedios generados por `magic extract all` — uno por celda — y son siempre regenerables. En proyectos con muchas celdas pueden generar cientos de archivos que contaminan el working tree. `miku init` debe asegurarse de que `*.ext` está en `.gitignore` independientemente del PDK.
+
+---
+
 ## ¿Cuándo refutar estas decisiones?
 
 **"SHA256 como clave de caché"** cambia si:

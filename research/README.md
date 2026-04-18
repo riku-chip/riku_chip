@@ -12,7 +12,8 @@ Miku es un VCS especializado para diseño de chips IC analógico, construido sob
 research/
 ├── arquitectura/          # Decisiones de stack y diseño del sistema
 ├── herramientas/          # Integración con cada herramienta EDA
-└── operaciones/           # Operaciones específicas: merge, CI, caché
+├── operaciones/           # Operaciones específicas: merge, CI, caché
+└── ux/                    # Experiencia de usuario: flujos reales y variaciones
 ```
 
 ---
@@ -84,6 +85,15 @@ lenguajes_y_stack
 | CI / DRC-LVS | Investigado | ci_drc_lvs_regresiones |
 | Caché L1/L2 | Investigado | cache_y_rendimiento |
 | Streaming GDS (Rust) | Pendiente | lenguajes_y_stack, cache_y_rendimiento |
+| Flujos reales / UX | Investigado | ux/flujos_reales_y_variaciones |
+
+---
+
+## ux/
+
+| Documento | Descripción |
+|---|---|
+| [flujos_reales_y_variaciones.md](ux/flujos_reales_y_variaciones.md) | Variaciones al flujo canónico observadas en proyectos reales: KLayout-primary, layout generado por Python, dos fases de simulación, SPICE como fuente primaria, flujos mixtos digital+analógico, cierre de Efabless, pain points documentados. |
 
 ---
 
@@ -93,6 +103,9 @@ lenguajes_y_stack
 - Renderer web de conflictos (similar a KiRI pero para IC analógico)
 - Protocolo de sincronización de caché L2 en equipos distribuidos
 - Soporte para PDKs distintos de SKY130 (GF180, IHP SG13G2)
+- `layout.source` en `miku.toml` para declarar fuente de verdad del layout
+- `pdk.version` en `miku.toml` para reproducibilidad de DRC/LVS
+- Detección de formato `.sch` por header (Xschem vs Qucs-S vs KiCad)
 
 ---
 

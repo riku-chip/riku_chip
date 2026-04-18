@@ -999,6 +999,71 @@ cache:
 
 ---
 
+## Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario. Requieren revisión de secciones
+> específicas de este documento.
+
+### Nota 1: El flujo LVS asume Xschem + Magic. Hay casos donde uno o ambos están ausentes.
+
+La Sección 3 ("LVS entre commits") modela:
+```
+Xschem (.sch) → netlist esquemático
+Magic (.mag) → extract → netlist de layout
+```
+
+En proyectos reales:
+- **PDK IHP (KLayout primario):** La extracción de layout para LVS puede hacerse desde KLayout, no desde Magic. KLayout tiene su propio engine LVS (desde v0.27). El flujo `magic extract → ext2spice` no aplica si el diseñador nunca usó Magic.
+- **Cadence Virtuoso + open PDK:** El netlist esquemático viene de Virtuoso (`.cdl`), no de Xschem. Miku no puede generar el netlist esquemático invocando `xschem --netlist`.
+- **KLayout LVS como alternativa a Netgen:** KLayout incorpora un engine de LVS propio que puede reemplazar a Netgen para algunos PDKs. Está documentado como alternativa en la nota "¿Cuándo refutar estas decisiones?" — pero no hay investigación sobre cuándo KLayout LVS tiene paridad real con Netgen para SKY130/IHP.
+
+**Investigación pendiente:** Verificar si el KLayout LVS engine (disponible vía `klayout -b -r lvs_script.lylvs`) produce resultados equivalentes a Netgen para SKY130A y IHP SG13G2. Si tiene paridad, reduce la dependencia de Netgen para proyectos KLayout-primary.
+
+Fuente: [KLayout LVS reference](https://www.klayout.de/doc/manual/lvs_ref.html)
+
+### Nota 2: PDK version pinning es crítico para reproducibilidad de DRC/LVS
+
+La Sección 7 del YAML de CI tiene `PDK_VERSION: sky130A-0.0.2` como variable de entorno, pero no hay un mecanismo que verifique que todos los miembros del equipo usan exactamente esa versión.
+
+Casos documentados donde la versión del PDK importa:
+- Un cambio de PDK puede introducir nuevas reglas DRC o cambiar umbrales existentes → resultados DRC distintos sobre el mismo GDS.
+- El `sky130A_setup.tcl` de Netgen (que define equivalencias de dispositivos para LVS) cambia entre versiones del PDK → LVS puede pasar en una versión y fallar en otra.
+- Los bugs documentados en KLayout+SKY130 (XML parsing, referencias de archivos) son específicos de versiones concretas del PDK.
+
+**Herramientas para PDK version pinning:**
+- `volare` (anteriormente de Efabless, ahora bajo chipfoundry): gestiona versiones pinneadas de SKY130/GF180 con hash verificable. Ya aparece en el YAML de CI como `pip install volare && volare enable --pdk sky130 $PDK_VERSION`.
+- `ciel` (FOSSi Foundation): alternativa a volare post-cierre de Efabless.
+
+**Propuesta:** El campo `pdk.version` en `.miku/config.yaml` debería requerir el commit hash del PDK (no solo el tag de versión), y `miku doctor` debería verificar que el PDK local coincide con ese hash.
+
+Fuente: [github.com/chipfoundry/volare](https://github.com/chipfoundry/volare), [github.com/fossi-foundation/ciel](https://github.com/fossi-foundation/ciel)
+
+### Nota 3: Bugs de integración PDK-herramienta que rompen CI silenciosamente
+
+El tutorial de unic-cass (2024) documenta bugs en la distribución oficial de SKY130 que hacen fallar KLayout sin mensaje de error claro. Si el CI de Miku no aplica los patches necesarios, el DRC falla silenciosamente.
+
+El `miku doctor` y el step de setup del workflow de GitHub Actions deben incluir detección y aplicación automática de estos patches, o al menos verificación explícita de que el PDK fue instalado correctamente.
+
+Fuente: [unic-cass KLayout Sky130 tutorial (2024)](https://unic-cass.github.io/training/sky130/3.3-layout-klayout.html)
+
+### Nota 4: El CI de referencia (efabless/mpw_precheck) ya no está mantenido
+
+El documento referencia `efabless/caravel_user_project` como ejemplo de CI completo con DRC/LVS. Efabless cerró en febrero 2025 — este repositorio y su pipeline ya no reciben mantenimiento activo.
+
+La plataforma de sustitución emergente es LibreLane (FOSSi Foundation) + acceso directo a IHP. El CI de referencia para proyectos nuevos debería ser:
+- [github.com/iic-jku/IIC-OSIC-TOOLS](https://github.com/iic-jku/IIC-OSIC-TOOLS) — Docker con todas las herramientas, mantenido activamente
+- Los workflows de OpenLane v2 / LibreLane bajo FOSSi Foundation
+
+Fuente: [semiwiki.com Efabless shutdown](https://semiwiki.com/forum/threads/efabless-just-shut-down.22217/), [wiki.f-si.org IHP integration](https://wiki.f-si.org/index.php?title=IHP_Open_PDK_integration_with_Magic,_Netgen,_and_LibreLane)
+
+### Nota 5: Waveform regression en dos fases — pre-layout y post-layout
+
+La Sección 4 asume una sola fase de simulación. En flujos reales existen dos fases con resultados sistemáticamente distintos (ver ngspice_diff_y_versionado.md Nota 10b).
+
+El `miku_sim.yaml` debería tener un campo `phase: pre_layout | post_layout` para que Miku no compare resultados de fases distintas y genere falsos positivos de regresión.
+
+---
+
 ## ¿Cuándo refutar estas decisiones?
 
 **"Delta de violaciones en vez de conteo absoluto"** falla si:

@@ -724,6 +724,65 @@ LFS y el merge driver de Miku son compatibles. Cuando Git invoca el merge driver
 
 ---
 
+## Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario. Identifican casos que el modelo
+> de dependencias de este documento no contempla, y que pueden requerir extensión del diseño.
+
+### Nota 1: El grafo de derivación asume flujo Xschem→Magic. Hay flujos sin este eje.
+
+La Sección 1 modela:
+```
+.sch → .spice
+.sch → .mag → .gds
+```
+
+En proyectos reales existen flujos donde este eje no existe:
+
+- **Flujo digital (OpenLane):** Verilog → Yosys → OpenROAD → `.def` → Magic streaming → `.gds`. No hay `.sch` ni `.mag` como fuente de layout. El `.gds` viene de OpenROAD, no de Magic.
+- **GDSFactory:** Python → `.gds`. No hay `.sch`, `.mag`, ni `.spice` primario.
+- **Flujo mixto digital+analógico:** Un mismo repo puede tener Verilog (digital), `.sch`+`.mag` (analógico), y un wrapper GDS que integra ambos. El `deps.toml` debe poder representar múltiples sub-grafos de derivación por subsistema.
+
+**Extensión propuesta para `deps.toml`:** Agregar un campo `source_type = "xschem" | "python" | "openlane" | "manual"` por celda para que el hook `post-merge` sepa qué herramienta invocar para regenerar artefactos desactualizados.
+
+Fuente: [OpenLane issue #1420 — gate-level mixed-signal](https://github.com/The-OpenROAD-Project/OpenLane/issues/1420), [wiki.f-si.org CACE](https://wiki.f-si.org/index.php?title=CACE:_Defining_an_open-source_analog_and_mixed-signal_design_flow)
+
+### Nota 2: `.spice` derivado vs. `.spice` fuente — la distinción no siempre es clara
+
+La Sección 3c establece que si `amp.sp` está marcado como derivado, Miku lo regenera del `.sch` mergeado. Hay casos donde el `.spice` NO es derivado:
+
+- Celdas estándar SKY130 en Xschem: el `.spice` del PDK es la fuente; el símbolo Xschem lo referencia con `spice_sym_def`. Si Miku intenta "regenerar" este archivo desde el `.sch`, destruiría el modelo del PDK.
+- Netlists escritos a mano para exploración topológica — no tienen `.sch` fuente.
+- Netlists exportados de Cadence Virtuoso — el `.sch` no existe en el repo de Miku.
+
+**El `deps.toml` necesita distinguir:** `derived_spice` (regenerable desde `.sch`) vs. `primary_spice` (fuente, no tocar). Sin esta distinción, el merge driver puede corromper archivos de modelos del PDK.
+
+Fuente: [xschem tutorial sky130 — spice_sym_def](https://xschem.sourceforge.io/stefan/xschem_man/tutorial_xschem_sky130.html)
+
+### Nota 3: GDS como fuente primaria en flujos KLayout-primary
+
+La Sección 2 asume que resolver conflictos GDS siempre implica "resolver en `.mag` y regenerar GDS". Esto no aplica cuando:
+
+- El diseñador usa KLayout como editor primario (IHP SG13G2, GF180MCU) — no hay `.mag`.
+- El layout fue generado por Python (GDSFactory) — el `.gds` es el output final; la fuente es el `.py`.
+
+El mensaje de resolución de conflictos:
+```
+Archivos fuente relacionados:
+  • layout/nand2.mag  → intentar merge en .mag primero, luego regenerar GDS
+```
+Solo debería aparecer si el proyecto tiene `.mag` declarado como fuente en `deps.toml`. Si `layout.source = "klayout"` o `layout.source = "python"`, el mensaje debe ser diferente.
+
+Fuente: ver `ux/flujos_reales_y_variaciones.md` Sección 1 y 2.
+
+### Nota 4: Merge de archivos `.sch` de Qucs-S o KiCad en el mismo repo
+
+Si el repo contiene esquemáticos de múltiples herramientas (Xschem + Qucs-S, o Xschem + KiCad legacy), el merge driver `miku-sch` solo debe activarse para archivos Xschem. Para los demás, debe hacer fallback a diff de texto estándar.
+
+La detección por header (ya contemplada en la arquitectura) resuelve esto: si el header del `.sch` no es `v {xschem version=...}`, el driver Xschem no se activa.
+
+---
+
 ## ¿Cuándo refutar estas decisiones?
 
 **"Advertir, no bloquear cuando el GDS está desactualizado"** deja de funcionar si:

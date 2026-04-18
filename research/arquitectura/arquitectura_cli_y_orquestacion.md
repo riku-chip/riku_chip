@@ -869,6 +869,90 @@ La configuración de drivers, fallbacks, stages de CI y tolerancias de simulaci�
 
 ---
 
+## Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario. Afectan directamente el diseño
+> del dispatcher, la configuración `miku.toml`, y el comando `miku init`.
+
+### Nota 1: `miku.toml` necesita declarar la fuente de verdad del layout
+
+La Sección 7 ("Configuración de referencia") tiene `pdk = "sky130A"` como único campo de proyecto relevante para el flujo. Falta un campo crítico:
+
+```toml
+[project]
+name = "my_chip"
+pdk = "sky130A"
+pdk_version = "abc1234def5678"   # commit hash del PDK — para reproducibilidad
+layout_source = "magic"          # "magic" | "klayout" | "python"
+```
+
+Sin `layout_source`:
+- El dispatcher no sabe si debe buscar `.mag` o `.gds` como fuente
+- La generación del `.gitignore` en `miku init` no sabe si excluir `*.gds`
+- Los mensajes de resolución de conflictos en merge pueden recomendar "resolver en `.mag`" cuando el proyecto no tiene `.mag`
+
+Para proyectos KLayout-primary (IHP SG13G2, GF180MCU): `layout_source = "klayout"`.
+Para proyectos generados por código: `layout_source = "python"`.
+
+Fuente: [open-source-silicon.dev/t/16219913](https://web.open-source-silicon.dev/t/16219913), [IHP Certificate Course](https://www.ihp-microelectronics.com/events-1/detail/title-certificate-course-in-person-analog-design-with-ihp-sg13g2-open-source-pdk)
+
+### Nota 2: Detección de `.sch` por contenido es más importante de lo estimado
+
+La Sección 2 ("Resolución de ambigüedades") menciona `".sch" puede ser KiCad o Xschem`. En práctica, la extensión `.sch` también la usa Qucs-S (herramienta alternativa para simulación NGSpice con mejor UI). Los tres formatos son completamente distintos.
+
+El CONTENT_DETECTOR para Xschem ya está correcto: `b'xschem version=' in h[:80]`. Confirmar que este check se ejecuta siempre antes de despachar al driver Xschem — nunca asumir que `.sch` = Xschem solo por extensión.
+
+Fuente: [github.com/ra3xdh/qucs_s](https://github.com/ra3xdh/qucs_s)
+
+### Nota 3: `miku init` debe generar `.gitignore` condicional al PDK y flujo
+
+El `miku.toml` de referencia tiene un bloque `[ignore]` con `build_artifacts = ["*.gds"]`. Esto solo es correcto cuando `layout_source = "magic"`. El generador de `.gitignore` de `miku init` debe ser condicional:
+
+```
+si layout_source = "magic"  → ignorar *.gds
+si layout_source = "klayout" → NO ignorar *.gds (es la fuente)
+si layout_source = "python"  → ignorar *.gds (es build artifact)
+```
+
+Además, si `pdk` es IHP SG13G2, el `.gitignore` debe NO incluir `*.va` — los archivos Verilog-A son modelos de dispositivos que deben versionarse. El `.osdi` (compilado de Verilog-A) sí debe ignorarse.
+
+Fuente: [ngspice.sourceforge.io/osdi.html](https://ngspice.sourceforge.io/osdi.html), [IHP-Open-PDK](https://github.com/IHP-GmbH/IHP-Open-PDK)
+
+### Nota 4: `miku doctor` necesita verificar PDK version y bugs de integración conocidos
+
+La salida ejemplo de `miku doctor` verifica herramientas instaladas pero no verifica el PDK. Agregar:
+
+```
+  PDK:
+    ✓ sky130A      commit abc1234  (coincide con miku.toml)
+    ⚠ KLayout+SKY130 XML bug detectado
+      Aplicar patch: miku doctor --fix-pdk
+      (sed en sky130.lym y sky130A.lyt)
+```
+
+El bug de XML parsing en KLayout+SKY130 afecta a cualquier entorno con PDK fresh install y hace fallar el DRC silenciosamente. Es el primer problema que encuentra un usuario nuevo.
+
+Fuente: [unic-cass KLayout Sky130 tutorial (2024)](https://unic-cass.github.io/training/sky130/3.3-layout-klayout.html)
+
+### Nota 5: Tipos de archivo nuevos que el dispatcher debe reconocer
+
+Actualizar `EXTENSION_MAP` para incluir tipos encontrados en proyectos reales:
+
+```python
+EXTENSION_MAP = {
+    # ... entradas existentes ...
+    ".oas":    "klayout",   # ya incluido — confirmar
+    ".oasis":  "klayout",   # variante de extensión
+    ".va":     "text",      # Verilog-A — diff como texto, no driver especial
+    ".osdi":   None,        # binario compilado, no diffear
+    ".cdl":    "spice",     # Circuit Description Language (Cadence/Virtuoso export)
+    ".spi":    "spice",     # variante de extensión SPICE en algunos scripts OpenLane
+    ".kicad_sch": "text",   # KiCad nuevo formato — fallback a texto
+}
+```
+
+---
+
 ## ¿Cuándo refutar estas decisiones?
 
 **"Driver system desde el MVP" (Decisión 2)** es prematuro si:

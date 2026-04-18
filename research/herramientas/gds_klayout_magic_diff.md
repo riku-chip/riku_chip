@@ -375,6 +375,76 @@ commit B (.gds) ┘ → strmcmp → texto legible (stdout)
 
 ---
 
+## 12. Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario en foros y proyectos reales
+> (open-source-silicon.dev, GitHub issues de KLayout/Magic, unic-cass, IHP PDK docs).
+> Requieren revisión y posible expansión de las secciones anteriores.
+
+### 12a. KLayout como editor primario (no solo visor/verificador)
+
+La Sección 8 ("Rol de Magic vs. KLayout") asume implícitamente Magic como editor principal y KLayout como verificador. En la práctica esto no es universal:
+
+- **IHP SG13G2:** KLayout es el editor primario. Magic fue añadido después y su soporte quedó interrumpido con el cierre de Efabless (feb. 2025). El IHP Certificate Course empieza con KLayout.
+- **GF180MCU:** Tim Edwards (creador de Magic) declaró públicamente usar KLayout como editor principal para GF180 (*"I'm using KLayout as the main layout editor for GF180, but always double check the DRC on Magic"*).
+- La razón es PDK-dependiente: Magic recibe más mantenimiento para SKY130; KLayout está mejor integrado en IHP y GF180.
+
+**Implicación para la Sección 8:** La tabla de "Rol de Magic vs. KLayout" debe agregar una columna "PDK recomendado" o una nota que aclare que el rol de cada herramienta depende del PDK, no es fijo.
+
+**Implicación para la Sección 9 (flujo de diff propuesto):** El flujo `.mag → magic -dnull → .gds → klayout XOR` presupone que la fuente es `.mag`. Si la fuente es un KLayout directo (`.gds` o `.oas` como fuente primaria), el flujo no aplica. El driver GDS necesita saber si el `.gds` es fuente o artefacto antes de decidir cómo hacer diff.
+
+Fuente de campo: [open-source-silicon.dev/t/16219913](https://web.open-source-silicon.dev/t/16219913), [IHP Certificate Course](https://www.ihp-microelectronics.com/events-1/detail/title-certificate-course-in-person-analog-design-with-ihp-sg13g2-open-source-pdk), [wiki.f-si.org IHP integration](https://wiki.f-si.org/index.php?title=IHP_Open_PDK_integration_with_Magic,_Netgen,_and_LibreLane)
+
+### 12b. OASIS como formato alternativo al GDS
+
+El documento no menciona OASIS (`.oas`) como formato de layout — solo GDS. En proyectos KLayout-nativos, OASIS es el formato preferido:
+
+- OASIS puede ser **1000x más compacto** que GDS equivalente (ejemplo documentado: 150 MB → 25 kB).
+- OASIS preserva nombres de layers; GDS los pierde.
+- KLayout ya está registrado como driver para `.oas` en la `EXTENSION_MAP` de arquitectura, pero el flujo de diff de este documento no lo contempla.
+
+**Implicación:** La Sección 9 debe incluir un flujo paralelo para `.oas`. El XOR y LayoutDiff de KLayout funcionan igual para OASIS — el diff es idéntico, solo cambia el formato de entrada.
+
+Fuente: [KLayout forum — OASIS as GDS successor](https://www.klayout.de/forum/discussion/2152/oasis-the-successor-to-gds)
+
+### 12c. Bugs conocidos en la integración KLayout-SKY130 que afectan CI
+
+El tutorial de unic-cass (2024) documenta dos bugs en la distribución oficial del SKY130 PDK que impiden usar KLayout sin patches manuales:
+
+```bash
+sed -i -e '/<?xml/d' $PDK_ROOT/$PDK/libs.tech/klayout/pymacros/sky130.lym
+sed -i -e 's/sky130/sky130A/' $PDK_ROOT/$PDK/libs.tech/klayout/tech/sky130A.lyt
+```
+
+Si el CI de Miku no aplica estos patches, fallará silenciosamente en cualquier entorno SKY130 fresco. El `miku doctor` debería detectar y reportar este estado.
+
+Fuente: [unic-cass KLayout Sky130 tutorial (2024)](https://unic-cass.github.io/training/sky130/3.3-layout-klayout.html)
+
+### 12d. KLayout GDS exportado rechazado por herramientas de foundry
+
+KLayout forum issue #1026 documenta que GDS exportado desde KLayout puede ser rechazado por Cadence (herramienta del foundry) por:
+- Arrays 1×1 (single-instance AREFs) que Cadence ignora silenciosamente
+- `$$$CONTEXT_INFO$$$` dummy cell rechazada por terceros
+- Arrays no-ortogonales que generan warnings y se omiten
+
+Workarounds: usar OASIS en vez de GDS, deshabilitar PCell context storage. Documentar esto como limitación conocida al usar Miku en flujos que terminan en foundry submission.
+
+Fuente: [KLayout forum #1026](https://www.klayout.de/forum/discussion/1026/very-important-gds-exported-from-k-layout-not-working-on-cadence-at-foundry)
+
+### 12e. Layout generado por Python (GDSFactory, gdstk)
+
+El flujo de diff actual asume que el layout tiene una fuente editable (`.mag` o KLayout GUI). Existe una tercera categoría donde el layout es generado por código Python — en este caso:
+
+- La fuente es el `.py` o `.yaml`; el `.gds` es un build artifact
+- No hay nada que diffear en el GDS salvo verificación de regresión
+- El diff semántico relevante es entre las dos versiones del script Python
+
+Este caso no está cubierto por los drivers actuales. No requiere un driver nuevo — requiere que `miku.toml` pueda declarar `layout.source = "python"` y que Miku no intente diffear el GDS como si fuera fuente.
+
+Referencia: [github.com/gdsfactory/gdsfactory](https://github.com/gdsfactory/gdsfactory), [OpenFASoC GLayout](https://openfasoc.readthedocs.io/en/latest/notebooks/glayout/glayout_opamp.html)
+
+---
+
 ## Referencias
 
 ### KLayout

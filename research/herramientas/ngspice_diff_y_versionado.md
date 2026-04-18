@@ -271,6 +271,79 @@ Si la topología es la misma pero cambiaron valores de componentes, Netgen lo re
 
 ---
 
+## 10. Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario en foros y comunidades reales.
+> Identifican casos que el modelo de este documento no contempla actualmente.
+
+### 10a. SPICE como fuente primaria (no derivado de Xschem)
+
+La Sección 3 ("Comparación de netlists SPICE") y la Sección 8 ("Flujo propuesto") asumen implícitamente que el `.spice` es exportado desde Xschem. Hay tres situaciones donde esto no se cumple:
+
+1. **Exploración topológica:** Diseñadores escriben netlists a mano para explorar topologías antes de formalizarlas en un esquemático. El `.spice` es la fuente; no existe `.sch`.
+2. **Celdas estándar del PDK:** En SKY130, los símbolos de dispositivos en Xschem no tienen esquemático propio — solo usan `spice_sym_def` para apuntar a un netlist externo. El `.spice` del PDK es la fuente; Xschem lo incluye por referencia.
+3. **Proyectos Cadence/Virtuoso + PDK open:** El esquemático vive en Virtuoso y Miku nunca lo ve. El `.spice` exportado es lo único disponible — y es fuente, no artefacto.
+
+**Implicación:** La política "SPICE siempre va en `.gitignore`" (mencionada en cache_y_rendimiento y estrategia_merge) no puede ser una regla global. El `miku.toml` o `deps.toml` debe poder declarar si un `.spice` es derivado o fuente.
+
+Fuente: [xschem tutorial SKY130 — spice_sym_def](https://xschem.sourceforge.io/stefan/xschem_man/tutorial_xschem_sky130.html), [xschem issue #35 — SPICE import request](https://github.com/StefanSchippers/xschem/issues/35)
+
+### 10b. Dos fases de simulación con netlists distintos
+
+El documento describe una sola fase de simulación (pre-layout). En flujos reales hay dos fases con netlists completamente distintos:
+
+**Fase 1 — Pre-layout (esquemático):**
+```
+Xschem (.sch) → netlist.spice → NGSpice
+```
+
+**Fase 2 — Post-layout (extracción de parásitos):**
+```
+Magic (.mag) → extract all → .ext → ext2spice → netlist_extracted.spice → NGSpice
+```
+
+El netlist extraído puede tener decenas de miles de MOSFETs y capacitores parásitos. Los resultados de simulación son sistemáticamente distintos entre fases — no es una regresión, es una diferencia esperada por diseño.
+
+El problema: si Miku compara `.meas` results entre commits sin saber en qué fase está cada run, el diff es ambiguo o produce falsos positivos.
+
+**Propuesta de extensión:** El `miku_sim.yaml` debería tener un campo `phase: pre_layout | post_layout` para que Miku compare solo runs de la misma fase.
+
+Fuente: [ngspice sourceforge discussion on real tapeouts](https://sourceforge.net/p/ngspice/discussion/120972/thread/69a4488f56/), [unic-cass analog design flow](https://unic-cass.github.io/training/1.4-analog-design-flow-intro.html)
+
+### 10c. Modelos Verilog-A para PDKs BiCMOS/RF (IHP SG13G2)
+
+El IHP SG13G2 PDK incluye dispositivos HBT con modelos compact en Verilog-A que NGSpice no puede usar directamente. El flujo requiere un paso adicional de compilación:
+
+```
+modelo.va → OpenVAF → modelo.osdi → cargado en NGSpice via OSDI interface
+```
+
+- `.va` son archivos de modelo — texto versionable, no deben ir en `.gitignore`
+- `.osdi` son binarios compilados — sí deben ir en `.gitignore` (artefacto de build)
+
+Si Miku genera `.gitignore` automáticamente con `miku init`, debe conocer el PDK para decidir correctamente. Un `.gitignore` genérico que incluya `*.va` destruiría los modelos Verilog-A de IHP.
+
+Fuente: [ngspice.sourceforge.io/osdi.html](https://ngspice.sourceforge.io/osdi.html), [OpenVAF discussions](https://github.com/pascalkuthe/OpenVAF/discussions/22), [IHP-Open-PDK](https://github.com/IHP-GmbH/IHP-Open-PDK)
+
+### 10d. Simulación estadística (Monte Carlo) con modelos SKY130
+
+SKY130 incluye parámetros estadísticos en formato Spectre. NGSpice no puede leerlos directamente — requiere un script de conversión externo que fue contribuido por la comunidad (Brad Minch), no por Google/SkyWater. Sin este paso, las simulaciones corner/Monte Carlo no tienen los parámetros estadísticos del PDK real.
+
+**Implicación para el CI de simulación:** Un testbench de Monte Carlo en SKY130 requiere el script de conversión como prerequisito. `miku doctor` debería verificar su presencia si el PDK es sky130 y hay simulaciones MC configuradas.
+
+Fuente: [google/skywater-pdk issue #309](https://github.com/google/skywater-pdk/issues/309)
+
+### 10e. Extensiones de archivo SPICE adicionales en proyectos reales
+
+La tabla de extensiones del documento incluye `.spice`, `.cir`, `.sp`, `.net`. En proyectos reales también aparecen:
+
+- `.cdl` — Circuit Description Language, usado por Virtuoso para exportar netlists LVS-clean
+- `.spi` — variante menor usada por algunos scripts de OpenLane
+
+El driver SPICE de Miku debería reconocer también `.cdl` y `.spi` por detección de contenido (misma sintaxis).
+
+---
+
 ## Referencias
 
 ### NGSpice

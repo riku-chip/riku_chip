@@ -158,6 +158,62 @@ Donde `miku-xschem-diff.sh` llama a Xschem headless + ImageMagick o genera un SV
 
 ---
 
+## 8. Notas de retroalimentación — flujos reales
+
+> Estas notas provienen del research de experiencia de usuario en foros y comunidades EDA reales.
+> Identifican casos que el modelo de este documento no contempla actualmente.
+
+### 8a. `.sch` no siempre es formato Xschem
+
+El driver de Xschem en la arquitectura asume que todo archivo `.sch` es formato Xschem. En proyectos reales, la extensión `.sch` la usan también:
+
+- **Qucs-S:** GUI alternativa para NGSpice con mejor visualización de waveforms y Monte Carlo más simple. Sus archivos `.sch` tienen sintaxis completamente distinta al formato Xschem (XML-like, no TCL-like). Qucs-S tiene demanda real entre diseñadores que prefieren UI sobre CLI.
+- **KiCad Eeschema:** La versión heredada de KiCad también usa `.sch` (el formato nuevo es `.kicad_sch`). Diseñadores con background en PCB que entran al mundo IC pueden tener este archivo.
+
+**El contenido del archivo resuelve la ambigüedad:**
+- Xschem: primera línea `v {xschem version=...}`
+- Qucs-S: header XML o `<Qucs Schematic ...>`
+- KiCad legacy: línea `EESchema Schematic File Version N`
+
+La detección por contenido de la Sección 2 del documento de arquitectura ya contempla `b'xschem version=' in h[:80]` — esto es correcto y suficiente para no confundir formatos.
+
+**Implicación práctica:** Si el usuario tiene archivos `.sch` de Qucs-S o KiCad en el mismo repo que archivos Xschem, Miku no los confundirá si la detección por contenido está implementada correctamente. No se requiere un driver Qucs-S para el MVP — basta con hacer fallback a diff de texto cuando el header no coincide.
+
+Fuente: [ngspice.sourceforge.io/ngspice-eeschema.html](https://ngspice.sourceforge.io/ngspice-eeschema.html), [github.com/ra3xdh/qucs_s](https://github.com/ra3xdh/qucs_s)
+
+### 8b. Proyectos sin ningún archivo Xschem
+
+Casos documentados donde un proyecto de chips no tiene ningún `.sch` de Xschem:
+
+1. **Flujo puramente digital (OpenLane/OpenROAD):** Todo el diseño parte de Verilog. No hay esquemático analógico.
+2. **GDSFactory/GLayout (layout generado por Python):** El "esquemático" es implícito en el código; no hay `.sch`.
+3. **Cadence Virtuoso + PDK open:** El esquemático vive en Virtuoso (`.sdb`/`.cdl`). Miku nunca ve el esquemático.
+4. **SPICE-first workflow:** El diseñador escribe el netlist directamente y nunca formaliza un esquemático gráfico.
+
+**Implicación:** `miku init` no debe requerir que exista un `.sch` para configurar el proyecto. Los drivers son opcionales — si no hay archivos Xschem, el driver simplemente nunca se invoca.
+
+### 8c. Importación de netlists SPICE en Xschem (gap de la herramienta)
+
+Xschem no puede importar un netlist SPICE existente y convertirlo en esquemático gráfico. Esto es un gap conocido de la herramienta — hay un feature request abierto (issue #35) sin implementación.
+
+El workaround actual: crear un símbolo vacío con los puertos correctos y el atributo `spice_sym_def` apuntando al netlist externo. Así funcionan todas las celdas estándar de SKY130 en el ambiente Xschem — no tienen esquemático gráfico, solo símbolos con netlists externos.
+
+**Implicación para el diff:** Cuando Miku hace diff de un `.sch` que incluye celdas via `spice_sym_def`, el diff semántico correcto requiere resolver esas referencias para entender qué cambió en el circuito. Un diff de solo el `.sch` sin resolver las referencias externas puede no detectar cambios significativos en el comportamiento del circuito.
+
+Fuente: [github.com/StefanSchippers/xschem/issues/35](https://github.com/StefanSchippers/xschem/issues/35)
+
+### 8d. Diff semántico de `.sch` — oportunidad no cubierta
+
+El diff de texto de un `.sch` muestra cambios de coordenadas crudos que son difíciles de interpretar. Nadie ha publicado un diff semántico para archivos Xschem que reporte:
+
+> "Resistor R1 cambió de 1k a 10k"  
+> "Net VDD desconectado del gate de M3"  
+> "Componente C4 eliminado del esquemático"
+
+Esto es distinto al diff visual (SVG side-by-side) — es un diff estructurado legible en texto, como el diff semántico de JSON o XML. Sería el aporte de mayor impacto de Miku en el espacio Xschem, y no existe en ninguna herramienta.
+
+---
+
 ## Referencias
 
 ### Xschem
