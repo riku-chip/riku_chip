@@ -12,7 +12,11 @@ CACHE_DIR = Path.home() / ".cache" / "riku" / "ops"
 
 class XschemDriver(RikuDriver):
 
+    _cached_info: DriverInfo | None = None  # cache de version a nivel de clase
+
     def info(self) -> DriverInfo:
+        if XschemDriver._cached_info is not None:
+            return XschemDriver._cached_info
         xschem = shutil.which("xschem")
         if not xschem:
             return DriverInfo(
@@ -26,13 +30,17 @@ class XschemDriver(RikuDriver):
             )
             for line in (result.stdout + result.stderr).splitlines():
                 if "XSCHEM V" in line:
-                    return DriverInfo(
+                    XschemDriver._cached_info = DriverInfo(
                         name="xschem", available=True, version=line.strip(),
                         extensions=[".sch"]
                     )
+                    return XschemDriver._cached_info
         except Exception:
             pass
-        return DriverInfo(name="xschem", available=True, version="unknown", extensions=[".sch"])
+        XschemDriver._cached_info = DriverInfo(
+            name="xschem", available=True, version="unknown", extensions=[".sch"]
+        )
+        return XschemDriver._cached_info
 
     def diff(self, content_a: bytes, content_b: bytes, path_hint: str = "") -> DriverDiffReport:
         report = DriverDiffReport(file_type="xschem")
@@ -75,7 +83,7 @@ class XschemDriver(RikuDriver):
             return None
 
         info = self.info()
-        key = hashlib.sha256(f"{info.version}::{content.hex()}".encode()).hexdigest()
+        key = hashlib.sha256(info.version.encode() + b"::" + content).hexdigest()
         cached = CACHE_DIR / key / "render.svg"
 
         if cached.exists():
