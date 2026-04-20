@@ -1,122 +1,120 @@
-# Riku Rust
+# Riku
 
-`riku_rust` es la implementacion oficial en Rust de Riku, un VCS semantico para diseno de chips. Compara esquematicos por estructura, no como diff de texto, empezando por Xschem.
+VCS semántico para diseño de chips. Compara esquemáticos por estructura, no como diff de texto.
 
-Autor: Ariel Amado Frias Rojas
+Actualmente soporta Xschem (`.sch`). Integración con gdstk en desarrollo.
 
-## Que hace
+## Qué hace
 
-- `diff` semantico entre dos commits de un archivo `.sch`
-- `log` del historial por archivo
-- `doctor` para verificar herramientas externas
-- salida `text`, `json` y `visual`
-- render SVG anotado para Xschem
-- cache de renders por contenido + version de herramienta
+- `diff` semántico entre dos commits de un archivo `.sch`
+- `log` del historial por archivo, con resumen de cambios semánticos
+- `doctor` para verificar herramientas externas instaladas
+- salida `text`, `json` y `visual` (SVG anotado)
+- caché de renders por contenido + versión de herramienta
 
-## Instalacion de Rust
+## Instalación de Rust
 
-### Windows
-
-1. Descarga `rustup-init.exe` desde la pagina oficial de Rust.
-2. Ejecutalo y sigue el instalador.
-3. Abre una nueva terminal y verifica:
-
-```powershell
-rustc --version
-cargo --version
-```
-
-### Linux o WSL
+### Linux / Docker
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
-rustc --version
-cargo --version
 ```
-
-## Compilacion
-
-Desde `C:\Users\ariel\Documents\riku_chip\riku_rust` o el equivalente en Linux:
-
-```bash
-cargo build
-cargo test
-```
-
-Para binario optimizado:
-
-```bash
-cargo build --release
-```
-
-El ejecutable queda en:
-
-- Windows: `target\debug\riku.exe` o `target\release\riku.exe`
-- Linux: `target/debug/riku` o `target/release/riku`
-
-## Uso rapido
-
-### Con `cargo run`
-
-```bash
-cargo run -- diff <commit_a> <commit_b> <archivo.sch>
-cargo run -- log <archivo.sch>
-cargo run -- doctor
-```
-
-### Binario local
-
-```bash
-./target/debug/riku diff <commit_a> <commit_b> <archivo.sch>
-./target/debug/riku log <archivo.sch>
-./target/debug/riku doctor
-```
-
-En Windows PowerShell:
-
-```powershell
-.\target\debug\riku.exe diff <commit_a> <commit_b> <archivo.sch>
-.\target\debug\riku.exe log <archivo.sch>
-.\target\debug\riku.exe doctor
-```
-
-### Como comando instalado
-
-```bash
-cargo install --path .
-riku diff <commit_a> <commit_b> <archivo.sch>
-riku log <archivo.sch>
-riku doctor
-```
-
-## Ejemplos por sistema
 
 ### Windows
 
+Descarga e instala `rustup-init.exe` desde [rustup.rs](https://rustup.rs). Luego abre una nueva terminal y verifica:
+
 ```powershell
-cargo run -- diff HEAD~1 HEAD examples/SH/op_sim.sch
-.\target\debug\riku.exe diff HEAD~1 HEAD examples/SH/op_sim.sch
-.\target\debug\riku.exe diff HEAD~1 HEAD examples/SH/op_sim.sch --format json
+cargo --version
 ```
 
-### Linux
+## Compilación
+
+Desde la carpeta `riku/`:
 
 ```bash
-cargo run -- diff HEAD~1 HEAD examples/SH/op_sim.sch
-./target/debug/riku diff HEAD~1 HEAD examples/SH/op_sim.sch
-./target/debug/riku diff HEAD~1 HEAD examples/SH/op_sim.sch --format json
+cargo build          # debug
+cargo build --release  # optimizado
+cargo test           # todos los tests
+```
+
+El binario queda en:
+- Linux: `target/debug/riku` o `target/release/riku`
+- Windows: `target\debug\riku.exe` o `target\release\riku.exe`
+
+## Uso
+
+### Con cargo run (desarrollo)
+
+```bash
+cargo run -- diff HEAD~1 HEAD ../examples/SH/op_sim.sch
+cargo run -- diff HEAD~1 HEAD ../examples/SH/op_sim.sch --format json
+cargo run -- log ../examples/SH/op_sim.sch --semantic
+cargo run -- doctor
+```
+
+### Binario instalado
+
+```bash
+cargo install --path .
+riku diff HEAD~1 HEAD ../examples/SH/op_sim.sch
+riku log ../examples/SH/op_sim.sch --limit 10 --semantic
+riku doctor
+```
+
+### Opciones de diff
+
+```
+riku diff <commit_a> <commit_b> <archivo.sch> [opciones]
+
+Opciones:
+  --repo <path>      Ruta al repositorio git (default: .)
+  --format <fmt>     text | json | visual  (default: text)
+```
+
+### Opciones de log
+
+```
+riku log <archivo.sch> [opciones]
+
+Opciones:
+  --repo <path>      Ruta al repositorio git (default: .)
+  --limit <n>        Número máximo de commits a mostrar (default: 20)
+  --semantic         Mostrar resumen de cambios por commit
 ```
 
 ## Dependencias externas
 
-- `xschem` se usa solo para `--format visual`
-- Git se lee directamente desde los commits, sin checkout
-- la cache de render vive en `~/.cache/riku/ops` o equivalente del sistema
+- `xschem` — solo requerido para `--format visual`
+  - En Docker (iic-osic-tools): disponible en `/foss/tools/bin/` tras activar el entorno
+  - La caché de renders vive en `~/.cache/riku/ops/` (Linux) o `%LOCALAPPDATA%\riku\ops\` (Windows)
+- Git se lee directamente desde los objetos del repositorio, sin hacer checkout
 
-## Estado del proyecto
+## Docker (iic-osic-tools)
 
-- La base Rust ya esta implementada.
-- La paridad con la version Python fue validada con tests.
-- Python queda como referencia historica y de comparacion.
-- La integracion con `gdstk/rust` queda para una fase posterior.
+```bash
+# Verificar que xschem está disponible
+docker exec -it <contenedor> bash -c 'PATH=/foss/tools/bin:$PATH riku doctor'
+
+# Correr tests
+docker exec -it <contenedor> bash -c 'cd /foss/designs/riku_chip/riku && cargo test'
+
+# Diff visual (requiere display :0)
+docker exec -it <contenedor> bash -c 'cd /foss/designs/riku_chip && riku diff HEAD~1 HEAD examples/SH/op_sim.sch --format visual'
+```
+
+## Tests
+
+```bash
+cargo test                    # todos
+cargo test --test stress      # stress: throughput, GDS, git bajo carga
+cargo test --test basic       # parser, diff semántico, git service
+cargo test --test parity      # paridad Python vs Rust (requiere Python + deps)
+```
+
+## Estado
+
+- Implementación Rust completa (parser, diff, git, SVG annotator, CLI)
+- Tests de estrés validados: GDS 870KB en 54ms, 100× parse+diff a 26ms/iter
+- Integración con `gdstk/rust` en desarrollo (fase siguiente)
