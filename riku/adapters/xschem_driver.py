@@ -96,14 +96,23 @@ class XschemDriver(RikuDriver):
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
+        origins_path = cached.parent / "origins.txt"
+
         try:
+            # La ruta del archivo de origins se pasa via env var para evitar
+            # problemas de escape de $ en el comando TCL inline con shell=True.
+            env = {**__import__("os").environ, "RIKU_ORIGINS_PATH": str(origins_path)}
             cmd = (
-                f"{xschem} "
-                f'--tcl "wm iconify ." '
-                f'--command "xschem zoom_full; xschem toggle_colorscheme; xschem print svg {cached}" '
-                f'--quit {tmp_path}'
+                f"{xschem} --tcl 'wm iconify .' "
+                f"--command 'xschem zoom_full;"
+                f" set _f [open $env(RIKU_ORIGINS_PATH) w];"
+                f" puts $_f [xschem get xorigin];"
+                f" puts $_f [xschem get yorigin];"
+                f" close $_f;"
+                f" xschem print svg {cached}' "
+                f"--quit {tmp_path}"
             )
-            subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=30, env=env)
             return cached if cached.exists() else None
         except Exception:
             return None

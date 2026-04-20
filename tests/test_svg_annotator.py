@@ -14,18 +14,30 @@ from riku.core.svg_annotator import annotate, _extract_name_positions, _fit_tran
 
 SCH_PATH = Path("/foss/designs/caravel_user_project_analog/xschem/example_por.sch")
 SVG_PATH = Path("/tmp/example_por.svg")
+# SVG con origins.txt (generado por XschemDriver.render via riku)
+_CACHE_BASE = Path("/headless/.cache/riku/ops")
+_CACHED_SVG = next(
+    (_CACHE_BASE / d / "render.svg"
+     for d in (sorted(_CACHE_BASE.iterdir()) if _CACHE_BASE.exists() else [])
+     if (_CACHE_BASE / d / "origins.txt").exists()),
+    None,
+)
 
 
 def main():
     if not SCH_PATH.exists():
         print(f"[SKIP] {SCH_PATH} no encontrado — correr en Docker")
         return
-    if not SVG_PATH.exists():
-        print(f"[SKIP] {SVG_PATH} no encontrado — generar SVG primero")
+
+    # Preferir SVG cacheado con origins.txt; fallback a /tmp
+    use_svg = _CACHED_SVG if (_CACHED_SVG is not None and _CACHED_SVG.exists()) else SVG_PATH
+    if not use_svg.exists():
+        print(f"[SKIP] SVG no encontrado — generar SVG primero")
         return
 
+    print(f"Usando SVG: {use_svg}")
     schematic = parse(SCH_PATH.read_bytes())
-    svg_content = SVG_PATH.read_text(encoding="utf-8")
+    svg_content = use_svg.read_text(encoding="utf-8")
 
     # --- paso 1: extraer posiciones del SVG ---
     positions = _extract_name_positions(svg_content)
@@ -34,7 +46,7 @@ def main():
         print(f"  {name:<6} svg=({x:.2f}, {y:.2f})")
 
     # --- paso 2: calcular transformacion ---
-    transform = _fit_transform(positions, schematic)
+    transform = _fit_transform(positions, schematic, svg_path=use_svg, svg_content=svg_content)
     if transform is None:
         print("ERROR: no se pudo calcular transformacion")
         return
@@ -77,7 +89,7 @@ def main():
         nets_removed=[net_rem] if net_rem else [],
     )
 
-    annotated = annotate(svg_content, schematic, fake_diff)
+    annotated = annotate(svg_content, schematic, fake_diff, svg_path=use_svg)
     out_path = Path("/tmp/example_por_annotated.svg")
     out_path.write_text(annotated, encoding="utf-8")
     print(f"\nSVG anotado escrito en: {out_path}")

@@ -120,7 +120,7 @@ def _output_visual(repo: str, commit_a: str, commit_b: str, file_path: str, repo
     )
 
     svg_content = svg_path.read_text(encoding="utf-8", errors="replace")
-    annotated = annotate(svg_content, sch_b, diff_report, sch_a=sch_a)
+    annotated = annotate(svg_content, sch_b, diff_report, sch_a=sch_a, svg_path=svg_path)
 
     with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as f:
         f.write(annotated.encode("utf-8"))
