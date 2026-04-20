@@ -20,7 +20,11 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "riku", about = "Riku - VCS semantico para diseno de chips")]
+#[command(
+    name = "riku",
+    author = "Ariel Amado Frias Rojas",
+    about = "Riku - VCS semantico para diseno de chips"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

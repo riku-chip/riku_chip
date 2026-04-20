@@ -2,6 +2,8 @@
 
 `riku_rust` es la implementacion oficial en Rust de Riku, un VCS semantico para diseno de chips. Compara esquematicos por estructura, no como diff de texto, empezando por Xschem.
 
+Autor: Ariel Amado Frias Rojas
+
 ## Que hace
 
 - `diff` semantico entre dos commits de un archivo `.sch`
@@ -11,105 +13,110 @@
 - render SVG anotado para Xschem
 - cache de renders por contenido + version de herramienta
 
-## Estado del proyecto
+## Instalacion de Rust
 
-- La base Rust ya esta implementada.
-- La paridad con la version Python fue validada con tests.
-- Python queda como referencia historica y de comparacion.
-- La integracion con `gdstk/rust` queda para una fase posterior.
+### Windows
 
-## Arquitectura
+1. Descarga `rustup-init.exe` desde la pagina oficial de Rust.
+2. Ejecutalo y sigue el instalador.
+3. Abre una nueva terminal y verifica:
 
-El proyecto sigue un monolito modular con enfoque hexagonal:
+```powershell
+rustc --version
+cargo --version
+```
 
-- `core`: modelos, diff semantico, Git, contratos y anotacion SVG
-- `parsers`: parseo de formatos EDA, empezando por Xschem
-- `adapters`: drivers y acceso a herramientas externas
-- `cli`: comandos de usuario
+### Linux o WSL
 
-## Requisitos
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustc --version
+cargo --version
+```
 
-- Rust stable 1.95 o superior
-- `xschem` instalado si quieres usar `--format visual`
-- un repositorio Git con archivos `.sch`
+## Compilacion
 
-## Instalacion
+Desde `C:\Users\ariel\Documents\riku_chip\riku_rust` o el equivalente en Linux:
 
 ```bash
 cargo build
 cargo test
 ```
 
-Para revisar estilo y calidad:
+Para binario optimizado:
 
 ```bash
-cargo fmt
-cargo clippy
+cargo build --release
 ```
+
+El ejecutable queda en:
+
+- Windows: `target\debug\riku.exe` o `target\release\riku.exe`
+- Linux: `target/debug/riku` o `target/release/riku`
 
 ## Uso rapido
 
-### Diff semantico
+### Con `cargo run`
 
 ```bash
 cargo run -- diff <commit_a> <commit_b> <archivo.sch>
-```
-
-Con JSON:
-
-```bash
-cargo run -- diff <commit_a> <commit_b> <archivo.sch> --format json
-```
-
-Con visual:
-
-```bash
-cargo run -- diff <commit_a> <commit_b> <archivo.sch> --format visual
-```
-
-### Historial
-
-```bash
 cargo run -- log <archivo.sch>
-```
-
-Con resumen semantico:
-
-```bash
-cargo run -- log <archivo.sch> --semantic
-```
-
-### Doctor
-
-```bash
 cargo run -- doctor
+```
+
+### Binario local
+
+```bash
+./target/debug/riku diff <commit_a> <commit_b> <archivo.sch>
+./target/debug/riku log <archivo.sch>
+./target/debug/riku doctor
+```
+
+En Windows PowerShell:
+
+```powershell
+.\target\debug\riku.exe diff <commit_a> <commit_b> <archivo.sch>
+.\target\debug\riku.exe log <archivo.sch>
+.\target\debug\riku.exe doctor
+```
+
+### Como comando instalado
+
+```bash
+cargo install --path .
+riku diff <commit_a> <commit_b> <archivo.sch>
+riku log <archivo.sch>
+riku doctor
+```
+
+## Ejemplos por sistema
+
+### Windows
+
+```powershell
+cargo run -- diff HEAD~1 HEAD examples/SH/op_sim.sch
+.\target\debug\riku.exe diff HEAD~1 HEAD examples/SH/op_sim.sch
+.\target\debug\riku.exe diff HEAD~1 HEAD examples/SH/op_sim.sch --format json
+```
+
+### Linux
+
+```bash
+cargo run -- diff HEAD~1 HEAD examples/SH/op_sim.sch
+./target/debug/riku diff HEAD~1 HEAD examples/SH/op_sim.sch
+./target/debug/riku diff HEAD~1 HEAD examples/SH/op_sim.sch --format json
 ```
 
 ## Dependencias externas
 
-- `xschem` se usa solo para render visual
+- `xschem` se usa solo para `--format visual`
 - Git se lee directamente desde los commits, sin checkout
 - la cache de render vive en `~/.cache/riku/ops` o equivalente del sistema
 
-## Notas tecnicas
+## Estado del proyecto
 
-- El parser de Xschem soporta bloques multilinea y archivos reales del repo.
-- El diff semantico distingue cambios funcionales de cambios cosméticos.
-- Los renders se cachean con `SHA256` usando version de herramienta + contenido.
-
-## Desarrollo
-
-Si quieres contribuir o seguir migrando modulos:
-
-1. revisa `riku_rust/src/`
-2. ejecuta `cargo test`
-3. compara comportamiento con la suite de paridad
-4. mantén la logica de dominio fuera de la CLI y de la infraestructura
-
-## Roadmap
-
-Pendiente para fases posteriores:
-
-- integracion con `gdstk/rust`
-- soporte de mas formatos EDA
-- refinamiento adicional del render visual
+- La base Rust ya esta implementada.
+- La paridad con la version Python fue validada con tests.
+- Python queda como referencia historica y de comparacion.
+- La integracion con `gdstk/rust` queda para una fase posterior.

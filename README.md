@@ -77,3 +77,4 @@ research/
 - [Plan maestro](planificacion/plan_migracion_rust.md)
 - [Checklist corto](planificacion/plan_migracion_rust_checklist.md)
 - [Índice por fases](planificacion/plan_migracion_rust_indice.md)
+- [Futuro del CLI](planificacion/cli_futuro.md)
