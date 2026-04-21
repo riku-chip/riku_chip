@@ -1,0 +1,1 @@
+Todo esto trata de riku Python y su migraciona rust, en especial el principio de riku Python para finalizar en los cambios que se hicieron y su migración.
