@@ -1,0 +1,10 @@
+[package]
+name = "gds-renderer"
+version = "0.1.0"
+edition = "2024"
+description = "SVG renderer for GDS layouts"
+license = "MIT"
+publish = false
+
+[dependencies]
+gdstk-rs = { path = "../gdstk/rust" }

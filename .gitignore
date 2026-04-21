@@ -21,4 +21,5 @@ build/
 *.svg
 
 # Rust build artifacts
+target/
 /riku_rust/target/
