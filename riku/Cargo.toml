@@ -25,7 +25,7 @@ sha2 = "0.11.0"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
 which = "8.0.2"
-xschem_viewer = { git = "https://github.com/carloscl03/xschem-viewer-rust", subdirectory = "rust" }
+xschem_viewer = { git = "https://github.com/carloscl03/xschem-viewer-rust", subdir = "rust" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
