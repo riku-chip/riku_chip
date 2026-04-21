@@ -1,116 +1,174 @@
-# Riku
+# riku — crate principal
 
-Riku es una herramienta de VCS semantico para diseno de chips. La version actual se enfoca en esquematicos Xschem (`.sch`) y usa `git2` para leer el historial directamente desde los objetos Git.
+Motor de diff semántico y visual para archivos de diseño EDA. Lee el historial Git directamente, parsea los archivos de diseño y reporta cambios al nivel de componentes, conexiones y nets — no de texto crudo.
 
-## Que hace hoy
-
-- `diff` semantico entre dos commits de un archivo `.sch`
-- `log` del historial por archivo, con opcion de resumen semantico
-- `doctor` para validar repo Git, PDK y cache
-- `render` para generar un SVG del esquematico y abrirlo con el visor del sistema
-- salida en `text`, `json` y `visual`
-- cache de renders por SHA-256
-
-## Requisitos
-
-- Rust con soporte para edition 2024
-- Un repositorio Git valido
-- Opcionalmente `PDK_ROOT`, `PDK` o un `.xschemrc` para mejorar la resolucion de simbolos
-
-No necesitas un binario `xschem` instalado para usar el renderer actual.
+---
 
 ## Compilar
 
-Desde esta carpeta:
-
 ```bash
-cargo build
 cargo build --release
 cargo test
 ```
 
-El binario queda en `target/debug/riku` o `target/release/riku`.
+El binario queda en `target/release/riku`. No requiere ninguna herramienta EDA instalada.
 
-## Uso
+---
 
-```bash
-cargo run -- diff HEAD~1 HEAD ../examples/SH/op_sim.sch
-cargo run -- diff HEAD~1 HEAD ../examples/SH/op_sim.sch --format json
-cargo run -- diff HEAD~1 HEAD ../examples/SH/op_sim.sch --format visual
-cargo run -- log ../examples/SH/op_sim.sch --semantic --limit 10
-cargo run -- doctor
-cargo run -- render ../examples/SH/op_sim.sch
-```
+## Comandos
 
-Tambien puedes instalarlo:
+### `riku diff`
+
+Compara dos commits de un archivo de diseño y reporta los cambios semánticos.
 
 ```bash
-cargo install --path .
-riku diff HEAD~1 HEAD ../examples/SH/op_sim.sch
+riku diff <commit_a> <commit_b> <archivo.sch> [--format text|json|visual]
 ```
 
-## Opciones de CLI
+**Salida texto** (por defecto):
+```
+Archivo: design/op_amp.sch  (xschem)
+Cambios: 3
 
-### `diff`
-
-```text
-riku diff <commit_a> <commit_b> <archivo.sch> [--repo <path>] [--format text|json|visual]
+  added      M5
+  removed    R2
+  modified   C1  [cosmetico]
 ```
 
-### `log`
-
-```text
-riku log [archivo.sch] [--repo <path>] [--limit <n>] [--semantic]
+**Salida JSON** (para CI/scripts):
+```bash
+riku diff HEAD~1 HEAD archivo.sch --format json
+```
+```json
+{
+  "file_type": "xschem",
+  "warnings": [],
+  "changes": [
+    { "kind": "added",    "element": "M5",  "cosmetic": false },
+    { "kind": "removed",  "element": "R2",  "cosmetic": false },
+    { "kind": "modified", "element": "C1",  "cosmetic": true  }
+  ]
+}
 ```
 
-### `doctor`
-
-```text
-riku doctor [--repo <path>]
+**Salida visual** — abre un HTML con dos paneles SVG lado a lado:
+```bash
+riku diff HEAD~1 HEAD archivo.sch --format visual
 ```
 
-### `render`
+Código de colores de anotaciones:
 
-```text
-riku render <archivo.sch>
+| Color | Significado |
+|-------|-------------|
+| Verde | Componente o net añadido |
+| Rojo | Componente o net removido |
+| Amarillo | Componente modificado (valor, parámetro) |
+| Gris | Cambio cosmético (solo reposicionamiento) |
+
+---
+
+### `riku log`
+
+Lista el historial de commits, opcionalmente filtrado por archivo.
+
+```bash
+riku log [archivo.sch] [--semantic] [--limit <n>]
 ```
+
+Con `--semantic`, cada commit muestra un resumen de cambios detectados en el archivo.
+
+---
+
+### `riku render`
+
+Renderiza un archivo `.sch` a SVG y lo abre con el visor del sistema.
+
+```bash
+riku render archivo.sch
+```
+
+El SVG se guarda en caché por SHA-256 del contenido — si el archivo no cambió, se reutiliza instantáneamente.
+
+---
+
+### `riku doctor`
+
+Verifica el estado del entorno.
+
+```bash
+riku doctor
+```
+
+Comprueba:
+- PDK detectado (`$PDK_ROOT`/`$PDK` o `.xschemrc`)
+- Repositorio Git válido
+- Directorio de caché accesible
+
+---
+
+## Detección de PDK
+
+El renderer busca símbolos en el siguiente orden:
+
+1. **`.xschemrc`** en el directorio actual o en `~`
+   - `set PDK_ROOT /path` + `set PDK sky130A` → `$PDK_ROOT/$PDK/libs.tech/xschem`
+   - `set XSCHEM_SHAREDIR /path` → `$XSCHEM_SHAREDIR/xschem_library/devices`
+   - `append XSCHEM_LIBRARY_PATH :/path` → paths adicionales separados por `:`
+
+2. **Variables de entorno** (fallback cuando no hay `.xschemrc`)
+   - `$PDK_ROOT` + `$PDK` → `$PDK_ROOT/$PDK/libs.tech/xschem`
+   - `$TOOLS` → `$TOOLS/xschem/share/xschem/xschem_library/devices`
+
+Solo se añaden los paths que existen en disco. En entornos como `iic-osic-tools`, `sak-pdk sky130A` configura estas variables automáticamente — no se necesita ningún archivo extra.
+
+---
 
 ## Estructura
 
-```text
+```
 src/
-  main.rs
-  cli.rs
-  lib.rs
+  main.rs               — punto de entrada
+  cli.rs                — subcomandos y lógica de presentación
+  lib.rs                — módulos públicos
   core/
-  adapters/
+    models.rs           — Component, Wire, Schematic, DiffReport
+    driver.rs           — trait RikuDriver
+    git_service.rs      — blobs y commits via git2
+    analyzer.rs         — orquestador: Git + driver + report
+    registry.rs         — despacho de driver por extensión
+    semantic_diff.rs    — diff semántico de Schematics
+    svg_annotator.rs    — inyección de anotaciones SVG
+    ports.rs            — traits GitRepository, SchematicParser
   parsers/
+    xschem.rs           — delega en xschem_viewer
+  adapters/
+    xschem_driver.rs    — implementa RikuDriver para .sch
 tests/
-  basic.rs
-  stress.rs
+  basic.rs              — 9 tests de integración
+  stress.rs             — 13 tests de rendimiento y casos límite
 ```
 
-## Dependencias
-
-- `git2`
-- `clap`
-- `xschem-viewer`
-- `serde` / `serde_json`
-- `sha2`
-- `thiserror`
-- `tempfile`
-- `dirs`
+---
 
 ## Tests
 
 ```bash
-cargo test
-cargo test --test basic
-cargo test --test stress
+cargo test                  # todos
+cargo test --test basic     # integración
+cargo test --test stress    # rendimiento
 ```
 
-## Notas
+---
 
-- `diff --format visual` y `render` abren el archivo generado con el visor del sistema
-- el cache se guarda en el directorio de cache del usuario bajo `riku/ops`
-- por ahora solo existe soporte para Xschem `.sch`
+## Dependencias
+
+| Crate | Rol |
+|-------|-----|
+| `xschem-viewer` | Parser PEG + renderer SVG nativo |
+| `git2` | Acceso a blobs y commits sin fork de proceso |
+| `clap` | CLI con subcomandos tipados |
+| `sha2` | Hash SHA-256 para caché de renders |
+| `serde` / `serde_json` | Serialización JSON |
+| `tempfile` | HTML temporal para diff visual |
+| `dirs` | Home y caché del sistema |
+| `thiserror` | Tipos de error ergonómicos |
