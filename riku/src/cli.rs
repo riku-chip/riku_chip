@@ -495,24 +495,72 @@ mod tests {
     }
 }
 
-fn run_doctor(_repo: PathBuf) -> Result<(), String> {
-    let mut any_missing = false;
-    for driver in get_drivers() {
-        let info = driver.info();
-        let status = if info.available { "[ok]" } else { "[x]" };
-        let version = if info.available {
-            format!("  {}", info.version)
-        } else {
-            "  no encontrado".to_string()
-        };
-        println!("  {status}  {:<12}{version}", info.name);
-        if !info.available {
-            any_missing = true;
+fn run_doctor(repo: PathBuf) -> Result<(), String> {
+    println!("\n🔍 Riku Doctor - Diagnóstico del Entorno\n");
+
+    let mut any_error = false;
+
+    // 1. Verificación del PDK
+    println!("--- Entorno PDK ---");
+    let pdk_root = std::env::var("PDK_ROOT").ok();
+    let pdk_name = std::env::var("PDK").ok();
+
+    match (&pdk_root, &pdk_name) {
+        (Some(root), Some(pdk)) => {
+            let path = std::path::Path::new(root).join(pdk);
+            if path.exists() {
+                println!("  [ok]  PDK detectado: {} en {}", pdk, root);
+                let xschem_pdk = path.join("libs.tech/xschem");
+                if xschem_pdk.exists() {
+                    println!("  [ok]  Símbolos Xschem: encontrados");
+                } else {
+                    println!("  [!]  Símbolos Xschem: NO encontrados en {}", xschem_pdk.display());
+                }
+            } else {
+                println!("  [x]  PDK configurado ({}) pero la ruta NO existe: {}", pdk, path.display());
+                any_error = true;
+            }
+        }
+        _ => {
+            println!("  [x]  PDK no configurado (falta $PDK_ROOT o $PDK)");
+            any_error = true;
         }
     }
 
-    if any_missing {
-        return Err("Faltan herramientas externas.".to_string());
+    // 2. Verificación del Espacio de Trabajo
+    println!("\n--- Espacio de Trabajo ---");
+    match git2::Repository::discover(&repo) {
+        Ok(_) => println!("  [ok]  Repositorio Git: Detectado"),
+        Err(_) => {
+            println!("  [!]  Repositorio Git: No detectado (Riku diff/log no funcionarán)");
+        }
     }
+
+    // 3. Verificación de Capacidades (Drivers)
+    println!("\n--- Capacidades de Riku ---");
+    for driver in get_drivers() {
+        let info = driver.info();
+        let status = if info.available { "[ok]" } else { "[x]" };
+        println!("  {status}  {:10} {}", info.name, info.version);
+    }
+
+    // 4. Verificación de Caché
+    println!("\n--- Sistema ---");
+    let cache = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("riku");
+    if std::fs::create_dir_all(&cache).is_ok() {
+        println!("  [ok]  Directorio de caché: {}", cache.display());
+    } else {
+        println!("  [x]  Error al acceder a la caché: {}", cache.display());
+        any_error = true;
+    }
+
+    println!("");
+    if any_error {
+        return Err("Se detectaron problemas críticos en el entorno.".to_string());
+    }
+    
+    println!("✅ Entorno listo para diseño de chips.\n");
     Ok(())
 }

@@ -40,11 +40,25 @@ impl RikuDriver for XschemDriver {
             return info.clone();
         }
 
-        // Rendering is now native — no xschem binary needed.
+        let pdk_root = std::env::var("PDK_ROOT").ok();
+        let pdk_name = std::env::var("PDK").ok();
+
+        let pdk_status = match (&pdk_root, &pdk_name) {
+            (Some(root), Some(pdk)) => {
+                let path = std::path::Path::new(root).join(pdk).join("libs.tech/xschem");
+                if path.exists() {
+                    format!("PDK: {} [ok]", pdk)
+                } else {
+                    format!("PDK: {} [error: ruta no encontrada]", pdk)
+                }
+            }
+            _ => "PDK: [no detectado, usa PDK_ROOT/PDK o .xschemrc]".to_string(),
+        };
+
         let info = DriverInfo {
             name: DriverKind::Xschem,
             available: true,
-            version: String::new(),
+            version: format!("Native Renderer | {}", pdk_status),
             extensions: vec![".sch".to_string()],
         };
 
@@ -133,8 +147,15 @@ impl RikuDriver for XschemDriver {
             return Some(cached);
         }
 
-        let opts = xschem_viewer::RenderOptions::dark()
+        let mut opts = xschem_viewer::RenderOptions::dark()
             .with_sym_paths_from_xschemrc();
+
+        if let (Ok(root), Ok(pdk)) = (std::env::var("PDK_ROOT"), std::env::var("PDK")) {
+            let pdk_path = std::path::Path::new(&root).join(pdk).join("libs.tech/xschem");
+            if pdk_path.exists() {
+                opts = opts.add_symbol_path(pdk_path.to_string_lossy().to_string());
+            }
+        }
 
         let result = xschem_viewer::Renderer::new(opts).render(text).ok()?;
 
