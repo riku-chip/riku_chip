@@ -27,22 +27,10 @@ pub fn default_layer_style(tag: GdsTag, order: u32, fill: Color) -> LayerStyle {
 
 pub fn highlight_style(kind: &str) -> (Color, Color) {
     match kind {
-        "added" => (
-            Color::rgba(0, 200, 0, 255),
-            Color::rgba(0, 120, 0, 255),
-        ),
-        "removed" => (
-            Color::rgba(200, 0, 0, 255),
-            Color::rgba(120, 0, 0, 255),
-        ),
-        "modified" => (
-            Color::rgba(255, 180, 0, 255),
-            Color::rgba(180, 120, 0, 255),
-        ),
-        _ => (
-            Color::rgba(255, 0, 0, 255),
-            Color::rgba(180, 0, 0, 255),
-        ),
+        "added" => (Color::rgba(0, 200, 0, 255), Color::rgba(0, 120, 0, 255)),
+        "removed" => (Color::rgba(200, 0, 0, 255), Color::rgba(120, 0, 0, 255)),
+        "modified" => (Color::rgba(255, 180, 0, 255), Color::rgba(180, 120, 0, 255)),
+        _ => (Color::rgba(255, 0, 0, 255), Color::rgba(180, 0, 0, 255)),
     }
 }
 

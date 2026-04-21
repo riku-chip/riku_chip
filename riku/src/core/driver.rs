@@ -48,12 +48,7 @@ pub struct DriverInfo {
 pub trait RikuDriver: Send + Sync {
     fn info(&self) -> DriverInfo;
 
-    fn diff(
-        &self,
-        content_a: &[u8],
-        content_b: &[u8],
-        path_hint: &str,
-    ) -> DriverDiffReport;
+    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> DriverDiffReport;
 
     fn normalize(&self, content: &[u8], path_hint: &str) -> Vec<u8>;
 

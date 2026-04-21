@@ -7,14 +7,18 @@ const WIRE_STROKE: f64 = 3.5;
 
 fn fill_stroke(kind: &ChangeKind, cosmetic: bool) -> (&'static str, &'static str) {
     match (kind, cosmetic) {
-        (ChangeKind::Added, _)           => ("rgba(0,200,0,0.25)",   "rgba(0,200,0,0.85)"),
-        (ChangeKind::Removed, _)         => ("rgba(200,0,0,0.25)",   "rgba(200,0,0,0.85)"),
-        (ChangeKind::Modified, true)     => ("rgba(120,120,120,0.20)", "rgba(120,120,120,0.85)"),
-        (ChangeKind::Modified, false)    => ("rgba(255,180,0,0.25)", "rgba(255,180,0,0.85)"),
+        (ChangeKind::Added, _) => ("rgba(0,200,0,0.25)", "rgba(0,200,0,0.85)"),
+        (ChangeKind::Removed, _) => ("rgba(200,0,0,0.25)", "rgba(200,0,0,0.85)"),
+        (ChangeKind::Modified, true) => ("rgba(120,120,120,0.20)", "rgba(120,120,120,0.85)"),
+        (ChangeKind::Modified, false) => ("rgba(255,180,0,0.25)", "rgba(255,180,0,0.85)"),
     }
 }
 
-fn component_rect(cd: &ComponentDiff, sch_b: &Schematic, sch_a: Option<&Schematic>) -> Option<String> {
+fn component_rect(
+    cd: &ComponentDiff,
+    sch_b: &Schematic,
+    sch_a: Option<&Schematic>,
+) -> Option<String> {
     let source = if cd.kind == ChangeKind::Removed {
         sch_a.unwrap_or(sch_b)
     } else {
@@ -63,11 +67,19 @@ pub fn annotate(
     }
 
     if !diff_report.nets_added.is_empty() {
-        elements.extend(wire_lines(&diff_report.nets_added, sch_b, "rgba(0,200,0,0.9)"));
+        elements.extend(wire_lines(
+            &diff_report.nets_added,
+            sch_b,
+            "rgba(0,200,0,0.9)",
+        ));
     }
     if let Some(sch_a) = sch_a {
         if !diff_report.nets_removed.is_empty() {
-            elements.extend(wire_lines(&diff_report.nets_removed, sch_a, "rgba(200,0,0,0.9)"));
+            elements.extend(wire_lines(
+                &diff_report.nets_removed,
+                sch_a,
+                "rgba(200,0,0,0.9)",
+            ));
         }
     }
 

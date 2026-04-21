@@ -79,9 +79,11 @@ impl GitService {
     }
 
     pub fn get_commits(&self, file_path: Option<&str>) -> Result<Vec<CommitInfo>, GitError> {
-        let head = self.repo.head()?.target().ok_or_else(|| {
-            GitError::CommitNotFound("HEAD".to_string())
-        })?;
+        let head = self
+            .repo
+            .head()?
+            .target()
+            .ok_or_else(|| GitError::CommitNotFound("HEAD".to_string()))?;
         let mut walker = self.repo.revwalk()?;
         walker.push(head)?;
         walker.set_sorting(git2::Sort::TIME)?;
@@ -114,9 +116,9 @@ impl GitService {
         let tree_a = self.resolve_commit(commit_a)?.tree()?;
         let tree_b = self.resolve_commit(commit_b)?.tree()?;
         let mut options = DiffOptions::new();
-        let mut diff = self
-            .repo
-            .diff_tree_to_tree(Some(&tree_a), Some(&tree_b), Some(&mut options))?;
+        let mut diff =
+            self.repo
+                .diff_tree_to_tree(Some(&tree_a), Some(&tree_b), Some(&mut options))?;
         let mut find_options = git2::DiffFindOptions::new();
         diff.find_similar(Some(&mut find_options))?;
 
@@ -159,12 +161,10 @@ impl GitService {
             let name = part.as_os_str().to_string_lossy();
             if parts.peek().is_some() {
                 let oid = {
-                    let entry = node
-                        .get_name(&name)
-                        .ok_or_else(|| GitError::BlobNotFound {
-                            commit: "tree".to_string(),
-                            path: file_path.to_string(),
-                        })?;
+                    let entry = node.get_name(&name).ok_or_else(|| GitError::BlobNotFound {
+                        commit: "tree".to_string(),
+                        path: file_path.to_string(),
+                    })?;
                     entry.id()
                 };
                 node = self.repo.find_tree(oid)?;
@@ -194,8 +194,16 @@ impl GitService {
             .repo
             .diff_tree_to_tree(Some(&tree_a), Some(&tree_b), None)?;
         for delta in diff.deltas() {
-            if delta.new_file().path().map(|p| p == Path::new(file_path)).unwrap_or(false)
-                || delta.old_file().path().map(|p| p == Path::new(file_path)).unwrap_or(false)
+            if delta
+                .new_file()
+                .path()
+                .map(|p| p == Path::new(file_path))
+                .unwrap_or(false)
+                || delta
+                    .old_file()
+                    .path()
+                    .map(|p| p == Path::new(file_path))
+                    .unwrap_or(false)
             {
                 return Ok(true);
             }

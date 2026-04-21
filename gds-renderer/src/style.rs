@@ -14,7 +14,13 @@ impl Color {
     }
 
     pub fn to_svg_rgba(self) -> String {
-        format!("rgba({},{},{},{:.3})", self.r, self.g, self.b, self.a as f32 / 255.0)
+        format!(
+            "rgba({},{},{},{:.3})",
+            self.r,
+            self.g,
+            self.b,
+            self.a as f32 / 255.0
+        )
     }
 }
 

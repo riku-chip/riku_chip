@@ -1,6 +1,6 @@
-pub mod error;
 pub mod analyzer;
 pub mod driver;
+pub mod error;
 pub mod git_service;
 pub mod models;
 pub mod ports;

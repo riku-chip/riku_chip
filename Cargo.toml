@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+    "gds-renderer",
+    "gdstk/rust",
+    "riku-gui",
+]
+exclude = [
+    "riku",
+]

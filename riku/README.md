@@ -175,6 +175,12 @@ Solo se añaden los paths que existen en disco. En entornos como `iic-osic-tools
 
 ---
 
+### `gui`
+
+```text
+riku gui [archivo.gds]
+```
+
 ## Estructura
 
 ```
@@ -217,6 +223,7 @@ cargo test --test stress    # rendimiento
 | Crate | Rol |
 |-------|-----|
 | `xschem-viewer` | Parser PEG + renderer SVG nativo |
+| `gds-renderer` | Escena y render de layouts GDS para la GUI |
 | `git2` | Acceso a blobs y commits sin fork de proceso |
 | `clap` | CLI con subcomandos tipados |
 | `sha2` | Hash SHA-256 para caché de renders |
@@ -225,3 +232,12 @@ cargo test --test stress    # rendimiento
 | `dirs` | Home y caché del sistema |
 | `thiserror` | Tipos de error ergonómicos |
 | `rustyline` | Shell interactivo con historial y edición de línea |
+
+---
+
+## Notas
+
+- `diff --format visual` y `render` abren el archivo generado con el visor del sistema.
+- `gui` abre la aplicación de escritorio de Riku; por ahora el visor GDS es solo lectura.
+- El caché se guarda en el directorio de caché del usuario bajo `riku/ops`.
+- El CLI semántico principal todavía está enfocado en Xschem `.sch`.

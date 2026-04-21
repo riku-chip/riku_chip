@@ -32,9 +32,7 @@ pub fn parse(content: &[u8]) -> Schematic {
     // Index components by name for O(1) lookup of position/rotation
     let comp_by_name: HashMap<&str, &xschem_viewer::models::Component> = xv_sch
         .components()
-        .filter_map(|c| {
-            c.properties.get("name").map(|n| (n.as_str(), c))
-        })
+        .filter_map(|c| c.properties.get("name").map(|n| (n.as_str(), c)))
         .collect();
 
     let mut sch = Schematic::default();
@@ -45,15 +43,18 @@ pub fn parse(content: &[u8]) -> Schematic {
             .map(|c| (c.x, c.y, c.rotation, c.flip))
             .unwrap_or((0.0, 0.0, 0, 0));
 
-        sch.components.insert(name.clone(), Component {
-            name: name.clone(),
-            symbol: inst.symbol.clone(),
-            params: inst.params.clone(),
-            x,
-            y,
-            rotation,
-            mirror,
-        });
+        sch.components.insert(
+            name.clone(),
+            Component {
+                name: name.clone(),
+                symbol: inst.symbol.clone(),
+                params: inst.params.clone(),
+                x,
+                y,
+                rotation,
+                mirror,
+            },
+        );
     }
 
     for wire in xv_sch.wires() {

@@ -104,9 +104,7 @@ fn render_command(
                 opacity
             );
         }
-        DrawCommand::Path {
-            points, closed, ..
-        } => {
+        DrawCommand::Path { points, closed, .. } => {
             if *closed {
                 let _ = write!(
                     svg,

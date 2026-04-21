@@ -25,7 +25,7 @@ pub fn render_cell_with_highlights(
     render_scene(&scene)
 }
 
-fn scene_from_cell(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig) -> RenderScene {
+pub fn scene_from_cell(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig) -> RenderScene {
     let flattened = cell.get_polygons().build();
     let mut commands = Vec::new();
     let mut tags = HashSet::new();

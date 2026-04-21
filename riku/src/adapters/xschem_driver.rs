@@ -45,7 +45,9 @@ impl RikuDriver for XschemDriver {
 
         let pdk_status = match (&pdk_root, &pdk_name) {
             (Some(root), Some(pdk)) => {
-                let path = std::path::Path::new(root).join(pdk).join("libs.tech/xschem");
+                let path = std::path::Path::new(root)
+                    .join(pdk)
+                    .join("libs.tech/xschem");
                 if path.exists() {
                     format!("PDK: {} [ok]", pdk)
                 } else {
@@ -73,9 +75,9 @@ impl RikuDriver for XschemDriver {
         };
 
         if detect_format(content_a) != FileFormat::Xschem {
-            report
-                .warnings
-                .push(format!("{path_hint}: no es formato Xschem, usando diff de texto."));
+            report.warnings.push(format!(
+                "{path_hint}: no es formato Xschem, usando diff de texto."
+            ));
             return report;
         }
 
@@ -139,7 +141,10 @@ impl RikuDriver for XschemDriver {
 
         let key = {
             let digest = Sha256::digest(content);
-            digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+            digest
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
         };
 
         let cached = Self::cache_dir().join(&key).join("render.svg");
@@ -147,11 +152,12 @@ impl RikuDriver for XschemDriver {
             return Some(cached);
         }
 
-        let mut opts = xschem_viewer::RenderOptions::dark()
-            .with_sym_paths_from_xschemrc();
+        let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
 
         if let (Ok(root), Ok(pdk)) = (std::env::var("PDK_ROOT"), std::env::var("PDK")) {
-            let pdk_path = std::path::Path::new(&root).join(pdk).join("libs.tech/xschem");
+            let pdk_path = std::path::Path::new(&root)
+                .join(pdk)
+                .join("libs.tech/xschem");
             if pdk_path.exists() {
                 opts = opts.with_sym_path(pdk_path.to_string_lossy().to_string());
             }

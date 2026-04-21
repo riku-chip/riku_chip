@@ -40,9 +40,9 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
                 file_type: FileFormat::Unknown,
                 ..Default::default()
             };
-            report
-                .warnings
-                .push(format!("{file_path}: no hay driver disponible para este formato."));
+            report.warnings.push(format!(
+                "{file_path}: no hay driver disponible para este formato."
+            ));
             return Ok(report);
         }
     };
@@ -51,7 +51,9 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     let content_a = match repo.get_blob(commit_a, file_path) {
         Ok(bytes) => bytes,
         Err(GitError::LargeBlob { path, size }) => {
-            warnings.push(format!("{path} ({size} bytes) es demasiado grande; usando diff vacio."));
+            warnings.push(format!(
+                "{path} ({size} bytes) es demasiado grande; usando diff vacio."
+            ));
             Vec::new()
         }
         Err(GitError::BlobNotFound { .. }) => Vec::new(),
@@ -60,7 +62,9 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     let content_b = match repo.get_blob(commit_b, file_path) {
         Ok(bytes) => bytes,
         Err(GitError::LargeBlob { path, size }) => {
-            warnings.push(format!("{path} ({size} bytes) es demasiado grande; usando diff vacio."));
+            warnings.push(format!(
+                "{path} ({size} bytes) es demasiado grande; usando diff vacio."
+            ));
             Vec::new()
         }
         Err(GitError::BlobNotFound { .. }) => Vec::new(),

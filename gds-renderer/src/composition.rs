@@ -47,7 +47,12 @@ fn resolve_styles(scene: &RenderScene) -> Vec<LayerStyle> {
     }
 
     let observed_tags = observed_tags(scene);
-    let mut next_order = style_map.values().map(|style| style.order).max().unwrap_or(0) + 1;
+    let mut next_order = style_map
+        .values()
+        .map(|style| style.order)
+        .max()
+        .unwrap_or(0)
+        + 1;
     for tag in observed_tags {
         style_map.entry(tag).or_insert_with(|| {
             let fill = color_for_tag(tag, Pdk::Generic);
@@ -74,7 +79,10 @@ fn resolve_bbox(scene: &RenderScene) -> BoundingBox {
     expanded_bbox(scene.viewport.effective_box(), &highlight_polygons)
 }
 
-fn resolve_layer_metadata(scene: &RenderScene, styles: &[LayerStyle]) -> (Vec<LayerInfo>, Vec<GdsTag>) {
+fn resolve_layer_metadata(
+    scene: &RenderScene,
+    styles: &[LayerStyle],
+) -> (Vec<LayerInfo>, Vec<GdsTag>) {
     let mut layer_infos = Vec::new();
     let mut visible_layers = Vec::new();
 

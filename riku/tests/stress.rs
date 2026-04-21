@@ -14,10 +14,10 @@ use std::time::Instant;
 use git2::{Repository, Signature};
 
 use riku::core::git_service::GitService;
+use riku::core::models::FileFormat;
 use riku::core::ports::GitRepository;
 use riku::core::semantic_diff::diff as semantic_diff;
 use riku::parsers::xschem::{detect_format, parse};
-use riku::core::models::FileFormat;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -44,9 +44,12 @@ fn commit_file(repo: &Repository, rel_path: &str, content: &[u8], message: &str)
     match repo.head() {
         Ok(head) => {
             let parent = repo.find_commit(head.target().unwrap()).unwrap();
-            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent]).unwrap()
+            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
+                .unwrap()
         }
-        Err(_) => repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[]).unwrap(),
+        Err(_) => repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &[])
+            .unwrap(),
     }
 }
 
@@ -78,7 +81,10 @@ fn gds_content() -> Vec<u8> {
 fn parse_op_sim_returns_components_and_wires() {
     let content = op_sim_content();
     let sch = parse(&content);
-    assert!(!sch.components.is_empty(), "op_sim.sch debe tener componentes");
+    assert!(
+        !sch.components.is_empty(),
+        "op_sim.sch debe tener componentes"
+    );
     assert!(!sch.wires.is_empty(), "op_sim.sch debe tener wires");
 }
 
@@ -93,7 +99,11 @@ fn detect_format_gds_is_unknown() {
     let content = gds_content();
     // El parser no debe paniquear con binario GDS
     let fmt = detect_format(&content);
-    assert_ne!(fmt, FileFormat::Xschem, "GDS no debe detectarse como Xschem");
+    assert_ne!(
+        fmt,
+        FileFormat::Xschem,
+        "GDS no debe detectarse como Xschem"
+    );
 }
 
 #[test]
@@ -125,14 +135,21 @@ fn throughput_100_parse_and_diff() {
         let sch_b = parse(&modified);
         let report = semantic_diff(&base, &modified);
         // Validar que el diff es coherente
-        assert!(!report.components.is_empty() || !report.nets_added.is_empty() || sch_a.components.len() == sch_b.components.len());
+        assert!(
+            !report.components.is_empty()
+                || !report.nets_added.is_empty()
+                || sch_a.components.len() == sch_b.components.len()
+        );
     }
     let elapsed = start.elapsed().as_millis();
     assert!(
         elapsed < MAX_MS,
         "{N} iteraciones de parse+diff tardaron {elapsed}ms (limite: {MAX_MS}ms)"
     );
-    println!("throughput_100_parse_and_diff: {elapsed}ms total, {}ms/iter", elapsed / N as u128);
+    println!(
+        "throughput_100_parse_and_diff: {elapsed}ms total, {}ms/iter",
+        elapsed / N as u128
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,20 +164,37 @@ fn diff_detects_component_value_change() {
         .into_bytes();
 
     let report = semantic_diff(&base, &modified);
-    let modified_components: Vec<_> = report.components.iter()
+    let modified_components: Vec<_> = report
+        .components
+        .iter()
         .filter(|c| c.kind == riku::core::models::ChangeKind::Modified)
         .collect();
-    assert!(!modified_components.is_empty(), "debe detectar al menos un componente modificado");
+    assert!(
+        !modified_components.is_empty(),
+        "debe detectar al menos un componente modificado"
+    );
 }
 
 #[test]
 fn diff_same_content_is_empty() {
     let content = op_sim_content();
     let report = semantic_diff(&content, &content);
-    assert!(report.components.is_empty(), "sin cambios: components debe estar vacio");
-    assert!(report.nets_added.is_empty(), "sin cambios: nets_added debe estar vacio");
-    assert!(report.nets_removed.is_empty(), "sin cambios: nets_removed debe estar vacio");
-    assert!(!report.is_move_all, "sin cambios: is_move_all debe ser false");
+    assert!(
+        report.components.is_empty(),
+        "sin cambios: components debe estar vacio"
+    );
+    assert!(
+        report.nets_added.is_empty(),
+        "sin cambios: nets_added debe estar vacio"
+    );
+    assert!(
+        report.nets_removed.is_empty(),
+        "sin cambios: nets_removed debe estar vacio"
+    );
+    assert!(
+        !report.is_move_all,
+        "sin cambios: is_move_all debe ser false"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +224,10 @@ fn git_service_extracts_blob_from_10_commits() {
     for commit in &commits {
         let blob = GitRepository::get_blob(&svc, &commit.oid, rel_path).unwrap();
         let sch = parse(&blob);
-        assert!(!sch.components.is_empty(), "cada revision debe tener componentes");
+        assert!(
+            !sch.components.is_empty(),
+            "cada revision debe tener componentes"
+        );
     }
 }
 
@@ -223,7 +260,10 @@ fn git_service_log_semantic_across_revisions() {
             semantic_changes += 1;
         }
     }
-    assert!(semantic_changes > 0, "debe haber al menos un cambio semantico en {N_COMMITS} revisiones");
+    assert!(
+        semantic_changes > 0,
+        "debe haber al menos un cambio semantico en {N_COMMITS} revisiones"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +318,10 @@ fn stress_gds_parse_is_fast() {
         "parse de GDS ({} KB) tardo {elapsed}ms (limite: {MAX_MS}ms)",
         content.len() / 1024
     );
-    println!("stress_gds_parse_is_fast: {} KB en {elapsed}ms", content.len() / 1024);
+    println!(
+        "stress_gds_parse_is_fast: {} KB en {elapsed}ms",
+        content.len() / 1024
+    );
 }
 
 #[test]
@@ -295,6 +338,13 @@ fn stress_gds_in_git_repo() {
     assert_eq!(commits.len(), 1);
 
     let blob = GitRepository::get_blob(&svc, &commits[0].oid, rel_path).unwrap();
-    assert_eq!(blob.len(), content.len(), "blob extraido debe coincidir con el original");
-    println!("stress_gds_in_git_repo: {} KB extraidos de git OK", blob.len() / 1024);
+    assert_eq!(
+        blob.len(),
+        content.len(),
+        "blob extraido debe coincidir con el original"
+    );
+    println!(
+        "stress_gds_in_git_repo: {} KB extraidos de git OK",
+        blob.len() / 1024
+    );
 }

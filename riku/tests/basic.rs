@@ -45,7 +45,12 @@ fn test_tempdir() -> tempfile::TempDir {
         .unwrap()
 }
 
-fn commit_rename(repo: &Repository, old_rel_path: &str, new_rel_path: &str, message: &str) -> git2::Oid {
+fn commit_rename(
+    repo: &Repository,
+    old_rel_path: &str,
+    new_rel_path: &str,
+    message: &str,
+) -> git2::Oid {
     let workdir = repo.workdir().expect("workdir");
     let old_full_path = workdir.join(old_rel_path);
     let new_full_path = workdir.join(new_rel_path);
@@ -84,7 +89,10 @@ N 10 20 30 40 {lab=NET1}
 
 #[test]
 fn parses_real_xschem_fixture() {
-    let content = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/SH/op_sim.sch"));
+    let content = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/SH/op_sim.sch"
+    ));
 
     assert_eq!(detect_format(content), FileFormat::Xschem);
 
@@ -184,8 +192,14 @@ fn git_service_reads_commits_and_blobs() {
 
 #[test]
 fn enums_serialize_stably() {
-    assert_eq!(serde_json::to_value(ChangeKind::Added).unwrap(), json!("added"));
-    assert_eq!(serde_json::to_value(FileFormat::Xschem).unwrap(), json!("xschem"));
+    assert_eq!(
+        serde_json::to_value(ChangeKind::Added).unwrap(),
+        json!("added")
+    );
+    assert_eq!(
+        serde_json::to_value(FileFormat::Xschem).unwrap(),
+        json!("xschem")
+    );
 }
 
 #[test]
@@ -218,7 +232,10 @@ fn git_service_reports_renames() {
     let changes = svc.get_changed_files("HEAD~1", "HEAD").unwrap();
 
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].status, riku::core::git_service::ChangeStatus::Renamed);
+    assert_eq!(
+        changes[0].status,
+        riku::core::git_service::ChangeStatus::Renamed
+    );
     assert_eq!(changes[0].path, new_path);
     assert_eq!(changes[0].old_path.as_deref(), Some(old_path));
 }

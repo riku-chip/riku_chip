@@ -68,7 +68,13 @@ pub fn svg_viewbox(bbox: BoundingBox, width: u32, height: u32) -> String {
         max_y += 1.0;
     }
 
-    format!("{:.4} {:.4} {:.4} {:.4}", min_x, min_y, max_x - min_x, max_y - min_y)
+    format!(
+        "{:.4} {:.4} {:.4} {:.4}",
+        min_x,
+        min_y,
+        max_x - min_x,
+        max_y - min_y
+    )
 }
 
 pub fn expanded_bbox(base: BoundingBox, highlights: &[OwnedPolygon]) -> BoundingBox {

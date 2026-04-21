@@ -4,15 +4,15 @@ use std::process::{Command, ExitCode};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::json;
 
+use crate::adapters::xschem_driver::XschemDriver;
 use crate::core::analyzer::analyze_diff;
+use crate::core::driver::RikuDriver;
 use crate::core::git_service::GitService;
 use crate::core::models::{ChangeKind, ComponentDiff, DiffReport};
 use crate::core::ports::GitRepository;
 use crate::core::registry::get_drivers;
 use crate::core::svg_annotator::annotate;
 use crate::parsers::xschem::parse;
-use crate::adapters::xschem_driver::XschemDriver;
-use crate::core::driver::RikuDriver;
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum OutputFormat {
@@ -59,10 +59,9 @@ enum Commands {
         #[arg(short, long, default_value = ".")]
         repo: PathBuf,
     },
-    /// Renderiza un archivo .sch a SVG y lo abre.
-    Render {
-        file: PathBuf,
-    },
+    Render { file: PathBuf },
+    /// Abre la GUI de escritorio.
+    Gui { file: Option<PathBuf> },
     /// Abre el shell interactivo de Riku.
     Shell {
         #[arg(short, long, default_value = ".")]
@@ -75,12 +74,22 @@ pub fn run() -> ExitCode {
 
     let result = match cli.command {
         None => run_shell(PathBuf::from(".")),
-        Some(Commands::Diff { commit_a, commit_b, file_path, repo, format }) =>
-            run_diff(repo, &commit_a, &commit_b, &file_path, format),
-        Some(Commands::Log { file_path, repo, limit, semantic }) =>
-            run_log(repo, file_path.as_deref(), limit, semantic),
+        Some(Commands::Diff {
+            commit_a,
+            commit_b,
+            file_path,
+            repo,
+            format,
+        }) => run_diff(repo, &commit_a, &commit_b, &file_path, format),
+        Some(Commands::Log {
+            file_path,
+            repo,
+            limit,
+            semantic,
+        }) => run_log(repo, file_path.as_deref(), limit, semantic),
         Some(Commands::Doctor { repo }) => run_doctor(repo),
         Some(Commands::Render { file }) => run_render(file),
+        Some(Commands::Gui { file }) => run_gui(file),
         Some(Commands::Shell { repo }) => run_shell(repo),
     };
 
@@ -100,8 +109,7 @@ fn run_diff(
     file_path: &str,
     format: OutputFormat,
 ) -> Result<(), String> {
-    let report = analyze_diff(&repo, commit_a, commit_b, file_path)
-        .map_err(|e| e.to_string())?;
+    let report = analyze_diff(&repo, commit_a, commit_b, file_path).map_err(|e| e.to_string())?;
 
     for warning in &report.warnings {
         eprintln!("[!] {warning}");
@@ -149,8 +157,8 @@ fn run_visual(
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let driver = XschemDriver::new();
 
-    let content_b = GitRepository::get_blob(&svc, commit_b, file_path)
-        .map_err(|e| e.to_string())?;
+    let content_b =
+        GitRepository::get_blob(&svc, commit_b, file_path).map_err(|e| e.to_string())?;
     let sch_b = parse(&content_b);
     let svg_b_path = driver
         .render(&content_b, file_path)
@@ -192,7 +200,9 @@ fn run_visual(
                 svg.to_string()
             }
         })
-        .unwrap_or_else(|| "<p style='color:#888'>Archivo nuevo — no existe en el commit anterior</p>".to_string());
+        .unwrap_or_else(|| {
+            "<p style='color:#888'>Archivo nuevo — no existe en el commit anterior</p>".to_string()
+        });
 
     let html = build_diff_html(commit_a, commit_b, file_path, &panel_a, &annotated_b);
 
@@ -274,6 +284,79 @@ fn run_render(file: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+fn run_gui(file: Option<PathBuf>) -> Result<(), String> {
+    let args: Vec<std::ffi::OsString> =
+        file.into_iter().map(|path| path.into_os_string()).collect();
+
+    match Command::new("riku-gui").args(&args).status() {
+        Ok(status) => {
+            return if status.success() {
+                Ok(())
+            } else {
+                Err(format!("riku-gui finalizó con error: {status}"))
+            };
+        }
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+            return Err(err.to_string());
+        }
+        Err(_) => {}
+    }
+
+    if let Some(gui_bin) = locate_gui_binary() {
+        let status = Command::new(gui_bin)
+            .args(&args)
+            .status()
+            .map_err(|e| e.to_string())?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("riku-gui finalizó con error: {status}"))
+        };
+    }
+
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la raíz del workspace.".to_string())?;
+
+    let mut cargo = Command::new("cargo");
+    cargo
+        .arg("run")
+        .arg("--package")
+        .arg("riku-gui")
+        .arg("--bin")
+        .arg("riku-gui")
+        .current_dir(workspace_root);
+    if !args.is_empty() {
+        cargo.arg("--");
+        cargo.args(&args);
+    }
+
+    let status = cargo.status().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("No se pudo iniciar riku-gui: {status}"))
+    }
+}
+
+fn locate_gui_binary() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("RIKU_GUI_BIN") {
+        let candidate = PathBuf::from(path);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    let exe = std::env::current_exe().ok()?;
+    let bin_name = format!("riku-gui{}", std::env::consts::EXE_SUFFIX);
+    let sibling = exe.parent()?.join(bin_name);
+    if sibling.exists() {
+        return Some(sibling);
+    }
+
+    None
+}
+
 fn open_file(path: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -335,7 +418,9 @@ fn run_log(
 
         if semantic && file_path.is_some() && idx + 1 < commits.len() {
             if let Some(file_path) = file_path {
-                if let Ok(report) = analyze_diff(&repo, &commits[idx + 1].oid, &commit.oid, file_path) {
+                if let Ok(report) =
+                    analyze_diff(&repo, &commits[idx + 1].oid, &commit.oid, file_path)
+                {
                     let (added, removed, modified) = summarize_changes(&report);
                     if added + removed + modified > 0 {
                         let mut parts = Vec::new();
@@ -427,7 +512,9 @@ mod tests {
                     kind: ChangeKind::Added,
                     element: "R1".to_string(),
                     before: None,
-                    after: Some(std::iter::once(("value".to_string(), "10k".to_string())).collect()),
+                    after: Some(
+                        std::iter::once(("value".to_string(), "10k".to_string())).collect(),
+                    ),
                     cosmetic: false,
                 },
                 DiffEntry {
@@ -769,6 +856,7 @@ fn run_shell(_repo: PathBuf) -> Result<(), String> {
                 println!();
                 println!("  Render:");
                 println!("    render <archivo.sch>                          renderizar a SVG");
+                println!("    gui [archivo.gds]                              abrir visor de escritorio");
                 println!();
                 println!("  Entorno:");
                 println!("    doctor                                        verificar PDK y repo");
@@ -818,6 +906,18 @@ fn run_shell(_repo: PathBuf) -> Result<(), String> {
                                 } else { file };
                                 run_render(effective)
                             }
+                            Some(Commands::Gui { file }) => {
+                                let effective = file.map(|file| {
+                                    if file == PathBuf::from(file.to_string_lossy().as_ref())
+                                        && !file.to_string_lossy().contains('/')
+                                        && !file.to_string_lossy().contains('\\') {
+                                        ctx.cwd.join(&file)
+                                    } else {
+                                        file
+                                    }
+                                });
+                                run_gui(effective)
+                            }
                         };
                         if let Err(e) = result {
                             eprintln!("  Error: {e}");
@@ -830,5 +930,3 @@ fn run_shell(_repo: PathBuf) -> Result<(), String> {
     }
 
     println!("\n  Hasta luego.\n");
-    Ok(())
-}

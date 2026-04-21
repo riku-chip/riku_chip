@@ -1,0 +1,12 @@
+[package]
+name = "riku-gui"
+version = "0.1.0"
+edition = "2024"
+description = "Desktop GUI for Riku"
+license = "MIT"
+publish = false
+
+[dependencies]
+eframe = "0.34.1"
+gds-renderer = { path = "../gds-renderer" }
+gdstk-rs = { path = "../gdstk/rust" }
