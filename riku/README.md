@@ -15,6 +15,58 @@ El binario queda en `target/release/riku`. No requiere ninguna herramienta EDA i
 
 ---
 
+## Shell interactivo
+
+Ejecutar `riku` sin argumentos abre el shell interactivo:
+
+```
+    ██████╗ ██╗██╗  ██╗██╗   ██╗
+    ██╔══██╗██║██║ ██╔╝██║   ██║
+    ██████╔╝██║█████╔╝ ██║   ██║
+    ██╔══██╗██║██╔═██╗ ██║   ██║
+    ██║  ██║██║██║  ██╗╚██████╔╝
+    ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝
+
+  v0.1.0  ·  PDK: sky130A [ok]  ·  /foss/designs/prueba
+
+riku schematics (git)>
+```
+
+El prompt muestra el directorio actual y si hay un repositorio Git activo. Dentro del shell todos los comandos funcionan igual que en CLI, más los de navegación:
+
+| Comando | Descripción |
+|---------|-------------|
+| `ls [ruta]` | Lista archivos `.sch` y subdirectorios. Marca `[git]` los que están bajo control de versiones. |
+| `cd <ruta>` | Navega a otra carpeta sin salir del shell. Actualiza el repo Git activo automáticamente. |
+| `help` | Muestra todos los comandos disponibles. |
+| `exit` | Sale del shell. |
+
+Ejemplo de sesión:
+
+```
+riku schematics (git)> ls
+  [git]  circ_RM.sch
+  [git]  prueba1_fuente.sch
+         pruebaM1.sch
+
+riku schematics (git)> log circ_RM.sch
+  a3f2b1c  feat: ajustar valor resistor
+  7d9e4a2  fix: corregir net VDD
+
+riku schematics (git)> diff 7d9e4a2 a3f2b1c circ_RM.sch
+  modified   R1
+
+riku schematics (git)> cd ../layout
+  → /foss/designs/prueba/memristor/layout
+
+riku layout> ls
+  (sin archivos .sch ni subdirectorios)
+```
+
+El historial de comandos persiste con ↑↓ durante la sesión.
+
+---
+
 ## Comandos
 
 ### `riku diff`
@@ -172,3 +224,4 @@ cargo test --test stress    # rendimiento
 | `tempfile` | HTML temporal para diff visual |
 | `dirs` | Home y caché del sistema |
 | `thiserror` | Tipos de error ergonómicos |
+| `rustyline` | Shell interactivo con historial y edición de línea |
