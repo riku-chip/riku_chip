@@ -97,8 +97,8 @@ fn render_layers(
                 DrawCommand::Rect {
                     bbox: rect_bbox, ..
                 } => {
-                    let min = world_to_screen(rect, rect_bbox, (rect_bbox.min_x, rect_bbox.max_y));
-                    let max = world_to_screen(rect, rect_bbox, (rect_bbox.max_x, rect_bbox.min_y));
+                    let min = world_to_screen(rect, *rect_bbox, (rect_bbox.min_x, rect_bbox.max_y));
+                    let max = world_to_screen(rect, *rect_bbox, (rect_bbox.max_x, rect_bbox.min_y));
                     let rect = Rect::from_min_max(min, max);
                     painter.rect_filled(rect, 0.0, fill);
                     painter.line_segment([rect.left_top(), rect.right_top()], stroke);

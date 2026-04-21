@@ -930,3 +930,5 @@ fn run_shell(_repo: PathBuf) -> Result<(), String> {
     }
 
     println!("\n  Hasta luego.\n");
+    Ok(())
+}

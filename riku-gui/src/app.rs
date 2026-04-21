@@ -124,7 +124,7 @@ impl eframe::App for RikuGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        egui::TopBottomPanel::top("top_bar").show(&ctx, |ui| {
+        egui::Panel::top("top_bar").show_inside(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Riku").strong());
                 ui.separator();
@@ -179,24 +179,25 @@ impl eframe::App for RikuGuiApp {
             }
         });
 
-        egui::SidePanel::left("project_tree")
+        egui::Panel::left("project_tree")
             .resizable(true)
-            .default_width(280.0)
-            .show(&ctx, |ui| {
+            .default_size(280.0)
+            .show_inside(ui, |ui| {
                 ui.heading("Project");
                 ui.label(self.project_root.display().to_string());
                 ui.separator();
                 let tree = self.project_tree.clone();
+                let selected_path = self.selected_path.clone();
                 let mut open_path = |path: &Path| {
                     self.open_path(path);
                 };
-                show_entry_tree(ui, &tree, self.selected_path.as_deref(), &mut open_path);
+                show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
             });
 
-        egui::SidePanel::right("info_panel")
+        egui::Panel::right("info_panel")
             .resizable(true)
-            .default_width(280.0)
-            .show(&ctx, |ui| {
+            .default_size(280.0)
+            .show_inside(ui, |ui| {
                 ui.heading("Details");
                 ui.separator();
 
@@ -241,7 +242,7 @@ impl eframe::App for RikuGuiApp {
                 }
             });
 
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             if let Some(scene) = &mut self.scene {
                 let response =
                     ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::drag());
@@ -253,8 +254,8 @@ impl eframe::App for RikuGuiApp {
                     ctx.request_repaint();
                 }
 
-                let scroll = ctx.input(|input| input.raw_scroll_delta.y);
-                if scroll.abs() > f32::EPSILON && response.hovered() {
+                let scroll = ctx.input(|input| input.smooth_scroll_delta.y as f64);
+                if scroll.abs() > f64::EPSILON && response.hovered() {
                     let mut scale = scene.viewport.scale * (1.0 + scroll * 0.001);
                     if !scale.is_finite() || scale <= 0.05 {
                         scale = 0.05;
@@ -263,7 +264,7 @@ impl eframe::App for RikuGuiApp {
                     ctx.request_repaint();
                 }
 
-                ui.allocate_ui_at_rect(response.rect, |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
                     paint_scene(ui, &*scene);
                 });
             } else {
