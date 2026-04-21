@@ -1,0 +1,441 @@
+ Ready to code?
+
+ Here is Claude's plan:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Arquitectura GDS: contratos entre gdstk-rs · gds-renderer · riku
+
+ Contexto
+
+ riku es un VCS semántico para chips IC. Hoy solo maneja .sch (xschem) vía un
+ driver dedicado. Para soportar archivos .gds (layouts físicos) hay que
+ agregar tres cosas:
+
+ 1. Extender gdstk-rs con métodos que falten (lectura desde bytes, XOR que
+ devuelva polígonos).
+ 2. Crear gds-renderer — un crate nuevo que convierte polígonos en SVG.
+ 3. Agregar gds_driver.rs a riku que implementa el trait RikuDriver
+ usando los dos crates anteriores.
+
+ La clave de esta arquitectura es que cada capa expone tipos POD (Plain Old
+ Data) en su frontera pública. Los contratos son estables — la implementación
+ interna puede cambiar, pero las signatures públicas no. Esto permite evolucionar
+ cada crate independientemente.
+
+ Las decisiones tomadas con el usuario son:
+ - Formato de salida del renderer: SVG (reutiliza svg_annotator existente)
+ - Tipo OwnedPolygon: vive en gdstk-rs (es el productor natural)
+ - Carga de bytes: Library::from_bytes() agregado a gdstk-rs (evita tempfile)
+ - Interactividad en dos fases:
+   - Fase 1 (ahora): SVG con grupos por layer + HTML/JS que inyecta riku para
+ toggle de layers, toggle de labels, zoom/pan, cambio de colores en vivo.
+ Funcional hasta ~50k polígonos (chips chicos/medianos).
+   - Fase 2 (futuro): App nativa con egui + wgpu usando el mismo
+ gds-renderer como backend geométrico, para chips grandes (millones de
+ polígonos, pan/zoom real tipo KLayout).
+
+ ---
+ Documentos a generar en el proyecto
+
+ Cuando se apruebe el plan se crearán estos documentos en planificacion/:
+
+ ┌─────────────────────────────────────┬───────────────────────────────────────────────────────┐
+ │               Archivo               │                       Contenido                       │
+ ├─────────────────────────────────────┼───────────────────────────────────────────────────────┤
+ │ planificacion/gds/contratos.md      │ Tipos públicos de cada crate, signatures, invariantes │
+ ├─────────────────────────────────────┼───────────────────────────────────────────────────────┤
+ │ planificacion/gds/flujo.md          │ Diagrama de flujo riku diff end-to-end                │
+ ├─────────────────────────────────────┼───────────────────────────────────────────────────────┤
+ │ planificacion/gds/implementacion.md │ Orden de cambios, archivos a tocar                    │
+ └─────────────────────────────────────┴───────────────────────────────────────────────────────┘
+
+ También se reemplaza el doc actual planificacion/arquitectura_gds.md con
+ la versión definitiva consolidada.
+
+ ---
+ Los tres contratos estables
+
+ Contrato 1: gdstk-rs — API pública para otros crates
+
+ Archivos que se modifican:
+ - C:\Users\ariel\Documents\riku_chip\gdstk\rust\src\lib.rs
+ - C:\Users\ariel\Documents\riku_chip\gdstk\rust\src\shims.h
+ - C:\Users\ariel\Documents\riku_chip\gdstk\rust\src\shims.cpp
+
+ Tipos POD ya existentes (no se tocan — son el contrato):
+ pub struct Point2D    { pub x: f64, pub y: f64 }                          // Copy
+ pub struct BoundingBox { pub min_x, min_y, max_x, max_y: f64 }            // Copy
+ pub struct GdsTag     { pub layer: u32, pub datatype: u32 }               // Copy, Hash
+ pub struct XorMetrics { pub area: f64, pub region_count: u64,
+                         pub bbox: BoundingBox }                           // Copy
+ pub enum   ErrorCode  { NoError, BooleanError, ... }                      // Copy
+
+ Tipo nuevo a agregar (vive en lib.rs porque cruza crates sin lifetime):
+ /// Polígono dueño de sus datos. Se usa cuando el polígono debe sobrevivir
+ /// más allá del Library que lo creó (ej: resultado de XOR, paso a otro crate).
+ #[derive(Clone, Debug, PartialEq)]
+ pub struct OwnedPolygon {
+     pub layer: u32,
+     pub datatype: u32,
+     pub points: Vec<Point2D>,
+ }
+
+ Constructor nuevo — leer desde memoria (evita tempfiles en riku):
+ impl Library {
+     /// Ya existe: abrir desde archivo
+     pub fn open(path: &str) -> Self;
+
+     /// NUEVO: abrir desde bytes en memoria
+     /// Implementación: escribe a tempfile internamente, llama a gds_read del
+     /// C++ gdstk, cleanup al retornar. Usa std::io::Cursor vía C++ no es
+     /// viable porque gdstk solo expone read por path.
+     pub fn from_bytes(data: &[u8]) -> Result<Self, Error>;
+ }
+
+ Método nuevo — XOR que devuelve los polígonos, no solo métricas:
+ impl<'a> Cell<'a> {
+     /// Ya existe: solo devuelve área, región count, bbox
+     pub fn xor_with(&self, other: &Cell<'_>, layer: u32) -> XorMetrics;
+
+     /// NUEVO: devuelve los polígonos reales del XOR simétrico por layer.
+     /// Cada polígono resultante es OwnedPolygon — no tiene lifetime porque
+     /// gdstk::boolean() aloja nuevos polígonos en heap que extraemos y
+     /// convertimos a Vec<Point2D>.
+     pub fn xor_polygons(&self, other: &Cell<'_>, layer: u32)
+         -> Vec<OwnedPolygon>;
+ }
+
+ Invariantes del contrato:
+ - Todos los tipos POD son Copy + Send + Sync.
+ - OwnedPolygon es Clone + Send + Sync (no Copy porque tiene Vec).
+ - Library es Send pero !Sync (seguro mover entre threads con Arc).
+ - Cell<'a>, Polygon<'a> son Copy pero lifetime-bound — nunca se
+ exponen en el contrato entre crates. Solo OwnedPolygon cruza fronteras.
+ - from_bytes() retorna Result porque falla por I/O; open() no (comportamiento existente).
+
+ Lo que gdstk-rs NUNCA hace:
+ - No conoce pixels, colores, imágenes
+ - No conoce git
+ - No conoce el diff semántico (cosmético vs funcional)
+
+ ---
+ Contrato 2: gds-renderer — API pública hacia riku
+
+ Repositorio nuevo: https://github.com/Adriel2503/gds-renderer
+
+ Dependencias del crate:
+ [dependencies]
+ gdstk-rs  = { git = "https://github.com/Adriel2503/gdstk_rust.git" }
+ tiny-skia = "0.11"   # rasterización interna
+ usvg      = "0.42"   # opcional, para serializar SVG
+
+ API pública que expone (esto es el contrato — fase 1):
+ pub struct RenderConfig {
+     pub width: u32,
+     pub height: u32,
+     pub pdk: Pdk,
+     pub background: Option<Color>,
+     pub show_labels: bool,        // si incluye texto de labels por layer
+     pub include_layer_metadata: bool,  // si emite <metadata> por grupo layer
+ }
+
+ pub enum Pdk { Sky130, Gf180, Ihp, Generic }
+
+ pub struct Color { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
+
+ pub struct LayerInfo {
+     pub tag: gdstk_rs::GdsTag,   // layer + datatype
+     pub name: String,             // ej: "metal1"
+     pub color: Color,
+     pub visible: bool,
+ }
+
+ /// Renderiza una celda completa como SVG.
+ /// Estructura generada (CONTRATO ESTABLE):
+ ///   <svg>
+ ///     <g id="layer-metal1" data-layer="68" data-datatype="20">
+ ///       <polygon .../>
+ ///       ...
+ ///     </g>
+ ///     <g id="layer-metal1-labels" data-layer="68">
+ ///       <text .../>
+ ///     </g>
+ ///     ... un <g> por layer ...
+ ///   </svg>
+ /// Los ids 'layer-X' y 'layer-X-labels' son el contrato que riku usa
+ /// para inyectar el JS de toggle.
+ pub fn render_cell(
+     cell: &gdstk_rs::Cell<'_>,
+     config: &RenderConfig,
+ ) -> RenderOutput;
+
+ /// Renderiza una celda con polígonos del XOR resaltados en rojo.
+ /// Usado por riku diff para pintar "lo que cambió".
+ /// Agrega un grupo final <g id="layer-highlights"> con los polígonos XOR.
+ pub fn render_cell_with_highlights(
+     cell: &gdstk_rs::Cell<'_>,
+     highlights: &[gdstk_rs::OwnedPolygon],
+     config: &RenderConfig,
+ ) -> RenderOutput;
+
+ /// El renderer devuelve SVG + la lista de layers presentes, para que riku
+ /// pueda generar los checkboxes sin re-parsear el SVG.
+ pub struct RenderOutput {
+     pub svg: String,
+     pub layers: Vec<LayerInfo>,  // metadata que riku usa para armar UI
+ }
+
+ Por qué SVG y no PNG:
+ - Reutiliza riku/src/core/svg_annotator.rs (ya existe)
+ - Integra directo en el HTML side-by-side (coherente con xschem)
+ - Permite zoom sin pérdida
+ - Para GDS enormes se puede degradar a rasterización interna dentro del SVG si hace falta
+
+ Cómo funciona internamente (no es parte del contrato, puede cambiar):
+ 1. Calcula viewport desde bbox de la celda
+ 2. Transforma coords GDS (µm) → coords SVG
+ 3. Itera layers conocidos del PDK
+ 4. Para cada layer: itera polígonos, emite <polygon> con color del PDK
+ 5. Si hay highlights: emite último <g> con los polígonos XOR en rojo/verde
+ 6. Serializa todo como SVG String
+
+ Lo que gds-renderer NUNCA hace:
+ - No lee archivos GDS (recibe Cell<'_> ya parseado)
+ - No conoce git
+ - No maneja diffs (solo recibe polígonos y los pinta)
+ - No abre ventanas ni UI
+ - No genera el HTML contenedor ni el JS de toggle — eso es responsabilidad de riku
+
+ Preparado para Fase 2 (app nativa):
+ El contrato SVG no cambiará. Para la app nativa se agregará en el futuro una
+ función paralela que devuelve mesh/triangulación en vez de SVG, sin romper nada:
+ // Fase 2 (NO se implementa ahora, solo se reserva el espacio de diseño):
+ pub fn render_cell_native(
+     cell: &gdstk_rs::Cell<'_>,
+     config: &RenderConfig,
+ ) -> NativeRenderOutput;  // polígonos triangulados listos para wgpu
+
+ ---
+ Contrato 3: riku — trait RikuDriver (ya existe, no cambia)
+
+ Archivo: C:\Users\ariel\Documents\riku_chip\riku\src\core\driver.rs
+
+ Trait existente (estable, NO se modifica):
+ pub trait RikuDriver: Send + Sync {
+     fn info(&self) -> DriverInfo;
+     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str)
+         -> DriverDiffReport;
+     fn normalize(&self, content: &[u8], path_hint: &str) -> Vec<u8>;
+     fn render(&self, content: &[u8], path_hint: &str) -> Option<PathBuf>;
+     fn can_handle(&self, filename: &str) -> bool;
+ }
+
+ Tipos que fluyen en el contrato (ya existen en core/models.rs y core/driver.rs):
+ pub struct DriverInfo      { name, available, version, extensions }
+ pub struct DriverDiffReport { file_type, changes: Vec<DiffEntry>,
+                               visual_a, visual_b, warnings }
+ pub struct DiffEntry        { kind, element, before, after, cosmetic }
+ pub enum   ChangeKind       { Added, Removed, Modified }
+ pub enum   FileFormat       { Xschem, Qucs, KicadLegacy, Unknown }
+ pub enum   DriverKind       { Xschem }
+
+ Cambios mínimos a los enums existentes (extensión, no breaking):
+ // En riku/src/core/models.rs
+ pub enum FileFormat { Xschem, Qucs, KicadLegacy, Gds, Unknown }  // +Gds
+ pub enum DriverKind { Xschem, Gds }                              // +Gds
+
+ Archivo nuevo — gds_driver.rs:
+ C:\Users\ariel\Documents\riku_chip\riku\src\adapters\gds_driver.rs
+
+ Implementa RikuDriver así:
+ - info() → { name: Gds, extensions: [".gds", ".oas"] }
+ - diff(a, b, hint):
+   a. let lib_a = gdstk_rs::Library::from_bytes(a)?
+   b. let lib_b = gdstk_rs::Library::from_bytes(b)?
+   c. Toma top-level cells de cada uno
+   d. Para cada layer común: calcula XorMetrics + xor_polygons
+   e. Convierte a DiffEntry (una entrada por layer con cambios)
+   f. Llama gds_renderer::render_cell_with_highlights() para generar
+ RenderOutput { svg, layers }
+   g. Genera HTML completo (con checkboxes + JS de toggle) envolviendo el SVG
+   h. Cachea SVG puro en ~/.cache/riku/ops/{sha256(content)}/render.svg
+   i. Cachea HTML interactivo en ~/.cache/riku/ops/{sha256(content)}/render.html
+   j. Retorna DriverDiffReport con visual_a/visual_b apuntando a los HTML
+ - render(content, hint): misma caché; retorna path al HTML sin highlights
+ - normalize(content, _): content.to_vec() (no-op)
+
+ Archivo nuevo — template HTML/JS para la vista interactiva:
+ C:\Users\ariel\Documents\riku_chip\riku\src\adapters\gds_viewer_template.rs
+
+ Contiene funciones que generan:
+ - wrap_svg_with_controls(render_output: &RenderOutput) -> String
+ → HTML con checkboxes por layer, zoom/pan, y JS embebido
+ - layer_toggle_js() -> &'static str
+ → JS que oye los checkboxes y hace display: none en los <g id="layer-X">
+ - zoom_pan_js() -> &'static str
+ → JS pequeño para zoom con rueda del mouse y pan con drag
+
+ Archivo a modificar — registro del driver:
+ C:\Users\ariel\Documents\riku_chip\riku\src\core\registry.rs
+ pub fn get_drivers() -> Vec<Box<dyn RikuDriver>> {
+     vec![
+         Box::new(XschemDriver::new()),
+         Box::new(GdsDriver::new()),  // nuevo
+     ]
+ }
+
+ Dependencias a agregar en riku/Cargo.toml:
+ gdstk-rs     = { git = "https://github.com/Adriel2503/gdstk_rust.git" }
+ gds-renderer = { git = "https://github.com/Adriel2503/gds-renderer.git" }
+
+ Lo que riku NUNCA hace:
+ - No implementa algoritmos geométricos (XOR, boolean)
+ - No pinta polígonos a pixels
+ - No conoce el formato binario GDS
+
+ ---
+ Flujo end-to-end: riku diff <a> <b> layout.gds
+
+ ┌─ riku ─────────────────────────────────────────────┐
+ │  cli.rs::run_diff()                                │
+ │  ↓                                                 │
+ │  analyzer::analyze_diff()                          │
+ │  ↓                                                 │
+ │  git_service::get_blob(commit_a, "layout.gds")     │
+ │  git_service::get_blob(commit_b, "layout.gds")     │
+ │  → (Vec<u8>, Vec<u8>)                              │
+ │  ↓                                                 │
+ │  registry::get_driver_for("layout.gds")            │
+ │  → Box<GdsDriver>                                  │
+ │  ↓                                                 │
+ │  driver.diff(bytes_a, bytes_b, "layout.gds")       │
+ └──────────┬─────────────────────────────────────────┘
+            │
+ ┌─ gds_driver.rs ────────────────────────────────────┐
+ │  gdstk_rs::Library::from_bytes(bytes_a)            │
+ │  gdstk_rs::Library::from_bytes(bytes_b)            │
+ │  ↓                                                 │
+ │  para cada layer en union(layers_a, layers_b):     │
+ │    metrics = cell_a.xor_with(&cell_b, layer)       │
+ │    polys   = cell_a.xor_polygons(&cell_b, layer)   │
+ │  ↓                                                 │
+ │  gds_renderer::render_cell_with_highlights(        │
+ │      &cell_a, &polys, &config) → String (SVG)      │
+ │  gds_renderer::render_cell_with_highlights(        │
+ │      &cell_b, &polys, &config) → String (SVG)      │
+ │  ↓                                                 │
+ │  escribe SVGs a ~/.cache/riku/ops/{hash}/          │
+ │  ↓                                                 │
+ │  construye DriverDiffReport {                      │
+ │      file_type: Gds,                               │
+ │      changes: DiffEntry por layer,                 │
+ │      visual_a: path al SVG A,                      │
+ │      visual_b: path al SVG B,                      │
+ │  }                                                 │
+ └──────────┬─────────────────────────────────────────┘
+            │
+ ┌─ riku ─────────────────────────────────────────────┐
+ │  cli.rs::run_visual()                              │
+ │  lee SVGs, los mete en HTML side-by-side           │
+ │  abre en browser (mismo flujo que xschem)          │
+ └────────────────────────────────────────────────────┘
+
+ ---
+ Diagrama de dependencias
+
+ ┌────────────────┐
+ │      riku      │
+ │  (aplicación)  │
+ └───┬───────┬────┘
+     │       │
+     ▼       ▼
+ ┌───────┐  ┌──────────────┐
+ │gdstk- │◀─│ gds-renderer │
+ │  rs   │  │              │
+ └───────┘  └──────────────┘
+
+ gds-renderer depende de gdstk-rs (usa sus tipos Cell, OwnedPolygon).
+ riku depende de ambos.
+ gdstk-rs no depende de nadie en este sistema.
+
+ ---
+ Orden de implementación — Fase 1
+
+ ┌─────┬────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┐
+ │  #  │                               Tarea                                │                 Archivo                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 1   │ Agregar OwnedPolygon struct                                        │ gdstk/rust/src/lib.rs                    │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 2   │ Agregar Library::from_bytes()                                      │ gdstk/rust/src/lib.rs + shims.cpp/h      │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 3   │ Agregar Cell::xor_polygons()                                       │ gdstk/rust/src/lib.rs + shims.cpp/h      │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 4   │ Commit + push gdstk-rs (con workspace Cargo.toml ya creado)        │ repo gdstk_rust                          │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 5   │ Crear repo gds-renderer vacío en GitHub                            │ GitHub                                   │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 6   │ cargo new --lib gds-renderer, setup con dependencias               │ crate nuevo                              │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 7   │ Implementar RenderConfig, Pdk, Color, LayerInfo, RenderOutput      │ gds-renderer/src/lib.rs                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 8   │ Implementar paletas PDK (SKY130, GF180, IHP, Generic)              │ gds-renderer/src/pdk.rs                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 9   │ Implementar render_cell() con tiny-skia → SVG con grupos por layer │ gds-renderer/src/lib.rs                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 10  │ Implementar render_cell_with_highlights()                          │ gds-renderer/src/lib.rs                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 11  │ Commit + push gds-renderer                                         │ repo gds-renderer                        │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 12  │ Agregar Gds a FileFormat y DriverKind                              │ riku/src/core/models.rs                  │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 13  │ Crear GdsDriver con trait RikuDriver                               │ riku/src/adapters/gds_driver.rs          │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 14  │ Crear template HTML/JS (toggle, zoom, pan)                         │ riku/src/adapters/gds_viewer_template.rs │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 15  │ Registrar driver                                                   │ riku/src/core/registry.rs                │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 16  │ Agregar deps en Cargo.toml                                         │ riku/Cargo.toml                          │
+ ├─────┼────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ 17  │ Generar los docs de planificacion/gds/                             │ carpeta nueva                            │
+ └─────┴────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┘
+
+ Fase 2 — App nativa (futuro)
+
+ No se implementa ahora, pero el diseño reserva el espacio:
+
+ ┌──────┬────────────────────────────────────────────────────────────┬────────────────────────────┐
+ │  #   │                           Tarea                            │          Archivo           │
+ ├──────┼────────────────────────────────────────────────────────────┼────────────────────────────┤
+ │ F2.1 │ Agregar render_cell_native() que devuelve mesh triangulado │ gds-renderer/src/native.rs │
+ ├──────┼────────────────────────────────────────────────────────────┼────────────────────────────┤
+ │ F2.2 │ Crear crate nuevo riku-gui con egui + wgpu                 │ repo nuevo o subcrate      │
+ ├──────┼────────────────────────────────────────────────────────────┼────────────────────────────┤
+ │ F2.3 │ Integrar riku gui como subcomando                          │ riku/src/cli.rs            │
+ └──────┴────────────────────────────────────────────────────────────┴────────────────────────────┘
+
+ ---
+ Verificación
+
+ Paso a paso para validar end-to-end:
+
+ 1. gdstk-rs compila standalone:
+ cd gdstk/rust && cargo build
+ cargo test
+ 1. Debe pasar los tests existentes + nuevos tests para from_bytes y xor_polygons.
+ 2. gds-renderer compila contra gdstk-rs publicado:
+ cd gds-renderer && cargo build
+ cargo test
+ 2. Test: abrir un GDS de fixtures, renderizar a SVG, verificar que el SVG es
+ válido (tiene <svg>, <polygon>, y colores esperados por PDK).
+ 3. riku compila con los dos nuevos crates:
+ cd riku && cargo build
+ cargo test
+ 4. Test de integración end-to-end:
+   - Repo git con 2 commits que difieren en un .gds pequeño (fixture)
+   - riku diff commit_a commit_b layout.gds --format=json
+   - Debe producir DriverDiffReport con file_type: "gds", cambios por
+ layer, y visual_a/visual_b apuntando a SVGs existentes.
+   - riku diff ... --format=visual → abre HTML en browser con los dos SVGs
+ lado a lado y las áreas XOR en rojo.
+ 5. Doctor check:
+ riku doctor
+ 5. Debe reportar GdsDriver: available=true (gdstk-rs compila sin deps externas ya que solo usa C++ vendored).
