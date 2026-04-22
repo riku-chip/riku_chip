@@ -877,20 +877,28 @@ fn run_shell(_repo: PathBuf) -> Result<(), String> {
                                 Ok(())
                             }
                             Some(Commands::Diff { commit_a, commit_b, file_path, repo: r, format }) => {
-                                let effective_repo = if r == PathBuf::from(".") { repo_path } else { r };
-                                let effective_file = if !file_path.contains('/') && !file_path.contains('\\') {
-                                    ctx.cwd.join(&file_path).to_string_lossy().to_string()
+                                let effective_repo = if r == PathBuf::from(".") { repo_path.clone() } else { r };
+                                let abs = if std::path::Path::new(&file_path).is_absolute() {
+                                    PathBuf::from(&file_path)
                                 } else {
-                                    file_path
+                                    ctx.cwd.join(&file_path)
                                 };
+                                let effective_file = abs.strip_prefix(&effective_repo)
+                                    .map(|rel| rel.to_string_lossy().to_string())
+                                    .unwrap_or_else(|_| abs.to_string_lossy().to_string());
                                 run_diff(effective_repo, &commit_a, &commit_b, &effective_file, format)
                             }
                             Some(Commands::Log { file_path, repo: r, limit, semantic }) => {
-                                let effective_repo = if r == PathBuf::from(".") { repo_path } else { r };
+                                let effective_repo = if r == PathBuf::from(".") { repo_path.clone() } else { r };
                                 let effective_file = file_path.map(|f| {
-                                    if !f.contains('/') && !f.contains('\\') {
-                                        ctx.cwd.join(&f).to_string_lossy().to_string()
-                                    } else { f }
+                                    let abs = if std::path::Path::new(&f).is_absolute() {
+                                        PathBuf::from(&f)
+                                    } else {
+                                        ctx.cwd.join(&f)
+                                    };
+                                    abs.strip_prefix(&effective_repo)
+                                        .map(|rel| rel.to_string_lossy().to_string())
+                                        .unwrap_or_else(|_| abs.to_string_lossy().to_string())
                                 });
                                 run_log(effective_repo, effective_file.as_deref(), limit, semantic)
                             }
