@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke};
+use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
 use xschem_viewer::ResolvedScene;
 use riku::core::models::{ChangeKind, DiffReport};
 
@@ -118,7 +118,7 @@ fn paint_element(
             if *filled {
                 painter.rect_filled(r, 0.0, color.gamma_multiply(0.3));
             }
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, color));
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, color), StrokeKind::Outside);
         }
         Circle { cx, cy, r, layer, .. } => {
             let center = world_to_screen(vp, rect, *cx, *cy);
@@ -172,7 +172,7 @@ fn paint_element(
             let pos = world_to_screen(vp, rect, *x, *y);
             let half = (10.0 * scale_f(vp)).max(4.0);
             let r = egui::Rect::from_center_size(pos, egui::vec2(half * 2.0, half * 2.0));
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_rgb(200, 80, 80)));
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_rgb(200, 80, 80)), StrokeKind::Outside);
             painter.text(
                 pos,
                 egui::Align2::CENTER_CENTER,
@@ -203,7 +203,7 @@ fn paint_diff_annotations(
             let max = world_to_screen(vp, rect, b.2, b.3);
             let r = egui::Rect::from_min_max(min, max).expand(4.0);
             painter.rect_filled(r, 2.0, fill);
-            painter.rect_stroke(r, 2.0, Stroke::new(1.5, stroke));
+            painter.rect_stroke(r, 2.0, Stroke::new(1.5, stroke), StrokeKind::Outside);
 
             // Etiqueta con el nombre
             painter.text(
