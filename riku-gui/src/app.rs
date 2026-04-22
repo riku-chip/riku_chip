@@ -101,6 +101,7 @@ impl RikuGuiApp {
 impl eframe::App for RikuGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let mut reload = false;
 
         // ── Top bar ───────────────────────────────────────────────────────────
         egui::Panel::top("top_bar").show_inside(ui, |ui| {
@@ -168,6 +169,9 @@ impl eframe::App for RikuGuiApp {
                         for s in &sch.scene.missing_symbols {
                             ui.small(s);
                         }
+                        if ui.button("Recargar").clicked() {
+                            reload = true;
+                        }
                     }
 
                     if let Some(diff) = &sch.diff {
@@ -227,6 +231,14 @@ impl eframe::App for RikuGuiApp {
                 });
             }
         });
+
+        if reload {
+            if let Some(path) = self.selected_path.clone() {
+                if let Err(e) = self.load_sch(&path) {
+                    self.error = Some(e);
+                }
+            }
+        }
     }
 }
 
