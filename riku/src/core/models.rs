@@ -67,6 +67,9 @@ pub struct Component {
     pub name: String,
     pub symbol: String,
     pub params: BTreeMap<String, String>,
+    /// Conectividad pin → net (vacío si no se pudo resolver).
+    /// Clave: nombre del pin (e.g. "DRAIN"), valor: nombre de net (e.g. "Vout").
+    pub pins: BTreeMap<String, String>,
     pub x: f64,
     pub y: f64,
     pub rotation: i32,

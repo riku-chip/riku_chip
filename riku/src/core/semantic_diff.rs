@@ -7,6 +7,7 @@ use crate::parsers::xschem::parse;
 
 /// Captura el estado completo de un componente como mapa plano.
 /// `include_coords` controla si se incluyen x/y/rotation/mirror.
+/// Los pins se incluyen siempre con prefijo `pin:` (e.g. `pin:DRAIN=Vout`).
 fn component_snapshot(
     component: &crate::core::models::Component,
     include_coords: bool,
@@ -22,10 +23,14 @@ fn component_snapshot(
     for (k, v) in &component.params {
         out.insert(k.clone(), v.clone());
     }
+    for (pin, net) in &component.pins {
+        out.insert(format!("pin:{pin}"), net.clone());
+    }
     out
 }
 
-/// Similitud entre dos componentes basada en parámetros semánticos (sin coords).
+/// Similitud entre dos componentes basada en parámetros semánticos (sin coords ni pins).
+/// Los pins se excluyen porque una reconexión no implica que sean componentes distintos.
 /// Retorna un valor entre 0.0 (nada en común) y 1.0 (idénticos).
 fn param_similarity(
     a: &crate::core::models::Component,
@@ -212,6 +217,7 @@ mod tests {
             name: name.to_string(),
             symbol: symbol.to_string(),
             params: params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            pins: BTreeMap::new(),
             x: 0.0, y: 0.0, rotation: 0, mirror: 0,
         }
     }

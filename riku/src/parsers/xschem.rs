@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::models::{Component, FileFormat, Schematic, Wire};
 use crate::core::ports::SchematicParser;
@@ -27,7 +27,16 @@ pub fn parse(content: &[u8]) -> Schematic {
         Err(_) => return Schematic::default(),
     };
 
-    let netlist = xschem_viewer::extract_netlist(&xv_sch);
+    let mut netlist = xschem_viewer::extract_netlist(&xv_sch);
+
+    // Resolver escena para obtener posiciones de pines en espacio mundo,
+    // luego hacer matching geométrico wire-endpoint → pin → net.
+    // Usamos SceneBuilder directamente para reutilizar el xv_sch ya parseado.
+    {
+        let opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
+        let scene = xschem_viewer::SceneBuilder::new(&opts).build(&xv_sch);
+        xschem_viewer::fill_connectivity(&mut netlist, &scene, &xv_sch);
+    }
 
     // Index components by name for O(1) lookup of position/rotation
     let comp_by_name: HashMap<&str, &xschem_viewer::models::Component> = xv_sch
@@ -43,12 +52,23 @@ pub fn parse(content: &[u8]) -> Schematic {
             .map(|c| (c.x, c.y, c.rotation, c.flip))
             .unwrap_or((0.0, 0.0, 0, 0));
 
+        // Recopilar conectividad pin → net de este componente
+        let pins: BTreeMap<String, String> = netlist.nets
+            .iter()
+            .flat_map(|(net_name, net)| {
+                net.pins.iter()
+                    .filter(|p| p.instance == *name)
+                    .map(move |p| (p.pin.clone(), net_name.clone()))
+            })
+            .collect();
+
         sch.components.insert(
             name.clone(),
             Component {
                 name: name.clone(),
                 symbol: inst.symbol.clone(),
                 params: inst.params.clone(),
+                pins,
                 x,
                 y,
                 rotation,
