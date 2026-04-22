@@ -2,7 +2,7 @@
 resolver = "3"
 members = [
     "gds-renderer",
-    "gdstk/rust",
+    # "gdstk/rust",  # pendiente: gdstk-rs no disponible aún
     "riku-gui",
 ]
 exclude = [
