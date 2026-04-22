@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, RichText};
 
-use crate::main::LaunchArgs;
+use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, paint_sch};
 
@@ -29,7 +29,7 @@ impl RikuGuiApp {
     pub fn new(_cc: &eframe::CreationContext<'_>, launch: LaunchArgs) -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-        let (project_root, selected_path) = match &launch.file {
+        let (project_root, selected_path): (PathBuf, Option<PathBuf>) = match &launch.file {
             Some(path) if path.is_file() => {
                 let root = path.parent().map(Path::to_path_buf).unwrap_or_else(|| cwd.clone());
                 (root, Some(path.clone()))

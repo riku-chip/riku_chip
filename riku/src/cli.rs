@@ -215,10 +215,13 @@ fn present_visual(
     file_path: &str,
 ) -> Result<(), String> {
     let repo_abs = repo.canonicalize().unwrap_or_else(|_| repo.clone());
-    let mut extra_args: Vec<std::ffi::OsString> = vec![
-        "--repo".into(),     repo_abs.into(),
-        "--commit-a".into(), commit_a.into(),
-        "--commit-b".into(), commit_b.into(),
+    let extra_args: Vec<std::ffi::OsString> = vec![
+        "--repo".into(),
+        repo_abs.into_os_string(),
+        "--commit-a".into(),
+        commit_a.into(),
+        "--commit-b".into(),
+        commit_b.into(),
         file_path.into(),
     ];
 
