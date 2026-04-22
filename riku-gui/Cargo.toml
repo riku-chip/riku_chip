@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 eframe = "0.34.1"
-gds-renderer = { path = "../gds-renderer" }
-gdstk-rs = { path = "../gdstk/rust" }
+# gds-renderer = { path = "../gds-renderer" }   # requiere gdstk-rs
+# gdstk-rs = { path = "../gdstk/rust" }          # no disponible aún
 xschem_viewer = { package = "xschem-viewer", git = "https://github.com/carloscl03/xschem-viewer-rust" }
 riku = { path = "../riku" }

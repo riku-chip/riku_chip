@@ -1,6 +1,5 @@
 mod app;
 mod project;
-mod scene_painter;
 mod sch_painter;
 
 use std::path::PathBuf;
