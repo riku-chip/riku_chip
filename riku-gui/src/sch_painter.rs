@@ -157,18 +157,80 @@ fn paint_element(
                 painter.add(Shape::line(pts, Stroke::new(1.0, color)));
             }
         }
-        Text { x, y, content, size, layer, .. } => {
+        Text { x, y, content, v_size, rotation, mirror, h_center, v_center, layer, .. } => {
             let pos = world_to_screen(vp, rect, *x, *y);
-            // xschem v_size is in abstract units (~0.4 typical); fontScale=50 matches JS viewer
-            let font_size = (size * 50.0 * vp.scale).clamp(6.0, 2000.0) as f32;
-            // xschem text anchor is top-left by default (baseline grows downward)
-            painter.text(
-                pos,
-                egui::Align2::LEFT_TOP,
-                content,
-                egui::FontId::monospace(font_size),
-                layer_color(*layer),
-            );
+            let font_size = (v_size * 50.0 * vp.scale).clamp(4.0, 2000.0) as f32;
+            let color = layer_color(*layer);
+            let font = egui::FontId::monospace(font_size);
+
+            // Replicar lógica JS: vMirror y hMirror determinan anchor y baseline
+            let v_mirror = *rotation == 1 || *rotation == 2;
+            let h_mirror = if *mirror == 1 { !v_mirror } else { v_mirror };
+
+            let h_align = if *h_center {
+                egui::Align::Center
+            } else if h_mirror {
+                egui::Align::RIGHT
+            } else {
+                egui::Align::LEFT
+            };
+
+            // Baseline: before-edge = TOP, after-edge = BOTTOM, middle = CENTER
+            let v_align = if *v_center {
+                egui::Align::Center
+            } else if v_mirror {
+                egui::Align::BOTTOM
+            } else {
+                egui::Align::TOP
+            };
+
+            let lines: Vec<&str> = content.lines().collect();
+            let n = lines.len();
+            for (i, line) in lines.iter().enumerate() {
+                let line_index = if v_mirror { n - 1 - i } else { i } as f64;
+                let line_offset = line_index * v_size * 50.0 * vp.scale;
+
+                // Aplicar rotación en coordenadas mundo antes de pasar a pantalla
+                let (dx, dy) = match rotation % 4 {
+                    0 => (0.0, line_offset),
+                    1 => (-line_offset, 0.0),
+                    2 => (0.0, -line_offset),
+                    3 => (line_offset, 0.0),
+                    _ => (0.0, line_offset),
+                };
+
+                let line_pos = world_to_screen(vp, rect, *x + dx / vp.scale, *y + dy / vp.scale);
+
+                // Rotar el texto usando galley transform
+                let galley = painter.layout_no_wrap(
+                    line.to_string(),
+                    font.clone(),
+                    color,
+                );
+                let angle = (*rotation as f32) * std::f32::consts::FRAC_PI_2;
+
+                // Calcular offset de anchor dentro del galley rotado
+                let gw = galley.size().x;
+                let gh = galley.size().y;
+                let anchor_x = match h_align {
+                    egui::Align::Center => -gw / 2.0,
+                    egui::Align::RIGHT  => -gw,
+                    _                   => 0.0,
+                };
+                let anchor_y = match v_align {
+                    egui::Align::Center => -gh / 2.0,
+                    egui::Align::BOTTOM => -gh,
+                    _                   => 0.0,
+                };
+
+                // Rotar el offset de anchor
+                let (cos_a, sin_a) = (angle.cos(), angle.sin());
+                let rot_ox = anchor_x * cos_a - anchor_y * sin_a;
+                let rot_oy = anchor_x * sin_a + anchor_y * cos_a;
+
+                let text_pos = line_pos + egui::vec2(rot_ox, rot_oy);
+                painter.add(egui::epaint::TextShape::new(text_pos, galley, color).with_angle(angle));
+            }
         }
         MissingSymbol { x, y, name, .. } => {
             let pos = world_to_screen(vp, rect, *x, *y);
