@@ -159,7 +159,7 @@ fn paint_element(
         }
         Text { x, y, content, size, layer, .. } => {
             let pos = world_to_screen(vp, rect, *x, *y);
-            let font_size = (size * vp.scale).clamp(8.0, 24.0) as f32;
+            let font_size = (size * vp.scale).clamp(6.0, 500.0) as f32;
             // xschem text anchor is top-left by default (baseline grows downward)
             painter.text(
                 pos,
