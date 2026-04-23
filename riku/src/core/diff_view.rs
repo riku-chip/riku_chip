@@ -149,6 +149,7 @@ pub fn driver_report_to_diff_report(
                 name: c.element.clone(),
                 kind: c.kind.clone(),
                 cosmetic: c.cosmetic,
+                position_changed: false,
                 before: c.before.clone(),
                 after: c.after.clone(),
             })
