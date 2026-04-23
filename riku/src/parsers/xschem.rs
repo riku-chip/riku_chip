@@ -52,8 +52,11 @@ pub fn parse(content: &[u8]) -> Schematic {
     let mut sch = Schematic::default();
 
     for (name, inst) in &netlist.instances {
-        let (x, y, rotation, mirror) = comp_by_name
-            .get(name.as_str())
+        let found = comp_by_name.get(name.as_str());
+        if found.is_none() {
+            eprintln!("[riku/xschem] WARNING: no coords found for '{}' — keys: {:?}", name, comp_by_name.keys().collect::<Vec<_>>());
+        }
+        let (x, y, rotation, mirror) = found
             .map(|c| (c.x, c.y, c.rotation, c.flip))
             .unwrap_or((0.0, 0.0, 0, 0));
 
