@@ -97,6 +97,9 @@ pub struct ComponentDiff {
     pub name: String,
     pub kind: ChangeKind,
     pub cosmetic: bool,
+    /// true si la posición/rotación/mirror también cambió, independientemente de si hubo cambio semántico
+    #[serde(default)]
+    pub position_changed: bool,
     pub before: Option<BTreeMap<String, String>>,
     pub after: Option<BTreeMap<String, String>>,
 }

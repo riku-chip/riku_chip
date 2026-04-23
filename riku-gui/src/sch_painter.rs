@@ -268,8 +268,8 @@ fn paint_ghosts(
     let ghost = Color32::from_rgba_unmultiplied(75, 75, 85, 180);
 
     for comp in &report.components {
-        // Solo componentes que cambiaron de posición (cosmetic) o fueron eliminados
-        let show = comp.cosmetic || matches!(comp.kind, riku::core::models::ChangeKind::Removed);
+        // Mostrar fantasma si la posición cambió o el componente fue eliminado
+        let show = comp.position_changed || matches!(comp.kind, riku::core::models::ChangeKind::Removed);
         if !show { continue; }
 
         let lookup = comp.name.split(" → ").next().unwrap_or(&comp.name);

@@ -123,10 +123,13 @@ pub fn diff(content_a: &[u8], content_b: &[u8]) -> DiffReport {
         let mut after = component_snapshot(cb, false);
         before.insert("name".to_string(), name_a.clone());
         after.insert("name".to_string(), name_b.clone());
+        let coords_changed_rename =
+            (ca.x, ca.y, ca.rotation, ca.mirror) != (cb.x, cb.y, cb.rotation, cb.mirror);
         report.components.push(ComponentDiff {
             name: format!("{name_a} → {name_b}"),
             kind: ChangeKind::Modified,
             cosmetic: false,
+            position_changed: coords_changed_rename,
             before: Some(before),
             after: Some(after),
         });
@@ -139,6 +142,7 @@ pub fn diff(content_a: &[u8], content_b: &[u8]) -> DiffReport {
                 name: name.clone(),
                 kind: ChangeKind::Removed,
                 cosmetic: false,
+                position_changed: false,
                 before: Some(component_snapshot(c, false)),
                 after: None,
             });
@@ -152,6 +156,7 @@ pub fn diff(content_a: &[u8], content_b: &[u8]) -> DiffReport {
                 name: name.clone(),
                 kind: ChangeKind::Added,
                 cosmetic: false,
+                position_changed: false,
                 before: None,
                 after: Some(component_snapshot(c, false)),
             });
@@ -175,6 +180,7 @@ pub fn diff(content_a: &[u8], content_b: &[u8]) -> DiffReport {
                 name: name.clone(),
                 kind: ChangeKind::Modified,
                 cosmetic: false,
+                position_changed: coords_changed,
                 before: Some(component_snapshot(ca, false)),
                 after: Some(component_snapshot(cb, false)),
             });
@@ -184,6 +190,7 @@ pub fn diff(content_a: &[u8], content_b: &[u8]) -> DiffReport {
                 name: name.clone(),
                 kind: ChangeKind::Modified,
                 cosmetic: true,
+                position_changed: true,
                 before: Some(component_snapshot(ca, true)),
                 after: Some(component_snapshot(cb, true)),
             });
