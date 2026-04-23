@@ -54,14 +54,8 @@ pub fn parse(content: &[u8]) -> Schematic {
     for (name, inst) in &netlist.instances {
         let found = comp_by_name.get(name.as_str());
         let (x, y, rotation, mirror) = found
-            .map(|c| {
-                eprintln!("[riku/xschem] '{}' coords: x={} y={} rot={} flip={}", name, c.x, c.y, c.rotation, c.flip);
-                (c.x, c.y, c.rotation, c.flip)
-            })
-            .unwrap_or_else(|| {
-                eprintln!("[riku/xschem] WARNING: no coords for '{}' — keys: {:?}", name, comp_by_name.keys().collect::<Vec<_>>());
-                (0.0, 0.0, 0, 0)
-            });
+            .map(|c| (c.x, c.y, c.rotation, c.flip))
+            .unwrap_or((0.0, 0.0, 0, 0));
 
         // Recopilar conectividad pin → net de este componente
         let pins: BTreeMap<String, String> = netlist.nets

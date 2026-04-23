@@ -89,6 +89,7 @@ impl RikuDriver for XschemDriver {
                 before: component.before,
                 after: component.after,
                 cosmetic: component.cosmetic,
+                position_changed: component.position_changed,
             });
         }
 
@@ -99,6 +100,7 @@ impl RikuDriver for XschemDriver {
                 before: None,
                 after: None,
                 cosmetic: false,
+                position_changed: false,
             });
         }
 
@@ -109,6 +111,7 @@ impl RikuDriver for XschemDriver {
                 before: None,
                 after: None,
                 cosmetic: false,
+                position_changed: false,
             });
         }
 
@@ -126,6 +129,7 @@ impl RikuDriver for XschemDriver {
                     .collect(),
                 ),
                 cosmetic: true,
+                position_changed: false,
             });
         }
 

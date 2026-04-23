@@ -14,6 +14,8 @@ pub struct DiffEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<BTreeMap<String, String>>,
     pub cosmetic: bool,
+    #[serde(default)]
+    pub position_changed: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -149,7 +149,7 @@ pub fn driver_report_to_diff_report(
                 name: c.element.clone(),
                 kind: c.kind.clone(),
                 cosmetic: c.cosmetic,
-                position_changed: false,
+                position_changed: c.position_changed,
                 before: c.before.clone(),
                 after: c.after.clone(),
             })
@@ -199,6 +199,7 @@ mod tests {
                 before: None,
                 after: Some([("value".to_string(), "10k".to_string())].into()),
                 cosmetic: false,
+                position_changed: false,
             },
             DiffEntry {
                 kind: ChangeKind::Added,
@@ -206,6 +207,7 @@ mod tests {
                 before: None,
                 after: None,
                 cosmetic: false,
+                position_changed: false,
             },
             DiffEntry {
                 kind: ChangeKind::Modified,
@@ -213,6 +215,7 @@ mod tests {
                 before: None,
                 after: None,
                 cosmetic: true,
+                position_changed: false,
             },
         ]);
 
@@ -226,9 +229,9 @@ mod tests {
     #[test]
     fn summarize_ignora_cosmeticos() {
         let report = make_report(vec![
-            DiffEntry { kind: ChangeKind::Added, element: "R1".to_string(), before: None, after: None, cosmetic: true },
-            DiffEntry { kind: ChangeKind::Removed, element: "C1".to_string(), before: None, after: None, cosmetic: false },
-            DiffEntry { kind: ChangeKind::Modified, element: "M1".to_string(), before: None, after: None, cosmetic: false },
+            DiffEntry { kind: ChangeKind::Added, element: "R1".to_string(), before: None, after: None, cosmetic: true, position_changed: false },
+            DiffEntry { kind: ChangeKind::Removed, element: "C1".to_string(), before: None, after: None, cosmetic: false, position_changed: false },
+            DiffEntry { kind: ChangeKind::Modified, element: "M1".to_string(), before: None, after: None, cosmetic: false, position_changed: false },
         ]);
         assert_eq!(summarize_changes(&report.changes), (0, 1, 1));
     }
