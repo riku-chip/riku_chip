@@ -8,12 +8,22 @@ use crate::sch_painter::{SchViewport, paint_sch};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DiffTab {
+    Before,
+    After,
+    Diff,
+}
+
 struct SchState {
+    /// Escena del commit B (estado posterior / archivo actual)
     scene: xschem_viewer::ResolvedScene,
-    /// Escena del commit A para mostrar fantasmas de componentes movidos/eliminados
+    /// Escena del commit A (estado anterior) — solo en modo diff
     scene_a: Option<xschem_viewer::ResolvedScene>,
     viewport: SchViewport,
     diff: Option<riku::core::models::DiffReport>,
+    /// Tab activo (solo relevante en modo diff)
+    tab: DiffTab,
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -113,7 +123,7 @@ impl RikuGuiApp {
         let mut viewport = SchViewport::default();
         let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
         viewport.fit_to(&scene, dummy);
-        self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None });
+        self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None, tab: DiffTab::After });
         Ok(())
     }
 
@@ -142,7 +152,7 @@ impl RikuGuiApp {
         viewport.fit_to(&scene, dummy);
 
         self.selected_path = Some(file.to_path_buf());
-        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report) });
+        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report), tab: DiffTab::Diff });
         Ok(())
     }
 }
@@ -233,6 +243,16 @@ impl eframe::App for RikuGuiApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             if let Some(sch) = &mut self.sch {
+                // Tabs solo si hay diff cargado
+                if sch.diff.is_some() && sch.scene_a.is_some() {
+                    ui.horizontal(|ui| {
+                        tab_button(ui, &mut sch.tab, DiffTab::Before, "Before");
+                        tab_button(ui, &mut sch.tab, DiffTab::After, "After");
+                        tab_button(ui, &mut sch.tab, DiffTab::Diff, "Diff");
+                    });
+                    ui.separator();
+                }
+
                 let available = ui.available_size_before_wrap();
                 let response = ui.allocate_response(available, egui::Sense::drag());
 
@@ -250,7 +270,27 @@ impl eframe::App for RikuGuiApp {
                 }
 
                 ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                    paint_sch(ui, &sch.scene, sch.scene_a.as_ref(), &sch.viewport, sch.diff.as_ref());
+                    // Determinar qué se pinta según el tab activo
+                    let in_diff_mode = sch.diff.is_some() && sch.scene_a.is_some();
+                    if in_diff_mode {
+                        match sch.tab {
+                            DiffTab::Before => {
+                                // Solo commit A, sin anotaciones ni fantasmas
+                                if let Some(scene_a) = sch.scene_a.as_ref() {
+                                    paint_sch(ui, scene_a, None, &sch.viewport, None);
+                                }
+                            }
+                            DiffTab::After => {
+                                // Solo commit B, sin anotaciones ni fantasmas
+                                paint_sch(ui, &sch.scene, None, &sch.viewport, None);
+                            }
+                            DiffTab::Diff => {
+                                paint_sch(ui, &sch.scene, sch.scene_a.as_ref(), &sch.viewport, sch.diff.as_ref());
+                            }
+                        }
+                    } else {
+                        paint_sch(ui, &sch.scene, None, &sch.viewport, None);
+                    }
                 });
             } else {
                 ui.centered_and_justified(|ui| {
@@ -299,6 +339,20 @@ fn is_sch_renderable(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("sch"))
         .unwrap_or(false)
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+
+fn tab_button(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label: &str) {
+    let selected = *current == this;
+    let text = if selected {
+        RichText::new(label).strong().color(egui::Color32::from_rgb(0, 190, 255))
+    } else {
+        RichText::new(label).color(egui::Color32::from_gray(180))
+    };
+    if ui.selectable_label(selected, text).clicked() {
+        *current = this;
+    }
 }
 
 // ─── Panel de cambios ─────────────────────────────────────────────────────────
