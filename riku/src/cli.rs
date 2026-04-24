@@ -6,7 +6,6 @@ use serde_json::json;
 
 use crate::adapters::xschem_driver::XschemDriver;
 use crate::core::diff_view::{summarize_changes, DiffView};
-use crate::core::driver::RikuDriver;
 use crate::core::git_service::GitService;
 use crate::core::models::ChangeKind;
 use crate::core::ports::GitRepository;
