@@ -2,6 +2,7 @@ mod app;
 mod launch;
 mod project;
 mod sch_painter;
+mod scene_painter;
 
 fn main() -> Result<(), eframe::Error> {
     let launch = launch::parse_args();

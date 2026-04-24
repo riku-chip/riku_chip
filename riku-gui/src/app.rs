@@ -1,10 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use eframe::egui::{self, RichText};
+use poll_promise::Promise;
+use tokio::runtime::Runtime;
+use viewer_core::{
+    backend::ViewerBackend, bbox::BoundingBox as VcBBox, scene::SceneHandle,
+    viewport::Viewport as VcViewport, CancellationToken,
+};
 
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
+use crate::scene_painter::paint_scene;
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -36,6 +44,15 @@ struct DiffContext {
     file: PathBuf,
 }
 
+/// Estado de una carga genérica via `ViewerBackend` (GDS o cualquier formato
+/// futuro). Convive con `SchState` — el path rico se conserva intacto para
+/// schematics Xschem con features especiales (diff, fantasmas, pins).
+struct BackendState {
+    scene: SceneHandle,
+    viewport: VcViewport,
+    backend_name: &'static str,
+}
+
 pub struct RikuGuiApp {
     project_root: PathBuf,
     project_tree: ProjectEntry,
@@ -44,6 +61,18 @@ pub struct RikuGuiApp {
     diff_ctx: Option<DiffContext>,
     status: String,
     error: Option<String>,
+
+    // ─── Nivel 2: ruta async via ViewerBackend ──────────────────────────────
+    /// Runtime Tokio compartido. Se queda vivo mientras la app vive.
+    runtime: Arc<Runtime>,
+    /// Backends registrados. El primero que responda `accepts()` gana.
+    backends: Vec<Arc<dyn ViewerBackend>>,
+    /// Escena actual cargada via backend (path neutro).
+    backend_state: Option<BackendState>,
+    /// Carga async en vuelo (solo una — al llegar una nueva se cancela).
+    pending_load: Option<Promise<Result<BackendState, String>>>,
+    /// Token de cancelación de la carga en vuelo.
+    pending_token: Option<CancellationToken>,
 }
 
 impl RikuGuiApp {
@@ -79,6 +108,22 @@ impl RikuGuiApp {
         };
 
         let project_tree = ProjectEntry::build(&project_root);
+
+        // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
+        // scheduler principal. Dos workers son suficientes para una GUI.
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        let runtime = Arc::new(runtime);
+
+        // Registry de backends. XschemBackend siempre presente; otros se
+        // agregarán cuando los crates estén disponibles (gds-renderer, ...).
+        let backends: Vec<Arc<dyn ViewerBackend>> = vec![
+            Arc::new(xschem_viewer::XschemBackend::new()),
+        ];
+
         let mut app = Self {
             project_root,
             project_tree,
@@ -87,6 +132,11 @@ impl RikuGuiApp {
             diff_ctx: None,
             status: String::from("Ready"),
             error: None,
+            runtime,
+            backends,
+            backend_state: None,
+            pending_load: None,
+            pending_token: None,
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -122,15 +172,84 @@ impl RikuGuiApp {
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
         self.sch = None;
+        self.backend_state = None;
 
+        // .sch sigue por la ruta rica (diff semántico, fantasmas, etc.)
         if is_sch_renderable(path) {
             match self.load_sch(path) {
                 Ok(()) => self.status = format!("Loaded {}", path.display()),
                 Err(e) => { self.error = Some(e.clone()); self.status = "Error".to_string(); }
             }
+            return;
+        }
+
+        // Fallback: intentar con algún backend registrado (ruta neutra async).
+        if self.load_via_backend(path) {
+            self.status = format!("Cargando {} …", path.display());
         } else {
             self.status = format!("{} — formato no soportado aún", path.display());
         }
+    }
+
+    /// Intenta cargar `path` via alguno de los backends registrados.
+    /// Retorna `true` si algún backend aceptó el archivo (la carga queda en vuelo).
+    fn load_via_backend(&mut self, path: &Path) -> bool {
+        let content = match std::fs::read(path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.error = Some(format!("read: {e}"));
+                return false;
+            }
+        };
+        let path_str = path.to_string_lossy().to_string();
+
+        let backend = self.backends.iter()
+            .find(|b| b.accepts(&content, Some(&path_str)))
+            .cloned();
+        let Some(backend) = backend else { return false };
+
+        // Cancelar carga previa si había.
+        if let Some(tok) = self.pending_token.take() {
+            tok.cancel();
+        }
+        let token = CancellationToken::new();
+        self.pending_token = Some(token.clone());
+
+        let backend_name = backend.info().name;
+        let _guard = self.runtime.enter();
+        let fut = async move {
+            backend.load(content, Some(path_str), token).await
+                .map(|scene| BackendState {
+                    scene,
+                    viewport: VcViewport::default(),
+                    backend_name,
+                })
+                .map_err(|e| e.to_string())
+        };
+        self.pending_load = Some(Promise::spawn_async(fut));
+        true
+    }
+
+    /// Drenar el promise si está listo. Se llama desde `ui()`.
+    fn poll_pending_load(&mut self) {
+        let ready = self.pending_load.as_ref().and_then(|p| p.ready()).is_some();
+        if !ready { return; }
+        let Some(promise) = self.pending_load.take() else { return };
+        match promise.block_and_take() {
+            Ok(state) => {
+                self.status = format!("Loaded via {}", state.backend_name);
+                self.backend_state = Some(state);
+            }
+            Err(e) => {
+                // Ignoramos errores de cancelación — vienen de nosotros mismos
+                // al abrir otro archivo antes de que terminara la carga previa.
+                if !e.contains("cancelled") {
+                    self.error = Some(e);
+                    self.status = "Error".to_string();
+                }
+            }
+        }
+        self.pending_token = None;
     }
 
     fn load_sch(&mut self, path: &Path) -> Result<(), String> {
@@ -177,6 +296,13 @@ impl eframe::App for RikuGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reload = false;
+
+        // Drenar carga async antes de pintar; si sigue en vuelo, solicitar
+        // repaint para que el promise se consulte en el siguiente frame.
+        self.poll_pending_load();
+        if self.pending_load.is_some() {
+            ctx.request_repaint();
+        }
 
         egui::Panel::top("top_bar").show_inside(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -274,6 +400,37 @@ impl eframe::App for RikuGuiApp {
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            // Path neutro: escena cargada via ViewerBackend.
+            if self.sch.is_none() {
+                if let Some(bs) = &mut self.backend_state {
+                    let available = ui.available_size_before_wrap();
+                    let response = ui.allocate_response(available, egui::Sense::drag());
+                    if response.dragged() {
+                        let delta = response.drag_delta();
+                        bs.viewport.pan_by_screen(delta.x as f64, delta.y as f64);
+                        ctx.request_repaint();
+                    }
+                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
+                    if scroll.abs() > f64::EPSILON && response.hovered() {
+                        let (cx, cy) = (response.rect.center().x as f64, response.rect.center().y as f64);
+                        bs.viewport.zoom_at(1.0 + scroll * 0.002, cx, cy);
+                        ctx.request_repaint();
+                    }
+                    // Auto-fit la primera vez que se pinta.
+                    if bs.viewport.scale == 1.0 && bs.viewport.pan_x == 0.0 && bs.viewport.pan_y == 0.0 {
+                        bs.viewport.fit_to(
+                            &bs.scene.bbox(),
+                            response.rect.width() as f64,
+                            response.rect.height() as f64,
+                        );
+                    }
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
+                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport);
+                    });
+                    return;
+                }
+            }
+
             if let Some(sch) = &mut self.sch {
                 let available = ui.available_size_before_wrap();
                 let response = ui.allocate_response(available, egui::Sense::drag());
@@ -316,7 +473,11 @@ impl eframe::App for RikuGuiApp {
                 });
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label("Selecciona un archivo .sch del árbol de proyecto.");
+                    if self.pending_load.is_some() {
+                        ui.label("Cargando…");
+                    } else {
+                        ui.label("Selecciona un archivo del árbol de proyecto.");
+                    }
                 });
             }
         });

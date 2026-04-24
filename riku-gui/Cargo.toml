@@ -10,5 +10,10 @@ publish = false
 eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland"] }
 # gds-renderer = { path = "../gds-renderer" }   # requiere gdstk-rs
 # gdstk-rs = { path = "../gdstk/rust" }          # no disponible aún
-xschem_viewer = { package = "xschem-viewer", git = "https://github.com/carloscl03/xschem-viewer-rust" }
+# Branch temporal mientras viewer-core-wip no esté mergeado en el repo
+# de xschem-viewer. Al mergear a main, volver a quitar `branch`.
+xschem_viewer = { package = "xschem-viewer", git = "https://github.com/carloscl03/xschem-viewer-rust", branch = "viewer-core-wip", features = ["viewer-core-compat"] }
 riku = { path = "../riku" }
+viewer-core = { path = "../viewer-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+poll-promise = { version = "0.3", features = ["tokio"] }
