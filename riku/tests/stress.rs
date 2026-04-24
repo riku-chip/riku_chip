@@ -140,7 +140,7 @@ fn throughput_100_parse_and_diff() {
     for _ in 0..N {
         let sch_a = parse(&base);
         let sch_b = parse(&modified);
-        let report = semantic_diff(&base, &modified);
+        let report = semantic_diff_inner(&sch_a, &sch_b);
         // Validar que el diff es coherente
         assert!(
             !report.components.is_empty()
