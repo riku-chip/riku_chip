@@ -1,12 +1,21 @@
-use std::fs;
 use std::path::PathBuf;
 
-use dirs::cache_dir;
-use sha2::{Digest, Sha256};
-
 use crate::core::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
-use crate::core::models::{ChangeKind, DriverKind, FileFormat};
-use crate::parsers::xschem::{detect_format, parse};
+use crate::core::format::detect_format;
+use crate::core::models::{ChangeKind, DriverKind, FileFormat, Schematic};
+use crate::core::svg_cache;
+
+/// Parsea un .sch a su vista semántica usando las opciones por defecto de
+/// riku (tema dark + símbolos de `.xschemrc`). Expuesto como helper para
+/// que los consumidores no tengan que duplicar esta configuración.
+pub fn parse(content: &[u8]) -> Schematic {
+    let text = match std::str::from_utf8(content) {
+        Ok(s) => s,
+        Err(_) => return Schematic::default(),
+    };
+    let opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
+    xschem_viewer::semantic::parse_semantic(text, &opts)
+}
 
 pub struct XschemDriver {
     cached_info: std::sync::OnceLock<DriverInfo>,
@@ -17,13 +26,6 @@ impl XschemDriver {
         Self {
             cached_info: std::sync::OnceLock::new(),
         }
-    }
-
-    fn cache_dir() -> PathBuf {
-        cache_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("riku")
-            .join("ops")
     }
 }
 
@@ -143,36 +145,15 @@ impl RikuDriver for XschemDriver {
 
     fn render(&self, content: &[u8], _path_hint: &str) -> Option<PathBuf> {
         let text = std::str::from_utf8(content).ok()?;
-
-        let key = {
-            let digest = Sha256::digest(content);
-            digest
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        };
-
-        let cached = Self::cache_dir().join(&key).join("render.svg");
-        if cached.exists() {
-            return Some(cached);
-        }
-
-        let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
-
-        if let (Ok(root), Ok(pdk)) = (std::env::var("PDK_ROOT"), std::env::var("PDK")) {
-            let pdk_path = std::path::Path::new(&root)
-                .join(pdk)
-                .join("libs.tech/xschem");
-            if pdk_path.exists() {
-                opts = opts.with_sym_path(pdk_path.to_string_lossy().to_string());
+        svg_cache::get_or_render(content, || {
+            let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
+            if let (Ok(root), Ok(pdk)) = (std::env::var("PDK_ROOT"), std::env::var("PDK")) {
+                let pdk_path = std::path::Path::new(&root).join(pdk).join("libs.tech/xschem");
+                if pdk_path.exists() {
+                    opts = opts.with_sym_path(pdk_path.to_string_lossy().to_string());
+                }
             }
-        }
-
-        let result = xschem_viewer::Renderer::new(opts).render(text).ok()?;
-
-        fs::create_dir_all(cached.parent()?).ok()?;
-        fs::write(&cached, &result.svg).ok()?;
-
-        Some(cached)
+            xschem_viewer::Renderer::new(opts).render(text).ok().map(|r| r.svg)
+        })
     }
 }

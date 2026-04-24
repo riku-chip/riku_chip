@@ -1,46 +1,28 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
-use xschem_viewer::ResolvedScene;
+use xschem_viewer::{ResolvedScene, Viewport};
 use riku::core::models::{ChangeKind, DiffReport};
 
-// ─── Viewport ────────────────────────────────────────────────────────────────
+/// Re-export local para que el resto del crate siga usando el nombre
+/// familiar (`SchViewport`) sin tocar cada llamada.
+pub type SchViewport = Viewport;
 
-#[derive(Clone)]
-pub struct SchViewport {
-    pub pan_x: f64,
-    pub pan_y: f64,
-    pub scale: f64,
+// ─── Helpers específicos a egui ──────────────────────────────────────────────
+
+/// Ajusta el viewport al bbox de la escena usando las dimensiones del Rect de egui.
+pub fn fit_viewport_to_scene(vp: &mut SchViewport, scene: &ResolvedScene, rect: Rect) {
+    vp.fit_to(&scene.bbox, rect.width() as f64, rect.height() as f64);
 }
-
-impl Default for SchViewport {
-    fn default() -> Self {
-        Self { pan_x: 0.0, pan_y: 0.0, scale: 1.0 }
-    }
-}
-
-impl SchViewport {
-    pub fn fit_to(&mut self, scene: &ResolvedScene, rect: Rect) {
-        let bbox = &scene.bbox;
-        if bbox.is_empty() { return; }
-        let w = bbox.width().max(1.0);
-        let h = bbox.height().max(1.0);
-        let scale_x = rect.width() as f64 / w;
-        let scale_y = rect.height() as f64 / h;
-        self.scale = (scale_x.min(scale_y) * 0.9).max(0.001);
-        self.pan_x = bbox.min_x + w / 2.0;
-        self.pan_y = bbox.min_y + h / 2.0;
-    }
-}
-
-// ─── Coordinate transform ─────────────────────────────────────────────────────
 
 fn world_to_screen(vp: &SchViewport, rect: Rect, wx: f64, wy: f64) -> Pos2 {
-    let cx = rect.center().x as f64;
-    let cy = rect.center().y as f64;
-    let sx = cx + (wx - vp.pan_x) * vp.scale;
-    // Y invertido: xschem crece hacia abajo, egui también — pero el origin xschem
-    // puede estar negativo, así que simplemente escalamos sin invertir.
-    let sy = cy + (wy - vp.pan_y) * vp.scale;
-    Pos2::new(sx as f32, sy as f32)
+    // Conversión al tipo nativo de egui (Pos2) usando la transformación
+    // neutral de la librería + el offset del rect.
+    let (dx, dy) = xschem_viewer::world_to_screen(
+        vp,
+        rect.width() as f64,
+        rect.height() as f64,
+        wx, wy,
+    );
+    Pos2::new(rect.min.x + dx, rect.min.y + dy)
 }
 
 fn scale_f(vp: &SchViewport) -> f32 {

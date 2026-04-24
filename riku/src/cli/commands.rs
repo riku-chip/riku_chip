@@ -30,7 +30,7 @@ pub(super) fn run_diff(
 ) -> Result<(), String> {
     let driver = XschemDriver::new();
     let view = DiffView::from_commits(&repo, commit_a, commit_b, file_path, &driver, |b| {
-        crate::parsers::xschem::parse(b)
+        crate::adapters::xschem_driver::parse(b)
     })
     .map_err(|e| e.to_string())?;
 

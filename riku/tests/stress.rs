@@ -16,8 +16,15 @@ use git2::{Repository, Signature};
 use riku::core::git_service::GitService;
 use riku::core::models::FileFormat;
 use riku::core::ports::GitRepository;
-use riku::core::semantic_diff::diff as semantic_diff;
-use riku::parsers::xschem::{detect_format, parse};
+use riku::adapters::xschem_driver::parse;
+use riku::core::format::detect_format;
+use xschem_viewer::semantic::diff as semantic_diff_inner;
+
+/// Shim local: antes `semantic_diff` tomaba bytes. Ahora la librería exige
+/// schematics parseados — este helper preserva la ergonomía de los tests.
+fn semantic_diff(a: &[u8], b: &[u8]) -> xschem_viewer::semantic::DiffReport {
+    semantic_diff_inner(&parse(a), &parse(b))
+}
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

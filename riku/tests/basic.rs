@@ -7,8 +7,9 @@ use serde_json::json;
 use riku::core::git_service::{GitError, GitService, LARGE_BLOB_THRESHOLD};
 use riku::core::models::{ChangeKind, FileFormat};
 use riku::core::ports::GitRepository;
-use riku::core::semantic_diff::diff;
-use riku::parsers::xschem::{detect_format, parse};
+use riku::adapters::xschem_driver::parse;
+use riku::core::format::detect_format;
+use xschem_viewer::semantic::diff;
 
 fn commit_file(repo: &Repository, rel_path: &str, content: &str, message: &str) -> git2::Oid {
     let workdir = repo.workdir().expect("workdir");
@@ -118,7 +119,7 @@ C {res.sym} 15 25 0 0 {name=R1 value=10k}
 C {cap.sym} 35 45 0 0 {name=C1 value=1p}
 "#;
 
-    let report = diff(a, b);
+    let report = diff(&parse(a), &parse(b));
     assert!(report.is_move_all);
     assert_eq!(report.components.len(), 2);
     assert!(report.components.iter().all(|c| c.cosmetic));
@@ -138,7 +139,7 @@ C {ind.sym} 70 80 0 0 {name=L1 value=2u}
 N 0 0 10 0 {lab=NET2}
 "#;
 
-    let report = diff(a, b);
+    let report = diff(&parse(a), &parse(b));
     let added = report
         .components
         .iter()

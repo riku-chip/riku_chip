@@ -4,7 +4,7 @@ use eframe::egui::{self, RichText};
 
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
-use crate::sch_painter::{SchViewport, paint_sch};
+use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ impl RikuGuiApp {
         let scene = build_scene(&content)?;
         let mut viewport = SchViewport::default();
         let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        viewport.fit_to(&scene, dummy);
+        fit_viewport_to_scene(&mut viewport, &scene, dummy);
         self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None, tab: DiffTab::After });
         Ok(())
     }
@@ -146,7 +146,7 @@ impl RikuGuiApp {
     fn load_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path) -> Result<(), String> {
         use riku::adapters::xschem_driver::XschemDriver;
         use riku::core::diff_view::DiffView;
-        use riku::parsers::xschem::parse;
+        use riku::adapters::xschem_driver::parse;
 
         let file_str = file.to_string_lossy();
         let driver = XschemDriver::new();
@@ -165,7 +165,7 @@ impl RikuGuiApp {
 
         let mut viewport = SchViewport::default();
         let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        viewport.fit_to(&scene, dummy);
+        fit_viewport_to_scene(&mut viewport, &scene, dummy);
 
         self.selected_path = Some(file.to_path_buf());
         self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report), tab: DiffTab::Diff });
@@ -192,7 +192,7 @@ impl eframe::App for RikuGuiApp {
                     ui.separator();
                     if ui.button("Fit").clicked() {
                         let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-                        sch.viewport.fit_to(&sch.scene, dummy);
+                        fit_viewport_to_scene(&mut sch.viewport, &sch.scene, dummy);
                     }
                     let mut scale = sch.viewport.scale as f32;
                     if ui.add(egui::Slider::new(&mut scale, 0.1..=20.0).text("Zoom")).changed() {
