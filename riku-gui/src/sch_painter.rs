@@ -88,9 +88,10 @@ pub fn paint_sch(
         return;
     }
 
-    // ── Fantasmas del commit A (componentes movidos/eliminados) ───────────────
+    // ── Fantasmas del commit A (componentes movidos/eliminados y wires desaparecidos) ─
     if let (Some(a), Some(report)) = (scene_a, diff) {
         paint_ghosts(&painter, vp, rect, a, report);
+        paint_wire_ghosts(&painter, vp, rect, a, scene);
     }
 
     // ── Primitivos del schematic actual (commit B) ────────────────────────────
@@ -165,78 +166,7 @@ fn paint_element(
             }
         }
         Text { x, y, content, v_size, rotation, mirror, h_center, v_center, layer, .. } => {
-            let font_size = (v_size * 50.0 * vp.scale).clamp(4.0, 2000.0) as f32;
-            let color = layer_color(*layer);
-            let font = egui::FontId::monospace(font_size);
-
-            // Replicar lógica JS: vMirror y hMirror determinan anchor y baseline
-            let v_mirror = *rotation == 1 || *rotation == 2;
-            let h_mirror = if *mirror == 1 { !v_mirror } else { v_mirror };
-
-            let h_align = if *h_center {
-                egui::Align::Center
-            } else if h_mirror {
-                egui::Align::RIGHT
-            } else {
-                egui::Align::LEFT
-            };
-
-            // Baseline: before-edge = TOP, after-edge = BOTTOM, middle = CENTER
-            let v_align = if *v_center {
-                egui::Align::Center
-            } else if v_mirror {
-                egui::Align::BOTTOM
-            } else {
-                egui::Align::TOP
-            };
-
-            let lines: Vec<&str> = content.lines().collect();
-            let n = lines.len();
-            for (i, line) in lines.iter().enumerate() {
-                let line_index = if v_mirror { n - 1 - i } else { i } as f64;
-                let line_offset = line_index * v_size * 50.0 * vp.scale;
-
-                // Aplicar rotación en coordenadas mundo antes de pasar a pantalla
-                let (dx, dy) = match rotation % 4 {
-                    0 => (0.0, line_offset),
-                    1 => (-line_offset, 0.0),
-                    2 => (0.0, -line_offset),
-                    3 => (line_offset, 0.0),
-                    _ => (0.0, line_offset),
-                };
-
-                let line_pos = world_to_screen(vp, rect, *x + dx / vp.scale, *y + dy / vp.scale);
-
-                // Rotar el texto usando galley transform
-                let galley = painter.layout_no_wrap(
-                    line.to_string(),
-                    font.clone(),
-                    color,
-                );
-                let angle = (*rotation as f32) * std::f32::consts::FRAC_PI_2;
-
-                // Calcular offset de anchor dentro del galley rotado
-                let gw = galley.size().x;
-                let gh = galley.size().y;
-                let anchor_x = match h_align {
-                    egui::Align::Center => -gw / 2.0,
-                    egui::Align::RIGHT  => -gw,
-                    _                   => 0.0,
-                };
-                let anchor_y = match v_align {
-                    egui::Align::Center => -gh / 2.0,
-                    egui::Align::BOTTOM => -gh,
-                    _                   => 0.0,
-                };
-
-                // Rotar el offset de anchor
-                let (cos_a, sin_a) = (angle.cos(), angle.sin());
-                let rot_ox = anchor_x * cos_a - anchor_y * sin_a;
-                let rot_oy = anchor_x * sin_a + anchor_y * cos_a;
-
-                let text_pos = line_pos + egui::vec2(rot_ox, rot_oy);
-                painter.add(egui::epaint::TextShape::new(text_pos, galley, color).with_angle(angle));
-            }
+            paint_text(painter, vp, rect, *x, *y, content, *v_size, *rotation, *mirror, *h_center, *v_center, layer_color(*layer));
         }
         MissingSymbol { x, y, name, .. } => {
             let pos = world_to_screen(vp, rect, *x, *y);
@@ -251,6 +181,65 @@ fn paint_element(
                 Color32::from_rgb(200, 80, 80),
             );
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_text(
+    painter: &egui::Painter,
+    vp: &SchViewport,
+    rect: Rect,
+    x: f64,
+    y: f64,
+    content: &str,
+    v_size: f64,
+    rotation: i32,
+    mirror: i32,
+    h_center: bool,
+    v_center: bool,
+    color: Color32,
+) {
+    let font_size = (v_size * 50.0 * vp.scale).clamp(4.0, 2000.0) as f32;
+    let font = egui::FontId::monospace(font_size);
+
+    // xschem: v_mirror y h_mirror derivan de la rotación/mirror
+    let v_mirror = rotation == 1 || rotation == 2;
+    let h_mirror = if mirror == 1 { !v_mirror } else { v_mirror };
+
+    // Alineación horizontal (text-anchor en SVG)
+    let anchor_factor_x = if h_center { 0.5 } else if h_mirror { 1.0 } else { 0.0 };
+    // Alineación vertical (alignment-baseline en SVG)
+    // before-edge = top (factor 0), after-edge = bottom (factor 1), middle = 0.5
+    let anchor_factor_y = if v_center { 0.5 } else if v_mirror { 1.0 } else { 0.0 };
+
+    let angle = (rotation as f32) * std::f32::consts::FRAC_PI_2;
+    let (cos_a, sin_a) = (angle.cos(), angle.sin());
+
+    let lines: Vec<&str> = content.lines().collect();
+    let n = lines.len();
+    // Ancla principal en pantalla (punto (x,y) del schematic)
+    let anchor_screen = world_to_screen(vp, rect, x, y);
+
+    for (i, line) in lines.iter().enumerate() {
+        // Orden de líneas: si v_mirror, invertir
+        let line_index = if v_mirror { n - 1 - i } else { i } as f32;
+        let line_dy = line_index * font_size;
+
+        let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+        let gw = galley.size().x;
+        let gh = galley.size().y;
+
+        // En espacio local (pre-rotación): el galley se dibuja con su top-left en un offset
+        // tal que el punto de anclaje caiga sobre (0,0), luego se desplaza por line_dy.
+        let local_x = -gw * anchor_factor_x;
+        let local_y = -gh * anchor_factor_y + line_dy;
+
+        // Rotar el offset local para obtener el desplazamiento en espacio pantalla
+        let rot_ox = local_x * cos_a - local_y * sin_a;
+        let rot_oy = local_x * sin_a + local_y * cos_a;
+
+        let text_pos = anchor_screen + egui::vec2(rot_ox, rot_oy);
+        painter.add(egui::epaint::TextShape::new(text_pos, galley, color).with_angle(angle));
     }
 }
 
@@ -277,6 +266,32 @@ fn paint_ghosts(
             paint_element_tinted(painter, vp, rect, elem, ghost);
         }
     }
+}
+
+fn paint_wire_ghosts(
+    painter: &egui::Painter,
+    vp: &SchViewport,
+    rect: Rect,
+    scene_a: &ResolvedScene,
+    scene_b: &ResolvedScene,
+) {
+    let ghost = Color32::from_rgba_unmultiplied(75, 75, 85, 180);
+    // Un wire de A es "fantasma" si no existe idéntico en B
+    for (x1, y1, x2, y2, _label) in &scene_a.wires {
+        let matches_b = scene_b.wires.iter().any(|(bx1, by1, bx2, by2, _)| {
+            // Comparar ambos sentidos (endpoints pueden estar invertidos)
+            (approx(*x1, *bx1) && approx(*y1, *by1) && approx(*x2, *bx2) && approx(*y2, *by2))
+                || (approx(*x1, *bx2) && approx(*y1, *by2) && approx(*x2, *bx1) && approx(*y2, *by1))
+        });
+        if matches_b { continue; }
+        let a = world_to_screen(vp, rect, *x1, *y1);
+        let b = world_to_screen(vp, rect, *x2, *y2);
+        painter.line_segment([a, b], Stroke::new(1.0, ghost));
+    }
+}
+
+fn approx(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.001
 }
 
 fn paint_element_tinted(
@@ -341,7 +356,7 @@ fn paint_diff_annotations(
 ) {
     // ── Componentes ───────────────────────────────────────────────────────────
     for comp in &report.components {
-        let (fill, stroke) = annotation_colors(&comp.kind, comp.cosmetic);
+        let (fill, stroke) = annotation_colors(&comp.kind, comp.cosmetic, comp.position_changed);
         let bbox = elements_bbox_for(scene, &comp.name);
         if let Some(b) = bbox {
             let min = world_to_screen(vp, rect, b.0, b.1);
@@ -349,6 +364,11 @@ fn paint_diff_annotations(
             let r = egui::Rect::from_min_max(min, max).expand(4.0);
             painter.rect_filled(r, 2.0, fill);
             painter.rect_stroke(r, 2.0, Stroke::new(1.5, stroke), StrokeKind::Outside);
+            // Si es modificado + trasladado, añadir borde cian extra
+            if matches!(comp.kind, ChangeKind::Modified) && !comp.cosmetic && comp.position_changed {
+                let cyan = Color32::from_rgb(0, 190, 255);
+                painter.rect_stroke(r.expand(2.0), 2.0, Stroke::new(1.5, cyan), StrokeKind::Outside);
+            }
             painter.text(
                 r.left_top() + egui::vec2(2.0, -14.0),
                 egui::Align2::LEFT_BOTTOM,
@@ -443,15 +463,20 @@ fn expand(min_x: &mut f64, min_y: &mut f64, max_x: &mut f64, max_y: &mut f64, x:
     *max_y = max_y.max(y);
 }
 
-fn annotation_colors(kind: &ChangeKind, cosmetic: bool) -> (Color32, Color32) {
-    match (kind, cosmetic) {
-        (ChangeKind::Added, _) =>
+fn annotation_colors(kind: &ChangeKind, cosmetic: bool, position_changed: bool) -> (Color32, Color32) {
+    match (kind, cosmetic, position_changed) {
+        (ChangeKind::Added, _, _) =>
             (Color32::from_rgba_unmultiplied(0, 200, 0, 50), Color32::from_rgb(0, 200, 0)),
-        (ChangeKind::Removed, _) =>
+        (ChangeKind::Removed, _, _) =>
             (Color32::from_rgba_unmultiplied(200, 0, 0, 50), Color32::from_rgb(200, 0, 0)),
-        (ChangeKind::Modified, true) =>
+        // Solo trasladado (cosmético + cambio de posición) → cian
+        (ChangeKind::Modified, true, true) =>
+            (Color32::from_rgba_unmultiplied(0, 190, 255, 40), Color32::from_rgb(0, 190, 255)),
+        // Cosmético genérico (Move All sin position_changed individual) → gris
+        (ChangeKind::Modified, true, false) =>
             (Color32::from_rgba_unmultiplied(120, 120, 120, 40), Color32::from_gray(160)),
-        (ChangeKind::Modified, false) =>
+        // Modificado semántico → amarillo
+        (ChangeKind::Modified, false, _) =>
             (Color32::from_rgba_unmultiplied(255, 180, 0, 50), Color32::from_rgb(255, 180, 0)),
     }
 }

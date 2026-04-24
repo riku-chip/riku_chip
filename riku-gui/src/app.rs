@@ -221,23 +221,7 @@ impl eframe::App for RikuGuiApp {
                     if let Some(diff) = &sch.diff {
                         ui.separator();
                         ui.label(RichText::new("Cambios").strong());
-                        for c in diff.components.iter().filter(|c| !c.cosmetic) {
-                            let (label, color) = match c.kind {
-                                riku::core::models::ChangeKind::Added =>
-                                    (format!("+ {}", c.name), egui::Color32::from_rgb(0, 200, 0)),
-                                riku::core::models::ChangeKind::Removed =>
-                                    (format!("- {}", c.name), egui::Color32::from_rgb(200, 0, 0)),
-                                riku::core::models::ChangeKind::Modified =>
-                                    (format!("~ {}", c.name), egui::Color32::from_rgb(255, 180, 0)),
-                            };
-                            ui.colored_label(color, label);
-                        }
-                        for net in &diff.nets_added {
-                            ui.colored_label(egui::Color32::from_rgb(0, 200, 0), format!("+ net:{net}"));
-                        }
-                        for net in &diff.nets_removed {
-                            ui.colored_label(egui::Color32::from_rgb(200, 0, 0), format!("- net:{net}"));
-                        }
+                        render_change_list(ui, diff);
                     }
                 }
 
@@ -315,6 +299,87 @@ fn is_sch_renderable(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("sch"))
         .unwrap_or(false)
+}
+
+// ─── Panel de cambios ─────────────────────────────────────────────────────────
+
+const COLOR_ADDED: egui::Color32 = egui::Color32::from_rgb(0, 200, 0);
+const COLOR_REMOVED: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
+const COLOR_MODIFIED: egui::Color32 = egui::Color32::from_rgb(255, 180, 0);
+const COLOR_MOVED: egui::Color32 = egui::Color32::from_rgb(0, 190, 255);
+
+fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::models::DiffReport) {
+    use riku::core::models::ChangeKind;
+
+    let mut any_shown = false;
+
+    for c in &diff.components {
+        // Solo-cosmético sin posición cambiada lo omitimos (es "Move All" global)
+        if c.cosmetic && !c.position_changed { continue; }
+
+        let moved_only = matches!(c.kind, ChangeKind::Modified) && c.cosmetic && c.position_changed;
+
+        let (prefix, main_color, extra_color) = match c.kind {
+            ChangeKind::Added   => ("+", COLOR_ADDED, None),
+            ChangeKind::Removed => ("-", COLOR_REMOVED, None),
+            ChangeKind::Modified if moved_only =>
+                ("↦", COLOR_MOVED, None),
+            ChangeKind::Modified if c.position_changed =>
+                ("~", COLOR_MODIFIED, Some(COLOR_MOVED)),
+            ChangeKind::Modified =>
+                ("~", COLOR_MODIFIED, None),
+        };
+
+        ui.horizontal(|ui| {
+            // Chip de color a la izquierda
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 2.0, main_color);
+            if let Some(extra) = extra_color {
+                ui.painter().rect_stroke(
+                    rect.expand(1.0),
+                    2.0,
+                    egui::Stroke::new(2.0, extra),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            ui.colored_label(main_color, format!("{prefix} {}", c.name));
+        });
+        any_shown = true;
+    }
+
+    for net in &diff.nets_added {
+        ui.colored_label(COLOR_ADDED, format!("+ net:{net}"));
+        any_shown = true;
+    }
+    for net in &diff.nets_removed {
+        ui.colored_label(COLOR_REMOVED, format!("- net:{net}"));
+        any_shown = true;
+    }
+
+    if !any_shown {
+        ui.label(egui::RichText::new("Sin cambios semánticos").italics().color(egui::Color32::from_gray(140)));
+    }
+
+    ui.separator();
+    ui.label(egui::RichText::new("Leyenda").small().color(egui::Color32::from_gray(160)));
+    legend_row(ui, COLOR_ADDED, "+", "Añadido");
+    legend_row(ui, COLOR_REMOVED, "-", "Removido");
+    legend_row(ui, COLOR_MODIFIED, "~", "Modificado");
+    legend_row(ui, COLOR_MOVED, "↦", "Trasladado");
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 2.0, COLOR_MODIFIED);
+        ui.painter().rect_stroke(rect.expand(1.0), 2.0, egui::Stroke::new(2.0, COLOR_MOVED), egui::StrokeKind::Outside);
+        ui.small("Modificado + trasladado");
+    });
+}
+
+fn legend_row(ui: &mut egui::Ui, color: egui::Color32, prefix: &str, label: &str) {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 2.0, color);
+        ui.small(format!("{prefix} {label}"));
+    });
 }
 
 fn show_entry_tree<F>(
