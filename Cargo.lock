@@ -3804,7 +3804,7 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 [[package]]
 name = "xschem-viewer"
 version = "0.1.0"
-source = "git+https://github.com/carloscl03/xschem-viewer-rust#3710527b5e4d0afcda3b0156b6ad90e9ce0c55dd"
+source = "git+https://github.com/carloscl03/xschem-viewer-rust#62b6d2332ae7493ef8a023b02b2f4c94f81967ed"
 dependencies = [
  "dirs",
  "pest",
