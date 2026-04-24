@@ -28,11 +28,20 @@ struct SchState {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
+/// Contexto persistente de un diff cargado — permite recargarlo sin perder estado.
+struct DiffContext {
+    repo: PathBuf,
+    commit_a: String,
+    commit_b: String,
+    file: PathBuf,
+}
+
 pub struct RikuGuiApp {
     project_root: PathBuf,
     project_tree: ProjectEntry,
     selected_path: Option<PathBuf>,
     sch: Option<SchState>,
+    diff_ctx: Option<DiffContext>,
     status: String,
     error: Option<String>,
 }
@@ -75,6 +84,7 @@ impl RikuGuiApp {
             project_tree,
             selected_path,
             sch: None,
+            diff_ctx: None,
             status: String::from("Ready"),
             error: None,
         };
@@ -82,6 +92,12 @@ impl RikuGuiApp {
         // Modo diff: commits pasados desde el CLI
         if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
             let repo = launch.repo.as_deref().unwrap_or(Path::new("."));
+            app.diff_ctx = Some(DiffContext {
+                repo: repo.to_path_buf(),
+                commit_a: ca.clone(),
+                commit_b: cb.clone(),
+                file: file.clone(),
+            });
             match app.load_diff(repo, ca, cb, file) {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
                 Err(e) => { app.error = Some(e.clone()); app.status = "Error en diff".to_string(); }
@@ -186,17 +202,33 @@ impl eframe::App for RikuGuiApp {
             });
         });
 
-        egui::Panel::left("project_tree")
+        egui::Panel::left("left_panel")
             .resizable(true)
-            .default_size(240.0)
+            .default_size(200.0)
             .show_inside(ui, |ui| {
-                ui.heading("Project");
-                ui.label(self.project_root.display().to_string());
-                ui.separator();
-                let tree = self.project_tree.clone();
-                let selected_path = self.selected_path.clone();
-                let mut open_path = |path: &Path| self.open_path(path);
-                show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+                // Modo diff: mostrar solo selector de vistas (Diff/Before/After)
+                if let (Some(sch), Some(ctx)) = (self.sch.as_mut(), self.diff_ctx.as_ref()) {
+                    ui.heading("Vistas");
+                    ui.label(RichText::new(ctx.file.file_name()
+                        .unwrap_or_default().to_string_lossy().as_ref())
+                        .color(egui::Color32::from_gray(180)));
+                    ui.label(RichText::new(format!("{} → {}",
+                        short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)))
+                        .small().color(egui::Color32::from_gray(140)));
+                    ui.separator();
+                    view_selector(ui, &mut sch.tab, DiffTab::Diff, "Diff");
+                    view_selector(ui, &mut sch.tab, DiffTab::Before, "Before");
+                    view_selector(ui, &mut sch.tab, DiffTab::After, "After");
+                } else {
+                    // Modo archivo único: árbol de proyecto
+                    ui.heading("Project");
+                    ui.label(self.project_root.display().to_string());
+                    ui.separator();
+                    let tree = self.project_tree.clone();
+                    let selected_path = self.selected_path.clone();
+                    let mut open_path = |path: &Path| self.open_path(path);
+                    show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+                }
             });
 
         egui::Panel::right("info_panel")
@@ -243,16 +275,6 @@ impl eframe::App for RikuGuiApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             if let Some(sch) = &mut self.sch {
-                // Tabs solo si hay diff cargado
-                if sch.diff.is_some() && sch.scene_a.is_some() {
-                    ui.horizontal(|ui| {
-                        tab_button(ui, &mut sch.tab, DiffTab::Before, "Before");
-                        tab_button(ui, &mut sch.tab, DiffTab::After, "After");
-                        tab_button(ui, &mut sch.tab, DiffTab::Diff, "Diff");
-                    });
-                    ui.separator();
-                }
-
                 let available = ui.available_size_before_wrap();
                 let response = ui.allocate_response(available, egui::Sense::drag());
 
@@ -300,7 +322,17 @@ impl eframe::App for RikuGuiApp {
         });
 
         if reload {
-            if let Some(path) = self.selected_path.clone() {
+            // Si estamos en modo diff, recargar el diff completo (preserva tabs y contexto)
+            if let Some(ctx) = self.diff_ctx.as_ref().map(|c| DiffContext {
+                repo: c.repo.clone(),
+                commit_a: c.commit_a.clone(),
+                commit_b: c.commit_b.clone(),
+                file: c.file.clone(),
+            }) {
+                if let Err(e) = self.load_diff(&ctx.repo, &ctx.commit_a, &ctx.commit_b, &ctx.file) {
+                    self.error = Some(e);
+                }
+            } else if let Some(path) = self.selected_path.clone() {
                 if let Err(e) = self.load_sch(&path) {
                     self.error = Some(e);
                 }
@@ -341,18 +373,22 @@ fn is_sch_renderable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-// ─── Tabs ─────────────────────────────────────────────────────────────────────
+// ─── Selector de vistas (modo diff) ──────────────────────────────────────────
 
-fn tab_button(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label: &str) {
+fn view_selector(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label: &str) {
     let selected = *current == this;
     let text = if selected {
-        RichText::new(label).strong().color(egui::Color32::from_rgb(0, 190, 255))
+        RichText::new(format!("● {label}")).strong().color(egui::Color32::from_rgb(0, 190, 255))
     } else {
-        RichText::new(label).color(egui::Color32::from_gray(180))
+        RichText::new(format!("○ {label}")).color(egui::Color32::from_gray(180))
     };
-    if ui.selectable_label(selected, text).clicked() {
+    if ui.add(egui::Label::new(text).sense(egui::Sense::click())).clicked() {
         *current = this;
     }
+}
+
+fn short_hash(s: &str) -> String {
+    s.chars().take(7).collect()
 }
 
 // ─── Panel de cambios ─────────────────────────────────────────────────────────
