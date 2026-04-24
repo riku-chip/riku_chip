@@ -4,6 +4,7 @@ members = [
     "gds-renderer",
     # "gdstk/rust",  # pendiente: gdstk-rs no disponible aún
     "riku-gui",
+    "viewer-core",
 ]
 exclude = [
     "riku",
