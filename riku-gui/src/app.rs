@@ -5,8 +5,8 @@ use eframe::egui::{self, RichText};
 use poll_promise::Promise;
 use tokio::runtime::Runtime;
 use viewer_core::{
-    backend::ViewerBackend, bbox::BoundingBox as VcBBox, scene::SceneHandle,
-    viewport::Viewport as VcViewport, CancellationToken,
+    backend::ViewerBackend, scene::SceneHandle, viewport::Viewport as VcViewport,
+    CancellationToken,
 };
 
 use crate::launch::LaunchArgs;

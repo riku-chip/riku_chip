@@ -10,9 +10,11 @@ publish = false
 eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland"] }
 # gds-renderer = { path = "../gds-renderer" }   # requiere gdstk-rs
 # gdstk-rs = { path = "../gdstk/rust" }          # no disponible aún
-# Branch temporal mientras viewer-core-wip no esté mergeado en el repo
-# de xschem-viewer. Al mergear a main, volver a quitar `branch`.
-xschem_viewer = { package = "xschem-viewer", git = "https://github.com/carloscl03/xschem-viewer-rust", branch = "viewer-core-wip", features = ["viewer-core-compat"] }
+# Path local: mientras viewer-core no esté publicado en crates.io, la
+# dependencia interna de xschem-viewer (`viewer-core` via path relativo)
+# solo resuelve cuando ambos repos conviven como hermanos. Cuando
+# viewer-core se publique, esto puede volver a apuntar a git/tag.
+xschem_viewer = { package = "xschem-viewer", path = "../../xschem-viewer-rust", features = ["viewer-core-compat"] }
 riku = { path = "../riku" }
 viewer-core = { path = "../viewer-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
