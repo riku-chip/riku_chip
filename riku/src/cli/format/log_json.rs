@@ -2,7 +2,7 @@
 //!
 //! Usa `EnvelopedLogReport` para garantizar el campo `schema` (riku-log/v1).
 
-use crate::core::log::{EnvelopedLogReport, LogReport};
+use crate::core::analysis::log::{EnvelopedLogReport, LogReport};
 
 pub fn print(report: &LogReport, pretty: bool) -> Result<(), String> {
     let env = EnvelopedLogReport::from(report);

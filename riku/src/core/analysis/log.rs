@@ -17,7 +17,7 @@ use crate::core::git::git_service::{
 use crate::core::ports::GitRepository;
 use crate::core::path_matcher::PathMatcher;
 use crate::adapters::registry::get_driver_for;
-use crate::core::summary::{DetailLevel, FileSummary, SummaryCategory};
+use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 
 // ─── Errores ─────────────────────────────────────────────────────────────────
 

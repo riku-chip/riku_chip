@@ -7,8 +7,8 @@
 
 use crate::core::driver::DriverDiffReport;
 use crate::core::models::ChangeKind;
-use crate::core::status::StatusReport;
-use crate::core::summary::{label_for, DetailEntry, DetailLevel, FileSummary, SummaryCategory};
+use crate::core::analysis::status::StatusReport;
+use crate::core::analysis::summary::{label_for, DetailEntry, DetailLevel, FileSummary, SummaryCategory};
 
 /// Imprime el reporte completo en stdout, los warnings en stderr.
 pub fn print(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
@@ -135,7 +135,7 @@ fn format_counts(f: &FileSummary) -> String {
 }
 
 fn print_detail_entry(d: &DetailEntry) {
-    use crate::core::summary::DetailKind::*;
+    use crate::core::analysis::summary::DetailKind::*;
     let marker = match d.kind {
         ComponentAdded | NetAdded => "+",
         ComponentRemoved | NetRemoved => "-",

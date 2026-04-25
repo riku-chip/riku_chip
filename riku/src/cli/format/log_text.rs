@@ -10,8 +10,8 @@
 //! Los detalles por archivo se incluyen en niveles `Detalle` y `Completo`,
 //! reusando los mismos formateadores que `status` para consistencia.
 
-use crate::core::log::{LogCommit, LogReport};
-use crate::core::summary::{label_for, DetailEntry, DetailLevel, FileSummary};
+use crate::core::analysis::log::{LogCommit, LogReport};
+use crate::core::analysis::summary::{label_for, DetailEntry, DetailLevel, FileSummary};
 
 pub fn print(report: &LogReport, level: DetailLevel) {
     for w in &report.warnings {
@@ -121,7 +121,7 @@ fn print_file_line(f: &FileSummary, level: DetailLevel) {
 }
 
 fn format_counts(f: &FileSummary) -> String {
-    use crate::core::summary::SummaryCategory;
+    use crate::core::analysis::summary::SummaryCategory;
     if matches!(f.category, SummaryCategory::Cosmetic) {
         return "(solo cambios cosméticos)".to_string();
     }
@@ -137,7 +137,7 @@ fn format_counts(f: &FileSummary) -> String {
 }
 
 fn print_detail(d: &DetailEntry) {
-    use crate::core::summary::DetailKind::*;
+    use crate::core::analysis::summary::DetailKind::*;
     let marker = match d.kind {
         ComponentAdded | NetAdded => "+",
         ComponentRemoved | NetRemoved => "-",

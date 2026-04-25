@@ -11,12 +11,12 @@ use std::process::Command;
 use serde_json::json;
 
 use crate::adapters::xschem_driver::XschemDriver;
-use crate::core::diff_view::DiffView;
-use crate::core::log;
+use crate::core::analysis::diff_view::DiffView;
+use crate::core::analysis::log;
+use crate::core::analysis::status::{self, StatusOptions};
+use crate::core::analysis::summary::DetailLevel;
 use crate::core::models::ChangeKind;
 use crate::adapters::registry::get_drivers;
-use crate::core::status::{self, StatusOptions};
-use crate::core::summary::DetailLevel;
 
 use super::format;
 use super::OutputFormat;

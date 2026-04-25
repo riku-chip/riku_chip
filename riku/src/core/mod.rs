@@ -1,13 +1,9 @@
-pub mod analyzer;
-pub mod diff_view;
+pub mod analysis;
 pub mod driver;
 pub mod error;
 pub mod format;
 pub mod git;
-pub mod log;
 pub mod models;
 pub mod path_matcher;
 pub mod ports;
 pub mod rendering;
-pub mod status;
-pub mod summary;
