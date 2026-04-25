@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::core::driver::DriverDiffReport;
 use crate::core::error::RikuError;
-use crate::core::git_service::{GitError, GitService};
+use crate::core::git::git_service::{GitError, GitService};
 use crate::core::models::FileFormat;
 use crate::core::ports::GitRepository;
 use crate::adapters::registry::get_driver_for;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::core::driver::Renderer;
-use crate::core::git_service::{
+use crate::core::git::git_service::{
     BranchInfo, ChangedFile, CommitInfo, CommitWithParents, GitError, GitService, LogQuery,
     WorkingChange,
 };

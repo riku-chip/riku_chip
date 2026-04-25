@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::core::driver::DriverDiffReport;
-use crate::core::git_service::{
+use crate::core::git::git_service::{
     ChangeStatus, CommitInfo, CommitWithParents, GitError, GitService, LogQuery,
 };
 use crate::core::ports::GitRepository;
@@ -228,7 +228,7 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
 mod tests {
     use super::*;
     use crate::core::driver::DriverDiffReport;
-    use crate::core::git_service::{BranchInfo, ChangedFile, WorkingChange};
+    use crate::core::git::git_service::{BranchInfo, ChangedFile, WorkingChange};
     use crate::core::models::FileFormat;
 
     struct MockRepo {

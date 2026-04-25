@@ -3,7 +3,7 @@ pub mod diff_view;
 pub mod driver;
 pub mod error;
 pub mod format;
-pub mod git_service;
+pub mod git;
 pub mod log;
 pub mod models;
 pub mod path_matcher;
