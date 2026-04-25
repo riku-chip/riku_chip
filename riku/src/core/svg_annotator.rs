@@ -1,18 +1,10 @@
 use crate::core::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
+use crate::core::styles::annotation_style;
 
 // Half-size of the bounding box drawn around each changed component, in schematic units.
 const BBOX_HALF: f64 = 20.0;
 // Stroke width for wire highlights, in schematic units.
 const WIRE_STROKE: f64 = 3.5;
-
-fn fill_stroke(kind: &ChangeKind, cosmetic: bool) -> (&'static str, &'static str) {
-    match (kind, cosmetic) {
-        (ChangeKind::Added, _) => ("rgba(0,200,0,0.25)", "rgba(0,200,0,0.85)"),
-        (ChangeKind::Removed, _) => ("rgba(200,0,0,0.25)", "rgba(200,0,0,0.85)"),
-        (ChangeKind::Modified, true) => ("rgba(120,120,120,0.20)", "rgba(120,120,120,0.85)"),
-        (ChangeKind::Modified, false) => ("rgba(255,180,0,0.25)", "rgba(255,180,0,0.85)"),
-    }
-}
 
 fn component_rect(
     cd: &ComponentDiff,
@@ -25,7 +17,8 @@ fn component_rect(
         sch_b
     };
     let comp = source.components.get(&cd.name)?;
-    let (fill, stroke) = fill_stroke(&cd.kind, cd.cosmetic);
+    let style = annotation_style(&cd.kind, cd.cosmetic);
+    let (fill, stroke) = (style.fill, style.stroke);
     let x = comp.x - BBOX_HALF;
     let y = comp.y - BBOX_HALF;
     let size = BBOX_HALF * 2.0;
@@ -96,20 +89,19 @@ pub fn annotate(
 
 #[cfg(test)]
 mod tests {
-    use super::{annotate, fill_stroke};
+    use super::annotate;
     use crate::core::models::{ChangeKind, Component, ComponentDiff, DiffReport, Schematic, Wire};
+    use crate::core::styles::annotation_style;
     use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn styles_cosmetic_changes_differently() {
-        assert_eq!(
-            fill_stroke(&ChangeKind::Modified, true),
-            ("rgba(120,120,120,0.20)", "rgba(120,120,120,0.85)")
-        );
-        assert_eq!(
-            fill_stroke(&ChangeKind::Modified, false),
-            ("rgba(255,180,0,0.25)", "rgba(255,180,0,0.85)")
-        );
+        let s = annotation_style(&ChangeKind::Modified, true);
+        assert_eq!(s.fill, "rgba(120,120,120,0.20)");
+        assert_eq!(s.stroke, "rgba(120,120,120,0.85)");
+        let s = annotation_style(&ChangeKind::Modified, false);
+        assert_eq!(s.fill, "rgba(255,180,0,0.25)");
+        assert_eq!(s.stroke, "rgba(255,180,0,0.85)");
     }
 
     #[test]

@@ -15,6 +15,7 @@ use crate::core::git_service::{
     ChangeStatus, CommitInfo, CommitWithParents, GitError, GitService, LogQuery,
 };
 use crate::core::ports::GitRepository;
+use crate::core::path_matcher::PathMatcher;
 use crate::core::registry::get_driver_for;
 use crate::core::summary::{DetailLevel, FileSummary, SummaryCategory};
 
@@ -171,7 +172,7 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
         }
     };
 
-    let matcher = path_matcher::PathMatcher::new(&opts.paths);
+    let matcher = PathMatcher::new(&opts.paths);
 
     let mut files = Vec::new();
     for cf in changed {
@@ -219,29 +220,6 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     files
-}
-
-// Reutiliza el matcher de `status` sin acoplar módulos. Lo redeclaro local
-// para mantener `core::status` como autocontenido.
-mod path_matcher {
-    pub struct PathMatcher {
-        patterns: Vec<glob::Pattern>,
-    }
-    impl PathMatcher {
-        pub fn new(raw: &[String]) -> Self {
-            let patterns = raw
-                .iter()
-                .filter_map(|p| glob::Pattern::new(p).ok())
-                .collect();
-            Self { patterns }
-        }
-        pub fn matches(&self, path: &str) -> bool {
-            if self.patterns.is_empty() {
-                return true;
-            }
-            self.patterns.iter().any(|p| p.matches(path))
-        }
-    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ use crate::core::git_service::{
     BranchInfo, ChangeStatus, GitError, GitService, WorkingChange,
 };
 use crate::core::ports::{GitRepository, RepoRoot};
+use crate::core::path_matcher::PathMatcher;
 use crate::core::registry::get_driver_for;
 use crate::core::summary::{DetailLevel, FileSummary, SummaryCategory};
 
@@ -133,30 +134,6 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(StatusReport { branch, files, warnings })
-}
-
-// ─── Filtro por path ─────────────────────────────────────────────────────────
-
-/// Glob mínimo: soporta `*`, `?` y `**`. Si la lista está vacía, todo coincide.
-struct PathMatcher {
-    patterns: Vec<glob::Pattern>,
-}
-
-impl PathMatcher {
-    fn new(raw: &[String]) -> Self {
-        let patterns = raw
-            .iter()
-            .filter_map(|p| glob::Pattern::new(p).ok())
-            .collect();
-        Self { patterns }
-    }
-
-    fn matches(&self, path: &str) -> bool {
-        if self.patterns.is_empty() {
-            return true;
-        }
-        self.patterns.iter().any(|p| p.matches(path))
-    }
 }
 
 // ─── Resumen por archivo ─────────────────────────────────────────────────────
