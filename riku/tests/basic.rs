@@ -4,7 +4,7 @@ use std::path::Path;
 use git2::{Repository, Signature};
 use serde_json::json;
 
-use riku::core::git_service::{GitError, GitService, LARGE_BLOB_THRESHOLD};
+use riku::core::git::git_service::{GitError, GitService, LARGE_BLOB_THRESHOLD};
 use riku::core::models::{ChangeKind, FileFormat};
 use riku::core::ports::GitRepository;
 use riku::adapters::xschem_driver::parse;
@@ -235,7 +235,7 @@ fn git_service_reports_renames() {
     assert_eq!(changes.len(), 1);
     assert_eq!(
         changes[0].status,
-        riku::core::git_service::ChangeStatus::Renamed
+        riku::core::git::git_service::ChangeStatus::Renamed
     );
     assert_eq!(changes[0].path, new_path);
     assert_eq!(changes[0].old_path.as_deref(), Some(old_path));
