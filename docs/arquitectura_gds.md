@@ -310,7 +310,7 @@ gds-renderer = { git = "https://github.com/Adriel2503/gds-renderer.git" }
 ┌─ riku ─────────────────────────────────────────────┐
 │  cli.rs::run_diff()                                │
 │  ↓                                                 │
-│  analyzer::analyze_diff()                          │
+│  commit_diff::analyze_diff()                       │
 │  ↓                                                 │
 │  git_service::get_blob(commit_a, "layout.gds")     │
 │  git_service::get_blob(commit_b, "layout.gds")     │

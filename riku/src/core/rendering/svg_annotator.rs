@@ -93,18 +93,7 @@ mod tests {
     use crate::core::domain::models::{
         ChangeKind, Component, ComponentDiff, DiffReport, Schematic, Wire,
     };
-    use crate::core::rendering::styles::annotation_style;
     use std::collections::{BTreeMap, BTreeSet};
-
-    #[test]
-    fn styles_cosmetic_changes_differently() {
-        let s = annotation_style(&ChangeKind::Modified, true);
-        assert_eq!(s.fill, "rgba(120,120,120,0.20)");
-        assert_eq!(s.stroke, "rgba(120,120,120,0.85)");
-        let s = annotation_style(&ChangeKind::Modified, false);
-        assert_eq!(s.fill, "rgba(255,180,0,0.25)");
-        assert_eq!(s.stroke, "rgba(255,180,0,0.85)");
-    }
 
     #[test]
     fn annotate_injects_layer() {

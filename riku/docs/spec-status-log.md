@@ -414,7 +414,7 @@ Por commit, los archivos son independientes — paralelizables con `rayon` si ha
 ### Lo que **no se toca**
 
 - `RikuDriver` trait, `XschemDriver`, registry.
-- `analyzer::analyze_diff` — sigue siendo el camino de `riku diff`.
+- `commit_diff::analyze_diff` — sigue siendo el camino de `riku diff`.
 - `GitService::get_blob/get_commits/get_changed_files`.
 - `OutputFormat` enum.
 - Shell REPL — los nuevos comandos heredan parser y se exponen automáticamente.

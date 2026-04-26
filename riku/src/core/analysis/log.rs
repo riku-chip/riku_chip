@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use crate::adapters::registry::get_driver_for;
 use crate::core::analysis::blob_io;
+use crate::core::analysis::envelope::Envelope;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 use crate::core::domain::driver::DriverDiffReport;
 use crate::core::domain::git_types::{
@@ -33,19 +34,11 @@ pub enum LogError {
 
 pub const LOG_SCHEMA: &str = "riku-log/v1";
 
-#[derive(Clone, Debug, Serialize)]
-pub struct EnvelopedLogReport<'a> {
-    pub schema: &'static str,
-    #[serde(flatten)]
-    pub inner: &'a LogReport,
-}
+pub type EnvelopedLogReport<'a> = Envelope<'a, LogReport>;
 
 impl<'a> From<&'a LogReport> for EnvelopedLogReport<'a> {
     fn from(inner: &'a LogReport) -> Self {
-        Self {
-            schema: LOG_SCHEMA,
-            inner,
-        }
+        Envelope::new(LOG_SCHEMA, inner)
     }
 }
 

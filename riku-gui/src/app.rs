@@ -521,6 +521,7 @@ fn build_scene(content: &str) -> Result<xschem_viewer::ResolvedScene, String> {
 
 
 fn get_blob_content(repo: &Path, commit: &str, file_path: &str) -> Result<String, String> {
+    use riku::core::domain::ports::GitRepository;
     use riku::core::git::git_service::GitService;
     let svc = GitService::open(repo).map_err(|e| e.to_string())?;
     let bytes = svc.get_blob(commit, file_path).map_err(|e| e.to_string())?;

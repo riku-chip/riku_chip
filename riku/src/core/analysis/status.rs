@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::adapters::registry::get_driver_for;
 use crate::core::analysis::blob_io;
+use crate::core::analysis::envelope::Envelope;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 use crate::core::domain::git_types::{BranchInfo, ChangeStatus, GitError, WorkingChange};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
@@ -38,19 +39,11 @@ pub const STATUS_SCHEMA: &str = "riku-status/v1";
 /// Wrapper público para serialización con `schema` siempre presente.
 ///
 /// Usar `EnvelopedStatusReport::from(report)` antes de pasar a `serde_json`.
-#[derive(Clone, Debug, Serialize)]
-pub struct EnvelopedStatusReport<'a> {
-    pub schema: &'static str,
-    #[serde(flatten)]
-    pub inner: &'a StatusReport,
-}
+pub type EnvelopedStatusReport<'a> = Envelope<'a, StatusReport>;
 
 impl<'a> From<&'a StatusReport> for EnvelopedStatusReport<'a> {
     fn from(inner: &'a StatusReport) -> Self {
-        Self {
-            schema: STATUS_SCHEMA,
-            inner,
-        }
+        Envelope::new(STATUS_SCHEMA, inner)
     }
 }
 

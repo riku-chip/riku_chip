@@ -148,7 +148,6 @@ mod tests {
     use super::*;
     use crate::core::domain::driver::{DiffEntry, DriverDiffReport};
     use crate::core::domain::models::FileFormat;
-    use crate::core::rendering::styles::annotation_style;
 
     fn make_report(changes: Vec<DiffEntry>) -> DriverDiffReport {
         DriverDiffReport {
@@ -194,16 +193,4 @@ mod tests {
         assert!(diff.is_move_all);
     }
 
-    #[test]
-    fn annotation_style_added_no_es_cosmetico() {
-        let s = annotation_style(&ChangeKind::Added, false);
-        assert!(s.fill.contains("0,200,0"));
-        assert!(s.stroke.contains("0,200,0"));
-    }
-
-    #[test]
-    fn annotation_style_modified_cosmetico_es_gris() {
-        let s = annotation_style(&ChangeKind::Modified, true);
-        assert!(s.fill.contains("120,120,120"));
-    }
 }

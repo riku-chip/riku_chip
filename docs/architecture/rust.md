@@ -11,7 +11,7 @@ Se eligió un único crate con módulos bien delimitados en lugar de un workspac
 
 **Frontera hexagonal:**
 - `core/` — dominio puro (sin I/O, sin git2, sin xschem)
-- `core/ports.rs` — traits que el dominio necesita (GitRepository, SchematicParser)
+- `core/ports.rs` — traits que el dominio necesita (GitRepository, RepoRoot)
 - `adapters/` — implementaciones concretas (xschem_driver)
 - `cli.rs` — única entrada de I/O al sistema
 
@@ -25,11 +25,11 @@ src/
   core/
     models.rs       → tipos de dominio (Component, Wire, Schematic, DiffReport...)
     error.rs        → RikuError con thiserror
-    ports.rs        → traits GitRepository, SchematicParser, RendererPort
+    ports.rs        → traits GitRepository, RepoRoot
     driver.rs       → trait RikuDriver, DiffEntry, DriverDiffReport, DriverInfo
     registry.rs     → get_drivers(), get_driver_for()
     git_service.rs  → impl GitRepository con git2
-    analyzer.rs     → analyze_diff() — orquesta git + parser + driver
+    commit_diff.rs  → analyze_diff() — orquesta git + parser + driver
     semantic_diff.rs → diff() puro sobre dos &[u8]
     svg_annotator.rs → annotate(), Transform, mooz calibration
   adapters/
