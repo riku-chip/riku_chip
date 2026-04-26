@@ -43,8 +43,9 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
 | **Diff semántico**     | Componentes añadidos, removidos, modificados. Distingue cambios funcionales de cosméticos (Move All). |
 | **Diff visual**        | GUI nativa con paneles Before / After / Diff. Componentes anotados en verde (añadido), rojo (removido), amarillo (modificado), cyan (trasladado). |
 | **Render nativo**      | Renderiza `.sch` a SVG sin abrir xschem. Usa `xschem-viewer` como librería Rust. |
-| **Caché de renders**   | Cada render se guarda por hash SHA-256 del contenido — si el archivo no cambió, el SVG se reutiliza al instante. |
-| **Historial semántico**| `riku log --semantic` anota cada commit con un resumen tipo `+2 -1 ~3`. |
+| **Status semántico**   | `riku status` lista cambios del working tree clasificados como semánticos vs cosméticos por driver. |
+| **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
+| **Salida JSON estable**| `--json` con schemas versionados (`riku-status/v1`, `riku-log/v1`) para CI y scripts. |
 | **Detección de PDK**   | Descubre rutas de símbolos desde `.xschemrc`, `$PDK_ROOT`/`$PDK` y `$TOOLS` sin configuración manual. |
 | **Arquitectura plugin**| Trait `ViewerBackend` común a todos los formatos. Añadir un nuevo formato (GDS, KiCad, etc.) no toca riku-gui ni riku-cli. |
 
@@ -68,19 +69,19 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
 - **Rust 1.75+** (`rustup default stable`)
 - **Git** (`riku` lee el repo con `libgit2`, no requiere el binario `git`)
 
-### Clonar los repos hermanos
+### Clonar el repo
 
-Riku depende de [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust) vía path relativo mientras ambos están en desarrollo activo. **Los dos repos deben vivir como hermanos en el filesystem**:
-
-```text
-<tu-carpeta>/
-  ├── riku_chip/            ← este repo
-  └── xschem-viewer-rust/   ← hermano obligatorio
-```
+Riku usa [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust) como **submodule git**. Cloná con `--recurse-submodules` y todo queda listo en un paso:
 
 ```bash
-git clone https://github.com/riku-chip/riku_chip
-git clone https://github.com/carloscl03/xschem-viewer-rust
+git clone --recurse-submodules https://github.com/riku-chip/riku_chip
+cd riku_chip
+```
+
+Si ya cloñaste sin el flag, ejecutá:
+
+```bash
+git submodule update --init --recursive
 ```
 
 ### Compilar
@@ -101,9 +102,10 @@ cargo build --release -p riku-gui
 
 ```bash
 cd tu-proyecto-xschem
-riku doctor                                    # verifica el entorno
-riku log --semantic design/op_amp.sch          # historial anotado
-riku diff HEAD~1 HEAD design/op_amp.sch        # diff de texto
+riku doctor                                         # verifica el entorno
+riku status                                         # cambios pendientes con resumen semántico
+riku log                                            # historial con resumen por commit
+riku diff HEAD~1 HEAD design/op_amp.sch             # diff de texto
 riku diff HEAD~1 HEAD design/op_amp.sch -f visual   # diff visual (GUI)
 ```
 
@@ -168,11 +170,20 @@ Leyenda:
 | Cyan        | componente trasladado (solo posición) |
 | Amarillo + borde cyan | modificado **y** trasladado |
 
+### Status del working tree
+
+```bash
+riku status                                    # cambios actuales con clasificación semántica
+riku status --detail                           # entrada por componente/net cambiada
+riku status --json --compact                   # salida JSON para CI (schema riku-status/v1)
+```
+
 ### Historial semántico
 
 ```bash
-riku log                                       # últimos 20 commits
-riku log design/op_amp.sch --semantic -n 10    # anotado, filtrado
+riku log                                       # últimos 20 commits anotados
+riku log design/op_amp.sch -n 10               # filtrado por archivo
+riku log --json                                # JSON estable (schema riku-log/v1)
 ```
 
 ### Abrir un archivo en la GUI
@@ -189,7 +200,7 @@ riku-gui archivo.sch
 riku doctor
 ```
 
-Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS`, drivers cargados y caché.
+Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS` y drivers cargados.
 
 ---
 
@@ -243,14 +254,13 @@ Riku es un workspace de varios crates con una separación clara entre **contrato
 
 ```
 riku_chip/
-├── viewer-core/     ← trait ViewerBackend, RenderableScene, DrawElement neutros
-├── riku/            ← CLI: diff, log, doctor, open
-├── riku-gui/        ← GUI nativa egui con runtime Tokio para cargas async
-├── gds-renderer/    ← backend GDS (en desarrollo)
-└── examples/        ← esquemáticos de referencia
-
-<hermano>/
-└── xschem-viewer-rust/   ← backend Xschem: parser PEG, semantic, renderer
+├── viewer-core/                          ← trait ViewerBackend, RenderableScene, DrawElement neutros
+├── riku/                                 ← CLI: diff, log, status, doctor, open
+├── riku-gui/                             ← GUI nativa egui con runtime Tokio para cargas async
+├── gds-renderer/                         ← backend GDS (en desarrollo)
+├── external/
+│   └── xschem-viewer-rust/  (submodule)  ← backend Xschem: parser PEG, semantic, renderer
+└── examples/                             ← esquemáticos de referencia
 ```
 
 ### Flujo de datos
@@ -269,14 +279,14 @@ Cualquier formato futuro solo necesita implementar `ViewerBackend` en su propio 
 
 | Crate                                                                           | Rol                                                                  |
 |---------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust)            | Parser PEG y renderer SVG para `.sch` / `.sym`                       |
+| [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust) (submodule) | Parser PEG y renderer SVG para `.sch` / `.sym`                       |
 | `viewer-core`                                                                   | Trait neutro `ViewerBackend` y primitivas comunes de dibujo          |
 | `git2` (libgit2)                                                                | Blobs, commits y diffs sin fork de proceso                           |
-| `eframe` + `egui`                                                               | GUI nativa multiplataforma                                           |
+| `eframe` + `egui` (con backend `glow`)                                          | GUI nativa multiplataforma sin stack Vulkan/wgpu                     |
 | `tokio` + `poll-promise`                                                        | Runtime async + integración con el loop de egui                      |
 | `clap`                                                                          | CLI con subcomandos tipados                                          |
-| `sha2`                                                                          | Hash SHA-256 para clave de caché                                     |
-| `serde` / `serde_json`                                                          | Serialización JSON                                                   |
+| `serde` / `serde_json`                                                          | Serialización JSON estable (`riku-status/v1`, `riku-log/v1`)         |
+| `glob`                                                                          | Filtrado por patrones en `--paths` de `status` y `log`               |
 
 ---
 
@@ -311,17 +321,19 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 
 ### Roadmap
 
-| Feature                                 | Estado        |
-|-----------------------------------------|---------------|
-| Diff semántico Xschem (texto + JSON)    | ✓ Estable     |
-| Render GUI Xschem con anotaciones       | ✓ Estable     |
-| Detección automática de PDK             | ✓ Estable     |
-| Historial semántico (`log --semantic`)  | ✓ Estable     |
-| Backend GDS (`gds-renderer`)            | en desarrollo |
-| Driver Magic / NGSpice                  | planificado   |
-| Diff visual multi-archivo               | planificado   |
-| Modo `--ci` (exit code por severidad)   | planificado   |
-| `riku show <commit> <file>`             | planificado   |
+| Feature                                                             | Estado        |
+|---------------------------------------------------------------------|---------------|
+| Diff semántico Xschem (texto + JSON)                                | ✓ Estable     |
+| Render GUI Xschem con anotaciones                                   | ✓ Estable     |
+| Detección automática de PDK                                         | ✓ Estable     |
+| `riku status` con clasificación semantic/cosmetic/unknown           | ✓ Estable     |
+| `riku log` con resumen semántico y refs anotadas                    | ✓ Estable     |
+| Salida JSON estable con schema versionado                           | ✓ Estable     |
+| Backend GDS (`gds-renderer`)                                        | en desarrollo |
+| Driver Magic / NGSpice                                              | planificado   |
+| `--graph` ASCII en `riku log`                                       | planificado   |
+| Modo `--ci` (exit code por severidad)                               | planificado   |
+| `riku show <commit> <file>`                                         | planificado   |
 
 ---
 

@@ -47,7 +47,8 @@ pub trait RikuDriver: Send + Sync {
     fn info(&self) -> DriverInfo;
     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> DriverDiffReport;
     fn normalize(&self, content: &[u8], path_hint: &str) -> Vec<u8>;
-    fn render(&self, content: &[u8], path_hint: &str) -> Option<PathBuf>;
+    /// Devuelve el SVG en memoria. `None` si el driver no soporta render.
+    fn render(&self, content: &[u8], path_hint: &str) -> Option<String>;
 }
 ```
 
@@ -72,12 +73,6 @@ La versión de xschem se consulta una vez por sesión. `OnceLock` es thread-safe
 
 ### BTreeMap en lugar de HashMap
 Se usa `BTreeMap<String, Component>` en `Schematic` para orden determinista en tests y JSON.
-
-### Regex como lazy statics
-```rust
-static TEXT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(...).expect("valid regex"));
-```
-Evita recompilar la regex en cada llamada. `once_cell::sync::Lazy` (equivalente a `std::sync::LazyLock` en Rust 1.80+).
 
 ### thiserror para errores
 Cada subsistema tiene su propio tipo de error (`GitError`, `AnalyzeError`, `RikuError`) con conversiones automáticas via `#[from]`.

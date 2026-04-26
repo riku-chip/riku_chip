@@ -226,7 +226,7 @@ pub trait RikuDriver: Send + Sync {
     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str)
         -> DriverDiffReport;
     fn normalize(&self, content: &[u8], path_hint: &str) -> Vec<u8>;
-    fn render(&self, content: &[u8], path_hint: &str) -> Option<PathBuf>;
+    fn render(&self, content: &[u8], path_hint: &str) -> Option<String>;
     fn can_handle(&self, filename: &str) -> bool;
 }
 ```

@@ -121,25 +121,29 @@ Código de colores de anotaciones:
 
 ### `riku log`
 
-Lista el historial de commits, opcionalmente filtrado por archivo.
+Lista el historial de commits con resumen semántico por archivo y refs anotadas.
 
 ```bash
-riku log [archivo.sch] [--semantic] [--limit <n>]
+riku log [archivo.sch] [--detail|--full] [--json [--compact]] [--paths PAT] [--branch REF] [-n <n>]
 ```
 
-Con `--semantic`, cada commit muestra un resumen de cambios detectados en el archivo.
+Por defecto muestra los últimos 20 commits. Cada commit anota refs (rama, tag, HEAD) y, para los archivos con driver (`.sch`), un resumen de componentes y nets cambiados respecto a su primer padre. Los merges se marcan con `[merge]` y no incluyen diff por archivo en v1.
+
+Salida JSON estable bajo el schema `riku-log/v1`.
 
 ---
 
-### `riku render`
+### `riku status`
 
-Renderiza un archivo `.sch` a SVG y lo abre con el visor del sistema.
+Reporta el estado del working tree comparado con `HEAD`.
 
 ```bash
-riku render archivo.sch
+riku status [--detail|--full] [--json [--compact]] [--paths PAT] [--include-unknown]
 ```
 
-El SVG se guarda en caché por SHA-256 del contenido — si el archivo no cambió, se reutiliza instantáneamente.
+Cada archivo modificado se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (driver no detecta cambios) o `unknown` (sin driver). Salida JSON estable bajo el schema `riku-status/v1`.
+
+Códigos de salida: `0` limpio, `1` con cambios semánticos, `2` error.
 
 ---
 
@@ -154,7 +158,7 @@ riku doctor
 Comprueba:
 - PDK detectado (`$PDK_ROOT`/`$PDK` o `.xschemrc`)
 - Repositorio Git válido
-- Directorio de caché accesible
+- Drivers cargados
 
 ---
 
@@ -222,14 +226,12 @@ cargo test --test stress    # rendimiento
 
 | Crate | Rol |
 |-------|-----|
-| `xschem-viewer` | Parser PEG + renderer SVG nativo |
-| `gds-renderer` | Escena y render de layouts GDS para la GUI |
+| `xschem-viewer` (submodule) | Parser PEG + renderer SVG nativo |
 | `git2` | Acceso a blobs y commits sin fork de proceso |
 | `clap` | CLI con subcomandos tipados |
-| `sha2` | Hash SHA-256 para caché de renders |
-| `serde` / `serde_json` | Serialización JSON |
-| `tempfile` | HTML temporal para diff visual |
-| `dirs` | Home y caché del sistema |
+| `serde` / `serde_json` | Serialización JSON estable (`riku-status/v1`, `riku-log/v1`) |
+| `glob` | Filtros `--paths` en status / log |
+| `dirs` | Home del sistema (lookup de `.xschemrc`) |
 | `thiserror` | Tipos de error ergonómicos |
 | `rustyline` | Shell interactivo con historial y edición de línea |
 
@@ -237,7 +239,6 @@ cargo test --test stress    # rendimiento
 
 ## Notas
 
-- `diff --format visual` y `render` abren el archivo generado con el visor del sistema.
-- `gui` abre la aplicación de escritorio de Riku; por ahora el visor GDS es solo lectura.
-- El caché se guarda en el directorio de caché del usuario bajo `riku/ops`.
-- El CLI semántico principal todavía está enfocado en Xschem `.sch`.
+- `diff --format visual` lanza `riku-gui` con los argumentos del diff.
+- `riku render` y el caché en disco fueron eliminados: el render se hace bajo demanda y se entrega como `String`, sin escribir a disco salvo cuando lo pide explícitamente otro consumidor.
+- El CLI semántico principal todavía está enfocado en Xschem `.sch`. Backends GDS/Magic/NGSpice están en roadmap.
