@@ -17,7 +17,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::domain::driver::{DiffEntry, DriverDiffReport};
+use crate::core::domain::driver::{
+    is_layout_element, is_net_element, net_name, DiffEntry, DriverDiffReport,
+};
 use crate::core::domain::models::{ChangeKind, FileFormat};
 
 /// Cuánta información incluir en el `FileSummary`.
@@ -135,8 +137,8 @@ impl FileSummary {
             }
             semantic_changes += 1;
 
-            let is_net = change.element.starts_with("net:");
-            let is_layout = change.element == "layout";
+            let is_net = is_net_element(&change.element);
+            let is_layout = is_layout_element(&change.element);
             if is_layout {
                 continue;
             }
@@ -221,7 +223,7 @@ fn classify(is_net: bool, kind: &ChangeKind, element: &str) -> (&'static str, De
 }
 
 fn net_label_or_element(element: &str) -> String {
-    element.strip_prefix("net:").unwrap_or(element).to_string()
+    net_name(element).to_string()
 }
 
 /// Extrae cambios de parámetros (key: "before → after") ignorando posición y

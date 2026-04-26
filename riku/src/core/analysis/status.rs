@@ -6,7 +6,8 @@
 //! Este módulo no formatea — entrega `StatusReport` y la capa CLI decide cómo
 //! presentarlo (texto, JSON, ...).
 
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -169,8 +170,8 @@ fn summarize_change<R: GitRepository + ?Sized>(
         ChangeStatus::Removed => Vec::new(),
         _ => match read_workdir(workdir, &change.path) {
             Ok(bytes) => bytes,
-            Err(msg) => {
-                warnings.push(format!("{}: {msg}", change.path));
+            Err(e) => {
+                warnings.push(format!("{}: no se pudo leer: {e}", change.path));
                 Vec::new()
             }
         },
@@ -180,13 +181,11 @@ fn summarize_change<R: GitRepository + ?Sized>(
     FileSummary::from_report_with(&report, &change.path, level)
 }
 
-fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> Result<Vec<u8>, String> {
-    let base = match workdir {
-        Some(p) => p,
-        None => return Ok(Vec::new()),
-    };
-    let full: PathBuf = base.join(rel_path);
-    std::fs::read(&full).map_err(|e| format!("no se pudo leer {}: {e}", full.display()))
+fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {
+    match workdir {
+        Some(base) => std::fs::read(base.join(rel_path)),
+        None => Ok(Vec::new()),
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

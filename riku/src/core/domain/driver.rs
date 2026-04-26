@@ -18,6 +18,36 @@ pub struct DiffEntry {
     pub position_changed: bool,
 }
 
+// ─── Protocolo driver → core ─────────────────────────────────────────────────
+//
+// Los drivers reportan `DiffEntry.element` con dos convenciones especiales que
+// el core interpreta:
+// - prefijo `"net:"` → el elemento es una net, no un componente
+// - literal `"layout"` → cambio global del layout (típicamente cosmético)
+
+/// Prefijo que los drivers usan en `DiffEntry.element` para marcar nets.
+pub const NET_PREFIX: &str = "net:";
+
+/// Valor especial de `DiffEntry.element` que indica "todo el layout cambió"
+/// (típicamente un reposicionamiento global; usado para `is_move_all`).
+pub const LAYOUT_ELEMENT: &str = "layout";
+
+/// `true` si el elemento representa una net (empieza con `"net:"`).
+pub fn is_net_element(element: &str) -> bool {
+    element.starts_with(NET_PREFIX)
+}
+
+/// Devuelve el nombre de la net sin el prefijo `"net:"`. Si no tiene prefijo,
+/// devuelve el elemento tal cual.
+pub fn net_name(element: &str) -> &str {
+    element.strip_prefix(NET_PREFIX).unwrap_or(element)
+}
+
+/// `true` si el elemento es el marcador especial `"layout"`.
+pub fn is_layout_element(element: &str) -> bool {
+    element == LAYOUT_ELEMENT
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DriverDiffReport {
     pub file_type: FileFormat,

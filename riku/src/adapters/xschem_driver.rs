@@ -1,4 +1,6 @@
-use crate::core::domain::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
+use crate::core::domain::driver::{
+    DiffEntry, DriverDiffReport, DriverInfo, LAYOUT_ELEMENT, NET_PREFIX, RikuDriver,
+};
 use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat, Schematic};
 use crate::core::format::detect_format;
 
@@ -96,7 +98,7 @@ impl RikuDriver for XschemDriver {
         for net in result.nets_added {
             report.changes.push(DiffEntry {
                 kind: ChangeKind::Added,
-                element: format!("net:{net}"),
+                element: format!("{NET_PREFIX}{net}"),
                 before: None,
                 after: None,
                 cosmetic: false,
@@ -107,7 +109,7 @@ impl RikuDriver for XschemDriver {
         for net in result.nets_removed {
             report.changes.push(DiffEntry {
                 kind: ChangeKind::Removed,
-                element: format!("net:{net}"),
+                element: format!("{NET_PREFIX}{net}"),
                 before: None,
                 after: None,
                 cosmetic: false,
@@ -118,7 +120,7 @@ impl RikuDriver for XschemDriver {
         if result.is_move_all {
             report.changes.push(DiffEntry {
                 kind: ChangeKind::Modified,
-                element: "layout".to_string(),
+                element: LAYOUT_ELEMENT.to_string(),
                 before: None,
                 after: Some(
                     [(

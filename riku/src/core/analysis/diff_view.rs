@@ -3,7 +3,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::core::analysis::blob_io;
-use crate::core::domain::driver::RikuDriver;
+use crate::core::domain::driver::{is_layout_element, is_net_element, net_name, RikuDriver};
 use crate::core::domain::git_types::GitError;
 use crate::core::domain::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
 use crate::core::domain::ports::GitRepository;
@@ -115,7 +115,7 @@ pub fn driver_report_to_diff_report(
     DiffReport {
         components: changes
             .iter()
-            .filter(|c| !c.element.starts_with("net:") && c.element != "layout")
+            .filter(|c| !is_net_element(&c.element) && !is_layout_element(&c.element))
             .map(|c| ComponentDiff {
                 name: c.element.clone(),
                 kind: c.kind.clone(),
@@ -127,15 +127,17 @@ pub fn driver_report_to_diff_report(
             .collect(),
         nets_added: changes
             .iter()
-            .filter(|c| c.kind == ChangeKind::Added && c.element.starts_with("net:"))
-            .map(|c| c.element.trim_start_matches("net:").to_string())
+            .filter(|c| c.kind == ChangeKind::Added && is_net_element(&c.element))
+            .map(|c| net_name(&c.element).to_string())
             .collect(),
         nets_removed: changes
             .iter()
-            .filter(|c| c.kind == ChangeKind::Removed && c.element.starts_with("net:"))
-            .map(|c| c.element.trim_start_matches("net:").to_string())
+            .filter(|c| c.kind == ChangeKind::Removed && is_net_element(&c.element))
+            .map(|c| net_name(&c.element).to_string())
             .collect(),
-        is_move_all: changes.iter().any(|c| c.element == "layout" && c.cosmetic),
+        is_move_all: changes
+            .iter()
+            .any(|c| is_layout_element(&c.element) && c.cosmetic),
     }
 }
 
