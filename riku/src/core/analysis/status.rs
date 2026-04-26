@@ -81,12 +81,7 @@ pub struct StatusOptions {
 
 // ─── Entry points ────────────────────────────────────────────────────────────
 
-/// Helper que abre el repo y delega en `analyze_with_options` con defaults.
-pub fn analyze(repo_path: &Path) -> Result<StatusReport, StatusError> {
-    analyze_with_options_path(repo_path, &StatusOptions::default())
-}
-
-/// Helper que abre el repo desde path y aplica `StatusOptions`.
+/// Abre el repo desde path y aplica `StatusOptions`.
 pub fn analyze_with_options_path(
     repo_path: &Path,
     opts: &StatusOptions,
@@ -96,15 +91,7 @@ pub fn analyze_with_options_path(
     analyze_with_options(&svc, workdir.as_deref(), opts)
 }
 
-/// Versión inyectable sin opciones (compatibilidad con Fase 1 / tests).
-pub fn analyze_with_repo<R: GitRepository + ?Sized>(
-    repo: &R,
-    workdir: Option<&Path>,
-) -> Result<StatusReport, StatusError> {
-    analyze_with_options(repo, workdir, &StatusOptions::default())
-}
-
-/// Versión inyectable con opciones.
+/// Versión inyectable con repo (para tests y composición).
 pub fn analyze_with_options<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
@@ -189,7 +176,7 @@ mod tests {
     use crate::core::domain::git_types::{ChangedFile, CommitInfo};
 
     /// Repo mock que solo provee working_tree_changes y get_blob — suficiente
-    /// para ejercitar `analyze_with_repo` sin tocar disco real.
+    /// para ejercitar `analyze_with_options` sin tocar disco real.
     struct MockRepo {
         changes: Vec<WorkingChange>,
         head_blobs: std::collections::HashMap<String, Vec<u8>>,
@@ -231,7 +218,7 @@ mod tests {
             head_blobs: Default::default(),
             branch: None,
         };
-        let report = analyze_with_repo(&repo, None).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].category, SummaryCategory::Unknown);
         assert!(!report.has_semantic_changes());
@@ -255,7 +242,7 @@ mod tests {
             head_blobs: Default::default(),
             branch: None,
         };
-        let report = analyze_with_repo(&repo, None).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
         assert_eq!(report.files[0].path, "a.txt");
         assert_eq!(report.files[1].path, "z.txt");
     }
@@ -306,7 +293,7 @@ mod tests {
                 behind: 0,
             }),
         };
-        let report = analyze_with_repo(&repo, None).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
         assert_eq!(
             report.branch.as_ref().map(|b| b.name.as_str()),
             Some("feature-amp")

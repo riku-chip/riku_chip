@@ -90,10 +90,7 @@ pub struct LogOptions {
 
 // ─── Entry points ────────────────────────────────────────────────────────────
 
-pub fn analyze(repo_path: &Path) -> Result<LogReport, LogError> {
-    analyze_with_options_path(repo_path, &LogOptions::default())
-}
-
+/// Abre el repo desde path y aplica `LogOptions`.
 pub fn analyze_with_options_path(
     repo_path: &Path,
     opts: &LogOptions,
