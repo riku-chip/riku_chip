@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use super::commands;
+use super::gui;
 use super::{Cli, Commands};
 
 const LOGO: &str = r#"
@@ -324,7 +325,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                             f
                         }
                     });
-                    commands::run_gui(effective)
+                    gui::run(effective)
                 }
             };
             if let Err(e) = result {

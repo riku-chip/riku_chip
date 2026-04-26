@@ -6,9 +6,6 @@
 //! código sin duplicación.
 
 use std::path::PathBuf;
-use std::process::Command;
-
-use serde_json::json;
 
 use crate::adapters::registry::get_drivers;
 use crate::adapters::xschem_driver::XschemDriver;
@@ -16,10 +13,10 @@ use crate::core::analysis::diff_view::DiffView;
 use crate::core::analysis::log;
 use crate::core::analysis::status::{self, StatusOptions};
 use crate::core::analysis::summary::DetailLevel;
-use crate::core::domain::models::ChangeKind;
 
 use super::OutputFormat;
 use super::format;
+use super::gui;
 
 // ─── Diff ────────────────────────────────────────────────────────────────────
 
@@ -41,112 +38,10 @@ pub(super) fn run_diff(
     }
 
     match format {
-        OutputFormat::Text => present_text(&view, file_path),
-        OutputFormat::Json => present_json(&view, file_path),
+        OutputFormat::Text => format::diff_text::print(&view, file_path),
+        OutputFormat::Json => format::diff_json::print(&view, file_path),
         OutputFormat::Visual => present_visual(&repo, commit_a, commit_b, file_path),
     }
-}
-
-fn present_text(view: &DiffView, file_path: &str) -> Result<(), String> {
-    if view.report.is_empty() {
-        println!("Sin cambios semanticos.");
-        return Ok(());
-    }
-
-    let semantic: Vec<_> = view
-        .report
-        .components
-        .iter()
-        .filter(|c| !c.cosmetic)
-        .collect();
-    let cosmetic: Vec<_> = view
-        .report
-        .components
-        .iter()
-        .filter(|c| c.cosmetic)
-        .collect();
-
-    println!("Archivo : {file_path}");
-    println!("Cambios : {}", semantic.len());
-    if !cosmetic.is_empty() {
-        println!("Cosméticos: {} (solo posición)", cosmetic.len());
-    }
-    println!();
-
-    for c in &semantic {
-        let is_rename = c.kind == ChangeKind::Modified && c.name.contains(" → ");
-        let marker = if is_rename {
-            "r"
-        } else {
-            match c.kind {
-                ChangeKind::Added => "+",
-                ChangeKind::Removed => "-",
-                ChangeKind::Modified => "~",
-            }
-        };
-        println!("  {marker} {}", c.name);
-
-        if let (Some(before), Some(after)) = (&c.before, &c.after) {
-            let all_keys: std::collections::BTreeSet<_> =
-                before.keys().chain(after.keys()).collect();
-            for key in all_keys {
-                if matches!(key.as_str(), "x" | "y" | "rotation" | "mirror") {
-                    continue;
-                }
-                match (before.get(key), after.get(key)) {
-                    (Some(a), Some(b)) if a != b => {
-                        println!("      {key}: {a} → {b}");
-                    }
-                    (None, Some(b)) => {
-                        println!("      {key}: (nuevo) → {b}");
-                    }
-                    (Some(a), None) => {
-                        println!("      {key}: {a} → (eliminado)");
-                    }
-                    _ => {}
-                }
-            }
-        } else if c.kind == ChangeKind::Added {
-            if let Some(after) = &c.after {
-                if let Some(sym) = after.get("symbol") {
-                    println!("      símbolo: {sym}");
-                }
-            }
-        }
-    }
-
-    if !view.report.nets_added.is_empty() {
-        println!();
-        for net in &view.report.nets_added {
-            println!("  + net:{net}");
-        }
-    }
-    if !view.report.nets_removed.is_empty() {
-        if view.report.nets_added.is_empty() {
-            println!();
-        }
-        for net in &view.report.nets_removed {
-            println!("  - net:{net}");
-        }
-    }
-
-    Ok(())
-}
-
-fn present_json(view: &DiffView, file_path: &str) -> Result<(), String> {
-    let payload = json!({
-        "file": file_path,
-        "warnings": view.warnings,
-        "components": view.report.components,
-        "nets_added": view.report.nets_added,
-        "nets_removed": view.report.nets_removed,
-        "is_move_all": view.report.is_move_all,
-    });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?
-    );
-    Ok(())
 }
 
 fn present_visual(
@@ -166,7 +61,7 @@ fn present_visual(
         file_path.into(),
     ];
 
-    run_gui_with_args(extra_args)
+    gui::run_with_args(extra_args)
 }
 
 // ─── Log ─────────────────────────────────────────────────────────────────────
@@ -359,88 +254,3 @@ pub(super) fn run_status(args: StatusArgs) -> Result<StatusOutcome, String> {
     })
 }
 
-// ─── GUI ─────────────────────────────────────────────────────────────────────
-
-pub(super) fn run_gui(file: Option<PathBuf>) -> Result<(), String> {
-    let args: Vec<std::ffi::OsString> = file.into_iter().map(|p| p.into_os_string()).collect();
-    run_gui_with_args(args)
-}
-
-fn run_gui_with_args(args: Vec<std::ffi::OsString>) -> Result<(), String> {
-    if let Some(bin) = locate_gui_binary() {
-        let status = Command::new(bin)
-            .args(&args)
-            .status()
-            .map_err(|e| e.to_string())?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(format!("riku-gui finalizó con error: {status}"))
-        };
-    }
-
-    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la raíz del workspace.".to_string())?;
-
-    let mut cargo = Command::new("cargo");
-    cargo
-        .args(["run", "--package", "riku-gui", "--bin", "riku-gui"])
-        .current_dir(workspace_root);
-    if !args.is_empty() {
-        cargo.arg("--").args(&args);
-    }
-
-    let status = cargo.status().map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("No se pudo iniciar riku-gui: {status}"))
-    }
-}
-
-fn locate_gui_binary() -> Option<PathBuf> {
-    let bin_name = format!("riku-gui{}", std::env::consts::EXE_SUFFIX);
-
-    if let Ok(path) = std::env::var("RIKU_GUI_BIN") {
-        let candidate = PathBuf::from(&path);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if let Ok(dir) = dir.canonicalize() {
-                let sibling = dir.join(&bin_name);
-                if sibling.exists() {
-                    return Some(sibling);
-                }
-                for ancestor in [dir.parent(), dir.parent().and_then(|p| p.parent())] {
-                    if let Some(p) = ancestor {
-                        for profile in ["release", "debug"] {
-                            let candidate = p.join(profile).join(&bin_name);
-                            if candidate.exists() {
-                                return Some(candidate);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    for profile in ["release", "debug"] {
-        let candidate = manifest_dir
-            .parent()
-            .map(|p| p.join("target").join(profile).join(&bin_name));
-        if let Some(c) = candidate {
-            if c.exists() {
-                return Some(c);
-            }
-        }
-    }
-
-    None
-}

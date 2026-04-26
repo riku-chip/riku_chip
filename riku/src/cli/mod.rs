@@ -14,6 +14,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 mod commands;
 mod format;
+mod gui;
 mod shell;
 
 // ─── Tipos del parser ────────────────────────────────────────────────────────
@@ -175,7 +176,7 @@ pub fn run() -> ExitCode {
         }),
         Some(Commands::Doctor { repo }) => commands::run_doctor(repo),
         Some(Commands::Status { .. }) => unreachable!(),
-        Some(Commands::Open { file }) => commands::run_gui(file),
+        Some(Commands::Open { file }) => gui::run(file),
     };
 
     match result {
