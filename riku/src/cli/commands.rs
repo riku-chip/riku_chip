@@ -184,13 +184,7 @@ pub(super) struct LogArgs {
 }
 
 pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
-    let level = if args.full {
-        DetailLevel::Completo
-    } else if args.detail {
-        DetailLevel::Detalle
-    } else {
-        DetailLevel::Resumen
-    };
+    let level = DetailLevel::from_flags(args.detail, args.full);
 
     // El path posicional se mapea a un patrón exacto en `paths` (compatibilidad
     // con el comportamiento legado y atajo común).
@@ -344,13 +338,7 @@ pub(super) enum StatusOutcome {
 }
 
 pub(super) fn run_status(args: StatusArgs) -> Result<StatusOutcome, String> {
-    let level = if args.full {
-        DetailLevel::Completo
-    } else if args.detail {
-        DetailLevel::Detalle
-    } else {
-        DetailLevel::Resumen
-    };
+    let level = DetailLevel::from_flags(args.detail, args.full);
 
     let opts = StatusOptions {
         level,

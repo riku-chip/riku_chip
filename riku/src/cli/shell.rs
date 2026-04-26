@@ -125,6 +125,16 @@ impl ShellContext {
             .unwrap_or_else(|| self.cwd.clone())
     }
 
+    /// Si el usuario pasó `--repo .` (o no lo pasó), usa el repo del shell;
+    /// si pasó una ruta explícita, respétala.
+    fn resolve_repo(&self, requested: PathBuf) -> PathBuf {
+        if requested == PathBuf::from(".") {
+            self.repo_path()
+        } else {
+            requested
+        }
+    }
+
     fn resolve_file(&self, f: &str) -> String {
         let abs = if std::path::Path::new(f).is_absolute() {
             PathBuf::from(f)
@@ -241,7 +251,6 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
 
     match Cli::try_parse_from(&args) {
         Ok(parsed) => {
-            let repo_path = ctx.repo_path();
             let result = match parsed.command {
                 None => {
                     println!("  Ya estás en el shell.");
@@ -254,14 +263,9 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                     repo: r,
                     format,
                 }) => {
-                    let effective_repo = if r == PathBuf::from(".") {
-                        repo_path
-                    } else {
-                        r
-                    };
                     let effective_file = ctx.resolve_file(&file_path);
                     commands::run_diff(
-                        effective_repo,
+                        ctx.resolve_repo(r),
                         &commit_a,
                         &commit_b,
                         &effective_file,
@@ -280,14 +284,9 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                     paths,
                     branch,
                 }) => {
-                    let effective_repo = if r == PathBuf::from(".") {
-                        repo_path
-                    } else {
-                        r
-                    };
                     let effective_file = file_path.map(|f| ctx.resolve_file(&f));
                     commands::run_log(commands::LogArgs {
-                        repo: effective_repo,
+                        repo: ctx.resolve_repo(r),
                         file_path: effective_file,
                         limit,
                         json,
@@ -298,13 +297,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                         branch,
                     })
                 }
-                Some(Commands::Doctor { repo: r }) => {
-                    commands::run_doctor(if r == PathBuf::from(".") {
-                        repo_path
-                    } else {
-                        r
-                    })
-                }
+                Some(Commands::Doctor { repo: r }) => commands::run_doctor(ctx.resolve_repo(r)),
                 Some(Commands::Status {
                     repo: r,
                     include_unknown,
@@ -313,23 +306,16 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                     detail,
                     full,
                     paths,
-                }) => {
-                    let effective_repo = if r == PathBuf::from(".") {
-                        repo_path
-                    } else {
-                        r
-                    };
-                    commands::run_status(commands::StatusArgs {
-                        repo: effective_repo,
-                        include_unknown,
-                        json,
-                        compact,
-                        detail,
-                        full,
-                        paths,
-                    })
-                    .map(|_| ())
-                }
+                }) => commands::run_status(commands::StatusArgs {
+                    repo: ctx.resolve_repo(r),
+                    include_unknown,
+                    json,
+                    compact,
+                    detail,
+                    full,
+                    paths,
+                })
+                .map(|_| ()),
                 Some(Commands::Open { file }) => {
                     let effective = file.map(|f| {
                         if f.components().count() == 1 {

@@ -36,6 +36,20 @@ pub enum DetailLevel {
     Completo,
 }
 
+impl DetailLevel {
+    /// Resuelve el nivel a partir de los flags `--detail` y `--full` del CLI.
+    /// `full` tiene precedencia sobre `detail`; ambos en falso → `Resumen`.
+    pub fn from_flags(detail: bool, full: bool) -> Self {
+        if full {
+            Self::Completo
+        } else if detail {
+            Self::Detalle
+        } else {
+            Self::Resumen
+        }
+    }
+}
+
 /// Categoría agregada de un archivo en una lista (`riku status`, `riku log`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
