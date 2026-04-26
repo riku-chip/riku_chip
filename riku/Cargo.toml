@@ -24,11 +24,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
 rustyline = "14.0"
-# Path local: mientras viewer-core no esté publicado en crates.io, la
-# dependencia transitiva `viewer-core` (via path relativo en xschem-viewer)
-# solo resuelve cuando ambos repos conviven como hermanos en el filesystem.
-# Se cumple en Desktop y Docker. Al publicar viewer-core, volver a git/tag.
-xschem_viewer = { package = "xschem-viewer", path = "../../xschem-viewer-rust" }
+# xschem-viewer-rust vive como submodule git en `external/`. Esto permite
+# `git clone --recurse-submodules` y compilar sin pasos extra. Al publicar
+# viewer-core en crates.io, esto puede migrarse a una git/crates dependency.
+xschem_viewer = { package = "xschem-viewer", path = "../external/xschem-viewer-rust" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

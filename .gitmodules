@@ -1,0 +1,3 @@
+[submodule "external/xschem-viewer-rust"]
+	path = external/xschem-viewer-rust
+	url = https://github.com/carloscl03/xschem-viewer-rust.git
