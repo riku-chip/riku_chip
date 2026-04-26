@@ -28,6 +28,14 @@ pub fn annotation_style(kind: &ChangeKind, cosmetic: bool) -> AnnotationStyle {
     }
 }
 
+// ─── Wire colors ─────────────────────────────────────────────────────────────
+
+/// Color de wire para nets añadidas (verde, alpha 0.9).
+pub const WIRE_ADDED_COLOR: &str = "rgba(0,200,0,0.9)";
+
+/// Color de wire para nets removidas (rojo, alpha 0.9).
+pub const WIRE_REMOVED_COLOR: &str = "rgba(200,0,0,0.9)";
+
 #[cfg(test)]
 mod tests {
     use super::annotation_style;

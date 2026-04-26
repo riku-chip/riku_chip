@@ -1,5 +1,5 @@
 use crate::core::domain::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
-use crate::core::rendering::styles::annotation_style;
+use crate::core::rendering::styles::{annotation_style, WIRE_ADDED_COLOR, WIRE_REMOVED_COLOR};
 
 // Half-size of the bounding box drawn around each changed component, in schematic units.
 const BBOX_HALF: f64 = 20.0;
@@ -63,7 +63,7 @@ pub fn annotate(
         elements.extend(wire_lines(
             &diff_report.nets_added,
             sch_b,
-            "rgba(0,200,0,0.9)",
+            WIRE_ADDED_COLOR,
         ));
     }
     if let Some(sch_a) = sch_a {
@@ -71,7 +71,7 @@ pub fn annotate(
             elements.extend(wire_lines(
                 &diff_report.nets_removed,
                 sch_a,
-                "rgba(200,0,0,0.9)",
+                WIRE_REMOVED_COLOR,
             ));
         }
     }
