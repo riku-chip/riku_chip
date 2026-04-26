@@ -9,9 +9,6 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use super::commands;
-use super::doctor;
-use super::gui;
 use super::{Cli, Commands};
 
 const LOGO: &str = r#"
@@ -253,83 +250,15 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
 
     match Cli::try_parse_from(&args) {
         Ok(parsed) => {
-            let result = match parsed.command {
-                None => {
-                    println!("  Ya estás en el shell.");
-                    Ok(())
-                }
-                Some(Commands::Diff {
-                    commit_a,
-                    commit_b,
-                    file_path,
-                    repo: r,
-                    format,
-                }) => {
-                    let effective_file = ctx.resolve_file(&file_path);
-                    commands::run_diff(
-                        ctx.resolve_repo(r),
-                        &commit_a,
-                        &commit_b,
-                        &effective_file,
-                        format,
-                    )
-                }
-                Some(Commands::Log {
-                    file_path,
-                    repo: r,
-                    limit,
-                    semantic: _,
-                    json,
-                    compact,
-                    detail,
-                    full,
-                    paths,
-                    branch,
-                }) => {
-                    let effective_file = file_path.map(|f| ctx.resolve_file(&f));
-                    commands::run_log(commands::LogArgs {
-                        repo: ctx.resolve_repo(r),
-                        file_path: effective_file,
-                        limit,
-                        json,
-                        compact,
-                        detail,
-                        full,
-                        paths,
-                        branch,
-                    })
-                }
-                Some(Commands::Doctor { repo: r }) => doctor::run(ctx.resolve_repo(r)),
-                Some(Commands::Status {
-                    repo: r,
-                    include_unknown,
-                    json,
-                    compact,
-                    detail,
-                    full,
-                    paths,
-                }) => commands::run_status(commands::StatusArgs {
-                    repo: ctx.resolve_repo(r),
-                    include_unknown,
-                    json,
-                    compact,
-                    detail,
-                    full,
-                    paths,
-                })
-                .map(|_| ()),
-                Some(Commands::Open { file }) => {
-                    let effective = file.map(|f| {
-                        if f.components().count() == 1 {
-                            ctx.cwd.join(&f)
-                        } else {
-                            f
-                        }
-                    });
-                    gui::run(effective)
-                }
+            let Some(mut cmd) = parsed.command else {
+                println!("  Ya estás en el shell.");
+                return;
             };
-            if let Err(e) = result {
+            cmd.resolve_paths(ctx);
+            // `Outcome::Status*` se descarta a propósito — el shell no usa
+            // exit codes; cambios pendientes se reflejan en la salida del
+            // propio comando.
+            if let Err(e) = cmd.execute() {
                 eprintln!("  Error: {e}");
             }
         }
@@ -341,6 +270,45 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                     .next()
                     .unwrap_or("comando no reconocido")
             );
+        }
+    }
+}
+
+// ─── Shell-specific path resolution ─────────────────────────────────────────
+
+impl Commands {
+    /// Aplica las resoluciones del shell antes de ejecutar: `--repo .` se
+    /// reemplaza por el repo activo del REPL, y los path relativos se rebasan
+    /// al cwd del shell. No toca flags ni semántica del comando.
+    fn resolve_paths(&mut self, ctx: &ShellContext) {
+        match self {
+            Commands::Diff {
+                repo, file_path, ..
+            } => {
+                *repo = ctx.resolve_repo(std::mem::take(repo));
+                *file_path = ctx.resolve_file(file_path);
+            }
+            Commands::Log {
+                repo, file_path, ..
+            } => {
+                *repo = ctx.resolve_repo(std::mem::take(repo));
+                if let Some(f) = file_path.as_mut() {
+                    *f = ctx.resolve_file(f);
+                }
+            }
+            Commands::Doctor { repo } => {
+                *repo = ctx.resolve_repo(std::mem::take(repo));
+            }
+            Commands::Status { repo, .. } => {
+                *repo = ctx.resolve_repo(std::mem::take(repo));
+            }
+            Commands::Open { file } => {
+                if let Some(f) = file.as_mut() {
+                    if f.components().count() == 1 {
+                        *f = ctx.cwd.join(&*f);
+                    }
+                }
+            }
         }
     }
 }

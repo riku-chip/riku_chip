@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand, ValueEnum};
 
 mod commands;
+mod dispatch;
 mod doctor;
 mod format;
 mod gui;
@@ -112,79 +113,29 @@ pub(crate) enum Commands {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 pub fn run() -> ExitCode {
-    let cli = Cli::parse();
+    use dispatch::Outcome;
 
-    // `Status` tiene exit codes propios (0 limpio, 1 con cambios, 2 error).
-    // El resto de comandos sigue la convención clásica (0 ok, 1 error).
-    if let Some(Commands::Status {
-        repo,
-        include_unknown,
-        json,
-        compact,
-        detail,
-        full,
-        paths,
-    }) = cli.command
-    {
-        return match commands::run_status(commands::StatusArgs {
-            repo,
-            include_unknown,
-            json,
-            compact,
-            detail,
-            full,
-            paths,
-        }) {
-            Ok(commands::StatusOutcome::Clean) => ExitCode::SUCCESS,
-            Ok(commands::StatusOutcome::Dirty) => ExitCode::from(1),
-            Err(err) => {
-                eprintln!("{err}");
-                ExitCode::from(2)
-            }
-        };
-    }
-
-    let result = match cli.command {
-        None => shell::run_shell(),
-        Some(Commands::Diff {
-            commit_a,
-            commit_b,
-            file_path,
-            repo,
-            format,
-        }) => commands::run_diff(repo, &commit_a, &commit_b, &file_path, format),
-        Some(Commands::Log {
-            file_path,
-            repo,
-            limit,
-            semantic: _,
-            json,
-            compact,
-            detail,
-            full,
-            paths,
-            branch,
-        }) => commands::run_log(commands::LogArgs {
-            repo,
-            file_path,
-            limit,
-            json,
-            compact,
-            detail,
-            full,
-            paths,
-            branch,
-        }),
-        Some(Commands::Doctor { repo }) => doctor::run(repo),
-        Some(Commands::Status { .. }) => unreachable!(),
-        Some(Commands::Open { file }) => gui::run(file),
+    let Some(cmd) = Cli::parse().command else {
+        return shell_to_exit(shell::run_shell());
     };
 
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
+    // `Status` tiene exit codes propios (0 limpio, 1 con cambios, 2 error).
+    // El resto sigue la convención clásica (0 ok, 1 error). Capturamos el tipo
+    // del comando antes del `execute` para distinguir el código de error.
+    let is_status = matches!(cmd, Commands::Status { .. });
+    match cmd.execute() {
+        Ok(Outcome::Ok | Outcome::StatusClean) => ExitCode::SUCCESS,
+        Ok(Outcome::StatusDirty) => ExitCode::from(1),
         Err(err) => {
             eprintln!("{err}");
-            ExitCode::from(1)
+            ExitCode::from(if is_status { 2 } else { 1 })
         }
     }
+}
+
+fn shell_to_exit(r: Result<(), String>) -> ExitCode {
+    r.map(|_| ExitCode::SUCCESS).unwrap_or_else(|err| {
+        eprintln!("{err}");
+        ExitCode::from(1)
+    })
 }
