@@ -6,7 +6,6 @@ use crate::core::driver::RikuDriver;
 use crate::core::git::git_service::{GitError, GitService};
 use crate::core::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
 use crate::core::ports::GitRepository;
-use crate::core::rendering::styles::{AnnotationStyle, annotation_style};
 
 // ─── Error ───────────────────────────────────────────────────────────────────
 
@@ -153,6 +152,7 @@ mod tests {
     use super::*;
     use crate::core::driver::{DiffEntry, DriverDiffReport};
     use crate::core::models::FileFormat;
+    use crate::core::rendering::styles::annotation_style;
 
     fn make_report(changes: Vec<DiffEntry>) -> DriverDiffReport {
         DriverDiffReport { file_type: FileFormat::Xschem, changes, ..Default::default() }
