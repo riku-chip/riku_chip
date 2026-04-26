@@ -1,5 +1,5 @@
 use crate::adapters::xschem_driver::XschemDriver;
-use crate::core::driver::RikuDriver;
+use crate::core::domain::driver::RikuDriver;
 
 pub fn get_drivers() -> Vec<Box<dyn RikuDriver>> {
     vec![Box::new(XschemDriver::new())]

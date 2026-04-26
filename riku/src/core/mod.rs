@@ -1,9 +1,6 @@
 pub mod analysis;
-pub mod driver;
-pub mod error;
+pub mod domain;
 pub mod format;
 pub mod git;
-pub mod models;
 pub mod path_matcher;
-pub mod ports;
 pub mod rendering;

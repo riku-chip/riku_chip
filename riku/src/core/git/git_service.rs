@@ -4,7 +4,7 @@ use git2::{DiffOptions, Oid, Repository};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::core::ports::RepoRoot;
+use crate::core::domain::ports::RepoRoot;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitInfo {

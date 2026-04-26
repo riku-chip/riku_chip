@@ -1,6 +1,6 @@
-use crate::core::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
+use crate::core::domain::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
+use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat, Schematic};
 use crate::core::format::detect_format;
-use crate::core::models::{ChangeKind, DriverKind, FileFormat, Schematic};
 
 /// Parsea un .sch a su vista semántica usando las opciones por defecto de
 /// riku (tema dark + símbolos de `.xschemrc`). Expuesto como helper para

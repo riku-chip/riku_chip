@@ -29,7 +29,7 @@ struct SchState {
     /// Escena del commit A (estado anterior) — solo en modo diff
     scene_a: Option<xschem_viewer::ResolvedScene>,
     viewport: SchViewport,
-    diff: Option<riku::core::models::DiffReport>,
+    diff: Option<riku::core::domain::models::DiffReport>,
     /// Tab activo (solo relevante en modo diff)
     tab: DiffTab,
 }
@@ -559,8 +559,8 @@ const COLOR_REMOVED: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
 const COLOR_MODIFIED: egui::Color32 = egui::Color32::from_rgb(255, 180, 0);
 const COLOR_MOVED: egui::Color32 = egui::Color32::from_rgb(0, 190, 255);
 
-fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::models::DiffReport) {
-    use riku::core::models::ChangeKind;
+fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::domain::models::DiffReport) {
+    use riku::core::domain::models::ChangeKind;
 
     let mut any_shown = false;
 

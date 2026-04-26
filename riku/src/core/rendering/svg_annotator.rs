@@ -1,4 +1,4 @@
-use crate::core::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
+use crate::core::domain::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
 use crate::core::rendering::styles::annotation_style;
 
 // Half-size of the bounding box drawn around each changed component, in schematic units.
@@ -90,7 +90,7 @@ pub fn annotate(
 #[cfg(test)]
 mod tests {
     use super::annotate;
-    use crate::core::models::{ChangeKind, Component, ComponentDiff, DiffReport, Schematic, Wire};
+    use crate::core::domain::models::{ChangeKind, Component, ComponentDiff, DiffReport, Schematic, Wire};
     use crate::core::rendering::styles::annotation_style;
     use std::collections::{BTreeMap, BTreeSet};
 

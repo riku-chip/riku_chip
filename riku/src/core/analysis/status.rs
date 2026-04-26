@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::core::git::git_service::{
     BranchInfo, ChangeStatus, GitError, GitService, WorkingChange,
 };
-use crate::core::ports::{GitRepository, RepoRoot};
+use crate::core::domain::ports::{GitRepository, RepoRoot};
 use crate::core::path_matcher::PathMatcher;
 use crate::adapters::registry::get_driver_for;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};

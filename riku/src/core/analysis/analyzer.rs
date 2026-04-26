@@ -2,11 +2,11 @@ use std::path::Path;
 
 use thiserror::Error;
 
-use crate::core::driver::DriverDiffReport;
-use crate::core::error::RikuError;
+use crate::core::domain::driver::DriverDiffReport;
+use crate::core::domain::error::RikuError;
+use crate::core::domain::models::FileFormat;
+use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::{GitError, GitService};
-use crate::core::models::FileFormat;
-use crate::core::ports::GitRepository;
 use crate::adapters::registry::get_driver_for;
 
 #[derive(Debug, Error)]

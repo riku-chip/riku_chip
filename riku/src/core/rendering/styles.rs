@@ -1,4 +1,4 @@
-use crate::core::models::ChangeKind;
+use crate::core::domain::models::ChangeKind;
 
 /// Colores RGBA para cada tipo de cambio.
 /// Separados aquí para que el GUI pueda reutilizarlos sin depender de SVG.

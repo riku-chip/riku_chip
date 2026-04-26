@@ -15,7 +15,7 @@ use crate::core::analysis::diff_view::DiffView;
 use crate::core::analysis::log;
 use crate::core::analysis::status::{self, StatusOptions};
 use crate::core::analysis::summary::DetailLevel;
-use crate::core::models::ChangeKind;
+use crate::core::domain::models::ChangeKind;
 use crate::adapters::registry::get_drivers;
 
 use super::format;

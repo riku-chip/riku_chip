@@ -3,7 +3,7 @@
 //! Inspecciona el header del contenido para decidir a qué driver enrutar.
 //! Solo lee los primeros bytes — es seguro contra archivos grandes o binarios.
 
-use crate::core::models::FileFormat;
+use crate::core::domain::models::FileFormat;
 
 /// Identifica el formato del contenido por heurísticas de cabecera.
 pub fn detect_format(content: &[u8]) -> FileFormat {

@@ -5,8 +5,8 @@ use git2::{Repository, Signature};
 use serde_json::json;
 
 use riku::core::git::git_service::{GitError, GitService, LARGE_BLOB_THRESHOLD};
-use riku::core::models::{ChangeKind, FileFormat};
-use riku::core::ports::GitRepository;
+use riku::core::domain::models::{ChangeKind, FileFormat};
+use riku::core::domain::ports::GitRepository;
 use riku::adapters::xschem_driver::parse;
 use riku::core::format::detect_format;
 use xschem_viewer::semantic::diff;

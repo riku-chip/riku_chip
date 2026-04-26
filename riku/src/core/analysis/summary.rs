@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::driver::{DiffEntry, DriverDiffReport};
-use crate::core::models::{ChangeKind, FileFormat};
+use crate::core::domain::driver::{DiffEntry, DriverDiffReport};
+use crate::core::domain::models::{ChangeKind, FileFormat};
 
 /// Cuánta información incluir en el `FileSummary`.
 ///
@@ -301,7 +301,7 @@ pub fn label_for(key: &str, count: i64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::driver::DiffEntry;
+    use crate::core::domain::driver::DiffEntry;
 
     fn entry(kind: ChangeKind, element: &str, cosmetic: bool) -> DiffEntry {
         DiffEntry {

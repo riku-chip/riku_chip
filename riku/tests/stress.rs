@@ -14,8 +14,8 @@ use std::time::Instant;
 use git2::{Repository, Signature};
 
 use riku::core::git::git_service::GitService;
-use riku::core::models::FileFormat;
-use riku::core::ports::GitRepository;
+use riku::core::domain::models::FileFormat;
+use riku::core::domain::ports::GitRepository;
 use riku::adapters::xschem_driver::parse;
 use riku::core::format::detect_format;
 use xschem_viewer::semantic::diff as semantic_diff_inner;
@@ -174,7 +174,7 @@ fn diff_detects_component_value_change() {
     let modified_components: Vec<_> = report
         .components
         .iter()
-        .filter(|c| c.kind == riku::core::models::ChangeKind::Modified)
+        .filter(|c| c.kind == riku::core::domain::models::ChangeKind::Modified)
         .collect();
     assert!(
         !modified_components.is_empty(),

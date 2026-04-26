@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::core::driver::Renderer;
+use crate::core::domain::driver::Renderer;
 use crate::core::git::git_service::{
     BranchInfo, ChangedFile, CommitInfo, CommitWithParents, GitError, GitService, LogQuery,
     WorkingChange,
 };
-use crate::core::models::{FileFormat, Schematic};
+use crate::core::domain::models::{FileFormat, Schematic};
 
 pub trait GitRepository {
     fn get_blob(&self, commit_ish: &str, file_path: &str) -> Result<Vec<u8>, GitError>;

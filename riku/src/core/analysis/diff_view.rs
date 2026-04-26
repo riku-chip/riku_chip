@@ -2,10 +2,10 @@ use std::path::Path;
 
 use thiserror::Error;
 
-use crate::core::driver::RikuDriver;
+use crate::core::domain::driver::RikuDriver;
+use crate::core::domain::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
+use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::{GitError, GitService};
-use crate::core::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
-use crate::core::ports::GitRepository;
 
 // ─── Error ───────────────────────────────────────────────────────────────────
 
@@ -106,7 +106,7 @@ impl DiffView {
 /// Convierte las entradas del driver a `DiffReport` de dominio.
 /// Separa componentes, nets y el flag is_move_all.
 pub fn driver_report_to_diff_report(
-    changes: &[crate::core::driver::DiffEntry],
+    changes: &[crate::core::domain::driver::DiffEntry],
 ) -> DiffReport {
     DiffReport {
         components: changes
@@ -138,7 +138,7 @@ pub fn driver_report_to_diff_report(
 }
 
 /// Cuenta cambios no cosméticos por tipo. Útil para el log --semantic.
-pub fn summarize_changes(changes: &[crate::core::driver::DiffEntry]) -> (usize, usize, usize) {
+pub fn summarize_changes(changes: &[crate::core::domain::driver::DiffEntry]) -> (usize, usize, usize) {
     let added = changes.iter().filter(|c| c.kind == ChangeKind::Added && !c.cosmetic).count();
     let removed = changes.iter().filter(|c| c.kind == ChangeKind::Removed && !c.cosmetic).count();
     let modified = changes.iter().filter(|c| c.kind == ChangeKind::Modified && !c.cosmetic).count();
@@ -150,8 +150,8 @@ pub fn summarize_changes(changes: &[crate::core::driver::DiffEntry]) -> (usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::driver::{DiffEntry, DriverDiffReport};
-    use crate::core::models::FileFormat;
+    use crate::core::domain::driver::{DiffEntry, DriverDiffReport};
+    use crate::core::domain::models::FileFormat;
     use crate::core::rendering::styles::annotation_style;
 
     fn make_report(changes: Vec<DiffEntry>) -> DriverDiffReport {

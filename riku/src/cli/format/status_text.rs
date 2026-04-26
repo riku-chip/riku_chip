@@ -5,8 +5,8 @@
 //! - `Detalle`: añade entradas por componente/net cambiada.
 //! - `Completo`: imprime el `DriverDiffReport` íntegro tras el resumen.
 
-use crate::core::driver::DriverDiffReport;
-use crate::core::models::ChangeKind;
+use crate::core::domain::driver::DriverDiffReport;
+use crate::core::domain::models::ChangeKind;
 use crate::core::analysis::status::StatusReport;
 use crate::core::analysis::summary::{label_for, DetailEntry, DetailLevel, FileSummary, SummaryCategory};
 

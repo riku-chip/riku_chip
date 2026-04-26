@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::models::{ChangeKind, DriverKind, FileFormat};
+use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffEntry {
