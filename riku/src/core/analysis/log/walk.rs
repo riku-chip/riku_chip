@@ -1,92 +1,17 @@
-//! Orquestación de `riku log`.
-//!
-//! Recorre el historial Git y, por cada commit, computa un resumen semántico
-//! (igual que `status` para el working tree, pero entre `parent..commit`).
-//! Como `status`, no formatea — entrega `LogReport` y la capa CLI elige texto
-//! o JSON.
+//! Recorrido del historial Git y construcción de `LogCommit` por commit.
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
 use crate::adapters::registry::get_driver_for;
 use crate::core::analysis::blob_io;
-use crate::core::analysis::envelope::Envelope;
 use crate::core::analysis::pipeline;
-use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
-use crate::core::domain::git_types::{
-    ChangeStatus, CommitInfo, CommitWithParents, GitError, LogQuery,
-};
+use crate::core::analysis::summary::{FileSummary, SummaryCategory};
+use crate::core::domain::git_types::{ChangeStatus, CommitWithParents, LogQuery};
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
 use crate::core::path_matcher::PathMatcher;
 
-// ─── Errores ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Error)]
-pub enum LogError {
-    #[error(transparent)]
-    Git(#[from] GitError),
-}
-
-// ─── Schema ──────────────────────────────────────────────────────────────────
-
-pub const LOG_SCHEMA: &str = "riku-log/v1";
-
-pub type EnvelopedLogReport<'a> = Envelope<'a, LogReport>;
-
-impl<'a> From<&'a LogReport> for EnvelopedLogReport<'a> {
-    fn from(inner: &'a LogReport) -> Self {
-        Envelope::new(LOG_SCHEMA, inner)
-    }
-}
-
-// ─── Modelo de salida ────────────────────────────────────────────────────────
-
-/// Un commit anotado con su resumen semántico por archivo.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LogCommit {
-    #[serde(flatten)]
-    pub info: CommitInfo,
-    /// OIDs de los padres (1 normal, 0 root, 2+ merge).
-    pub parents: Vec<String>,
-    /// Refs que apuntan exactamente a este commit (rama, tag, HEAD).
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub refs: Vec<String>,
-    /// `true` si tiene más de un padre. Implica `files` vacío en v1.
-    pub is_merge: bool,
-    /// Resumen por archivo. Vacío en commits root o merge en v1.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub files: Vec<FileSummary>,
-}
-
-impl LogCommit {
-    pub fn has_semantic_changes(&self) -> bool {
-        self.files
-            .iter()
-            .any(|f| matches!(f.category, SummaryCategory::Semantic))
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LogReport {
-    pub commits: Vec<LogCommit>,
-    pub warnings: Vec<String>,
-}
-
-// ─── Opciones ────────────────────────────────────────────────────────────────
-
-/// Configuración para `walk_with_summary` y variantes.
-#[derive(Clone, Debug, Default)]
-pub struct LogOptions {
-    pub level: DetailLevel,
-    /// Filtra commits que tocan al menos uno de estos paths exactos.
-    pub paths: Vec<String>,
-    pub limit: Option<usize>,
-    /// Ref/oid de inicio. `None` = HEAD.
-    pub start: Option<String>,
-}
+use super::types::{LogCommit, LogError, LogOptions, LogReport};
 
 // ─── Entry points ────────────────────────────────────────────────────────────
 
@@ -212,8 +137,11 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::EnvelopedLogReport;
     use super::*;
-    use crate::core::domain::git_types::{BranchInfo, ChangedFile, WorkingChange};
+    use crate::core::domain::git_types::{
+        BranchInfo, ChangedFile, CommitInfo, GitError, WorkingChange,
+    };
 
     struct MockRepo {
         commits: Vec<CommitWithParents>,
@@ -345,5 +273,4 @@ mod tests {
         assert_eq!(v["schema"], "riku-log/v1");
         assert!(v.get("commits").is_some());
     }
-
 }

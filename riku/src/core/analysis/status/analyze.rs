@@ -1,84 +1,18 @@
-//! Orquestación de `riku status`.
-//!
-//! Composición de `GitRepository` (working tree + HEAD) con `RikuDriver` para
-//! producir una lista de `FileSummary` clasificados.
-//!
-//! Este módulo no formatea — entrega `StatusReport` y la capa CLI decide cómo
-//! presentarlo (texto, JSON, ...).
+//! Entry points y pipeline por archivo de `riku status`.
 
 use std::io;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
 use crate::adapters::registry::get_driver_for;
 use crate::core::analysis::blob_io;
-use crate::core::analysis::envelope::Envelope;
 use crate::core::analysis::pipeline;
-use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
-use crate::core::domain::git_types::{BranchInfo, ChangeStatus, GitError, WorkingChange};
+use crate::core::analysis::summary::{DetailLevel, FileSummary};
+use crate::core::domain::git_types::{ChangeStatus, WorkingChange};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
 use crate::core::git::git_service::GitService;
 use crate::core::path_matcher::PathMatcher;
 
-// ─── Errores ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Error)]
-pub enum StatusError {
-    #[error(transparent)]
-    Git(#[from] GitError),
-}
-
-// ─── Modelo de salida ────────────────────────────────────────────────────────
-
-/// Identificador del schema JSON de `riku status`. Versionado a propósito:
-/// cambios incompatibles bumpan el sufijo (`v1` → `v2`); cambios compatibles
-/// (campos nuevos opcionales) no.
-pub const STATUS_SCHEMA: &str = "riku-status/v1";
-
-/// Wrapper público para serialización con `schema` siempre presente.
-///
-/// Usar `EnvelopedStatusReport::from(report)` antes de pasar a `serde_json`.
-pub type EnvelopedStatusReport<'a> = Envelope<'a, StatusReport>;
-
-impl<'a> From<&'a StatusReport> for EnvelopedStatusReport<'a> {
-    fn from(inner: &'a StatusReport) -> Self {
-        Envelope::new(STATUS_SCHEMA, inner)
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct StatusReport {
-    pub branch: Option<BranchInfo>,
-    pub files: Vec<FileSummary>,
-    /// Mensajes informativos no fatales (blob omitido por tamaño, etc.).
-    pub warnings: Vec<String>,
-}
-
-impl StatusReport {
-    pub fn has_semantic_changes(&self) -> bool {
-        self.files
-            .iter()
-            .any(|f| matches!(f.category, SummaryCategory::Semantic))
-    }
-
-    pub fn count_by_category(&self, cat: SummaryCategory) -> usize {
-        self.files.iter().filter(|f| f.category == cat).count()
-    }
-}
-
-// ─── Opciones ────────────────────────────────────────────────────────────────
-
-/// Configuración para `analyze_with_options`.
-///
-/// `paths` admite globs simples estilo gitignore (`amp_*.sch`, `**/*.sch`).
-/// Vacío significa "no filtrar".
-#[derive(Clone, Debug, Default)]
-pub struct StatusOptions {
-    pub level: DetailLevel,
-    pub paths: Vec<String>,
-}
+use super::types::{StatusError, StatusOptions, StatusReport};
 
 // ─── Entry points ────────────────────────────────────────────────────────────
 
@@ -172,8 +106,10 @@ fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::EnvelopedStatusReport;
     use super::*;
-    use crate::core::domain::git_types::{ChangedFile, CommitInfo};
+    use crate::core::analysis::summary::SummaryCategory;
+    use crate::core::domain::git_types::{BranchInfo, ChangedFile, CommitInfo, GitError};
 
     /// Repo mock que solo provee working_tree_changes y get_blob — suficiente
     /// para ejercitar `analyze_with_options` sin tocar disco real.
