@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::adapters::registry::get_drivers;
 use crate::core::domain::driver::DriverInfo;
+use crate::core::pdk::{pdk_status, PdkStatus};
 
 // ─── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -18,16 +19,6 @@ pub(super) struct DoctorReport {
     pub tools: ToolsStatus,
     pub has_symbols: bool,
     pub drivers: Vec<DriverInfo>,
-}
-
-pub(super) enum PdkStatus {
-    /// `PDK_ROOT` o `PDK` no están en el entorno.
-    NotConfigured,
-    /// Ambos configurados, pero la ruta `<PDK_ROOT>/<PDK>/libs.tech/xschem`
-    /// no existe en disco.
-    Misconfigured(PathBuf),
-    /// Ruta encontrada.
-    Found(PathBuf),
 }
 
 pub(super) enum ToolsStatus {
@@ -75,19 +66,6 @@ fn locate_xschemrc() -> Option<PathBuf> {
     dirs::home_dir()
         .map(|h| h.join(".xschemrc"))
         .filter(|p| p.exists())
-}
-
-pub(super) fn pdk_status() -> PdkStatus {
-    let (Some(root), Some(name)) = (std::env::var("PDK_ROOT").ok(), std::env::var("PDK").ok())
-    else {
-        return PdkStatus::NotConfigured;
-    };
-    let path = Path::new(&root).join(&name).join("libs.tech/xschem");
-    if path.exists() {
-        PdkStatus::Found(path)
-    } else {
-        PdkStatus::Misconfigured(path)
-    }
 }
 
 fn tools_status() -> ToolsStatus {

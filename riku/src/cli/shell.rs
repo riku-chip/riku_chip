@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use super::doctor::{PdkStatus, pdk_status};
+use crate::core::pdk::{pdk_status, PdkStatus};
+
 use super::{Cli, Commands};
 
 const LOGO: &str = r#"
