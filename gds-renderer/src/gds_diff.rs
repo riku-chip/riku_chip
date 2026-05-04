@@ -133,6 +133,14 @@ mod tests {
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
     #[test]
     fn rejects_non_gdsii() {
         let res = diff_gds(b"NOT_GDS", &proof_lib_bytes());
@@ -146,5 +154,30 @@ mod tests {
         assert!(r.cells_added.is_empty());
         assert!(r.cells_removed.is_empty());
         assert!(r.geometry.is_empty());
+    }
+
+    #[test]
+    fn datatype_difference_is_reported() {
+        let a = fixture_bytes("datatype_a.gds");
+        let b = fixture_bytes("datatype_b.gds");
+        let r = diff_gds(&a, &b).expect("diff");
+
+        assert!(r.cells_added.is_empty());
+        assert!(r.cells_removed.is_empty());
+
+        let dt0 = r
+            .geometry
+            .iter()
+            .find(|g| g.layer == LayerKey { layer: 1, datatype: 0 })
+            .expect("entry para datatype=0");
+        let dt1 = r
+            .geometry
+            .iter()
+            .find(|g| g.layer == LayerKey { layer: 1, datatype: 1 })
+            .expect("entry para datatype=1");
+        assert_eq!(dt0.removed_polygons, 1);
+        assert_eq!(dt0.added_polygons, 0);
+        assert_eq!(dt1.removed_polygons, 0);
+        assert_eq!(dt1.added_polygons, 1);
     }
 }

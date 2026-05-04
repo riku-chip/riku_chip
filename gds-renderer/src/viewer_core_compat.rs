@@ -146,9 +146,9 @@ impl ViewerBackend for GdsBackend {
                 return Err(ViewerError::Cancelled);
             }
 
-            // Política MVP: render la primera cell del library. Sin selector
-            // de top-cell todavía. Library vacía → escena vacía (no es error).
-            let Some(cell) = lib.cells().next() else {
+            // Selector determinista de top-cell (alfabetico en empate).
+            // Library vacia o ciclica -> escena vacia (no es error).
+            let Some(cell) = crate::select_top_cell(&lib) else {
                 return Ok(VcScene::default());
             };
 
