@@ -10,6 +10,7 @@ publish = false
 gdstk-rs = { path = "../external/gdstk/rust" }
 viewer-core = { path = "../viewer-core" }
 async-trait = "0.1"
+thiserror = "2.0.18"
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [dev-dependencies]

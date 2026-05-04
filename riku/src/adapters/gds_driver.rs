@@ -1,23 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet};
+//! Adapter delgado al trait `RikuDriver` que delega el diff GDS en
+//! `gds_renderer::diff_gds`. Este crate ya no depende directamente de
+//! `gdstk_rs`; toda la lógica vive en `gds-renderer`.
 
-use gdstk_rs::{GdsTag, Library, XorSplit};
+use std::collections::BTreeMap;
+
+use gds_renderer::{diff_gds, GdsError, GdsGeomDiff};
 
 use crate::core::domain::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
 use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat};
-use crate::core::format::detect_format;
-
-/// Valida un blob como GDSII y lo parsea con `Library::from_bytes`. Mirror del
-/// `validate_xschem` (`xschem_driver.rs`): chequea formato y propaga el error
-/// como warning textual para que el report quede simétrico A/B.
-fn validate_and_parse(content: &[u8], side: &str, path_hint: &str) -> Result<Library, String> {
-    if detect_format(content) != FileFormat::Gds {
-        return Err(format!(
-            "{path_hint} ({side}): no es formato GDSII, se omite el diff."
-        ));
-    }
-    Library::from_bytes(content)
-        .map_err(|e| format!("{path_hint} ({side}): no se pudo parsear GDSII: {e}"))
-}
 
 fn cell_entry(name: &str, kind: ChangeKind) -> DiffEntry {
     DiffEntry {
@@ -30,28 +20,37 @@ fn cell_entry(name: &str, kind: ChangeKind) -> DiffEntry {
     }
 }
 
-fn geom_entry(cell: &str, tag: GdsTag, split: &XorSplit) -> Option<DiffEntry> {
-    let added_n = split.added.len();
-    let removed_n = split.removed.len();
-    if added_n == 0 && removed_n == 0 {
-        return None;
-    }
-    let kind = match (added_n, removed_n) {
+fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
+    let kind = match (g.added_polygons, g.removed_polygons) {
         (a, 0) if a > 0 => ChangeKind::Added,
         (0, r) if r > 0 => ChangeKind::Removed,
         _ => ChangeKind::Modified,
     };
     let mut after = BTreeMap::new();
-    after.insert("added_polygons".to_string(), added_n.to_string());
-    after.insert("removed_polygons".to_string(), removed_n.to_string());
-    Some(DiffEntry {
+    after.insert("added_polygons".to_string(), g.added_polygons.to_string());
+    after.insert(
+        "removed_polygons".to_string(),
+        g.removed_polygons.to_string(),
+    );
+    DiffEntry {
         kind,
-        element: format!("{cell}:L{}/{}", tag.layer, tag.datatype),
+        element: format!("{}:L{}/{}", g.cell, g.layer.layer, g.layer.datatype),
         before: None,
         after: Some(after),
         cosmetic: false,
         position_changed: false,
-    })
+    }
+}
+
+fn translate_error(e: GdsError, path_hint: &str) -> String {
+    match e {
+        GdsError::NotGdsii { side } => format!(
+            "{path_hint} ({side}): no es formato GDSII, se omite el diff."
+        ),
+        GdsError::Parse { side, msg } => format!(
+            "{path_hint} ({side}): no se pudo parsear GDSII: {msg}"
+        ),
+    }
 }
 
 pub struct GdsDriver {
@@ -80,7 +79,7 @@ impl RikuDriver for GdsDriver {
         let info = DriverInfo {
             name: DriverKind::Gds,
             available: true,
-            version: "gdstk-rs (cxx bridge)".to_string(),
+            version: "gds-renderer (gdstk cxx)".to_string(),
             extensions: vec![".gds".to_string()],
         };
         let _ = self.cached_info.set(info.clone());
@@ -93,52 +92,24 @@ impl RikuDriver for GdsDriver {
             ..Default::default()
         };
 
-        let lib_a = match validate_and_parse(content_a, "A", path_hint) {
-            Ok(l) => l,
-            Err(w) => {
-                report.warnings.push(w);
-                return report;
-            }
-        };
-        let lib_b = match validate_and_parse(content_b, "B", path_hint) {
-            Ok(l) => l,
-            Err(w) => {
-                report.warnings.push(w);
+        let r = match diff_gds(content_a, content_b) {
+            Ok(r) => r,
+            Err(e) => {
+                report.warnings.push(translate_error(e, path_hint));
                 return report;
             }
         };
 
-        let names_a: BTreeSet<String> = lib_a.cells().map(|c| c.name().to_string()).collect();
-        let names_b: BTreeSet<String> = lib_b.cells().map(|c| c.name().to_string()).collect();
-
-        for name in names_a.difference(&names_b) {
-            report.changes.push(cell_entry(name, ChangeKind::Removed));
+        for n in r.cells_removed {
+            report.changes.push(cell_entry(&n, ChangeKind::Removed));
         }
-        for name in names_b.difference(&names_a) {
-            report.changes.push(cell_entry(name, ChangeKind::Added));
+        for n in r.cells_added {
+            report.changes.push(cell_entry(&n, ChangeKind::Added));
         }
-
-        // Unión de tags (layer, datatype) ordenada para reproducibilidad.
-        let mut layer_set: BTreeSet<(u32, u32)> = BTreeSet::new();
-        for t in lib_a.layers().into_iter().chain(lib_b.layers()) {
-            layer_set.insert((t.layer, t.datatype));
+        for g in &r.geometry {
+            report.changes.push(geom_entry(g));
         }
-
-        for name in names_a.intersection(&names_b) {
-            let Some(ca) = lib_a.find_cell(name) else { continue };
-            let Some(cb) = lib_b.find_cell(name) else { continue };
-            for (layer, datatype) in &layer_set {
-                let split = ca.xor_polygons_split(&cb, *layer);
-                let tag = GdsTag {
-                    layer: *layer,
-                    datatype: *datatype,
-                };
-                if let Some(entry) = geom_entry(name, tag, &split) {
-                    report.changes.push(entry);
-                }
-            }
-        }
-
+        report.warnings.extend(r.warnings);
         report
     }
 
@@ -150,6 +121,7 @@ impl RikuDriver for GdsDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::format::detect_format;
 
     fn proof_lib_bytes() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

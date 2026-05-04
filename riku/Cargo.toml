@@ -28,9 +28,8 @@ rustyline = "14.0"
 # `git clone --recurse-submodules` y compilar sin pasos extra. Al publicar
 # viewer-core en crates.io, esto puede migrarse a una git/crates dependency.
 xschem_viewer = { package = "xschem-viewer", path = "../external/xschem-viewer-rust" }
-# gdstk-rs vive como submodule git en `external/gdstk/`. Provee bindings cxx
-# a la librería C++ gdstk para parseo y operaciones booleanas sobre GDSII.
-gdstk-rs = { path = "../external/gdstk/rust" }
+# gds-renderer encapsula gdstk_rs y expone la API de diff/render de alto nivel.
+gds-renderer = { path = "../gds-renderer" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
