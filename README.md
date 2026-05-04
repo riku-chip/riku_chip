@@ -96,16 +96,21 @@ git submodule update --init --recursive
 
 ### Compilar
 
+Cada producto vive en su propio crate y se compila desde adentro. No hay
+workspace raíz: `riku` es el producto principal y los demás crates
+(`gds-renderer`, `viewer-core`, `xschem-viewer-rust`, `gdstk`) entran como
+librerías por path.
+
 ```bash
 # CLI (riku)
 cd riku_chip/riku
 cargo build --release
 # Binario: riku_chip/riku/target/release/riku
 
-# GUI (riku-gui) — opcional
-cd riku_chip
-cargo build --release -p riku-gui
-# Binario: riku_chip/target/release/riku-gui
+# GUI (riku-gui)
+cd riku_chip/riku-gui
+cargo build --release
+# Binario: riku_chip/riku-gui/target/release/riku-gui
 ```
 
 ### Primer comando
@@ -302,22 +307,25 @@ Cualquier formato futuro solo necesita implementar `ViewerBackend` en su propio 
 
 ## Desarrollo
 
-### Compilación completa
+### Compilación
+
+Cada crate se compila desde adentro (no hay workspace unificado):
 
 ```bash
-cd riku_chip
-cargo build                    # CLI + GUI + viewer-core
-cargo build --release          # binarios optimizados
+cd riku_chip/riku       && cargo build --release   # CLI
+cd riku_chip/riku-gui   && cargo build --release   # GUI
+cd riku_chip/gds-renderer && cargo build           # lib (consumida por los anteriores)
 ```
 
 ### Tests
 
 ```bash
-cd riku_chip/riku
-cargo test                     # 22 tests (integración + stress)
+cd riku_chip/riku           && cargo test    # CLI + integración
+cd riku_chip/gds-renderer   && cargo test    # lógica GDS
+cd riku_chip/riku-gui       && cargo test    # GUI smoke tests
 ```
 
-Riku está **excluido del workspace** de Cargo porque se compila independientemente en entornos Docker restringidos. Los tests se corren desde dentro del crate.
+Cada crate tiene su propio `target/`. Esto evita acoplamiento de workspace y permite compilar `riku` aislado en entornos Docker restringidos, a costa de recompilar deps compartidas si trabajás en varios crates a la vez.
 
 ### Estructura de commits
 

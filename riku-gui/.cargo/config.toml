@@ -1,8 +1,8 @@
-# Env vars persistentes para builds en este workspace.
+# Env vars persistentes para compilar `riku-gui`.
 #
 # - VCPKG_ROOT: ruta al checkout de vcpkg con zlib y qhull instalados.
-#   gdstk-rs lo usa para localizar las libs nativas (ver
-#   external/gdstk/rust/build.rs:resolve_zlib).
+#   gdstk-rs (transitivo via gds-renderer) lo usa para localizar las libs
+#   nativas (ver external/gdstk/rust/build.rs:resolve_zlib).
 # - VCPKGRS_DYNAMIC: fuerza a libz-sys (y otros *-sys que usen vcpkg-rs)
 #   a linkear dinamicamente contra el zlib1.dll de vcpkg en vez de
 #   compilar la version vendored. Sin esta var, libz-sys produce
@@ -11,6 +11,10 @@
 # Las env vars seteadas en la shell ganan prioridad sobre estas
 # defaults — usa `set VCPKG_ROOT=...` (cmd) o `$env:VCPKG_ROOT=...`
 # (PowerShell) si tu vcpkg vive en otra ruta.
+#
+# Nota: este archivo esta duplicado en `riku/.cargo/config.toml` porque
+# Cargo busca `.cargo/config.toml` solo hacia arriba del crate que se
+# compila, no entre crates hermanos. Mantener ambos en sincronia.
 [env]
 VCPKG_ROOT = "C:\\vcpkg"
 VCPKGRS_DYNAMIC = "1"
