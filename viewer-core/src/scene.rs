@@ -79,10 +79,17 @@ impl RenderableScene for Scene {
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {
+        // Si viewport_bbox esta vacio (sin info de culling, p.ej. primer
+        // frame antes del auto-fit), entregamos TODOS los elementos en vez
+        // de descartar silenciosamente — la condicion antigua hacia lo opuesto
+        // y dejaba la escena en blanco hasta que el viewport se inicializaba.
+        let cull = !viewport_bbox.is_empty();
         for el in &self.elements {
-            let eb = el.bounding_box();
-            if viewport_bbox.is_empty() || !intersects(&eb, viewport_bbox) {
-                continue;
+            if cull {
+                let eb = el.bounding_box();
+                if !intersects(&eb, viewport_bbox) {
+                    continue;
+                }
             }
             if !visitor(el) {
                 return;
