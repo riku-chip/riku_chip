@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn wraps_real_gds_fixture() {
-        let lib = Library::open("../gdstk/tests/proof_lib.gds");
+        let lib = Library::open("../external/gdstk/tests/proof_lib.gds");
         let cell = lib.top_level().cells().next().expect("top level cell");
         let out = crate::compat::render_cell(&cell, &crate::style::RenderConfig::default());
 

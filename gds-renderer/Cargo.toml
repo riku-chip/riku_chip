@@ -8,3 +8,9 @@ publish = false
 
 [dependencies]
 gdstk-rs = { path = "../external/gdstk/rust" }
+viewer-core = { path = "../viewer-core" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }

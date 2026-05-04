@@ -122,6 +122,7 @@ impl RikuGuiApp {
         // agregarán cuando los crates estén disponibles (gds-renderer, ...).
         let backends: Vec<Arc<dyn ViewerBackend>> = vec![
             Arc::new(xschem_viewer::XschemBackend::new()),
+            Arc::new(gds_renderer::GdsBackend::new()),
         ];
 
         let mut app = Self {
