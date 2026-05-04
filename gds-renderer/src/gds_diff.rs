@@ -1,9 +1,11 @@
 //! Diff de alto nivel sobre GDSII. Encapsula gdstk_rs y devuelve un reporte
 //! de dominio Miku sin filtrar tipos del parser.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use gdstk_rs::{GdsTag, Library, OwnedPolygon};
+use gdstk_rs::{xor_split_flat, GdsTag, Library, OwnedPolygon};
+
+use crate::hier_walk::{origin_of_polygon, OriginPath};
 
 /// Identificador de capa GDS (par layer/datatype). Tipo propio para no
 /// filtrar `gdstk_rs::GdsTag` por la API publica de gds-renderer.
@@ -43,6 +45,11 @@ pub struct BBoxUm {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GdsGeomDiff {
     pub cell: String,
+    /// Cadena de cells desde la raiz hasta la sub-cell que aporto el
+    /// poligono. Longitud 1 (= [cell]) si nace en la cell raiz; 2 si
+    /// viene via una reference. Profundidad mayor se bucketea por la
+    /// reference inmediata (fase 1).
+    pub origin_path: OriginPath,
     pub layer: LayerKey,
     pub added_polygons: usize,
     pub removed_polygons: usize,
@@ -53,6 +60,9 @@ pub struct GdsGeomDiff {
     /// cosmetico (`DiffConfig::cosmetic_threshold_um2`). Polygons que se
     /// reposicionan algunos nm tipicamente caen aqui.
     pub cosmetic: bool,
+    /// `true` si el poligono vino de un subtree atravesado (origin_path
+    /// con mas de un segmento). El bbox esta en coords absolutas del top.
+    pub flattened: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -200,30 +210,65 @@ pub fn diff_gds_with_config(
             continue;
         };
         for key in &layers {
-            let split = ca.xor_polygons_split(&cb, GdsTag::from(*key));
-            let added_n = split.added.len();
-            let removed_n = split.removed.len();
-            if added_n == 0 && removed_n == 0 {
+            // Flatten ambos lados con depth=-1 + filtro por (layer, dt).
+            // Asi atravesamos SREF/AREF y no perdemos cambios en sub-cells.
+            let fp_a = ca
+                .get_polygons()
+                .with_filter(key.layer, key.datatype)
+                .build();
+            let fp_b = cb
+                .get_polygons()
+                .with_filter(key.layer, key.datatype)
+                .build();
+            let split = xor_split_flat(&fp_a, &fp_b);
+            if split.added.is_empty() && split.removed.is_empty() {
                 continue;
             }
-            let added_area = sum_area_um2(&split.added, unit_factor);
-            let removed_area = sum_area_um2(&split.removed, unit_factor);
-            let bbox = union_bbox_um(&split.added, &split.removed, unit_factor);
-            let cosmetic = (added_area + removed_area) < cfg.cosmetic_threshold_um2;
-            report.geometry.push(GdsGeomDiff {
-                cell: name.clone(),
-                layer: *key,
-                added_polygons: added_n,
-                removed_polygons: removed_n,
-                added_area_um2: added_area,
-                removed_area_um2: removed_area,
-                bbox_um: bbox,
-                cosmetic,
-            });
+
+            // Bucketear cada poligono del split por origin_path. Para
+            // poligonos `added` consultamos las references de cb (lado
+            // "after"); para `removed`, las de ca (lado "before").
+            let mut buckets: BTreeMap<OriginPath, BucketAcc> = BTreeMap::new();
+            for p in &split.added {
+                let origin = origin_of_polygon(&cb, p);
+                buckets.entry(origin).or_default().added.push(p.clone());
+            }
+            for p in &split.removed {
+                let origin = origin_of_polygon(&ca, p);
+                buckets.entry(origin).or_default().removed.push(p.clone());
+            }
+
+            for (origin, acc) in buckets {
+                let added_n = acc.added.len();
+                let removed_n = acc.removed.len();
+                let added_area = sum_area_um2(&acc.added, unit_factor);
+                let removed_area = sum_area_um2(&acc.removed, unit_factor);
+                let bbox = union_bbox_um(&acc.added, &acc.removed, unit_factor);
+                let cosmetic = (added_area + removed_area) < cfg.cosmetic_threshold_um2;
+                let flattened = origin.len() > 1;
+                report.geometry.push(GdsGeomDiff {
+                    cell: name.clone(),
+                    origin_path: origin,
+                    layer: *key,
+                    added_polygons: added_n,
+                    removed_polygons: removed_n,
+                    added_area_um2: added_area,
+                    removed_area_um2: removed_area,
+                    bbox_um: bbox,
+                    cosmetic,
+                    flattened,
+                });
+            }
         }
     }
 
     Ok(report)
+}
+
+#[derive(Default)]
+struct BucketAcc {
+    added: Vec<OwnedPolygon>,
+    removed: Vec<OwnedPolygon>,
 }
 
 #[cfg(test)]
@@ -303,6 +348,65 @@ mod tests {
         assert_eq!(b0.min_y, 0.0);
         assert_eq!(b0.max_x, 10.0);
         assert_eq!(b0.max_y, 10.0);
+    }
+
+    #[test]
+    fn hierarchical_change_detected_in_top_via_flatten() {
+        // El cambio real esta dentro de INV, pero TOP solo la
+        // referencia via SREF. Sin flatten, el diff de TOP-vs-TOP daria
+        // 0 cambios. Con flatten, el rect extra se ve en coords
+        // absolutas (12,10)-(13,11) con origin_path = ["TOP","INV"].
+        let a = fixture_bytes("hier_inv_a.gds");
+        let b = fixture_bytes("hier_inv_b.gds");
+        let r = diff_gds(&a, &b).expect("diff");
+
+        assert!(r.cells_added.is_empty());
+        assert!(r.cells_removed.is_empty());
+
+        let top_changes: Vec<&GdsGeomDiff> =
+            r.geometry.iter().filter(|g| g.cell == "TOP").collect();
+        assert!(
+            !top_changes.is_empty(),
+            "TOP debe reportar cambios via flatten (regresion de XOR jerarquico)",
+        );
+
+        let entry = top_changes
+            .iter()
+            .find(|g| g.layer == LayerKey { layer: 1, datatype: 0 })
+            .expect("entry TOP layer 1/0");
+        assert_eq!(entry.added_polygons, 1);
+        assert_eq!(entry.removed_polygons, 0);
+        assert!(entry.flattened, "entry de TOP via SREF debe tener flattened=true");
+        assert_eq!(entry.origin_path, vec!["TOP".to_string(), "INV".to_string()]);
+
+        // bbox del rect extra (2,0)-(3,1) trasladado por SREF en (10,10).
+        let bb = entry.bbox_um.expect("bbox");
+        assert!((bb.min_x - 12.0).abs() < 1e-6, "{}", bb.min_x);
+        assert!((bb.min_y - 10.0).abs() < 1e-6, "{}", bb.min_y);
+        assert!((bb.max_x - 13.0).abs() < 1e-6, "{}", bb.max_x);
+        assert!((bb.max_y - 11.0).abs() < 1e-6, "{}", bb.max_y);
+    }
+
+    #[test]
+    fn hierarchical_change_also_visible_in_referenced_cell() {
+        // El mismo cambio debe verse tambien en INV directamente
+        // con origin_path = ["INV"] (sin SREF, geometria directa).
+        let a = fixture_bytes("hier_inv_a.gds");
+        let b = fixture_bytes("hier_inv_b.gds");
+        let r = diff_gds(&a, &b).expect("diff");
+
+        let entry = r
+            .geometry
+            .iter()
+            .find(|g| g.cell == "INV" && g.layer == LayerKey { layer: 1, datatype: 0 })
+            .expect("entry INV layer 1/0");
+        assert_eq!(entry.added_polygons, 1);
+        assert!(!entry.flattened);
+        assert_eq!(entry.origin_path, vec!["INV".to_string()]);
+        // En INV el rect extra esta en (2,0)-(3,1) sin transform.
+        let bb = entry.bbox_um.expect("bbox");
+        assert!((bb.min_x - 2.0).abs() < 1e-6, "{}", bb.min_x);
+        assert!((bb.max_x - 3.0).abs() < 1e-6, "{}", bb.max_x);
     }
 
     #[test]

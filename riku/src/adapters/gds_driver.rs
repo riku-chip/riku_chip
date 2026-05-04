@@ -52,9 +52,22 @@ fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
             ),
         );
     }
+    after.insert("origin_path".to_string(), g.origin_path.join("/"));
+    after.insert("flattened".to_string(), g.flattened.to_string());
+
+    // Element extendido: si el cambio nace via reference, el origen
+    // se incrusta como sufijo. Asi el reporte text agrupa por (cell,
+    // origen) sin colisionar con entries directas de la cell raiz.
+    let element = if g.origin_path.len() > 1 {
+        let tail = g.origin_path[1..].join("/");
+        format!("{}:L{}/{}:{}", g.cell, g.layer.layer, g.layer.datatype, tail)
+    } else {
+        format!("{}:L{}/{}", g.cell, g.layer.layer, g.layer.datatype)
+    };
+
     DiffEntry {
         kind,
-        element: format!("{}:L{}/{}", g.cell, g.layer.layer, g.layer.datatype),
+        element,
         before: None,
         after: Some(after),
         cosmetic: g.cosmetic,

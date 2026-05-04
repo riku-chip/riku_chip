@@ -1,6 +1,7 @@
 mod compat;
 mod composition;
 mod gds_diff;
+mod hier_walk;
 mod output;
 mod palette;
 mod renderer;

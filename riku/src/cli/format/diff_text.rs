@@ -68,7 +68,8 @@ fn print_component(c: &ComponentDiff) {
     }
 }
 
-/// Detecta elementos con forma `<cell>:L<layer>/<datatype>` (output de GdsDriver).
+/// Detecta elementos con forma `<cell>:L<layer>/<datatype>` o
+/// `<cell>:L<layer>/<datatype>:<origin_tail>` (output de GdsDriver).
 fn is_gds_geom_element(name: &str) -> bool {
     let Some((_, tail)) = name.split_once(':') else {
         return false;
@@ -76,7 +77,9 @@ fn is_gds_geom_element(name: &str) -> bool {
     let Some(rest) = tail.strip_prefix('L') else {
         return false;
     };
-    let Some((l, dt)) = rest.split_once('/') else {
+    // Solo nos interesa el primer segmento despues de 'L': "<layer>/<datatype>".
+    let layer_dt = rest.split(':').next().unwrap_or("");
+    let Some((l, dt)) = layer_dt.split_once('/') else {
         return false;
     };
     !l.is_empty() && !dt.is_empty() && l.chars().all(|c| c.is_ascii_digit())
@@ -84,6 +87,13 @@ fn is_gds_geom_element(name: &str) -> bool {
 }
 
 fn print_gds_geom(after: &BTreeMap<String, String>) {
+    if let Some(origin) = after.get("origin_path") {
+        // origin_path = "<cell>" o "<cell>/<sub>"; mostrar solo si tiene >1 segmento.
+        if origin.contains('/') {
+            let pretty = origin.replace('/', " → ");
+            println!("      origen: {pretty}");
+        }
+    }
     let added_n = after.get("added_polygons").map(String::as_str).unwrap_or("0");
     let removed_n = after.get("removed_polygons").map(String::as_str).unwrap_or("0");
     let added_a = after.get("added_area_um2").map(String::as_str).unwrap_or("0.000");
