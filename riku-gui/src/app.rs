@@ -159,6 +159,11 @@ impl RikuGuiApp {
                     Ok(()) => app.status = format!("Loaded {}", path.display()),
                     Err(e) => { app.error = Some(e.clone()); app.status = "Error".to_string(); }
                 }
+            } else if app.load_via_backend(&path) {
+                // Otros formatos (ej: .gds) van por la ruta neutra ViewerBackend.
+                app.status = format!("Cargando {} …", path.display());
+            } else {
+                app.status = format!("{} — formato no soportado", path.display());
             }
         }
 
