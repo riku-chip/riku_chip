@@ -104,43 +104,6 @@ fn render_command(
                 opacity
             );
         }
-        DrawCommand::Path { points, closed, .. } => {
-            if *closed {
-                let _ = write!(
-                    svg,
-                    r#"<polygon points="{}" fill="{}" stroke="{}" fill-opacity="{:.3}" stroke-opacity="{:.3}" stroke-width="0.6"/>"#,
-                    points_to_svg(points),
-                    fill.to_svg_rgba(),
-                    stroke.to_svg_rgba(),
-                    opacity,
-                    opacity
-                );
-            } else {
-                let _ = write!(
-                    svg,
-                    r#"<polyline points="{}" fill="none" stroke="{}" stroke-opacity="{:.3}" stroke-width="0.6"/>"#,
-                    points_to_svg(points),
-                    stroke.to_svg_rgba(),
-                    opacity
-                );
-            }
-        }
-        DrawCommand::Rect { bbox, .. } => {
-            let width = (bbox.max_x - bbox.min_x).abs();
-            let height = (bbox.max_y - bbox.min_y).abs();
-            let _ = write!(
-                svg,
-                r#"<rect x="{:.4}" y="{:.4}" width="{:.4}" height="{:.4}" fill="{}" stroke="{}" fill-opacity="{:.3}" stroke-opacity="{:.3}" stroke-width="0.6"/>"#,
-                bbox.min_x,
-                bbox.min_y,
-                width,
-                height,
-                fill.to_svg_rgba(),
-                stroke.to_svg_rgba(),
-                opacity,
-                opacity
-            );
-        }
         DrawCommand::Label { text, origin, .. } => {
             if !show_labels {
                 return;

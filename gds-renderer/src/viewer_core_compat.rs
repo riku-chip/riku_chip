@@ -48,23 +48,6 @@ fn command_to_element(cmd: &DrawCommand) -> Option<DrawElement> {
             layer: tag_to_layer(*tag),
             filled: true,
         }),
-        DrawCommand::Rect { tag, bbox } => Some(DrawElement::Rect {
-            x: bbox.min_x,
-            y: bbox.min_y,
-            w: bbox.max_x - bbox.min_x,
-            h: bbox.max_y - bbox.min_y,
-            layer: tag_to_layer(*tag),
-            filled: true,
-        }),
-        DrawCommand::Path {
-            tag,
-            points,
-            closed,
-        } => Some(DrawElement::Polygon {
-            points: points.iter().map(|p| (p.x, p.y)).collect(),
-            layer: tag_to_layer(*tag),
-            filled: *closed,
-        }),
         DrawCommand::Label { tag, text, origin } => Some(DrawElement::Text {
             x: origin.x,
             y: origin.y,

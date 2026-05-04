@@ -5,20 +5,19 @@ use crate::viewport::Viewport;
 
 pub use gdstk_rs::OwnedPolygon;
 
+/// Comandos de dibujo que componen una `RenderScene`.
+///
+/// Solo dos variantes hoy: `Polygon` y `Label`. gdstk polygoniza paths/rects
+/// internamente al llamar `cell.get_polygons().build()` (con `include_paths`),
+/// asi que el pipeline GDS no necesita variantes especificas para Path o Rect
+/// — llegan ya como Polygon con su geometria gruesa bakeada. Si en el futuro
+/// alguien necesita un path no-polygonizado (ej: edicion vectorial), las
+/// variantes se re-introducen entonces, con la firma correcta (con width).
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
     Polygon {
         tag: GdsTag,
         points: Vec<Point2D>,
-    },
-    Path {
-        tag: GdsTag,
-        points: Vec<Point2D>,
-        closed: bool,
-    },
-    Rect {
-        tag: GdsTag,
-        bbox: BoundingBox,
     },
     Label {
         tag: GdsTag,
@@ -36,17 +35,14 @@ pub enum RenderPlane {
 impl DrawCommand {
     pub fn tag(&self) -> GdsTag {
         match self {
-            Self::Polygon { tag, .. }
-            | Self::Path { tag, .. }
-            | Self::Rect { tag, .. }
-            | Self::Label { tag, .. } => *tag,
+            Self::Polygon { tag, .. } | Self::Label { tag, .. } => *tag,
         }
     }
 
     pub fn plane(&self) -> RenderPlane {
         match self {
             Self::Label { .. } => RenderPlane::Labels,
-            Self::Polygon { .. } | Self::Path { .. } | Self::Rect { .. } => RenderPlane::Base,
+            Self::Polygon { .. } => RenderPlane::Base,
         }
     }
 }
