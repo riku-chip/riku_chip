@@ -40,13 +40,22 @@ fn print_header(file_path: &str, semantic: usize, cosmetic: usize) {
     println!("Archivo : {file_path}");
     println!("Cambios : {semantic}");
     if cosmetic > 0 {
-        println!("Cosméticos: {cosmetic} (solo posición)");
+        println!("Cosméticos: {cosmetic}");
     }
     println!();
 }
 
 fn print_component(c: &ComponentDiff) {
     println!("  {} {}", marker_for_change(&c.kind, &c.name), c.name);
+
+    // Elementos GDS tienen forma "<cell>:L<layer>/<datatype>" — los renderiza
+    // print_gds_geom con áreas + bbox.
+    if is_gds_geom_element(&c.name) {
+        if let Some(after) = &c.after {
+            print_gds_geom(after);
+        }
+        return;
+    }
 
     if let (Some(before), Some(after)) = (&c.before, &c.after) {
         print_param_diff(before, after);
@@ -55,6 +64,40 @@ fn print_component(c: &ComponentDiff) {
             if let Some(sym) = after.get("symbol") {
                 println!("      símbolo: {sym}");
             }
+        }
+    }
+}
+
+/// Detecta elementos con forma `<cell>:L<layer>/<datatype>` (output de GdsDriver).
+fn is_gds_geom_element(name: &str) -> bool {
+    let Some((_, tail)) = name.split_once(':') else {
+        return false;
+    };
+    let Some(rest) = tail.strip_prefix('L') else {
+        return false;
+    };
+    let Some((l, dt)) = rest.split_once('/') else {
+        return false;
+    };
+    !l.is_empty() && !dt.is_empty() && l.chars().all(|c| c.is_ascii_digit())
+        && dt.chars().all(|c| c.is_ascii_digit())
+}
+
+fn print_gds_geom(after: &BTreeMap<String, String>) {
+    let added_n = after.get("added_polygons").map(String::as_str).unwrap_or("0");
+    let removed_n = after.get("removed_polygons").map(String::as_str).unwrap_or("0");
+    let added_a = after.get("added_area_um2").map(String::as_str).unwrap_or("0.000");
+    let removed_a = after.get("removed_area_um2").map(String::as_str).unwrap_or("0.000");
+    println!("      +{added_n} polys / +{added_a} µm²");
+    println!("      -{removed_n} polys / -{removed_a} µm²");
+    if let Some(b) = after.get("bbox_um") {
+        // bbox_um viene como "min_x,min_y,max_x,max_y" (3 decimales).
+        let parts: Vec<&str> = b.split(',').collect();
+        if parts.len() == 4 {
+            println!(
+                "      bbox: ({}, {}) → ({}, {}) µm",
+                parts[0], parts[1], parts[2], parts[3]
+            );
         }
     }
 }

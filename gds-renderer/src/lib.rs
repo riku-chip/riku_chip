@@ -11,7 +11,10 @@ mod viewer_core_compat;
 mod viewport;
 
 pub use compat::{render_cell, render_cell_with_highlights, scene_from_cell};
-pub use gds_diff::{diff_gds, GdsDiffReport, GdsError, GdsGeomDiff, LayerKey};
+pub use gds_diff::{
+    diff_gds, diff_gds_with_config, BBoxUm, DiffConfig, GdsDiffReport, GdsError, GdsGeomDiff,
+    LayerKey, DEFAULT_COSMETIC_THRESHOLD_UM2,
+};
 pub use output::RenderOutput;
 pub use renderer::{render_scene, render_scene_with_highlights};
 pub use scene::{DrawCommand, HighlightSet, OwnedPolygon, RenderPlane, RenderScene};

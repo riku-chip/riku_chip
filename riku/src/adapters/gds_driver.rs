@@ -4,7 +4,10 @@
 
 use std::collections::BTreeMap;
 
-use gds_renderer::{diff_gds, GdsError, GdsGeomDiff};
+use gds_renderer::{
+    diff_gds_with_config, DiffConfig, GdsError, GdsGeomDiff,
+    DEFAULT_COSMETIC_THRESHOLD_UM2,
+};
 
 use crate::core::domain::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
 use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat};
@@ -32,12 +35,29 @@ fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
         "removed_polygons".to_string(),
         g.removed_polygons.to_string(),
     );
+    after.insert(
+        "added_area_um2".to_string(),
+        format!("{:.3}", g.added_area_um2),
+    );
+    after.insert(
+        "removed_area_um2".to_string(),
+        format!("{:.3}", g.removed_area_um2),
+    );
+    if let Some(b) = g.bbox_um {
+        after.insert(
+            "bbox_um".to_string(),
+            format!(
+                "{:.3},{:.3},{:.3},{:.3}",
+                b.min_x, b.min_y, b.max_x, b.max_y
+            ),
+        );
+    }
     DiffEntry {
         kind,
         element: format!("{}:L{}/{}", g.cell, g.layer.layer, g.layer.datatype),
         before: None,
         after: Some(after),
-        cosmetic: false,
+        cosmetic: g.cosmetic,
         position_changed: false,
     }
 }
@@ -55,12 +75,20 @@ fn translate_error(e: GdsError, path_hint: &str) -> String {
 
 pub struct GdsDriver {
     cached_info: std::sync::OnceLock<DriverInfo>,
+    cosmetic_threshold_um2: f64,
 }
 
 impl GdsDriver {
     pub fn new() -> Self {
+        Self::with_threshold(DEFAULT_COSMETIC_THRESHOLD_UM2)
+    }
+
+    /// Constructor con umbral cosmetico custom (µm²). Reservado para tests
+    /// y futura wiring de flag CLI `--cosmetic-threshold-um2`.
+    pub fn with_threshold(cosmetic_threshold_um2: f64) -> Self {
         Self {
             cached_info: std::sync::OnceLock::new(),
+            cosmetic_threshold_um2,
         }
     }
 }
@@ -92,7 +120,10 @@ impl RikuDriver for GdsDriver {
             ..Default::default()
         };
 
-        let r = match diff_gds(content_a, content_b) {
+        let cfg = DiffConfig {
+            cosmetic_threshold_um2: self.cosmetic_threshold_um2,
+        };
+        let r = match diff_gds_with_config(content_a, content_b, &cfg) {
             Ok(r) => r,
             Err(e) => {
                 report.warnings.push(translate_error(e, path_hint));
