@@ -68,6 +68,16 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
 
 - **Rust 1.75+** (`rustup default stable`)
 - **Git** (`riku` lee el repo con `libgit2`, no requiere el binario `git`)
+- **Toolchain C++** + **zlib** + **qhull** (los necesita el backend GDS via `gdstk-rs`):
+  - **Windows**: VS 2019 BuildTools+ y vcpkg (`vcpkg install zlib qhull --triplet x64-windows`).
+    Por defecto se asume `VCPKG_ROOT=C:\vcpkg`; si tu vcpkg vive en otra ruta,
+    sobrescribí la env var antes de `cargo build`. El workspace ya configura
+    `VCPKGRS_DYNAMIC=1` via `.cargo/config.toml` para evitar el conflicto
+    LNK2005 entre el zlib vendored de `libz-sys` y el zlib dinámico de vcpkg.
+    Para ejecutar (no compilar) `riku-gui`, agregá las DLLs al PATH:
+    `set PATH=%VCPKG_ROOT%\installed\x64-windows\bin;%PATH%`.
+  - **Linux**: paquetes `zlib1g-dev` y `libqhull-dev` (Debian/Ubuntu) o equivalentes.
+  - **macOS**: `brew install zlib qhull pkg-config`.
 
 ### Clonar el repo
 

@@ -1,0 +1,16 @@
+# Env vars persistentes para builds en este workspace.
+#
+# - VCPKG_ROOT: ruta al checkout de vcpkg con zlib y qhull instalados.
+#   gdstk-rs lo usa para localizar las libs nativas (ver
+#   external/gdstk/rust/build.rs:resolve_zlib).
+# - VCPKGRS_DYNAMIC: fuerza a libz-sys (y otros *-sys que usen vcpkg-rs)
+#   a linkear dinamicamente contra el zlib1.dll de vcpkg en vez de
+#   compilar la version vendored. Sin esta var, libz-sys produce
+#   simbolos zlib propios que colisionan con los de gdstk-rs (LNK2005).
+#
+# Las env vars seteadas en la shell ganan prioridad sobre estas
+# defaults — usa `set VCPKG_ROOT=...` (cmd) o `$env:VCPKG_ROOT=...`
+# (PowerShell) si tu vcpkg vive en otra ruta.
+[env]
+VCPKG_ROOT = "C:\\vcpkg"
+VCPKGRS_DYNAMIC = "1"
