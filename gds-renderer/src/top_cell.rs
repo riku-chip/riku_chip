@@ -26,3 +26,42 @@ pub fn select_top_cell<'a>(lib: &'a Library) -> Option<Cell<'a>> {
     }
     Some(tops.cell(best_idx))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gdstk_rs::Library;
+
+    fn fixture(name: &str) -> Library {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        Library::from_bytes(&bytes).expect("parse fixture")
+    }
+
+    #[test]
+    fn picks_only_top_when_single() {
+        let lib = fixture("top_single.gds");
+        let top = select_top_cell(&lib).expect("Some(cell)");
+        assert_eq!(top.name(), "ALPHA");
+    }
+
+    #[test]
+    fn picks_alphabetical_min_when_multiple_tops() {
+        let lib = fixture("top_multi.gds");
+        let top = select_top_cell(&lib).expect("Some(cell)");
+        // "ALPHA" < "BETA" < "ZETA" lexicograficamente.
+        assert_eq!(top.name(), "ALPHA");
+    }
+
+    #[test]
+    fn picks_root_in_nested_hierarchy() {
+        let lib = fixture("top_nested.gds");
+        let top = select_top_cell(&lib).expect("Some(cell)");
+        // TOP es raiz de la cadena TOP -> INV -> GATE.
+        assert_eq!(top.name(), "TOP");
+    }
+}
