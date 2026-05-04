@@ -7,6 +7,15 @@ use crate::core::domain::models::FileFormat;
 
 /// Identifica el formato del contenido por heurísticas de cabecera.
 pub fn detect_format(content: &[u8]) -> FileFormat {
+    // GDSII: primer record HEADER tiene longitud 6 y tipo 0x0002 (big-endian).
+    if content.len() >= 4
+        && content[0] == 0x00
+        && content[1] == 0x06
+        && content[2] == 0x00
+        && content[3] == 0x02
+    {
+        return FileFormat::Gds;
+    }
     let header = String::from_utf8_lossy(&content[..content.len().min(240)]);
     if header.contains("xschem version=") {
         FileFormat::Xschem
