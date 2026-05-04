@@ -7,8 +7,9 @@
 
 use std::path::PathBuf;
 
+use crate::adapters::registry::DriverConfig;
 use crate::adapters::xschem_driver::XschemDriver;
-use crate::core::analysis::diff_view::DiffView;
+use crate::core::analysis::diff_view::{driver_report_to_diff_report, DiffView};
 use crate::core::analysis::log;
 use crate::core::analysis::status::{self, StatusOptions};
 use crate::core::analysis::summary::DetailLevel;
@@ -25,7 +26,22 @@ pub(super) fn run_diff(
     commit_b: &str,
     file_path: &str,
     format: OutputFormat,
+    cosmetic_threshold_um2: f64,
 ) -> Result<(), String> {
+    // Ruta GDS: usa el registry con el threshold configurable. Construye un
+    // DiffView "minimo" sin svg/sch porque los printers de text/json solo
+    // consumen .report y .warnings.
+    if is_gds_path(file_path) {
+        return run_diff_gds(
+            &repo,
+            commit_a,
+            commit_b,
+            file_path,
+            format,
+            cosmetic_threshold_um2,
+        );
+    }
+
     let driver = XschemDriver::new();
     let view = DiffView::from_commits(&repo, commit_a, commit_b, file_path, &driver, |b| {
         crate::adapters::xschem_driver::parse(b)
@@ -40,6 +56,61 @@ pub(super) fn run_diff(
         OutputFormat::Text => format::diff_text::print(&view, file_path),
         OutputFormat::Json => format::diff_json::print(&view, file_path),
         OutputFormat::Visual => present_visual(&repo, commit_a, commit_b, file_path),
+    }
+}
+
+fn is_gds_path(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".gds")
+}
+
+/// Variante de `run_diff` para archivos `.gds`. La GUI sigue usando el flujo
+/// `present_visual` (que delega a riku-gui via args); aqui solo cubrimos las
+/// salidas Text y Json. Construye un `DiffView` placeholder porque los
+/// printers son polimorficos sobre `.report` (las entries de GDS caen como
+/// componentes con sufijo `:L<l>/<dt>`, ya manejadas por `print_gds_geom`).
+fn run_diff_gds(
+    repo: &PathBuf,
+    commit_a: &str,
+    commit_b: &str,
+    file_path: &str,
+    format: OutputFormat,
+    cosmetic_threshold_um2: f64,
+) -> Result<(), String> {
+    if matches!(format, OutputFormat::Visual) {
+        return present_visual(repo, commit_a, commit_b, file_path);
+    }
+
+    // Reusa analyze_diff_with_config (mismo flujo que log/status), inyectando
+    // el threshold via DriverConfig. Asi GdsDriver clasifica `cosmetic` con
+    // el valor del flag en vez del default 0.01.
+    use crate::core::analysis::commit_diff::analyze_diff_with_config;
+    use crate::core::git::git_service::GitService;
+    let cfg = DriverConfig {
+        cosmetic_threshold_um2,
+    };
+    let svc = GitService::open(repo).map_err(|e| e.to_string())?;
+    let mut driver_report = analyze_diff_with_config(&svc, commit_a, commit_b, file_path, &cfg)
+        .map_err(|e| e.to_string())?;
+    let warnings: Vec<String> = driver_report.warnings.drain(..).collect();
+
+    let report = driver_report_to_diff_report(&driver_report.changes);
+    let view = DiffView {
+        svg_a: None,
+        svg_b: String::new(),
+        sch_a: None,
+        sch_b: crate::core::domain::models::Schematic::default(),
+        report,
+        warnings: warnings.clone(),
+    };
+
+    for w in &view.warnings {
+        eprintln!("[!] {w}");
+    }
+
+    match format {
+        OutputFormat::Text => format::diff_text::print(&view, file_path),
+        OutputFormat::Json => format::diff_json::print(&view, file_path),
+        OutputFormat::Visual => unreachable!(),
     }
 }
 

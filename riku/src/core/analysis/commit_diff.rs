@@ -2,7 +2,7 @@ use std::path::Path;
 
 use thiserror::Error;
 
-use crate::adapters::registry::get_driver_for;
+use crate::adapters::registry::{get_driver_for_with_config, DriverConfig};
 use crate::core::analysis::blob_io;
 use crate::core::domain::driver::DriverDiffReport;
 use crate::core::domain::git_types::GitError;
@@ -32,7 +32,21 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     commit_b: &str,
     file_path: &str,
 ) -> Result<DriverDiffReport, AnalyzeError> {
-    let driver = match get_driver_for(file_path) {
+    analyze_diff_with_config(repo, commit_a, commit_b, file_path, &DriverConfig::default())
+}
+
+/// Variante que inyecta `DriverConfig` (umbral cosmetico GDS, etc.). Misma
+/// logica que `analyze_diff_with_repo` pero construye el driver con config
+/// custom via `get_driver_for_with_config`. El default sigue al alcance de
+/// `analyze_diff_with_repo`.
+pub fn analyze_diff_with_config<R: GitRepository + ?Sized>(
+    repo: &R,
+    commit_a: &str,
+    commit_b: &str,
+    file_path: &str,
+    cfg: &DriverConfig,
+) -> Result<DriverDiffReport, AnalyzeError> {
+    let driver = match get_driver_for_with_config(file_path, cfg) {
         Some(driver) => driver,
         None => {
             let mut report = DriverDiffReport {

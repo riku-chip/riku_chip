@@ -27,8 +27,16 @@ impl Commands {
                 file_path,
                 repo,
                 format,
-            } => commands::run_diff(repo, &commit_a, &commit_b, &file_path, format)
-                .map(|_| Outcome::Ok),
+                cosmetic_threshold_um2,
+            } => commands::run_diff(
+                repo,
+                &commit_a,
+                &commit_b,
+                &file_path,
+                format,
+                cosmetic_threshold_um2,
+            )
+            .map(|_| Outcome::Ok),
 
             Commands::Log {
                 file_path,

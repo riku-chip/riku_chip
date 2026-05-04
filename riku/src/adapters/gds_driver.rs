@@ -224,6 +224,54 @@ mod tests {
         );
     }
 
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("gds-renderer")
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    #[test]
+    fn high_threshold_marks_changes_cosmetic() {
+        // Con threshold 200 µm² (mas grande que el cambio del fixture: 100 µm²),
+        // el diff debe marcar todos los entries geometricos como cosmetic.
+        let a = fixture_bytes("datatype_a.gds");
+        let b = fixture_bytes("datatype_b.gds");
+        let driver = GdsDriver::with_threshold(200.0);
+        let report = driver.diff(&a, &b, "datatype.gds");
+        let geom: Vec<&DiffEntry> = report
+            .changes
+            .iter()
+            .filter(|c| c.element.contains(":L"))
+            .collect();
+        assert!(!geom.is_empty(), "deberia haber entries geom");
+        assert!(
+            geom.iter().all(|c| c.cosmetic),
+            "todos los entries geom deben ser cosmetic con threshold alto"
+        );
+    }
+
+    #[test]
+    fn default_threshold_keeps_real_changes_non_cosmetic() {
+        // Con default 0.01 µm², un cambio de 100 µm² NO debe ser cosmetico.
+        let a = fixture_bytes("datatype_a.gds");
+        let b = fixture_bytes("datatype_b.gds");
+        let report = GdsDriver::new().diff(&a, &b, "datatype.gds");
+        let geom: Vec<&DiffEntry> = report
+            .changes
+            .iter()
+            .filter(|c| c.element.contains(":L"))
+            .collect();
+        assert!(!geom.is_empty());
+        assert!(
+            geom.iter().any(|c| !c.cosmetic),
+            "al menos un entry geom no deberia ser cosmetic con threshold bajo"
+        );
+    }
+
     #[test]
     fn can_handle_gds_extension() {
         let d = GdsDriver::new();

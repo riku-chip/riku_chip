@@ -46,6 +46,11 @@ pub(crate) enum Commands {
         repo: PathBuf,
         #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
+        /// Umbral en micrometros cuadrados para clasificar un cambio GDS como
+        /// cosmetico (sub-DRC). Default 0.01 µm² (debajo del piso DRC en
+        /// PDKs como sky130/gf180). Ignorado por drivers no-GDS.
+        #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
+        cosmetic_threshold_um2: f64,
     },
     /// Lista commits con resumen semantico por archivo.
     Log {
