@@ -1,4 +1,4 @@
-use gdstk_rs::{BoundingBox, GdsTag, Point2D};
+use gdstk_rs::{Anchor, BoundingBox, GdsTag, Point2D};
 
 use crate::style::{Color, LayerCatalog};
 use crate::viewport::Viewport;
@@ -23,6 +23,8 @@ pub enum DrawCommand {
         tag: GdsTag,
         text: String,
         origin: Point2D,
+        /// Posicion del texto respecto a `origin` (PRESENTATION del GDS).
+        anchor: Anchor,
     },
 }
 
