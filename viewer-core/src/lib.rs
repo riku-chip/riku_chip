@@ -10,6 +10,8 @@
 //! - [`BoundingBox`] — caja envolvente en coordenadas de mundo (`f64`).
 //! - [`Scene`] / [`RenderableScene`] — escena renderizable, eager o perezosa.
 //! - [`Viewport`] — pan + zoom isotrópico, agnóstico del sentido del eje Y.
+//! - [`YAxis`] — sentido del eje Y del mundo de una escena (Xschem Y-down, GDS Y-up).
+//! - [`LayerPaint`] / [`Rgba`] — estilo por capa que una escena puede proveer.
 //! - [`ViewerBackend`] — trait asíncrono que implementa cada formato concreto.
 //! - [`ViewerError`] — errores unificados, incluyendo `Cancelled` y `Join`.
 //!
@@ -20,6 +22,7 @@ pub mod backend;
 pub mod bbox;
 pub mod element;
 pub mod error;
+pub mod paint;
 pub mod scene;
 pub mod viewport;
 
@@ -27,8 +30,9 @@ pub use backend::{BackendInfo, ViewerBackend};
 pub use bbox::BoundingBox;
 pub use element::{DrawElement, HAlign, Layer, VAlign};
 pub use error::{Result, ViewerError};
+pub use paint::{LayerPaint, Rgba};
 pub use scene::{RenderableScene, Scene, SceneHandle};
-pub use viewport::{screen_to_world, world_to_screen, Viewport};
+pub use viewport::{screen_to_world, world_to_screen, Viewport, YAxis};
 
 // Re-export del token para que los backends no necesiten depender explícitamente
 // de `tokio-util` solo para el tipo.
