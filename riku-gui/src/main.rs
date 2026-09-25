@@ -1,5 +1,6 @@
 mod app;
 mod launch;
+mod polygon_fill;
 mod project;
 mod sch_painter;
 mod scene_painter;
