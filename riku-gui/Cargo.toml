@@ -16,3 +16,5 @@ riku = { path = "../riku" }
 viewer-core = { path = "../viewer-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 poll-promise = { version = "0.3", features = ["tokio"] }
+# Triangulación de polígonos cóncavos (egui solo rellena convexos).
+earcutr = "0.5"

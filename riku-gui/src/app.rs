@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -5,14 +6,14 @@ use eframe::egui::{self, RichText};
 use poll_promise::Promise;
 use tokio::runtime::Runtime;
 use viewer_core::{
-    backend::ViewerBackend, scene::SceneHandle, viewport::Viewport as VcViewport,
+    backend::ViewerBackend, element::Layer, scene::SceneHandle, viewport::Viewport as VcViewport,
     CancellationToken,
 };
 
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
-use crate::scene_painter::paint_scene;
+use crate::scene_painter::{fit_scene, paint_scene, to_color32, zoom_at_screen};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -51,6 +52,11 @@ struct BackendState {
     scene: SceneHandle,
     viewport: VcViewport,
     backend_name: &'static str,
+    /// Encuadrar la escena en el próximo frame (al cargar o con "Fit"). El
+    /// fit necesita el tamaño real del panel, que solo se conoce al pintar.
+    needs_fit: bool,
+    /// Capas ocultas desde el panel de detalles.
+    hidden_layers: HashSet<Layer>,
 }
 
 pub struct RikuGuiApp {
@@ -98,12 +104,15 @@ impl RikuGuiApp {
         cc.egui_ctx.set_fonts(fonts);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-        let (project_root, selected_path): (PathBuf, Option<PathBuf>) = match &launch.file {
+        // Ruta absoluta: con `riku-gui archivo.gds` el parent de una ruta
+        // relativa es "" y el árbol de proyecto quedaba vacío.
+        let launch_path = launch.file.as_deref().map(|p| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+        let (project_root, selected_path): (PathBuf, Option<PathBuf>) = match launch_path {
             Some(path) if path.is_file() => {
                 let root = path.parent().map(Path::to_path_buf).unwrap_or_else(|| cwd.clone());
-                (root, Some(path.clone()))
+                (root, Some(path))
             }
-            Some(path) if path.is_dir() => (path.clone(), None),
+            Some(path) if path.is_dir() => (path, None),
             _ => (cwd.clone(), None),
         };
 
@@ -229,6 +238,8 @@ impl RikuGuiApp {
                     scene,
                     viewport: VcViewport::default(),
                     backend_name,
+                    needs_fit: true,
+                    hidden_layers: HashSet::new(),
                 })
                 .map_err(|e| e.to_string())
         };
@@ -330,6 +341,11 @@ impl eframe::App for RikuGuiApp {
                     if ui.add(egui::Slider::new(&mut scale, 0.1..=20.0).text("Zoom")).changed() {
                         sch.viewport.scale = scale as f64;
                     }
+                } else if let Some(bs) = self.backend_state.as_mut() {
+                    ui.separator();
+                    if ui.button("Fit").clicked() {
+                        bs.needs_fit = true;
+                    }
                 }
             });
         });
@@ -372,6 +388,12 @@ impl eframe::App for RikuGuiApp {
 
                 if let Some(path) = &self.selected_path {
                     ui.label(path.file_name().unwrap_or_default().to_string_lossy().as_ref());
+                }
+
+                if self.sch.is_none() {
+                    if let Some(bs) = &mut self.backend_state {
+                        render_backend_details(ui, bs);
+                    }
                 }
 
                 if let Some(sch) = &self.sch {
@@ -418,20 +440,17 @@ impl eframe::App for RikuGuiApp {
                     }
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
                     if scroll.abs() > f64::EPSILON && response.hovered() {
-                        let (cx, cy) = (response.rect.center().x as f64, response.rect.center().y as f64);
-                        bs.viewport.zoom_at(1.0 + scroll * 0.002, cx, cy);
+                        // Zoom anclado al cursor (o al centro si no hay puntero).
+                        let anchor = response.hover_pos().unwrap_or(response.rect.center());
+                        zoom_at_screen(&mut bs.viewport, 1.0 + scroll * 0.002, anchor, response.rect);
                         ctx.request_repaint();
                     }
-                    // Auto-fit la primera vez que se pinta.
-                    if bs.viewport.scale == 1.0 && bs.viewport.pan_x == 0.0 && bs.viewport.pan_y == 0.0 {
-                        bs.viewport.fit_to(
-                            &bs.scene.bbox(),
-                            response.rect.width() as f64,
-                            response.rect.height() as f64,
-                        );
+                    if bs.needs_fit && response.rect.width() > 0.0 && response.rect.height() > 0.0 {
+                        fit_scene(&mut bs.viewport, bs.scene.as_ref(), response.rect);
+                        bs.needs_fit = false;
                     }
                     ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport);
+                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &bs.hidden_layers);
                     });
                     return;
                 }
@@ -539,6 +558,66 @@ fn is_sch_renderable(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("sch"))
         .unwrap_or(false)
+}
+
+// ─── Detalles de una escena cargada via backend ─────────────────────────────
+
+/// Resumen de la escena (metadatos del backend) + lista de capas con su color
+/// y un checkbox de visibilidad. Las capas salen en el orden que da la escena
+/// (para GDS: de abajo hacia arriba en el apilado del PDK).
+fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
+    let scene = bs.scene.clone();
+
+    let meta = scene.metadata();
+    if !meta.is_empty() {
+        ui.separator();
+        egui::Grid::new("scene_meta").num_columns(2).striped(true).show(ui, |ui| {
+            for (k, v) in meta {
+                ui.label(RichText::new(k).color(egui::Color32::from_gray(150)));
+                ui.label(v);
+                ui.end_row();
+            }
+        });
+    }
+
+    let layers = scene.layer_list();
+    if layers.is_empty() {
+        return;
+    }
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Capas").strong());
+        if ui.small_button("Todas").clicked() {
+            bs.hidden_layers.clear();
+        }
+        if ui.small_button("Ninguna").clicked() {
+            bs.hidden_layers.extend(layers.iter().map(|(k, _)| *k));
+        }
+    });
+    egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
+        for (key, paint) in &layers {
+            ui.horizontal(|ui| {
+                let mut visible = !bs.hidden_layers.contains(key);
+                if ui.checkbox(&mut visible, "").changed() {
+                    if visible {
+                        bs.hidden_layers.remove(key);
+                    } else {
+                        bs.hidden_layers.insert(*key);
+                    }
+                }
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                // Muestra fill y contorno tal como se pintan en el lienzo.
+                ui.painter().rect(
+                    rect,
+                    2.0,
+                    to_color32(paint.fill),
+                    egui::Stroke::new(1.5_f32, to_color32(paint.stroke)),
+                    egui::StrokeKind::Inside,
+                );
+                ui.label(&paint.name);
+            });
+        }
+    });
 }
 
 // ─── Selector de vistas (modo diff) ──────────────────────────────────────────
