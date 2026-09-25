@@ -53,6 +53,7 @@ pub fn scene_from_cell(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig) -> Rend
                 tag,
                 text: label.text().into_owned(),
                 origin: label.origin(),
+                anchor: label.anchor(),
             });
         }
     }
