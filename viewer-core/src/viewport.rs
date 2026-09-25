@@ -3,6 +3,8 @@
 //! No asume sentido del eje Y. El eje se escoge en el sitio de integración (por
 //! ejemplo `riku-gui` aplica Y-down al pasar a egui). Las funciones libres
 //! `world_to_screen` / `screen_to_world` operan en el mismo sistema que el pan.
+//! Para escenas Y-up, el consumidor pasa las coordenadas por [`YAxis::flip_y`]
+//! antes de proyectarlas.
 
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +65,40 @@ impl Viewport {
     }
 }
 
+/// Sentido del eje Y en las coordenadas de mundo de una escena.
+///
+/// El `Viewport` trabaja en un espacio "de vista" con Y hacia abajo (como las
+/// pantallas). Una escena Y-up (GDS) se refleja al entrar a ese espacio; una
+/// escena Y-down (Xschem) pasa tal cual. El reflejo es una involución: la
+/// misma función sirve para ir y volver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum YAxis {
+    /// Y crece hacia abajo (esquemáticos, coordenadas de pantalla).
+    #[default]
+    Down,
+    /// Y crece hacia arriba (layouts GDS, convención matemática).
+    Up,
+}
+
+impl YAxis {
+    /// Mundo ↔ vista para una coordenada Y.
+    pub fn flip_y(self, y: f64) -> f64 {
+        match self {
+            Self::Down => y,
+            Self::Up => -y,
+        }
+    }
+
+    /// Mundo ↔ vista para una bbox (reordena min/max al reflejar).
+    pub fn flip_bbox(self, bb: &BoundingBox) -> BoundingBox {
+        match self {
+            Self::Down => *bb,
+            Self::Up if bb.is_empty() => *bb,
+            Self::Up => BoundingBox { min_y: -bb.max_y, max_y: -bb.min_y, ..*bb },
+        }
+    }
+}
+
 /// Mundo → pantalla, usando el viewport dado.
 pub fn world_to_screen(vp: &Viewport, x: f64, y: f64) -> (f64, f64) {
     (x * vp.scale + vp.pan_x, y * vp.scale + vp.pan_y)
@@ -71,4 +107,40 @@ pub fn world_to_screen(vp: &Viewport, x: f64, y: f64) -> (f64, f64) {
 /// Pantalla → mundo, inverso de `world_to_screen`.
 pub fn screen_to_world(vp: &Viewport, sx: f64, sy: f64) -> (f64, f64) {
     ((sx - vp.pan_x) / vp.scale, (sy - vp.pan_y) / vp.scale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn y_down_is_identity() {
+        let bb = BoundingBox::from_points((0.0, 1.0), (4.0, 3.0));
+        assert_eq!(YAxis::Down.flip_y(2.5), 2.5);
+        assert_eq!(YAxis::Down.flip_bbox(&bb), bb);
+    }
+
+    #[test]
+    fn y_up_flip_is_involution_and_keeps_bbox_ordered() {
+        let bb = BoundingBox::from_points((0.0, 1.0), (4.0, 3.0));
+        let v = YAxis::Up.flip_bbox(&bb);
+        assert_eq!((v.min_y, v.max_y), (-3.0, -1.0));
+        assert_eq!((v.min_x, v.max_x), (0.0, 4.0));
+        assert_eq!(YAxis::Up.flip_bbox(&v), bb);
+        assert_eq!(YAxis::Up.flip_y(YAxis::Up.flip_y(7.0)), 7.0);
+    }
+
+    #[test]
+    fn y_up_flip_keeps_empty_bbox_empty() {
+        assert!(YAxis::Up.flip_bbox(&BoundingBox::empty()).is_empty());
+    }
+
+    #[test]
+    fn fit_to_centers_bbox_in_local_rect() {
+        let mut vp = Viewport::default();
+        let bb = BoundingBox::from_points((0.0, 0.0), (10.0, 10.0));
+        vp.fit_to(&bb, 200.0, 100.0);
+        let (cx, cy) = world_to_screen(&vp, 5.0, 5.0);
+        assert!((cx - 100.0).abs() < 1e-9 && (cy - 50.0).abs() < 1e-9);
+    }
 }

@@ -11,16 +11,27 @@
 //! Los consumidores (riku-gui) deben aceptar `Arc<dyn RenderableScene>` para
 //! permitir ambos modos sin ramificar el código de UI.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::bbox::BoundingBox;
-use crate::element::DrawElement;
+use crate::element::{DrawElement, Layer};
+use crate::paint::LayerPaint;
+use crate::viewport::YAxis;
 
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub elements: Vec<DrawElement>,
     pub bbox: BoundingBox,
+    /// Sentido del eje Y de las coordenadas de `elements`.
+    pub y_axis: YAxis,
+    /// Estilo por capa provisto por el backend. Capas ausentes usan la paleta
+    /// neutral del consumidor.
+    pub layers: BTreeMap<Layer, LayerPaint>,
+    /// Resumen legible (clave, valor) para paneles de detalle: celda, PDK,
+    /// conteos… El orden es el de presentación.
+    pub metadata: Vec<(String, String)>,
 }
 
 impl Default for Scene {
@@ -31,7 +42,13 @@ impl Default for Scene {
 
 impl Scene {
     pub fn new() -> Self {
-        Self { elements: Vec::new(), bbox: BoundingBox::empty() }
+        Self {
+            elements: Vec::new(),
+            bbox: BoundingBox::empty(),
+            y_axis: YAxis::Down,
+            layers: BTreeMap::new(),
+            metadata: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, el: DrawElement) {
@@ -61,6 +78,27 @@ pub trait RenderableScene: Send + Sync {
         self.len() == 0
     }
 
+    /// Sentido del eje Y de las coordenadas de mundo. Por defecto Y-down.
+    fn y_axis(&self) -> YAxis {
+        YAxis::Down
+    }
+
+    /// Estilo de una capa, si el backend lo provee. Por defecto ninguno.
+    fn layer_paint(&self, _layer: Layer) -> Option<&LayerPaint> {
+        None
+    }
+
+    /// Capas con estilo propio, en el orden en que la UI debe listarlas.
+    /// Por defecto ninguna.
+    fn layer_list(&self) -> Vec<(Layer, &LayerPaint)> {
+        Vec::new()
+    }
+
+    /// Resumen (clave, valor) para paneles de detalle. Por defecto vacío.
+    fn metadata(&self) -> &[(String, String)] {
+        &[]
+    }
+
     /// Enumera elementos visibles dentro de `viewport_bbox`. Los backends que
     /// quieran culling granular implementan esto; por defecto entrega todos.
     ///
@@ -76,6 +114,22 @@ impl RenderableScene for Scene {
 
     fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    fn y_axis(&self) -> YAxis {
+        self.y_axis
+    }
+
+    fn layer_paint(&self, layer: Layer) -> Option<&LayerPaint> {
+        self.layers.get(&layer)
+    }
+
+    fn layer_list(&self) -> Vec<(Layer, &LayerPaint)> {
+        self.layers.iter().map(|(k, p)| (*k, p)).collect()
+    }
+
+    fn metadata(&self) -> &[(String, String)] {
+        &self.metadata
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {
