@@ -51,26 +51,33 @@ fn commit_bytes(repo: &Repository, rel_path: &str, content: &[u8], message: &str
 struct GdsRepo {
     _dir: tempfile::TempDir,
     path: PathBuf,
+    file: &'static str,
     empty: String,
     a: String,
     b: String,
 }
 
 fn gds_repo() -> GdsRepo {
+    layout_repo("gds")
+}
+
+/// Repo con `layout.<ext>` en versiones A y B (`hier_inv_{a,b}.<ext>`).
+fn layout_repo(ext: &str) -> GdsRepo {
     let dir = tempfile::Builder::new()
         .prefix("riku-gds-e2e")
         .tempdir_in(std::env::current_dir().unwrap())
         .unwrap();
+    let file: &'static str = if ext == "oas" { "layout.oas" } else { "layout.gds" };
     let repo = Repository::init(dir.path()).unwrap();
     let empty = commit_bytes(&repo, "README", b"riku", "init sin layout");
-    let a = commit_bytes(&repo, "layout.gds", &fixture("hier_inv_a.gds"), "A");
-    let b = commit_bytes(&repo, "layout.gds", &fixture("hier_inv_b.gds"), "B");
-    GdsRepo { path: dir.path().to_path_buf(), _dir: dir, empty, a, b }
+    let a = commit_bytes(&repo, file, &fixture(&format!("hier_inv_a.{ext}")), "A");
+    let b = commit_bytes(&repo, file, &fixture(&format!("hier_inv_b.{ext}")), "B");
+    GdsRepo { path: dir.path().to_path_buf(), _dir: dir, file, empty, a, b }
 }
 
 fn riku_json(repo: &GdsRepo, from: &str, to: &str) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_riku"))
-        .args(["diff", from, to, "layout.gds", "-f", "json", "--repo"])
+        .args(["diff", from, to, repo.file, "-f", "json", "--repo"])
         .arg(&repo.path)
         .output()
         .expect("ejecutar riku");
@@ -145,4 +152,15 @@ fn cli_identical_versions_report_nothing() {
     let r = gds_repo();
     let json = riku_json(&r, &r.b, &r.b);
     assert!(json["components"].as_array().unwrap().is_empty(), "{json}");
+}
+
+#[test]
+fn cli_oasis_diff_matches_gds_diff() {
+    // Misma geometria en .oas y .gds: mismo reporte, salvo el nombre del archivo.
+    let (gds, oas) = (gds_repo(), layout_repo("oas"));
+    let (jg, jo) = (riku_json(&gds, &gds.a, &gds.b), riku_json(&oas, &oas.a, &oas.b));
+    assert_eq!(jo["file"], "layout.oas");
+    assert!(jo["warnings"].as_array().unwrap().is_empty(), "{jo}");
+    assert_eq!(jg["components"], jo["components"]);
+    assert_eq!(component(&jo, "TOP:L1/0:INV")["after"]["bbox_um"], "12.000,10.000,13.000,11.000");
 }

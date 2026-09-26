@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gdstk_rs::{xor_split_flat, Cell, GdsTag, Library, OwnedPolygon};
+use gdstk_rs::{sniff_format, xor_split_flat, Cell, GdsTag, Library, OwnedPolygon};
 
 use crate::hier_walk::{origin_of_polygon, Origin, OriginPath};
 
@@ -85,9 +85,9 @@ pub struct GdsDiffReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GdsError {
-    #[error("{side}: no es formato GDSII")]
+    #[error("{side}: no es un layout GDSII ni OASIS")]
     NotGdsii { side: &'static str },
-    #[error("{side}: no se pudo parsear GDSII: {msg}")]
+    #[error("{side}: no se pudo leer el layout: {msg}")]
     Parse { side: &'static str, msg: String },
 }
 
@@ -112,20 +112,17 @@ impl Default for DiffConfig {
     }
 }
 
-/// Verifica magic bytes GDSII (HEADER record: len=6, type=0x0002, big-endian).
-fn is_gdsii(content: &[u8]) -> bool {
-    content.len() >= 4
-        && content[0] == 0x00
-        && content[1] == 0x06
-        && content[2] == 0x00
-        && content[3] == 0x02
+/// `true` si el contenido es un layout legible: GDSII (record HEADER) u
+/// OASIS (firma `%SEMI-OASIS\r\n`).
+pub fn is_layout(content: &[u8]) -> bool {
+    sniff_format(content).is_some()
 }
 
 fn parse_side(content: &[u8], side: &'static str) -> Result<Library, GdsError> {
-    if !is_gdsii(content) {
+    if !is_layout(content) {
         return Err(GdsError::NotGdsii { side });
     }
-    Library::from_bytes(content).map_err(|e| GdsError::Parse {
+    Library::from_bytes_any(content).map_err(|e| GdsError::Parse {
         side,
         msg: e.to_string(),
     })
@@ -578,6 +575,17 @@ mod tests {
         assert!(r.cells_added.is_empty());
         assert!(r.cells_removed.is_empty());
         assert!(r.geometry.is_empty());
+    }
+
+    #[test]
+    fn oasis_and_gds_give_the_same_report() {
+        let gds = diff_gds(&fixture_bytes("hier_inv_a.gds"), &fixture_bytes("hier_inv_b.gds")).expect("gds");
+        let oas = diff_gds(&fixture_bytes("hier_inv_a.oas"), &fixture_bytes("hier_inv_b.oas")).expect("oas");
+        assert!(!oas.geometry.is_empty());
+        assert_eq!(gds, oas);
+        // Tambien mezclados: la version A en GDSII y la B en OASIS.
+        let mixed = diff_gds(&fixture_bytes("hier_inv_a.gds"), &fixture_bytes("hier_inv_b.oas")).expect("mixto");
+        assert_eq!(gds, mixed);
     }
 
     #[test]

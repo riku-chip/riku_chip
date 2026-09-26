@@ -1,7 +1,7 @@
 //! Adaptador `gds-renderer` ↔ `viewer-core`.
 //!
 //! Expone `GdsBackend`, que implementa `ViewerBackend` para que `riku-gui`
-//! abra archivos `.gds` por la ruta neutra: `Library::from_bytes` →
+//! abra archivos `.gds`/`.oas` por la ruta neutra: `Library::from_bytes_any` →
 //! `scene_from_cell` → conversión `DrawCommand → DrawElement` → `Scene`.
 //!
 //! La escena resultante es Y-up y trae un `LayerPaint` por cada
@@ -261,22 +261,18 @@ impl ViewerBackend for GdsBackend {
         BackendInfo {
             name: "gds",
             version: env!("CARGO_PKG_VERSION"),
-            extensions: &["gds"],
+            extensions: &["gds", "oas"],
         }
     }
 
     fn accepts(&self, content: &[u8], path_hint: Option<&str>) -> bool {
         if let Some(p) = path_hint {
-            if p.to_ascii_lowercase().ends_with(".gds") {
+            let p = p.to_ascii_lowercase();
+            if p.ends_with(".gds") || p.ends_with(".oas") {
                 return true;
             }
         }
-        // GDSII magic: HEADER record (len=6, type=0x0002) en big-endian.
-        content.len() >= 4
-            && content[0] == 0x00
-            && content[1] == 0x06
-            && content[2] == 0x00
-            && content[3] == 0x02
+        crate::is_layout(content)
     }
 
     async fn load(
@@ -302,7 +298,7 @@ impl ViewerBackend for GdsBackend {
             return Err(ViewerError::Cancelled);
         }
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
-            let lib = Library::from_bytes(&content)
+            let lib = Library::from_bytes_any(&content)
                 .map_err(|e| ViewerError::Parse(format!("GDSII parse: {e}")))?;
 
             if token.is_cancelled() {
@@ -359,7 +355,7 @@ impl ViewerBackend for GdsBackend {
                 if bytes.is_empty() {
                     return Ok(None);
                 }
-                Library::from_bytes(bytes)
+                Library::from_bytes_any(bytes)
                     .map(Some)
                     .map_err(|e| ViewerError::Parse(format!("GDSII ({side}): {e}")))
             };
@@ -621,6 +617,24 @@ mod tests {
         let bytes = [0x00u8, 0x06, 0x00, 0x02, 0x01, 0x00];
         assert!(b.accepts(&bytes, None));
         assert!(!b.accepts(b"NOT_A_GDS", None));
+    }
+
+    #[tokio::test]
+    async fn oasis_file_loads_like_its_gds_twin() {
+        let b = GdsBackend::new();
+        let oas = fixture("hier_inv_b.oas");
+        assert!(b.accepts(&oas, None) && b.accepts(&[], Some("chip.OAS")));
+        let h = b
+            .load_entry(oas, Some("hier_inv_b.oas".into()), Some("TOP".into()), CancellationToken::new())
+            .await
+            .expect("load .oas");
+        let g = b
+            .load_entry(fixture("hier_inv_b.gds"), None, Some("TOP".into()), CancellationToken::new())
+            .await
+            .expect("load .gds");
+        assert_eq!(h.current_entry(), Some("TOP"));
+        assert_eq!(h.bbox(), g.bbox());
+        assert_eq!(h.entries().len(), g.entries().len());
     }
 
     #[tokio::test]

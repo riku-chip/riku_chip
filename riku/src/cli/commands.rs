@@ -59,8 +59,10 @@ pub(super) fn run_diff(
     }
 }
 
+/// Layouts (GDSII u OASIS): diff geometrico en lugar del semantico.
 fn is_gds_path(path: &str) -> bool {
-    path.to_ascii_lowercase().ends_with(".gds")
+    let p = path.to_ascii_lowercase();
+    p.ends_with(".gds") || p.ends_with(".oas")
 }
 
 /// Variante de `run_diff` para archivos `.gds`. La GUI sigue usando el flujo

@@ -84,10 +84,10 @@ fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
         GdsError::NotGdsii { side } => format!(
-            "{path_hint} ({side}): no es formato GDSII, se omite el diff."
+            "{path_hint} ({side}): no es un layout GDSII ni OASIS, se omite el diff."
         ),
         GdsError::Parse { side, msg } => format!(
-            "{path_hint} ({side}): no se pudo parsear GDSII: {msg}"
+            "{path_hint} ({side}): no se pudo leer el layout: {msg}"
         ),
     }
 }
@@ -127,7 +127,7 @@ impl RikuDriver for GdsDriver {
             name: DriverKind::Gds,
             available: true,
             version: "gds-renderer (gdstk cxx)".to_string(),
-            extensions: vec![".gds".to_string()],
+            extensions: vec![".gds".to_string(), ".oas".to_string()],
         };
         let _ = self.cached_info.set(info.clone());
         info

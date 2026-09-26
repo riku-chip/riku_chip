@@ -1,0 +1,3 @@
+# Layouts binarios: nunca convertir fin de línea.
+*.gds binary
+*.oas binary

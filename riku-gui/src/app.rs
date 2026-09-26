@@ -255,7 +255,7 @@ impl RikuGuiApp {
             selected_path,
             sch: None,
             diff_ctx: None,
-            status: String::from("Listo — abre un archivo .sch o .gds del panel Proyecto"),
+            status: String::from("Listo — abre un .sch, .gds u .oas del panel Proyecto"),
             error: None,
             runtime,
             backends,
@@ -365,7 +365,7 @@ impl RikuGuiApp {
             self.status = format!("Cargando {} …", path.display());
         } else if self.error.is_none() {
             self.status = format!("{} — formato no soportado aún", path.display());
-            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym y .gds)"));
+            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym, .gds y .oas)"));
         }
     }
 
@@ -466,7 +466,7 @@ impl RikuGuiApp {
             ui.add_space((ui.available_height() * 0.22).max(space::L));
             ui.label(RichText::new("Abre un diseño").size(22.0).strong());
             ui.add_space(space::XS);
-            ui.label(RichText::new("Elige un .sch o .gds en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
+            ui.label(RichText::new("Elige un .sch, .gds u .oas en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
             ui.add_space(space::L);
 
             let recent: Vec<&String> = self.recent.iter().filter(|p| Path::new(p).is_file()).collect();
@@ -919,7 +919,7 @@ impl eframe::App for RikuGuiApp {
                         .on_hover_text(&root);
                     if ui
                         .checkbox(&mut self.show_all_files, "Todos los archivos")
-                        .on_hover_text("Sin marcar: solo .sch, .sym y .gds (lo que se puede abrir)")
+                        .on_hover_text("Sin marcar: solo .sch, .sym, .gds y .oas (lo que se puede abrir)")
                         .changed()
                     {
                         self.refresh_tree();
@@ -1260,7 +1260,7 @@ fn drop_hint(ctx: &egui::Context) {
     painter.text(
         screen.center(),
         egui::Align2::CENTER_CENTER,
-        "Suelta para abrir (.sch, .sym, .gds)",
+        "Suelta para abrir (.sch, .sym, .gds, .oas)",
         egui::FontId::proportional(20.0),
         v.strong_text_color(),
     );

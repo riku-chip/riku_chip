@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 /// muestra estas (y las carpetas que las contienen): en un proyecto real la
 /// carpeta suele estar llena de scripts, logs e imágenes que no se pueden
 /// visualizar y esconden lo importante.
-const OPENABLE: &[&str] = &["sch", "sym", "gds"];
+const OPENABLE: &[&str] = &["sch", "sym", "gds", "oas"];
 
 /// Carpetas que nunca contienen diseño y cuestan recorrer.
 const SKIPPED_DIRS: &[&str] = &["target", "node_modules", "__pycache__"];
