@@ -196,23 +196,22 @@ Abre el visor con el archivo, en un proceso aparte (sin argumento, el árbol del
 ```
 src/
   main.rs               — punto de entrada
-  cli.rs                — subcomandos y lógica de presentación
   lib.rs                — módulos públicos
+  cli/                  — subcomandos, shell (con Tab), doctor, gui y formatos de salida (format/)
   core/
-    models.rs           — Component, Wire, Schematic, DiffReport
-    driver.rs           — trait RikuDriver
-    git_service.rs      — blobs y commits via git2
-    analyzer.rs         — orquestador: Git + driver + report
-    registry.rs         — despacho de driver por extensión
-    semantic_diff.rs    — diff semántico de Schematics
-    svg_annotator.rs    — inyección de anotaciones SVG
-    ports.rs            — traits GitRepository, RepoRoot
-  parsers/
-    xschem.rs           — delega en xschem_viewer
-  adapters/
-    xschem_driver.rs    — implementa RikuDriver para .sch
+    git/                — blobs, commits, ramas y working tree via git2
+    analysis/           — diff entre commits, status y log; reciben el registro de módulos
+    domain/             — modelos, errores y puertos (traits)
+  modules/
+    mod.rs              — registry(): el único lugar que lista los módulos de formato
+    xschem.rs           — módulo .sch (diff semántico)
+    xschem_view.rs      — visor .sch (escena neutra, fantasmas, anotaciones)
+    xschem_pdk.rs       — ruta de símbolos del PDK y detección por símbolos
+    layout.rs           — módulo .gds/.oas (diff geométrico, visor)
+  gui/                  — visor egui (feature `gui`)
 tests/
   basic.rs              — 9 tests de integración
+  gds_e2e.rs            — 6 tests end-to-end de layouts
   stress.rs             — 13 tests de rendimiento y casos límite
 ```
 
@@ -232,7 +231,8 @@ cargo test --test stress    # rendimiento
 
 | Crate | Rol |
 |-------|-----|
-| `xschem-viewer` (submodule) | Parser PEG + renderer SVG nativo |
+| `riku-kernel` | Tipos de cambio neutros, `FormatModule` y `Registry` |
+| `xschem-viewer` (submodule) | Parser PEG y semántica de `.sch` / `.sym` |
 | `git2` | Acceso a blobs y commits sin fork de proceso |
 | `clap` | CLI con subcomandos tipados |
 | `serde` / `serde_json` | Serialización JSON estable (`riku-status/v1`, `riku-log/v1`) |
@@ -246,5 +246,5 @@ cargo test --test stress    # rendimiento
 ## Notas
 
 - `diff --format visual` abre el visor (`riku gui`) con los argumentos del diff.
-- `riku render` y el caché en disco fueron eliminados: el render se hace bajo demanda y se entrega como `String`, sin escribir a disco salvo cuando lo pide explícitamente otro consumidor.
+- No hay comando de render a archivo: el visor dibuja la escena en memoria. Exportar a SVG/PNG desde el visor está pendiente (`docs/roadmap/pendientes.md`).
 - `diff` soporta Xschem `.sch` (diff semántico) y layouts `.gds`/`.oas` (diff geométrico por celda y capa, con `--cosmetic-threshold-um2`; renombres, cambios por instancia y cache en disco que se apaga con `--no-cache`). Detalle GDS en `docs/integracion_gds_estado.md`. Magic y NGSpice están en roadmap.

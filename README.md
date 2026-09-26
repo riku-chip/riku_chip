@@ -7,9 +7,8 @@ Revisa cambios en esquemáticos y layouts al nivel del circuito, no del texto.
 
 [![CI](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml/badge.svg)](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#licencia)
 [![Status](https://img.shields.io/badge/status-alpha-yellow)](#estado-del-proyecto)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#)
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64-lightgrey)](#instalación-linux)
 
 [Qué hace](#qué-hace) ·
 [Inicio rápido](#inicio-rápido) ·
@@ -52,7 +51,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 | **Diff visual**        | GUI nativa con paneles Before / After / Diff. Componentes anotados en verde (añadido), rojo (removido), amarillo (modificado), cyan (trasladado). |
 | **Diff GDS**           | XOR geométrico por celda y capa, incluyendo cambios dentro de sub-celdas; áreas en µm², bbox y umbral cosmético. En la GUI: overlay verde/rojo, lista de cambios y celdas cambiadas marcadas. Verificado contra KLayout. |
 | **Visor GDS**          | Paletas de SKY130, GF180MCU e IHP SG13G2 (de sus `.lyp` oficiales), selector de celdas con buscador, capas activables y tooltip con capa y área. |
-| **Render nativo**      | Renderiza `.sch` a SVG sin abrir xschem. Usa `xschem-viewer` como librería Rust. |
+| **Render nativo**      | Dibuja `.sch`, `.gds` y `.oas` en el visor sin abrir xschem ni KLayout (`xschem-viewer` y `gdstk-rs` como librerías Rust). |
 | **Status semántico**   | `riku status` lista cambios del working tree clasificados como semánticos vs cosméticos por driver. |
 | **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
 | **Salida JSON estable**| `--json` con schemas versionados (`riku-status/v1`, `riku-log/v1`) para CI y scripts. |
@@ -63,13 +62,15 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 
 ## Formatos soportados
 
-| Formato  | Extensión     | Diff semántico | Render GUI | Render SVG |
-|----------|---------------|:--------------:|:----------:|:----------:|
-| Xschem   | `.sch`, `.sym`| ✓              | ✓          | ✓          |
-| GDS      | `.gds`        | ✓ geométrico (XOR) | ✓      | ✓ (librería `gds-renderer`) |
-| OASIS    | `.oas`        | ✓ geométrico (XOR) | ✓      | ✓ (librería `gds-renderer`) |
-| Magic    | `.mag`        | planificado    | planificado | — |
-| NGSpice  | `.raw`        | planificado    | —          | — |
+| Formato  | Extensión     | Diff semántico     | Visor       |
+|----------|---------------|:------------------:|:-----------:|
+| Xschem   | `.sch`, `.sym`| ✓                  | ✓           |
+| GDS      | `.gds`        | ✓ geométrico (XOR) | ✓           |
+| OASIS    | `.oas`        | ✓ geométrico (XOR) | ✓           |
+| Magic    | `.mag`        | planificado        | planificado |
+| NGSpice  | `.raw`        | planificado        | —           |
+
+Exportar la vista a SVG/PNG desde el visor está pendiente ([`pendientes.md`](docs/roadmap/pendientes.md)).
 
 ---
 
@@ -100,20 +101,11 @@ Plataforma oficial: **Linux x86_64**. Windows compila en la CI, sin instaladores
 
 ### Prerrequisitos
 
-- **Rust 1.75+** (`rustup default stable`)
+- **Rust estable** (`rustup default stable`)
 - **Git** (`riku` lee el repo con `libgit2`, no requiere el binario `git`)
-- **Toolchain C++** + **zlib** + **qhull** (los necesita el backend GDS via `gdstk-rs`):
-  - **Windows**: VS 2019 BuildTools+ y vcpkg (`vcpkg install zlib qhull --triplet x64-windows`).
-    Por defecto se asume `VCPKG_ROOT=C:\vcpkg`; si tu vcpkg vive en otra ruta,
-    sobrescribí la env var antes de `cargo build`. El workspace ya configura
-    `VCPKGRS_DYNAMIC=1` via `.cargo/config.toml` para evitar el conflicto
-    LNK2005 entre el zlib vendored de `libz-sys` y el zlib dinámico de vcpkg.
-    Para ejecutar (no compilar) `riku`, agregá las DLLs al PATH:
-    `set PATH=%VCPKG_ROOT%\installed\x64-windows\bin;%PATH%`.
-  - **Linux**: paquetes `zlib1g-dev` y `libqhull-dev` (Debian/Ubuntu) o equivalentes.
-  - **macOS**: `brew install zlib qhull pkg-config`.
+- **Toolchain C++** + **zlib** + **qhull** (los necesita el backend GDS via `gdstk-rs`): paquetes `zlib1g-dev` y `libqhull-dev` (Debian/Ubuntu) o equivalentes.
 
-> **Recomendado:** compilar en Linux. El contenedor [iic-osic-tools](https://github.com/iic-jku/iic-osic-tools) trae todo lo necesario (zlib, qhull, KLayout y los PDKs en `/foss/pdks`); basta `rustup default stable`. En Windows con MSVC 2019 gdstk-rs puede fallar por memoria o por DLLs de vcpkg: ver `docs/integracion_gds_estado.md`.
+> **Recomendado:** el contenedor [iic-osic-tools](https://github.com/iic-jku/iic-osic-tools) trae todo lo necesario (zlib, qhull, KLayout y los PDKs en `/foss/pdks`); basta `rustup default stable`. Windows compila en la CI (VS 2022 + vcpkg), pero no es una plataforma soportada: ver `docs/integracion_gds_estado.md`.
 
 ### Clonar el repo
 
@@ -306,7 +298,7 @@ riku gui sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1   # una celda concret
 riku doctor
 ```
 
-Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS` y drivers cargados.
+Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS` (o los PDKs instalados que se detectarán) y módulos de formato cargados.
 
 ---
 
@@ -369,6 +361,10 @@ Solo se añaden paths existentes en disco.
 
 Útil en entornos Docker como `iic-osic-tools`, donde `sak-pdk sky130A` configura estas variables automáticamente.
 
+### 3. Detección por símbolos (sin `$PDK`)
+
+Si `$PDK` no está definida, Riku mira los PDKs instalados en `$PDK_ROOT` (o `/foss/pdks`) y elige el que tiene los símbolos que usa el esquemático (`sky130_fd_pr/nfet_01v8.sym` → `sky130A`). Si el diseño mezcla símbolos de varios PDKs, carga todos los necesarios; en un empate prefiere `sky130A`, `gf180mcuD` e `ihp-sg13g2`. El visor lo indica en **Detalles** ("PDK: sky130A (detectado)") y `riku doctor` lista los PDKs instalados.
+
 ---
 
 ## Arquitectura
@@ -391,19 +387,19 @@ riku_chip/
 
 ```text
 ┌──────────┐   ┌────────────────┐   ┌───────────┐   ┌───────────┐
-│ *.sch    │──▶│ XschemBackend  │──▶│ Scene     │──▶│ visor     │
+│ *.sch    │──▶│ XschemViewer   │──▶│ Scene     │──▶│ visor     │
 │ *.gds    │──▶│ GdsBackend     │──▶│ (neutro)  │──▶│ riku      │
 └──────────┘   └────────────────┘   └───────────┘   └───────────┘
                (impl ViewerBackend)  (viewer-core)    (consumidor)
 ```
 
-Cualquier formato futuro solo necesita implementar `ViewerBackend` en su propio crate; los consumidores lo reciben como `Box<dyn ViewerBackend>` y no cambian.
+Cada formato es un módulo (`FormatModule` de `riku-kernel`) registrado en `riku/src/modules/mod.rs`: detecta sus archivos, calcula el diff y entrega su `ViewerBackend`. Un formato nuevo es un módulo nuevo; el núcleo, la CLI y el visor no cambian.
 
 ### Dependencias clave
 
 | Crate                                                                           | Rol                                                                  |
 |---------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust) (submodule) | Parser PEG y renderer SVG para `.sch` / `.sym`                       |
+| [`xschem-viewer`](https://github.com/carloscl03/xschem-viewer-rust) (submodule) | Parser PEG y semántica de `.sch` / `.sym`                            |
 | `viewer-core`                                                                   | Trait neutro `ViewerBackend` y primitivas comunes de dibujo          |
 | `git2` (libgit2)                                                                | Blobs, commits y diffs sin fork de proceso                           |
 | `eframe` + `egui` (con backend `glow`)                                          | GUI nativa multiplataforma sin stack Vulkan/wgpu                     |
@@ -432,7 +428,7 @@ cargo test -p riku                        # núcleo + CLI + visor (incluye tests
 cargo test -p gds-renderer                # lógica GDS: diff, paletas, escena, cache
 ```
 
-Cada crate tiene su propio `target/`. Esto evita acoplamiento de workspace y permite compilar `riku` aislado en entornos Docker restringidos, a costa de recompilar deps compartidas si trabajás en varios crates a la vez.
+Es un solo workspace: un `Cargo.lock` y un `target/` para todos los crates. La CI además compila la variante solo terminal (`--no-default-features`) y cada módulo por separado (`--features layout` / `xschem`).
 
 ### Estructura de commits
 
@@ -458,13 +454,15 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | Visor y diff visual GDS en la GUI                                   | ✓ Estable     |
 | OASIS, celdas renombradas, cambio por instancia, cache del diff    | ✓ Estable     |
 | Shell interactivo (`riku` sin argumentos) con historial y Tab       | ✓ Estable     |
-| Paquetes instalables (`.tar.gz`, `.deb`) y build en Windows         | planificado   |
+| Ejecutable único y paquetes instalables (`.tar.gz`, `.deb`)         | ✓ Estable     |
+| Núcleo + módulos de formato (microkernel)                           | ✓ Estable     |
+| Exportar la vista del visor a SVG/PNG                               | planificado   |
 | Driver Magic / NGSpice                                              | planificado   |
 | `--graph` ASCII en `riku log`                                       | planificado   |
 | Modo `--ci` (exit code por severidad)                               | planificado   |
 | `riku show <commit> <file>`                                         | planificado   |
 
-Pendientes técnicos priorizados (paridad de la vista `.sch`, empaquetado, layouts muy grandes…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
+Pendientes técnicos priorizados (layouts muy grandes, exportación desde el visor…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
 
 ---
 
@@ -480,7 +478,7 @@ Las contribuciones son bienvenidas. Antes de abrir un PR:
 
 ## Licencia
 
-[MIT](LICENSE)
+Pendiente: el repositorio todavía no tiene archivo `LICENSE`.
 
 ---
 
