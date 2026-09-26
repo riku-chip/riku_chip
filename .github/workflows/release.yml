@@ -49,7 +49,7 @@ jobs:
         run: |
           B=target/release/riku
           ldd $B
-          extra=$(ldd $B | awk '{print $1}' | grep -v -E '^(linux-vdso|/lib64/ld-linux|libc|libm|libgcc_s|libdl|libpthread|librt)\.' || true)
+          extra=$(ldd $B | awk '{print $1}' | grep -v -E '^(linux-vdso\.|/lib64/ld-linux|/lib/ld-linux|(libc|libm|libgcc_s|libdl|libpthread|librt)\.)' || true)
           if [ -n "$extra" ]; then echo "::error::dependencias no permitidas: $extra"; exit 1; fi
           ls -la $B
       - name: Pruebas de humo
