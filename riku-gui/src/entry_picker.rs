@@ -112,12 +112,13 @@ fn split_name(id: &str) -> (&str, Option<&str>) {
 }
 
 /// Marcador y color de un cambio de celda (mismos colores que el overlay).
-fn change_mark(kind: ChangeKind) -> (&'static str, Color32) {
-    match kind {
-        ChangeKind::Added => ("+", Color32::from_rgb(90, 220, 120)),
-        ChangeKind::Removed => ("−", Color32::from_rgb(240, 100, 100)),
-        ChangeKind::Modified => ("~", Color32::from_rgb(230, 190, 80)),
-    }
+fn change_mark(kind: ChangeKind, dark: bool) -> (&'static str, Color32) {
+    let mark = match kind {
+        ChangeKind::Added => "+",
+        ChangeKind::Removed => "−",
+        ChangeKind::Modified => "~",
+    };
+    (mark, crate::theme::change_color(kind, dark))
 }
 
 /// Fila: marcador de cambio (si hay), nombre distintivo (lo que se trunca es
@@ -129,7 +130,7 @@ fn row_text(ui: &egui::Ui, e: &ViewEntry) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     let name_color = match e.change {
         Some(kind) => {
-            let (mark, color) = change_mark(kind);
+            let (mark, color) = change_mark(kind, ui.visuals().dark_mode);
             job.append(mark, 0.0, egui::TextFormat::simple(font.clone(), color));
             job.append(" ", 0.0, egui::TextFormat::simple(font.clone(), color));
             color

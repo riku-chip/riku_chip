@@ -1,4 +1,6 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
+
+use crate::theme::CanvasTheme;
 use xschem_viewer::{ResolvedScene, Viewport};
 use riku::core::domain::models::{ChangeKind, DiffReport};
 
@@ -31,7 +33,18 @@ fn scale_f(vp: &SchViewport) -> f32 {
 
 // ─── Layer colors ─────────────────────────────────────────────────────────────
 
-fn layer_color(layer: i32) -> Color32 {
+/// Colores por capa de Xschem. En tema claro, variantes oscuras para que
+/// wires, símbolos y textos se lean sobre fondo blanco.
+fn layer_color(layer: i32, dark: bool) -> Color32 {
+    if !dark {
+        return match layer {
+            1 => Color32::from_rgb(20, 90, 190),   // wires
+            2 => Color32::from_rgb(130, 110, 0),   // components
+            3 => Color32::from_rgb(60, 60, 60),    // text
+            4 => Color32::from_rgb(0, 130, 40),    // pins
+            _ => Color32::from_rgb(90, 90, 90),
+        };
+    }
     match layer {
         1 => Color32::from_rgb(100, 180, 255),  // wires
         2 => Color32::from_rgb(200, 200, 100),  // components
@@ -57,7 +70,9 @@ pub fn paint_sch(
     let (_, painter) = ui.allocate_painter(available, egui::Sense::hover());
     let rect = painter.clip_rect();
 
-    painter.rect_filled(rect, 0.0, Color32::from_rgb(18, 18, 22));
+    let theme = CanvasTheme::from_visuals(ui.visuals());
+    let dark = theme.dark;
+    painter.rect_filled(rect, 0.0, theme.background);
 
     if scene.bbox.is_empty() {
         painter.text(
@@ -65,20 +80,20 @@ pub fn paint_sch(
             egui::Align2::CENTER_CENTER,
             "Schematic vacío",
             egui::FontId::proportional(16.0),
-            Color32::from_gray(160),
+            theme.muted,
         );
         return;
     }
 
     // ── Fantasmas del commit A (componentes movidos/eliminados y wires desaparecidos) ─
     if let (Some(a), Some(report)) = (scene_a, diff) {
-        paint_ghosts(&painter, vp, rect, a, report);
-        paint_wire_ghosts(&painter, vp, rect, a, scene);
+        paint_ghosts(&painter, vp, rect, a, report, dark);
+        paint_wire_ghosts(&painter, vp, rect, a, scene, dark);
     }
 
     // ── Primitivos del schematic actual (commit B) ────────────────────────────
     for elem in &scene.elements {
-        paint_element(&painter, vp, rect, elem);
+        paint_element(&painter, vp, rect, elem, dark);
     }
 
     // ── Anotaciones de diff ───────────────────────────────────────────────────
@@ -92,19 +107,20 @@ fn paint_element(
     vp: &SchViewport,
     rect: Rect,
     elem: &xschem_viewer::DrawElement,
+    dark: bool,
 ) {
     use xschem_viewer::DrawElement::*;
     match elem {
         Line { x1, y1, x2, y2, layer, .. } => {
             let a = world_to_screen(vp, rect, *x1, *y1);
             let b = world_to_screen(vp, rect, *x2, *y2);
-            painter.line_segment([a, b], Stroke::new(1.0, layer_color(*layer)));
+            painter.line_segment([a, b], Stroke::new(1.0, layer_color(*layer, dark)));
         }
         Rect { x, y, w, h, layer, filled, .. } => {
             let min = world_to_screen(vp, rect, *x, *y);
             let max = world_to_screen(vp, rect, x + w, y + h);
             let r = egui::Rect::from_min_max(min, max);
-            let color = layer_color(*layer);
+            let color = layer_color(*layer, dark);
             if *filled {
                 painter.rect_filled(r, 0.0, color.gamma_multiply(0.3));
             }
@@ -113,12 +129,12 @@ fn paint_element(
         Circle { cx, cy, r, layer, .. } => {
             let center = world_to_screen(vp, rect, *cx, *cy);
             let radius = (*r * vp.scale) as f32;
-            let color = layer_color(*layer);
+            let color = layer_color(*layer, dark);
             painter.circle_stroke(center, radius, Stroke::new(1.0, color));
         }
         Arc { cx, cy, r, start_angle, sweep_angle, layer, .. } => {
             // egui no tiene arc nativo — aproximamos con líneas
-            let color = layer_color(*layer);
+            let color = layer_color(*layer, dark);
             let steps = (sweep_angle.abs() / 5.0).ceil() as usize + 1;
             let mut pts: Vec<Pos2> = Vec::with_capacity(steps + 1);
             for i in 0..=steps {
@@ -136,7 +152,7 @@ fn paint_element(
             let pts: Vec<Pos2> = points.iter()
                 .map(|(wx, wy)| world_to_screen(vp, rect, *wx, *wy))
                 .collect();
-            let color = layer_color(*layer);
+            let color = layer_color(*layer, dark);
             if *filled && pts.len() >= 3 {
                 painter.add(Shape::convex_polygon(
                     pts.clone(),
@@ -148,7 +164,7 @@ fn paint_element(
             }
         }
         Text { x, y, content, v_size, rotation, mirror, h_center, v_center, layer, .. } => {
-            paint_text(painter, vp, rect, *x, *y, content, *v_size, *rotation, *mirror, *h_center, *v_center, layer_color(*layer));
+            paint_text(painter, vp, rect, *x, *y, content, *v_size, *rotation, *mirror, *h_center, *v_center, layer_color(*layer, dark));
         }
         MissingSymbol { x, y, name, .. } => {
             let pos = world_to_screen(vp, rect, *x, *y);
@@ -240,9 +256,10 @@ fn paint_ghosts(
     rect: Rect,
     scene_a: &ResolvedScene,
     report: &DiffReport,
+    dark: bool,
 ) {
     // Color fantasma: gris suficientemente claro sobre fondo oscuro, sin competir
-    let ghost = Color32::from_rgba_unmultiplied(75, 75, 85, 180);
+    let ghost = ghost_color(dark);
 
     for comp in &report.components {
         // Mostrar fantasma si la posición cambió o el componente fue eliminado
@@ -263,8 +280,9 @@ fn paint_wire_ghosts(
     rect: Rect,
     scene_a: &ResolvedScene,
     scene_b: &ResolvedScene,
+    dark: bool,
 ) {
-    let ghost = Color32::from_rgba_unmultiplied(75, 75, 85, 180);
+    let ghost = ghost_color(dark);
     // Un wire de A es "fantasma" si no existe idéntico en B
     for (x1, y1, x2, y2, _label) in &scene_a.wires {
         let matches_b = scene_b.wires.iter().any(|(bx1, by1, bx2, by2, _)| {
@@ -417,5 +435,14 @@ fn annotation_colors(kind: &ChangeKind, cosmetic: bool, position_changed: bool) 
         // Modificado semántico → amarillo
         (ChangeKind::Modified, false, _) =>
             (Color32::from_rgba_unmultiplied(255, 180, 0, 50), Color32::from_rgb(255, 180, 0)),
+    }
+}
+
+/// Gris de los fantasmas del commit A: visible sin competir con el commit B.
+fn ghost_color(dark: bool) -> Color32 {
+    if dark {
+        Color32::from_rgba_unmultiplied(75, 75, 85, 180)
+    } else {
+        Color32::from_rgba_unmultiplied(170, 170, 180, 180)
     }
 }

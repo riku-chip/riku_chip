@@ -220,10 +220,10 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
     }
 
     scene.metadata = vec![
-        ("Cell".into(), cell.name().to_string()),
+        ("Celda".into(), cell.name().to_string()),
         ("PDK".into(), pdk_name(keys.pdk).into()),
         ("Polígonos".into(), polygons.to_string()),
-        ("Labels".into(), labels.to_string()),
+        ("Etiquetas".into(), labels.to_string()),
         ("Capas".into(), scene.layers.len().to_string()),
         (
             "Tamaño".into(),
@@ -330,7 +330,7 @@ impl ViewerBackend for GdsBackend {
 
             let (mut scene, _) = vc_scene_from_cell(&lib, &cell, path_hint.as_deref());
             let tops = entries.iter().filter(|e| e.is_root).count();
-            // Justo despues de "Cell": cuantas celdas hay para elegir.
+            // Justo despues de "Celda": cuantas celdas hay para elegir.
             scene.metadata.insert(1, ("Celdas".into(), format!("{tops} top / {} total", entries.len())));
             scene.current_entry = Some(cell.name().to_string());
             scene.entries = entries;
@@ -712,7 +712,7 @@ mod tests {
         });
         assert!(!polygon_after_text, "los textos deben ir al final");
         let meta = handle.metadata();
-        assert!(meta.iter().any(|(k, _)| k == "Cell"));
+        assert!(meta.iter().any(|(k, _)| k == "Celda"));
         let capas: usize = meta.iter().find(|(k, _)| k == "Capas").unwrap().1.parse().unwrap();
         assert_eq!(handle.layer_list().len(), capas);
     }

@@ -19,17 +19,15 @@ use std::collections::HashSet;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Shape, Stroke, StrokeKind};
 use viewer_core::{
     bbox::BoundingBox,
-    element::{DrawElement, HAlign, Layer, VAlign},
+    element::{DrawElement, Layer},
     paint::Rgba,
     scene::RenderableScene,
     viewport::{screen_to_world, world_to_screen, Viewport, YAxis},
 };
 
+use crate::label_layout::{place, LabelCandidate, PILL_PADDING};
 use crate::polygon_fill::paint_filled_polygon;
-
-/// Fondo del lienzo. Independiente de la paleta de capas: la capa 0 es una
-/// capa real en GDS y no debe confundirse con el fondo.
-const BACKGROUND: Color32 = Color32::from_rgb(20, 20, 24);
+use crate::theme::CanvasTheme;
 
 /// Paleta neutral mínima por layer. Se usa cuando la escena no provee su
 /// propio `LayerPaint` — suficiente para inspección genérica.
@@ -178,19 +176,44 @@ pub fn zoom_at_screen(vp: &mut Viewport, factor: f64, pos: Pos2, rect: Rect) {
     vp.zoom_at(factor, (pos.x - rect.min.x) as f64, (pos.y - rect.min.y) as f64);
 }
 
+/// Opciones de pintado que dependen de la UI, no de la escena.
+#[derive(Clone, Copy)]
+pub struct PaintOptions {
+    pub theme: CanvasTheme,
+    /// Mostrar etiquetas de texto.
+    pub labels: bool,
+}
+
+/// Qué pasó al pintar, para informar en la barra de estado.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PaintStats {
+    /// Etiquetas visibles que no se dibujaron por falta de lugar.
+    pub labels_hidden: usize,
+}
+
+/// Alto de las etiquetas en pantalla. Se deriva del tamaño en el mundo pero
+/// se acota: con zoom grande no deben tapar el layout y con zoom chico deben
+/// seguir leyéndose.
+const LABEL_PX: std::ops::RangeInclusive<f32> = 10.0..=14.0;
+/// Si el tamaño "natural" (mundo × escala) cae por debajo de esto, el zoom es
+/// tan lejano que las etiquetas serían solo ruido: no se dibujan.
+const LABEL_MIN_NATURAL_PX: f32 = 3.0;
+
 /// Pinta `scene` en todo el espacio disponible. Las capas en `hidden` se omiten.
 pub fn paint_scene(
     ui: &mut egui::Ui,
     scene: &dyn RenderableScene,
     vp: &Viewport,
     hidden: &HashSet<Layer>,
-) {
+    opts: PaintOptions,
+) -> PaintStats {
     let available = ui.available_size_before_wrap();
     let (response, painter) = ui.allocate_painter(available, egui::Sense::hover());
     let rect = response.rect;
     let painter = painter.with_clip_rect(rect);
+    let theme = opts.theme;
 
-    painter.rect_filled(rect, 0.0, BACKGROUND);
+    painter.rect_filled(rect, 0.0, theme.background);
 
     if scene.is_empty() {
         painter.text(
@@ -198,19 +221,78 @@ pub fn paint_scene(
             Align2::CENTER_CENTER,
             "Escena vacía.",
             FontId::proportional(16.0),
-            Color32::from_gray(160),
+            theme.muted,
         );
-        return;
+        return PaintStats::default();
     }
 
+    // Geometría primero; las etiquetas se juntan y se colocan al final, por
+    // encima de todo y sin pisarse entre sí.
     let xf = ScreenXform::new(rect, vp, scene.y_axis());
+    let mut labels: Vec<(LabelCandidate, f32)> = Vec::new();
     let mut visitor = |el: &DrawElement| -> bool {
-        if !hidden.contains(&el.layer()) {
-            draw_element(&painter, &xf, vp.scale, scene, el);
+        if hidden.contains(&el.layer()) {
+            return true;
+        }
+        match el {
+            DrawElement::Text { x, y, content, size, .. } => {
+                let natural = (*size * vp.scale) as f32;
+                if opts.labels && natural >= LABEL_MIN_NATURAL_PX {
+                    let (_, stroke) = layer_colors(scene, el.layer());
+                    let px = natural.clamp(*LABEL_PX.start(), *LABEL_PX.end());
+                    labels.push((
+                        LabelCandidate { anchor: xf.to_screen(*x, *y), text: content.clone(), color: stroke },
+                        px,
+                    ));
+                }
+            }
+            _ => draw_element(&painter, &xf, vp.scale, scene, el, &theme),
         }
         true
     };
     scene.visit(&xf.visible_world_bbox(), &mut visitor);
+
+    PaintStats { labels_hidden: paint_labels(&painter, labels, rect, &theme) }
+}
+
+/// Coloca y dibuja las etiquetas: punto en el anclaje exacto y pastilla con
+/// halo del color del lienzo, borde del color de la capa y texto con
+/// contraste garantizado. Retorna cuántas se omitieron por solaparse.
+fn paint_labels(
+    painter: &egui::Painter,
+    labels: Vec<(LabelCandidate, f32)>,
+    clip: Rect,
+    theme: &CanvasTheme,
+) -> usize {
+    if labels.is_empty() {
+        return 0;
+    }
+    // Un solo tamaño por frame (todas las etiquetas de una escena comparten
+    // tamaño en el mundo): simplifica medir y alinear.
+    let px = labels.iter().map(|(_, px)| *px).fold(0.0_f32, f32::max);
+    let font = FontId::proportional(px);
+    let measure = |t: &str| painter.layout_no_wrap(t.to_string(), font.clone(), Color32::WHITE).size();
+    let (placed, hidden) = place(labels.into_iter().map(|(c, _)| c).collect(), measure, clip);
+
+    for l in &placed {
+        let dot = Stroke::new(1.5_f32, theme.label_halo);
+        painter.circle(l.anchor, 2.5, theme.layer_colors(l.color, l.color).1, dot);
+        painter.rect(
+            l.rect,
+            3.0,
+            theme.label_halo,
+            Stroke::new(1.0_f32, l.color.gamma_multiply(0.7)),
+            StrokeKind::Inside,
+        );
+        painter.text(
+            l.rect.min + PILL_PADDING,
+            Align2::LEFT_TOP,
+            &l.text,
+            font.clone(),
+            theme.label_text(l.color),
+        );
+    }
+    hidden
 }
 
 fn draw_element(
@@ -219,8 +301,10 @@ fn draw_element(
     scale: f64,
     scene: &dyn RenderableScene,
     el: &DrawElement,
+    theme: &CanvasTheme,
 ) {
     let (fill, stroke_color) = layer_colors(scene, el.layer());
+    let (fill, stroke_color) = theme.layer_colors(fill, stroke_color);
     let stroke = Stroke::new(1.0_f32, stroke_color);
 
     match el {
@@ -253,43 +337,10 @@ fn draw_element(
                 painter.add(Shape::line(pts, stroke));
             }
         }
-        DrawElement::Text { x, y, content, size, angle_deg, h_align, v_align, .. } => {
-            let pos = xf.to_screen(*x, *y);
-            if !painter.clip_rect().expand(50.0).contains(pos) { return; }
-            let align = to_egui_align(*h_align, *v_align);
-            let font_size = (*size * scale) as f32;
-            if font_size < 4.0 { return; }
-            if angle_deg.abs() < 0.1 {
-                painter.text(pos, align, content, FontId::proportional(font_size), stroke_color);
-            } else {
-                // Para texto rotado usamos galley + rotación; fallback visual
-                // sin romper — una primera iteración no necesita perfect kerning.
-                let galley = painter.layout_no_wrap(
-                    content.clone(),
-                    FontId::proportional(font_size),
-                    stroke_color,
-                );
-                let shape = egui::epaint::TextShape::new(pos, galley, stroke_color)
-                    .with_angle(angle_deg.to_radians() as f32);
-                painter.add(Shape::Text(shape));
-            }
-        }
+        // Las etiquetas se dibujan aparte (paint_labels): horizontales y
+        // legibles siempre, aunque el formato las declare rotadas.
+        DrawElement::Text { .. } => {}
     }
-}
-
-fn to_egui_align(h: HAlign, v: VAlign) -> Align2 {
-    use egui::Align;
-    let ha = match h {
-        HAlign::Start => Align::LEFT,
-        HAlign::Middle => Align::Center,
-        HAlign::End => Align::RIGHT,
-    };
-    let va = match v {
-        VAlign::Top => Align::TOP,
-        VAlign::Middle => Align::Center,
-        VAlign::Bottom => Align::BOTTOM,
-    };
-    Align2([ha, va])
 }
 
 #[cfg(test)]
