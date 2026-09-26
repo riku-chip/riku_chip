@@ -124,7 +124,19 @@ fn print_pdk(pdk: &PdkStatus) {
             "  [!]  $PDK_ROOT/$PDK configurado pero ruta no encontrada: {}",
             p.display()
         ),
-        PdkStatus::NotConfigured => println!("  [--]  $PDK_ROOT / $PDK: no configurados"),
+        PdkStatus::NotConfigured => {
+            let root = crate::modules::xschem_pdk::pdk_root();
+            let installed = root.as_deref().map(crate::modules::xschem_pdk::installed_pdks).unwrap_or_default();
+            match (root, installed.is_empty()) {
+                (Some(r), false) => println!(
+                    "  [ok]  $PDK no definida: se detecta por los símbolos de cada esquemático
+        (instalados en {}: {}). Para fijarlo: export PDK=<nombre>",
+                    r.display(),
+                    installed.join(", ")
+                ),
+                _ => println!("  [--]  $PDK_ROOT / $PDK: no configurados y no hay PDKs en /foss/pdks"),
+            }
+        }
     }
 }
 

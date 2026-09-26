@@ -56,7 +56,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 | **Status semántico**   | `riku status` lista cambios del working tree clasificados como semánticos vs cosméticos por driver. |
 | **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
 | **Salida JSON estable**| `--json` con schemas versionados (`riku-status/v1`, `riku-log/v1`) para CI y scripts. |
-| **Detección de PDK**   | Descubre rutas de símbolos desde `.xschemrc`, `$PDK_ROOT`/`$PDK` y `$TOOLS` sin configuración manual. |
+| **Detección de PDK**   | Descubre rutas de símbolos desde `.xschemrc`, `$PDK_ROOT`/`$PDK` y `$TOOLS`. Si `$PDK` no está definida, elige el PDK instalado que tiene los símbolos de cada esquemático (o varios, si el diseño los mezcla). |
 | **Arquitectura modular**| Núcleo (`riku-kernel`) que no conoce ningún formato y módulos que se registran en él (`FormatModule`: detectar, comparar y mostrar). Añadir un formato (Magic, KiCad…) es un módulo nuevo en `riku/src/modules/`; no toca el núcleo, la CLI ni el visor. |
 
 ---

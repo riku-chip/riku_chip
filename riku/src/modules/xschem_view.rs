@@ -21,7 +21,8 @@ use viewer_core::{
 };
 use xschem_viewer::{DrawElement as X, HAlign as XH, LineDirection, ResolvedScene, VBaseline};
 
-use super::xschem::{is_xschem, render_options, XschemModule};
+use super::xschem::{is_xschem, render_options_for, XschemModule};
+use super::xschem_pdk::{installed_pdks, pdk_root, PdkSource};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
 use riku_kernel::{DiffOptions, FormatModule};
 
@@ -53,8 +54,8 @@ impl ViewerBackend for XschemViewer {
         token: CancellationToken,
     ) -> viewer_core::Result<SceneHandle> {
         run_blocking(token, move || {
-            let rs = resolve(&content)?;
-            Ok(scene_from(&rs))
+            let (rs, pdk) = resolve(&content)?;
+            Ok(scene_from(&rs, &pdk))
         })
         .await
     }
@@ -68,11 +69,11 @@ impl ViewerBackend for XschemViewer {
         token: CancellationToken,
     ) -> viewer_core::Result<SceneHandle> {
         run_blocking(token, move || {
-            let b = resolve(&after)?;
-            let a = if before.is_empty() { None } else { Some(resolve(&before)?) };
+            let (b, pdk) = resolve(&after)?;
+            let a = if before.is_empty() { None } else { Some(resolve(&before)?.0) };
             let path = path_hint.unwrap_or_else(|| "archivo.sch".into());
             let report = XschemModule::new().diff(&before, &after, &path, &DiffOptions::default());
-            Ok(diff_scene(a.as_ref(), &b, &report))
+            Ok(diff_scene(a.as_ref(), &b, &pdk, &report))
         })
         .await
     }
@@ -92,16 +93,18 @@ async fn run_blocking(
     Ok(Arc::new(scene) as SceneHandle)
 }
 
-/// Parsea y resuelve un esquemático (símbolos de `.xschemrc` y del PDK).
-fn resolve(content: &[u8]) -> viewer_core::Result<ResolvedScene> {
+/// Parsea y resuelve un esquemático (símbolos de `.xschemrc` y del PDK, que
+/// se detecta por sus símbolos si `$PDK` no está definida).
+fn resolve(content: &[u8]) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
     let text = std::str::from_utf8(content).map_err(|e| ViewerError::Parse(format!("no es UTF-8: {e}")))?;
     let parsed = xschem_viewer::parser::parse(text).map_err(|e| ViewerError::Parse(e.to_string()))?;
-    Ok(xschem_viewer::SceneBuilder::new(&render_options()).build(&parsed))
+    let (opts, pdk) = render_options_for(text);
+    Ok((xschem_viewer::SceneBuilder::new(&opts).build(&parsed), pdk))
 }
 
 // ─── Escena ──────────────────────────────────────────────────────────────────
 
-fn scene_from(rs: &ResolvedScene) -> Scene {
+fn scene_from(rs: &ResolvedScene, pdk: &PdkSource) -> Scene {
     let mut scene = Scene::new();
     scene.y_axis = YAxis::Down;
     scene.text_style = TextStyle::Drawn;
@@ -117,15 +120,61 @@ fn scene_from(rs: &ResolvedScene) -> Scene {
         ("Elementos".into(), rs.elements.len().to_string()),
         ("Wires".into(), rs.wires.len().to_string()),
     ];
+    match pdk {
+        PdkSource::Env(p) => scene.metadata.push(("PDK".into(), pdk_name(p))),
+        PdkSource::Detected(found) => {
+            let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
+            let main = names[0];
+            scene.metadata.push(("PDK".into(), format!("{} (detectado)", names.join(" + "))));
+            let which = if names.len() == 1 {
+                format!("se usó {main}, que tiene los símbolos de este esquemático")
+            } else {
+                format!("el esquemático usa símbolos de varios PDKs: {}", names.join(", "))
+            };
+            scene.notices.push(format!("$PDK no está definida: {which}. Para fijarlo: export PDK={main}"));
+        }
+        PdkSource::Missing(_) => {}
+    }
     if !rs.missing_symbols.is_empty() {
         scene.metadata.push(("Símbolos sin resolver".into(), rs.missing_symbols.len().to_string()));
-        scene.notices.push(format!(
-            "Símbolos sin resolver ({}): {}. Se dibujan como marcadores rojos; revisa las rutas de símbolos (riku doctor).",
-            rs.missing_symbols.len(),
-            rs.missing_symbols.join(", ")
-        ));
+        scene.notices.push(missing_notice(&rs.missing_symbols, pdk));
     }
     scene
+}
+
+/// Nombre del PDK a partir de su ruta de símbolos (`…/sky130A/libs.tech/xschem`).
+fn pdk_name(symbols: &std::path::Path) -> String {
+    symbols
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .map_or_else(|| symbols.display().to_string(), |n| n.to_string_lossy().to_string())
+}
+
+/// Aviso de símbolos faltantes que dice la causa y qué hacer.
+fn missing_notice(missing: &[String], pdk: &PdkSource) -> String {
+    let list = missing.join(", ");
+    let cause = match pdk {
+        PdkSource::Missing(reason) => {
+            let installed = pdk_root().map(|r| installed_pdks(&r)).unwrap_or_default();
+            let hint = match installed.first() {
+                Some(first) => format!(
+                    "Define el PDK del diseño, por ejemplo: export PDK={first} (instalados: {}).",
+                    installed.join(", ")
+                ),
+                None => "Define $PDK_ROOT y $PDK (p. ej. PDK_ROOT=/foss/pdks PDK=sky130A).".to_string(),
+            };
+            format!("{reason}. {hint}")
+        }
+        found => format!(
+            "No están en {} ni en las rutas de .xschemrc.",
+            found.paths().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        ),
+    };
+    format!(
+        "Faltan {} símbolos ({list}); se dibujan como marcadores rojos. {cause} Diagnóstico: riku doctor.",
+        missing.len()
+    )
 }
 
 /// Colores de Xschem (tema oscuro; el visor los adapta al tema claro).
@@ -234,8 +283,8 @@ fn convert(el: &X) -> Vec<Vc> {
 
 /// Escena de diff: la versión nueva, los fantasmas de la anterior (lo que se
 /// movió o se eliminó), una marca por cambio y la lista de cambios.
-fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, report: &FileChange) -> Scene {
-    let mut scene = scene_from(b);
+fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, report: &FileChange) -> Scene {
+    let mut scene = scene_from(b, pdk);
 
     if let Some(a) = a {
         // Componentes movidos o eliminados: cómo estaban antes.
@@ -388,8 +437,8 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
 
     #[test]
     fn scene_uses_drawn_text_one_element_per_line() {
-        let rs = resolve(A.as_bytes()).unwrap();
-        let s = scene_from(&rs);
+        let (rs, pdk) = resolve(A.as_bytes()).unwrap();
+        let s = scene_from(&rs, &pdk);
         assert_eq!(s.text_style, TextStyle::Drawn);
         let texts: Vec<_> = s
             .elements
@@ -408,9 +457,9 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
 
     #[test]
     fn diff_scene_has_ghosts_annotations_and_changes() {
-        let (a, b) = (resolve(A.as_bytes()).unwrap(), resolve(B.as_bytes()).unwrap());
+        let (a, (b, pdk)) = (resolve(A.as_bytes()).unwrap().0, resolve(B.as_bytes()).unwrap());
         let report = XschemModule::new().diff(A.as_bytes(), B.as_bytes(), "t.sch", &DiffOptions::default());
-        let s = diff_scene(Some(&a), &b, &report);
+        let s = diff_scene(Some(&a), &b, &pdk, &report);
         // El wire "old" ya no está: fantasma.
         assert!(s.ghost.iter().any(|g| matches!(g, Vc::Line { y1, .. } if (*y1 - 50.0).abs() < 1e-9)));
         let labels: Vec<&str> = s.changes.iter().map(|c| c.label.as_str()).collect();
@@ -426,8 +475,8 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
 
     #[test]
     fn missing_symbols_become_markers_and_a_notice() {
-        let rs = resolve(A.as_bytes()).unwrap();
-        let s = scene_from(&rs);
+        let (rs, pdk) = resolve(A.as_bytes()).unwrap();
+        let s = scene_from(&rs, &pdk);
         if rs.missing_symbols.is_empty() {
             return; // en un entorno con res.sym resuelto no hay nada que marcar
         }

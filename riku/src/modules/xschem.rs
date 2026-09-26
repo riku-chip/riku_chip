@@ -8,20 +8,21 @@ use super::xschem_pdk as pdk;
 
 const MOVE_ALL_NOTE: &str = "reorganizacion cosmetica (Move All)";
 
-/// Opciones de render canónicas para Xschem: tema dark + símbolos de
-/// `.xschemrc` + ruta del PDK desde `$PDK_ROOT/$PDK` si está disponible.
-/// Fuente única para `parse`, `render` y diff — evita que el render
-/// encuentre símbolos que el diff semántico no.
-pub(super) fn render_options() -> xschem_viewer::RenderOptions {
+/// Opciones de render canónicas para un esquemático: tema dark + símbolos de
+/// `.xschemrc` + símbolos del PDK (`$PDK_ROOT/$PDK`, o el PDK instalado que
+/// tiene los símbolos del archivo si `$PDK` no está definida). Fuente única
+/// para el diff y el visor: los dos encuentran los mismos símbolos.
+pub(super) fn render_options_for(text: &str) -> (xschem_viewer::RenderOptions, pdk::PdkSource) {
     let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
-    if let Some(path) = pdk::pdk_symbol_path() {
+    let source = pdk::symbol_source_for(text);
+    for path in source.paths() {
         opts = opts.with_sym_path(path.to_string_lossy().to_string());
     }
-    opts
+    (opts, source)
 }
 
 fn parse_text(text: &str) -> Schematic {
-    xschem_viewer::semantic::parse_semantic(text, &render_options())
+    xschem_viewer::semantic::parse_semantic(text, &render_options_for(text).0)
 }
 
 /// Valida un blob como contenido Xschem decodificable y devuelve el `&str`
@@ -85,9 +86,10 @@ impl FormatModule for XschemModule {
                 let name = std::env::var("PDK").unwrap_or_default();
                 format!("PDK: {} [error: ruta no encontrada]", name)
             }
-            pdk::PdkStatus::NotConfigured => {
-                "PDK: [no detectado, usa PDK_ROOT/PDK o .xschemrc]".to_string()
-            }
+            pdk::PdkStatus::NotConfigured => match pdk::pdk_root() {
+                Some(_) => "PDK: se detecta por los símbolos de cada esquemático".to_string(),
+                None => "PDK: [no detectado, usa PDK_ROOT/PDK o .xschemrc]".to_string(),
+            },
         };
 
         let info = ModuleInfo {
