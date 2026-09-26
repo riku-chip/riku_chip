@@ -106,6 +106,20 @@ impl ViewAnimation {
     }
 }
 
+/// Duración del fundido al cambiar de tema (s).
+pub const THEME_FADE: f64 = 0.25;
+
+/// Opacidad del velo del tema anterior `t` segundos después del cambio:
+/// 1 → 0 con salida suave (ease-out cúbico), para que el salto de brillo
+/// claro↔oscuro no sea brusco. `None` cuando terminó.
+pub fn theme_fade_alpha(t: f64) -> Option<f32> {
+    if !(0.0..THEME_FADE).contains(&t) {
+        return None;
+    }
+    let p = t / THEME_FADE;
+    Some((1.0 - (1.0 - (1.0 - p).powi(3))) as f32)
+}
+
 /// Inercia del pan tras soltar un arrastre (velocidad en px/s de pantalla).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Inertia {
@@ -214,5 +228,19 @@ mod tests {
     #[test]
     fn slow_release_has_no_inertia() {
         assert!(Inertia::from_release(20.0, 20.0).is_none());
+    }
+
+    #[test]
+    fn theme_fade_goes_from_opaque_to_done_monotonically() {
+        assert_eq!(theme_fade_alpha(0.0), Some(1.0));
+        let mut prev = 1.0;
+        for i in 1..25 {
+            let a = theme_fade_alpha(i as f64 * 0.01).expect("dentro del fundido");
+            assert!(a <= prev, "monótono");
+            prev = a;
+        }
+        assert!(prev < 0.05, "casi transparente al final: {prev}");
+        assert_eq!(theme_fade_alpha(THEME_FADE), None);
+        assert_eq!(theme_fade_alpha(-0.1), None);
     }
 }

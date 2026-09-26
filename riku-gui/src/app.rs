@@ -13,7 +13,7 @@ use viewer_core::{
 
 use crate::entry_picker;
 use crate::launch::LaunchArgs;
-use crate::motion::{Inertia, ViewAnimation};
+use crate::motion::{theme_fade_alpha, Inertia, ViewAnimation};
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
 use crate::scene_painter::{
@@ -174,6 +174,10 @@ pub struct RikuGuiApp {
     canvas_rect: Option<egui::Rect>,
     /// Archivo de la carga en vuelo (para nombrarlo si falla).
     loading_path: Option<String>,
+    /// Tema del frame anterior (para detectar el cambio y fundirlo).
+    last_dark: Option<bool>,
+    /// Fundido en curso al cambiar de tema: (inicio, fondo del tema anterior).
+    theme_fade: Option<(f64, egui::Color32)>,
 }
 
 /// Claves de persistencia (eframe storage).
@@ -270,6 +274,8 @@ impl RikuGuiApp {
             recent,
             canvas_rect: None,
             loading_path: None,
+            last_dark: None,
+            theme_fade: None,
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -740,6 +746,15 @@ impl eframe::App for RikuGuiApp {
         let ctx = ui.ctx().clone();
         let mut reload = false;
         self.now = ctx.input(|i| i.time);
+
+        // Cambio de tema: fundir desde el fondo anterior en vez de saltar de
+        // golpe entre claro y oscuro (salvo movimiento reducido).
+        let dark = ctx.theme() == egui::Theme::Dark;
+        if self.last_dark.is_some_and(|was| was != dark) && !self.reduce_motion {
+            let prev = if dark { egui::Visuals::light() } else { egui::Visuals::dark() };
+            self.theme_fade = Some((self.now, CanvasTheme::from_visuals(&prev).background));
+        }
+        self.last_dark = Some(dark);
 
         // Arrastrar un archivo desde el explorador lo abre.
         let dropped = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
@@ -1216,6 +1231,17 @@ impl eframe::App for RikuGuiApp {
         }
         let area = self.canvas_rect.unwrap_or_else(|| ctx.content_rect());
         self.toasts.show(&ctx, area);
+
+        if let Some((start, from)) = self.theme_fade {
+            match theme_fade_alpha(self.now - start) {
+                Some(alpha) => {
+                    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("theme_fade"));
+                    ctx.layer_painter(layer).rect_filled(ctx.content_rect(), 0.0, from.gamma_multiply(alpha));
+                    ctx.request_repaint();
+                }
+                None => self.theme_fade = None,
+            }
+        }
     }
 }
 
