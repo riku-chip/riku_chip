@@ -52,4 +52,53 @@ pub trait ViewerBackend: Send + Sync {
         path_hint: Option<String>,
         token: CancellationToken,
     ) -> Result<SceneHandle>;
+
+    /// Carga una sub-vista concreta del archivo (ver [`crate::scene::ViewEntry`]).
+    /// `None` = la que el backend elige por defecto, igual que [`Self::load`].
+    ///
+    /// Los backends sin sub-vistas no necesitan implementarlo: por defecto
+    /// ignora `entry` y delega en `load`.
+    async fn load_entry(
+        &self,
+        content: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> Result<SceneHandle> {
+        let _ = entry;
+        self.load(content, path_hint, token).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::scene::Scene;
+
+    struct Plain;
+
+    #[async_trait]
+    impl ViewerBackend for Plain {
+        fn info(&self) -> BackendInfo {
+            BackendInfo { name: "plain", version: "0", extensions: &[] }
+        }
+        fn accepts(&self, _: &[u8], _: Option<&str>) -> bool {
+            true
+        }
+        async fn load(&self, _: Vec<u8>, _: Option<String>, _: CancellationToken) -> Result<SceneHandle> {
+            Ok(Arc::new(Scene::new()))
+        }
+    }
+
+    #[tokio::test]
+    async fn default_load_entry_delegates_to_load() {
+        let s = Plain
+            .load_entry(Vec::new(), None, Some("X".into()), CancellationToken::new())
+            .await
+            .expect("load_entry");
+        assert!(s.entries().is_empty());
+        assert!(s.current_entry().is_none());
+    }
 }
