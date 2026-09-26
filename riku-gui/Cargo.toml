@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland"] }
+eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland", "persistence"] }
 gds-renderer = { path = "../gds-renderer" }
 gdstk-rs = { path = "../external/gdstk/rust" }
 # xschem-viewer-rust vive como submodule git en `external/`. Ver riku/Cargo.toml.

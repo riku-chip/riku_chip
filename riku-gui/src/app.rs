@@ -15,7 +15,10 @@ use crate::entry_picker;
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
-use crate::scene_painter::{fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen};
+use crate::scene_painter::{
+    fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen, PaintOptions, ScreenXform,
+};
+use crate::theme::CanvasTheme;
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -33,6 +36,8 @@ struct SchState {
     scene_a: Option<xschem_viewer::ResolvedScene>,
     viewport: SchViewport,
     diff: Option<riku::core::domain::models::DiffReport>,
+    /// Encuadrar en el próximo frame con el tamaño real del panel.
+    needs_fit: bool,
     /// Tab activo (solo relevante en modo diff)
     tab: DiffTab,
 }
@@ -130,7 +135,27 @@ pub struct RikuGuiApp {
     pending_load: Option<Promise<Result<LoadedScene, String>>>,
     /// Token de cancelación de la carga en vuelo.
     pending_token: Option<CancellationToken>,
+
+    // ─── Preferencias (persisten entre sesiones) ────────────────────────────
+    /// Dibujar etiquetas de texto en el lienzo.
+    show_labels: bool,
+    /// Árbol de proyecto con todos los archivos, no solo los que se abren.
+    show_all_files: bool,
+
+    // ─── Lectura del lienzo para la barra de estado (frame anterior) ────────
+    /// Posición del cursor en coordenadas de mundo, si está sobre el lienzo.
+    cursor_world: Option<(f64, f64)>,
+    /// Tamaño de un píxel en unidades de mundo (escala actual).
+    px_world: Option<f64>,
+    /// Etiquetas omitidas por solaparse en el último frame.
+    labels_hidden: usize,
+    /// Título aplicado a la ventana (para enviarlo solo cuando cambia).
+    window_title: String,
 }
+
+/// Claves de persistencia (eframe storage).
+const PREF_LABELS: &str = "riku.show_labels";
+const PREF_ALL_FILES: &str = "riku.show_all_files";
 
 impl RikuGuiApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: LaunchArgs) -> Self {
@@ -167,7 +192,12 @@ impl RikuGuiApp {
             _ => (cwd.clone(), None),
         };
 
-        let project_tree = ProjectEntry::build(&project_root);
+        let pref = |key: &str, default: bool| {
+            cc.storage.and_then(|s| eframe::get_value::<bool>(s, key)).unwrap_or(default)
+        };
+        let show_labels = pref(PREF_LABELS, true);
+        let show_all_files = pref(PREF_ALL_FILES, false);
+        let project_tree = ProjectEntry::build(&project_root, show_all_files);
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
         // scheduler principal. Dos workers son suficientes para una GUI.
@@ -191,13 +221,19 @@ impl RikuGuiApp {
             selected_path,
             sch: None,
             diff_ctx: None,
-            status: String::from("Ready"),
+            status: String::from("Listo — abre un archivo .sch o .gds del panel Proyecto"),
             error: None,
             runtime,
             backends,
             backend_state: None,
             pending_load: None,
             pending_token: None,
+            show_labels,
+            show_all_files,
+            cursor_world: None,
+            px_world: None,
+            labels_hidden: 0,
+            window_title: String::new(),
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -222,7 +258,7 @@ impl RikuGuiApp {
         } else if let Some(path) = app.selected_path.clone() {
             if is_sch_renderable(&path) {
                 match app.load_sch(&path) {
-                    Ok(()) => app.status = format!("Loaded {}", path.display()),
+                    Ok(()) => app.status = format!("Abierto {}", path.display()),
                     Err(e) => { app.error = Some(e.clone()); app.status = "Error".to_string(); }
                 }
             } else if app.load_via_backend(&path, launch.cell.clone()) {
@@ -237,7 +273,7 @@ impl RikuGuiApp {
     }
 
     fn refresh_tree(&mut self) {
-        self.project_tree = ProjectEntry::build(&self.project_root);
+        self.project_tree = ProjectEntry::build(&self.project_root, self.show_all_files);
     }
 
     fn open_path(&mut self, path: &Path) {
@@ -249,7 +285,7 @@ impl RikuGuiApp {
         // .sch sigue por la ruta rica (diff semántico, fantasmas, etc.)
         if is_sch_renderable(path) {
             match self.load_sch(path) {
-                Ok(()) => self.status = format!("Loaded {}", path.display()),
+                Ok(()) => self.status = format!("Abierto {}", path.display()),
                 Err(e) => { self.error = Some(e.clone()); self.status = "Error".to_string(); }
             }
             return;
@@ -415,7 +451,7 @@ impl RikuGuiApp {
             Ok(loaded) => {
                 let name = loaded.backend.info().name;
                 let what = match &loaded.kind {
-                    LoadKind::Single => format!("Loaded via {name}"),
+                    LoadKind::Single => format!("Abierto ({name})"),
                     LoadKind::Diff { tab: DiffTab::Diff, .. } => "Diff".to_string(),
                     LoadKind::Diff { tab: DiffTab::Before, .. } => "Before".to_string(),
                     LoadKind::Diff { tab: DiffTab::After, .. } => "After".to_string(),
@@ -469,10 +505,9 @@ impl RikuGuiApp {
     fn load_sch(&mut self, path: &Path) -> Result<(), String> {
         let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let scene = build_scene(&content)?;
-        let mut viewport = SchViewport::default();
-        let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        fit_viewport_to_scene(&mut viewport, &scene, dummy);
-        self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None, tab: DiffTab::After });
+        // El encuadre se hace al pintar, con el tamaño real del panel.
+        let viewport = SchViewport::default();
+        self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None, needs_fit: true, tab: DiffTab::After });
         Ok(())
     }
 
@@ -496,17 +531,21 @@ impl RikuGuiApp {
         let parsed = xschem_viewer::parser::parse(&sch_content).map_err(|e| e.to_string())?;
         let scene = xschem_viewer::SceneBuilder::new(&opts).build(&parsed);
 
-        let mut viewport = SchViewport::default();
-        let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        fit_viewport_to_scene(&mut viewport, &scene, dummy);
+        let viewport = SchViewport::default();
 
         self.selected_path = Some(file.to_path_buf());
-        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report), tab: DiffTab::Diff });
+        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report), needs_fit: true, tab: DiffTab::Diff });
         Ok(())
     }
 }
 
 impl eframe::App for RikuGuiApp {
+    /// Preferencias propias; el tema lo persiste egui junto a su memoria.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, PREF_LABELS, &self.show_labels);
+        eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reload = false;
@@ -518,36 +557,92 @@ impl eframe::App for RikuGuiApp {
             ctx.request_repaint();
         }
 
-        egui::Panel::top("top_bar").show_inside(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Riku").strong());
-                ui.separator();
-                ui.label(&self.status);
+        // Título de ventana: archivo (y celda) abiertos.
+        let file = self.selected_path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
+        let cell = self.backend_state.as_ref().filter(|_| self.sch.is_none()).and_then(|bs| bs.scene.current_entry().map(str::to_string));
+        let title = match (file, cell) {
+            (Some(f), Some(c)) => format!("{f} · {c} — Riku"),
+            (Some(f), None) => format!("{f} — Riku"),
+            _ => "Riku".to_string(),
+        };
+        if title != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
 
-                if ui.button("Refresh").clicked() {
+        // ─── Barra de herramientas: acciones, de izquierda a derecha por uso ──
+        egui::Panel::top("top_bar").show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Riku").strong().size(16.0));
+                ui.separator();
+
+                let has_view = self.sch.is_some() || self.backend_state.is_some();
+                if ui
+                    .add_enabled(has_view, egui::Button::new("Encuadrar"))
+                    .on_hover_text("Ajustar la vista para ver todo el diseño")
+                    .clicked()
+                {
+                    if let Some(sch) = self.sch.as_mut() {
+                        sch.needs_fit = true;
+                    } else if let Some(bs) = self.backend_state.as_mut() {
+                        bs.needs_fit = true;
+                    }
+                }
+                if ui
+                    .button("Recargar")
+                    .on_hover_text("Volver a leer el archivo y el árbol de proyecto desde el disco")
+                    .clicked()
+                {
                     self.refresh_tree();
                     // Un GDS abierto se relee del disco en la misma celda.
                     if self.sch.is_none() {
                         self.reload_backend();
                     }
                 }
+                ui.separator();
+                ui.toggle_value(&mut self.show_labels, "Etiquetas")
+                    .on_hover_text("Mostrar u ocultar los textos del layout (pines, nombres)");
 
                 if let Some(sch) = self.sch.as_mut() {
                     ui.separator();
-                    if ui.button("Fit").clicked() {
-                        let dummy = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-                        fit_viewport_to_scene(&mut sch.viewport, &sch.scene, dummy);
-                    }
                     let mut scale = sch.viewport.scale as f32;
                     if ui.add(egui::Slider::new(&mut scale, 0.1..=20.0).text("Zoom")).changed() {
                         sch.viewport.scale = scale as f64;
                     }
-                } else if let Some(bs) = self.backend_state.as_mut() {
-                    ui.separator();
-                    if ui.button("Fit").clicked() {
-                        bs.needs_fit = true;
-                    }
                 }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    theme_selector(ui);
+                });
+            });
+        });
+
+        // ─── Barra de estado: qué pasa, dónde está el cursor, escala ─────────
+        egui::Panel::bottom("status_bar").show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                if self.pending_load.is_some() {
+                    ui.spinner();
+                }
+                let status = RichText::new(&self.status);
+                ui.label(if self.error.is_some() { status.color(ui.visuals().error_fg_color) } else { status });
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let unit = self.backend_state.as_ref()
+                        .filter(|_| self.sch.is_none())
+                        .and_then(|bs| bs.scene.world_unit().map(str::to_string))
+                        .unwrap_or_default();
+                    if let Some(px) = self.px_world {
+                        ui.label(RichText::new(format!("1 px = {} {unit}", fmt_len(px))).weak());
+                    }
+                    if let Some((x, y)) = self.cursor_world {
+                        ui.separator();
+                        ui.monospace(format!("x {:>9.3}  y {:>9.3} {unit}", x, y));
+                    }
+                    if self.labels_hidden > 0 && self.show_labels {
+                        ui.separator();
+                        ui.label(RichText::new(format!("{} etiquetas ocultas por solaparse — acerca el zoom", self.labels_hidden)).weak());
+                    }
+                });
             });
         });
 
@@ -588,8 +683,17 @@ impl eframe::App for RikuGuiApp {
                     self.show_entry_picker(ui);
                 } else {
                     // Modo archivo único: árbol de proyecto
-                    ui.heading("Project");
-                    ui.label(self.project_root.display().to_string());
+                    ui.heading("Proyecto");
+                    let root = self.project_root.display().to_string();
+                    ui.add(egui::Label::new(RichText::new(&root).small().weak()).truncate())
+                        .on_hover_text(&root);
+                    if ui
+                        .checkbox(&mut self.show_all_files, "Todos los archivos")
+                        .on_hover_text("Sin marcar: solo .sch, .sym y .gds (lo que se puede abrir)")
+                        .changed()
+                    {
+                        self.refresh_tree();
+                    }
                     ui.separator();
                     let tree = self.project_tree.clone();
                     let selected_path = self.selected_path.clone();
@@ -615,7 +719,7 @@ impl eframe::App for RikuGuiApp {
             .resizable(true)
             .default_size(220.0)
             .show_inside(ui, |ui| {
-                ui.heading("Details");
+                ui.heading("Detalles");
                 ui.separator();
 
                 if let Some(path) = &self.selected_path {
@@ -660,6 +764,11 @@ impl eframe::App for RikuGuiApp {
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            // Lecturas para la barra de estado: las repone quien pinte.
+            self.cursor_world = None;
+            self.px_world = None;
+            self.labels_hidden = 0;
+
             // Path neutro: escena cargada via ViewerBackend.
             if self.sch.is_none() {
                 if let Some(bs) = &mut self.backend_state {
@@ -696,9 +805,17 @@ impl eframe::App for RikuGuiApp {
                         bs.fitted_size = None;
                     }
                     let hidden = bs.hidden_keys();
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &hidden);
-                    });
+                    let opts = PaintOptions { theme: CanvasTheme::from_visuals(ui.visuals()), labels: self.show_labels };
+                    let stats = ui
+                        .scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
+                            paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &hidden, opts)
+                        })
+                        .inner;
+                    // Para la barra de estado (se muestra en el próximo frame).
+                    self.labels_hidden = stats.labels_hidden;
+                    self.px_world = Some(1.0 / bs.viewport.scale);
+                    let xf = ScreenXform::new(response.rect, &bs.viewport, bs.scene.y_axis());
+                    self.cursor_world = response.hover_pos().map(|p| xf.to_world(p));
                     // Tooltip con capa/área del polígono bajo el cursor (no
                     // mientras se arrastra: estorba al hacer pan).
                     if let Some(pos) = response.hover_pos().filter(|_| !response.dragged()) {
@@ -725,6 +842,13 @@ impl eframe::App for RikuGuiApp {
                 if scroll.abs() > f64::EPSILON && response.hovered() {
                     sch.viewport.scale = (sch.viewport.scale * (1.0 + scroll * 0.002)).clamp(0.01, 100.0);
                     ctx.request_repaint();
+                }
+                // Encuadre con el tamaño real del lienzo (antes se usaba un
+                // rect ficticio de 800×600 y el esquemático quedaba chico y
+                // descentrado).
+                if sch.needs_fit && response.rect.width() > 0.0 && response.rect.height() > 0.0 {
+                    fit_viewport_to_scene(&mut sch.viewport, &sch.scene, response.rect);
+                    sch.needs_fit = false;
                 }
 
                 ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
@@ -755,7 +879,7 @@ impl eframe::App for RikuGuiApp {
                     if self.pending_load.is_some() {
                         ui.label("Cargando…");
                     } else {
-                        ui.label("Selecciona un archivo del árbol de proyecto.");
+                        ui.label("Elige un archivo .sch o .gds en el panel Proyecto.");
                     }
                 });
             }
@@ -847,11 +971,12 @@ fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -
         .max_height(220.0)
         .show(ui, |ui| {
             for c in changes {
-                let (sign, color) = match c.kind {
-                    ChangeKind::Added => ("+", egui::Color32::from_rgb(90, 220, 120)),
-                    ChangeKind::Removed => ("−", egui::Color32::from_rgb(240, 100, 100)),
-                    ChangeKind::Modified => ("~", egui::Color32::from_rgb(230, 190, 80)),
+                let sign = match c.kind {
+                    ChangeKind::Added => "+",
+                    ChangeKind::Removed => "−",
+                    ChangeKind::Modified => "~",
                 };
+                let color = crate::theme::change_color(c.kind, ui.visuals().dark_mode);
                 let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
                 let text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
                 let resp = ui.add(
@@ -928,13 +1053,10 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
                 }
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
                 // Muestra fill y contorno tal como se pintan en el lienzo.
-                ui.painter().rect(
-                    rect,
-                    2.0,
-                    to_color32(paint.fill),
-                    egui::Stroke::new(1.5_f32, to_color32(paint.stroke)),
-                    egui::StrokeKind::Inside,
-                );
+                // Mismos colores que en el lienzo, adaptados al tema.
+                let (fill, stroke) = CanvasTheme::from_visuals(ui.visuals())
+                    .layer_colors(to_color32(paint.fill), to_color32(paint.stroke));
+                ui.painter().rect(rect, 2.0, fill, egui::Stroke::new(1.5_f32, stroke), egui::StrokeKind::Inside);
                 ui.label(&paint.name);
             });
         }
@@ -953,6 +1075,33 @@ fn view_selector(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label:
     if ui.add(egui::Label::new(text).sense(egui::Sense::click())).clicked() {
         *current = this;
     }
+}
+
+/// Selector de tema (claro / oscuro / según el sistema). Se dibuja de
+/// derecha a izquierda. egui persiste la preferencia en su memoria.
+fn theme_selector(ui: &mut egui::Ui) {
+    use egui::ThemePreference as T;
+    let current = ui.ctx().options(|o| o.theme_preference);
+    // Orden visual (izq→der): Claro · Oscuro · Sistema.
+    for (pref, label, tip) in [
+        (T::System, "Sistema", "Seguir el tema del sistema operativo"),
+        (T::Dark, "Oscuro", "Fondo oscuro (como KLayout)"),
+        (T::Light, "Claro", "Fondo claro, para ambientes iluminados o para imprimir capturas"),
+    ] {
+        if ui.selectable_label(current == pref, label).on_hover_text(tip).clicked() {
+            ui.ctx().set_theme(pref);
+        }
+    }
+    ui.label(RichText::new("Tema:").weak());
+}
+
+/// Longitud con 3 cifras significativas (`0.0123`, `1.25`, `310`).
+fn fmt_len(v: f64) -> String {
+    if v == 0.0 || !v.is_finite() {
+        return format!("{v}");
+    }
+    let decimals = (2 - v.abs().log10().floor() as i32).clamp(0, 9) as usize;
+    format!("{v:.decimals$}")
 }
 
 fn short_hash(s: &str) -> String {

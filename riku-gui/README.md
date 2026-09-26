@@ -20,7 +20,11 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 |---|---|
 | Mover la vista | arrastrar |
 | Zoom | rueda (anclado al cursor) |
-| Encuadrar todo | botón **Fit** |
+| Encuadrar todo | botón **Encuadrar** |
+| Mostrar/ocultar textos | botón **Etiquetas** |
+| Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
+| Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
+| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo `.sch`, `.sym`, `.gds`) |
 | Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
 | Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
 | Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
@@ -39,12 +43,16 @@ src/
 ├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
 │                     fit/zoom, hit-test y tooltip
 ├── polygon_fill.rs   relleno de polígonos cóncavos (earcut)
-└── entry_picker.rs   selector de celdas con buscador y filtros
+├── entry_picker.rs   selector de celdas con buscador y filtros
+├── label_layout.rs   colocación de etiquetas sin solaparse
+└── theme.rs          colores por tema (claro/oscuro)
 ```
 
 - **Dos rutas de render.** Xschem conserva su painter propio. Todo lo demás (GDS) llega como `Arc<dyn RenderableScene>` desde un `ViewerBackend` de `viewer-core`; la GUI no conoce tipos de gdstk.
 - **Cargas async.** Runtime Tokio con `poll-promise`; una carga nueva cancela la anterior (`CancellationToken`) y la escena actual sigue visible hasta que llega la nueva.
 - **Coordenadas.** Mundo (Y-up en GDS) → vista (Y-down, relativa al panel, donde vive el `Viewport`) → pantalla. `ScreenXform` concentra las tres para que dibujo, culling, fit, zoom y hit-test usen la misma cuenta.
+- **Etiquetas legibles** (`label_layout.rs`). Tamaño fijo en pantalla (10–14 px); se ocultan si el zoom es tan lejano que serían ruido. Las del mismo punto se fusionan (`VPB · VPWR`). Cada una es una pastilla con halo, desplazada del anclaje (marcado con un punto) para no tapar el pin; si choca, prueba otras posiciones y, si no entra, se omite y la barra de estado lo avisa.
+- **Tema** (`theme.rs`). Fondo, halos, colores de capa, overlays de diff y el painter de Xschem se adaptan a claro/oscuro. El contraste de las etiquetas (WCAG AA, ≥ 4.5:1) se verifica en tests para los colores de los tres PDKs.
 
 ## Compilar y probar
 
