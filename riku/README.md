@@ -179,11 +179,13 @@ Solo se añaden los paths que existen en disco. En entornos como `iic-osic-tools
 
 ---
 
-### `gui`
+### `open`
 
 ```text
-riku gui [archivo.gds]
+riku open [archivo.sch | archivo.gds]
 ```
+
+Abre el archivo en `riku-gui` (sin argumento, el árbol del directorio actual).
 
 ## Estructura
 
@@ -241,4 +243,4 @@ cargo test --test stress    # rendimiento
 
 - `diff --format visual` lanza `riku-gui` con los argumentos del diff.
 - `riku render` y el caché en disco fueron eliminados: el render se hace bajo demanda y se entrega como `String`, sin escribir a disco salvo cuando lo pide explícitamente otro consumidor.
-- El CLI semántico principal todavía está enfocado en Xschem `.sch`. Backends GDS/Magic/NGSpice están en roadmap.
+- `diff` soporta Xschem `.sch` (diff semántico) y GDS `.gds` (diff geométrico por celda y capa, con `--cosmetic-threshold-um2`). Detalle GDS en `docs/integracion_gds_estado.md`. Magic y NGSpice están en roadmap.

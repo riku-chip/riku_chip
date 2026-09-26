@@ -111,7 +111,7 @@ pub(crate) enum Commands {
         #[arg(long = "paths", value_name = "PAT")]
         paths: Vec<String>,
     },
-    /// Abre un archivo .sch en el visor de escritorio.
+    /// Abre un archivo .sch o .gds en el visor de escritorio.
     Open { file: Option<PathBuf> },
 }
 

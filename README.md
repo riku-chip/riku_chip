@@ -32,6 +32,13 @@ Los archivos de diseño EDA (`.sch`, `.gds`, `.mag`) son difíciles de revisar e
 
 Para esquemáticos Xschem, además, genera un **diff visual interactivo** con los cambios resaltados en colores sobre el circuito renderizado.
 
+Para layouts GDS responde las preguntas equivalentes en términos geométricos:
+
+- ¿Qué área se añadió o eliminó, en qué capa y en qué celda?
+- ¿El cambio está en la propia celda o viene de una sub-celda instanciada?
+- En una librería de cientos de celdas, ¿cuáles cambiaron?
+- ¿Es un cambio real o ruido por debajo de la grilla (cosmético)?
+
 > Implementación 100 % Rust. No requiere `xschem`, KLayout, Magic ni ninguna otra herramienta EDA instalada en el sistema.
 
 ---
@@ -42,6 +49,8 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
 |---|---|
 | **Diff semántico**     | Componentes añadidos, removidos, modificados. Distingue cambios funcionales de cosméticos (Move All). |
 | **Diff visual**        | GUI nativa con paneles Before / After / Diff. Componentes anotados en verde (añadido), rojo (removido), amarillo (modificado), cyan (trasladado). |
+| **Diff GDS**           | XOR geométrico por celda y capa, incluyendo cambios dentro de sub-celdas; áreas en µm², bbox y umbral cosmético. En la GUI: overlay verde/rojo, lista de cambios y celdas cambiadas marcadas. Verificado contra KLayout. |
+| **Visor GDS**          | Paletas de SKY130, GF180MCU e IHP SG13G2 (de sus `.lyp` oficiales), selector de celdas con buscador, capas activables y tooltip con capa y área. |
 | **Render nativo**      | Renderiza `.sch` a SVG sin abrir xschem. Usa `xschem-viewer` como librería Rust. |
 | **Status semántico**   | `riku status` lista cambios del working tree clasificados como semánticos vs cosméticos por driver. |
 | **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
@@ -56,7 +65,8 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
 | Formato  | Extensión     | Diff semántico | Render GUI | Render SVG |
 |----------|---------------|:--------------:|:----------:|:----------:|
 | Xschem   | `.sch`, `.sym`| ✓              | ✓          | ✓          |
-| GDS      | `.gds`, `.oas`| —              | en desarrollo | — |
+| GDS      | `.gds`        | ✓ geométrico (XOR) | ✓      | ✓ (librería `gds-renderer`) |
+| OASIS    | `.oas`        | planificado    | planificado | — |
 | Magic    | `.mag`        | planificado    | planificado | — |
 | NGSpice  | `.raw`        | planificado    | —          | — |
 
@@ -78,6 +88,8 @@ Para esquemáticos Xschem, además, genera un **diff visual interactivo** con lo
     `set PATH=%VCPKG_ROOT%\installed\x64-windows\bin;%PATH%`.
   - **Linux**: paquetes `zlib1g-dev` y `libqhull-dev` (Debian/Ubuntu) o equivalentes.
   - **macOS**: `brew install zlib qhull pkg-config`.
+
+> **Recomendado:** compilar en Linux. El contenedor [iic-osic-tools](https://github.com/iic-jku/iic-osic-tools) trae todo lo necesario (zlib, qhull, KLayout y los PDKs en `/foss/pdks`); basta `rustup default stable`. En Windows con MSVC 2019 gdstk-rs puede fallar por memoria o por DLLs de vcpkg: ver `docs/integracion_gds_estado.md`.
 
 ### Clonar el repo
 
@@ -185,6 +197,46 @@ Leyenda:
 | Cyan        | componente trasladado (solo posición) |
 | Amarillo + borde cyan | modificado **y** trasladado |
 
+### Diff de layouts GDS
+
+```bash
+riku diff <commit_a> <commit_b> layout.gds                # texto
+riku diff <commit_a> <commit_b> layout.gds -f json        # JSON para CI
+riku diff <commit_a> <commit_b> layout.gds -f visual      # GUI
+riku diff <commit_a> <commit_b> layout.gds --cosmetic-threshold-um2 0.05
+```
+
+```text
+Archivo : layout.gds
+Cambios : 3
+Cosméticos: 1
+
+  ~ sky130_fd_sc_hd__inv_1:L66/20
+      +1 polys / +0.125 µm²
+      -3 polys / -0.125 µm²
+      bbox: (0.320, 0.105) → (0.800, 2.615) µm
+  - sky130_fd_sc_hd__inv_1:L67/44
+      +0 polys / +0.000 µm²
+      -1 polys / -0.029 µm²
+      bbox: (0.605, 2.635) → (0.775, 2.805) µm
+  + sky130_fd_sc_hd__inv_1:L68/20
+      +1 polys / +0.230 µm²
+      -0 polys / -0.000 µm²
+      bbox: (0.100, 1.350) → (1.250, 1.550) µm
+```
+
+Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se añade su nombre (`TOP:L1/0:INV`) y el bbox queda en coordenadas de la celda que la instancia. Un cambio con área total bajo el umbral (por defecto 0,01 µm², debajo del piso DRC de sky130/gf180) se marca **cosmético**. Si el archivo no existía en `commit_a`, todas sus celdas aparecen como añadidas.
+
+En la GUI (`-f visual`), las vistas son las mismas que para Xschem:
+
+| Vista  | Muestra |
+|--------|---------|
+| Diff   | layout "después" atenuado; **verde** = área añadida, **rojo** = área eliminada |
+| Before | versión A |
+| After  | versión B |
+
+La vista se conserva al cambiar de pestaña. El panel **Cambios** lista los cambios por capa (clic para encuadrar uno) y el selector de celdas marca las que cambiaron (`+` añadida, `−` eliminada, `~` modificada).
+
 ### Status del working tree
 
 ```bash
@@ -207,6 +259,8 @@ riku log --json                                # JSON estable (schema riku-log/v
 riku open archivo.sch
 # o directamente:
 riku-gui archivo.sch
+riku-gui layout.gds
+riku-gui sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1   # una celda concreta
 ```
 
 ### Verificar el entorno
@@ -227,11 +281,19 @@ Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS`
 
 La GUI nativa (`riku-gui`) está construida con [egui](https://github.com/emilk/egui) / `eframe` sobre el backend `glow`. Características:
 
-- **Árbol de proyecto** lateral con todos los `.sch` del directorio raíz.
-- **Render vectorial** con pan (arrastrar) y zoom (rueda).
+- **Árbol de proyecto** lateral con los archivos del directorio raíz.
+- **Render vectorial** con pan (arrastrar), zoom anclado al cursor (rueda) y **Fit**.
 - **Modo diff** con selector Before / After / Diff y panel de cambios con colores.
-- **Fantasmas** — el commit A se muestra tenue debajo del B en modo Diff.
-- **Anotaciones de componente** — bounding boxes coloreados sobre los componentes cambiados.
+- **Fantasmas** (Xschem) — el commit A se muestra tenue debajo del B en modo Diff.
+- **Anotaciones de componente** (Xschem) — bounding boxes coloreados sobre los componentes cambiados.
+
+Para GDS además:
+
+- **Colores por PDK** con rol de capa: dispositivo (relleno), pozo (tinte tenue), implantes/marcadores/boundary/pines (solo contorno), en orden de apilado físico. El PDK se detecta por la ruta del archivo o por las capas presentes.
+- **Selector de celdas** con buscador y filtros (solo top cells, solo con cambios).
+- **Details** con celda, PDK, conteos, tamaño y la lista de capas con checkbox (las capas ocultas se mantienen al cambiar de celda).
+- **Tooltip** con capa, tamaño y área del polígono bajo el cursor.
+- Polígonos cóncavos (earcut) y labels de toda la jerarquía con su anchor.
 
 Se abre sola desde `riku diff ... --format visual` o como programa standalone.
 
@@ -272,8 +334,9 @@ riku_chip/
 ├── viewer-core/                          ← trait ViewerBackend, RenderableScene, DrawElement neutros
 ├── riku/                                 ← CLI: diff, log, status, doctor, open
 ├── riku-gui/                             ← GUI nativa egui con runtime Tokio para cargas async
-├── gds-renderer/                         ← backend GDS (en desarrollo)
+├── gds-renderer/                         ← backend GDS: escena, diff geométrico, paletas PDK, SVG
 ├── external/
+│   ├── gdstk/               (submodule)  ← gdstk-rs: binding Rust de gdstk (C++)
 │   └── xschem-viewer-rust/  (submodule)  ← backend Xschem: parser PEG, semantic, renderer
 └── examples/                             ← esquemáticos de referencia
 ```
@@ -320,9 +383,10 @@ cd riku_chip/gds-renderer && cargo build           # lib (consumida por los ante
 ### Tests
 
 ```bash
-cd riku_chip/riku           && cargo test    # CLI + integración
-cd riku_chip/gds-renderer   && cargo test    # lógica GDS
-cd riku_chip/riku-gui       && cargo test    # GUI smoke tests
+cd riku_chip/riku           && cargo test    # CLI + integración (incluye tests/gds_e2e.rs)
+cd riku_chip/gds-renderer   && cargo test    # lógica GDS: diff, paletas, escena
+cd riku_chip/riku-gui       && cargo test    # transformaciones, relleno, selector, tooltip
+cd riku_chip/viewer-core    && cargo test    # contrato neutro
 ```
 
 Cada crate tiene su propio `target/`. Esto evita acoplamiento de workspace y permite compilar `riku` aislado en entornos Docker restringidos, a costa de recompilar deps compartidas si trabajás en varios crates a la vez.
@@ -335,7 +399,7 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 
 ## Estado del proyecto
 
-**Alpha.** Funciona end-to-end para Xschem con diff semántico, GUI y render vectorial. La integración GDS está en desarrollo activo.
+**Alpha.** Funciona end-to-end para Xschem (diff semántico, GUI y render vectorial) y para GDS (diff geométrico en CLI y GUI, visor con paletas SKY130/GF180/IHP). Detalle del estado GDS en `docs/integracion_gds_estado.md`.
 
 ### Roadmap
 
@@ -347,7 +411,9 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | `riku status` con clasificación semantic/cosmetic/unknown           | ✓ Estable     |
 | `riku log` con resumen semántico y refs anotadas                    | ✓ Estable     |
 | Salida JSON estable con schema versionado                           | ✓ Estable     |
-| Backend GDS (`gds-renderer`)                                        | en desarrollo |
+| Diff GDS geométrico (texto + JSON), jerárquico, umbral cosmético    | ✓ Estable     |
+| Visor y diff visual GDS en la GUI                                   | ✓ Estable     |
+| OASIS, celdas renombradas, cache del XOR                            | planificado   |
 | Driver Magic / NGSpice                                              | planificado   |
 | `--graph` ASCII en `riku log`                                       | planificado   |
 | Modo `--ci` (exit code por severidad)                               | planificado   |
@@ -359,7 +425,7 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 
 Las contribuciones son bienvenidas. Antes de abrir un PR:
 
-1. Asegúrate de que `cargo test` pasa en `riku/` y `cargo build` pasa en la raíz del workspace.
+1. Asegúrate de que `cargo test` pasa en cada crate que tocaste (`riku/`, `riku-gui/`, `gds-renderer/`, `viewer-core/`; no hay workspace raíz).
 2. Sigue el estilo de commits convencional (`feat:`, `fix:`, `refactor:` …).
 3. Abre el PR contra `main`; los cambios grandes pueden necesitar discusión previa en un issue.
 

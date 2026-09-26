@@ -1,170 +1,65 @@
 # riku-gui
 
-`riku-gui` es la interfaz de escritorio experimental de Riku para visualizar archivos GDS usando el motor local `gds-renderer`.
+Visor de escritorio de Riku (egui/eframe). Abre esquemáticos Xschem (`.sch`) y layouts GDS (`.gds`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
 
-La GUI es de solo lectura: permite abrir un GDS, ver el render, hacer zoom, mover la vista y activar o desactivar capas. No edita el layout.
+## Uso
+
+```bash
+riku-gui                                   # árbol del directorio actual
+riku-gui archivo.sch
+riku-gui layout.gds
+riku-gui libreria.gds --cell NOMBRE        # abre una celda concreta
+riku-gui --repo R --commit-a A --commit-b B archivo   # modo diff
+```
+
+Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`. La CLI busca el binario en `$RIKU_GUI_BIN`, junto al ejecutable de `riku` o en `target/{release,debug}`.
+
+### Controles
+
+| Acción | Cómo |
+|---|---|
+| Mover la vista | arrastrar |
+| Zoom | rueda (anclado al cursor) |
+| Encuadrar todo | botón **Fit** |
+| Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
+| Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
+| Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
+| Ir a un cambio (diff GDS) | clic en **Details → Cambios** |
+| Comparar versiones | vistas **Diff / Before / After** (la vista se conserva) |
 
 ## Arquitectura
 
-- `riku-gui` usa `eframe`/`egui` para la ventana nativa de escritorio.
-- `gds-renderer` se enlaza por `path = "../gds-renderer"` y genera la escena renderizable.
-- `gdstk-rs` se enlaza por `path = "../gdstk/rust"` y carga/parses archivos GDS.
-- `riku` puede lanzar la GUI con el comando `riku gui`.
+```
+src/
+├── main.rs           arranque y fuentes
+├── launch.rs         argumentos (--repo, --commit-a, --commit-b, --cell)
+├── app.rs            estado, carga async por backend, paneles
+├── project.rs        árbol de archivos
+├── sch_painter.rs    ruta rica de Xschem (fantasmas, anotaciones)
+├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
+│                     fit/zoom, hit-test y tooltip
+├── polygon_fill.rs   relleno de polígonos cóncavos (earcut)
+└── entry_picker.rs   selector de celdas con buscador y filtros
+```
 
-## Ejecutar desde el workspace
+- **Dos rutas de render.** Xschem conserva su painter propio. Todo lo demás (GDS) llega como `Arc<dyn RenderableScene>` desde un `ViewerBackend` de `viewer-core`; la GUI no conoce tipos de gdstk.
+- **Cargas async.** Runtime Tokio con `poll-promise`; una carga nueva cancela la anterior (`CancellationToken`) y la escena actual sigue visible hasta que llega la nueva.
+- **Coordenadas.** Mundo (Y-up en GDS) → vista (Y-down, relativa al panel, donde vive el `Viewport`) → pantalla. `ScreenXform` concentra las tres para que dibujo, culling, fit, zoom y hit-test usen la misma cuenta.
 
-Desde la raiz del repositorio:
+## Compilar y probar
+
+```bash
+cd riku-gui
+cargo build --release
+cargo test
+```
+
+Se recomienda Linux (por ejemplo el contenedor iic-osic-tools): ver `docs/integracion_gds_estado.md` para los problemas conocidos de MSVC 2019 y vcpkg en Windows. Con WSLg la ventana aparece en el escritorio de Windows.
+
+### Windows
+
+Si el binario compila pero falla con `STATUS_DLL_NOT_FOUND` (0xc0000135), falta en el `PATH` la carpeta de DLLs de vcpkg que usa gdstk-rs:
 
 ```powershell
-cd C:\Users\ariel\Documents\riku_chip
-
-$env:VCPKG_ROOT='C:\vcpkg'
-$env:VCPKG_DEFAULT_TRIPLET='x64-windows'
-$env:PATH='C:\vcpkg\installed\x64-windows\bin;' + $env:PATH
-
-cargo run -p riku-gui
+$env:PATH = "$env:VCPKG_ROOT\installed\x64-windows\bin;" + $env:PATH
 ```
-
-Con un archivo GDS:
-
-```powershell
-cargo run -p riku-gui -- ruta\al\archivo.gds
-```
-
-## Ejecutar desde el CLI `riku`
-
-Desde la carpeta `riku`:
-
-```powershell
-cd C:\Users\ariel\Documents\riku_chip\riku
-
-$env:VCPKG_ROOT='C:\vcpkg'
-$env:VCPKG_DEFAULT_TRIPLET='x64-windows'
-$env:PATH='C:\vcpkg\installed\x64-windows\bin;' + $env:PATH
-
-cargo run -- gui
-```
-
-Con un archivo GDS:
-
-```powershell
-cargo run -- gui ..\ruta\al\archivo.gds
-```
-
-## Verificar compilacion
-
-Desde la raiz del repositorio:
-
-```powershell
-cd C:\Users\ariel\Documents\riku_chip
-
-$env:VCPKG_ROOT='C:\vcpkg'
-$env:VCPKG_DEFAULT_TRIPLET='x64-windows'
-$env:PATH='C:\vcpkg\installed\x64-windows\bin;' + $env:PATH
-
-cargo check -p riku-gui
-```
-
-Para verificar el CLI:
-
-```powershell
-cd C:\Users\ariel\Documents\riku_chip\riku
-
-$env:VCPKG_ROOT='C:\vcpkg'
-$env:VCPKG_DEFAULT_TRIPLET='x64-windows'
-$env:PATH='C:\vcpkg\installed\x64-windows\bin;' + $env:PATH
-
-cargo check
-```
-
-## Problemas encontrados
-
-### `STATUS_DLL_NOT_FOUND` al ejecutar en Windows
-
-Ejemplo:
-
-```text
-error: process didn't exit successfully: `target\debug\riku-gui.exe`
-(exit code: 0xc0000135, STATUS_DLL_NOT_FOUND)
-```
-
-Esto significa que el binario compilo, pero Windows no encontro una DLL necesaria en runtime.
-
-La causa mas probable es que `gdstk-rs` carga dependencias nativas instaladas por `vcpkg`, pero la carpeta de DLLs no esta en `PATH`.
-
-Solucion:
-
-```powershell
-$env:PATH='C:\vcpkg\installed\x64-windows\bin;' + $env:PATH
-```
-
-Si `vcpkg` esta instalado en otra ruta, ajustar `C:\vcpkg`.
-
-### Variables necesarias para `gdstk-rs`
-
-En Windows se debe indicar donde esta `vcpkg`:
-
-```powershell
-$env:VCPKG_ROOT='C:\vcpkg'
-$env:VCPKG_DEFAULT_TRIPLET='x64-windows'
-```
-
-Sin esto, la compilacion puede fallar al resolver las librerias nativas de `gdstk`.
-
-### Cambios por `egui`/`eframe 0.34.1`
-
-La GUI usa:
-
-```toml
-eframe = "0.34.1"
-```
-
-Durante la integracion se corrigieron incompatibilidades con la API actual:
-
-- `raw_scroll_delta` fue reemplazado por `smooth_scroll_delta`.
-- El zoom mezclaba `f32` con `f64`; ahora se convierte el scroll a `f64`.
-- `TopBottomPanel` y `SidePanel` fueron reemplazados por `egui::Panel`.
-- `show` fue reemplazado por `show_inside`.
-- `default_width` fue reemplazado por `default_size`.
-- `allocate_ui_at_rect` fue reemplazado por `scope_builder`.
-
-### Borrow checker en el arbol de proyecto
-
-El panel de proyecto leia `selected_path` mientras una closure podia mutar `self` al abrir archivos.
-
-Solucion aplicada: clonar `selected_path` antes de crear la closure que llama `open_path`.
-
-### `BoundingBox` en `scene_painter`
-
-`world_to_screen` recibe `BoundingBox` por valor, pero el match entregaba `&BoundingBox` para rectangulos.
-
-Solucion aplicada: pasar `*rect_bbox` en las llamadas de rectangulos.
-
-### Merge conflict en `run_shell`
-
-Durante el rebase se combino el shell interactivo remoto con el comando local `gui`.
-
-El cierre de `run_shell` quedo incompleto temporalmente. Se corrigio agregando:
-
-```rust
-Ok(())
-```
-
-al final de la funcion.
-
-## Estado esperado
-
-La verificacion esperada es:
-
-```text
-cargo check -p riku-gui
-Finished `dev` profile
-```
-
-Y para `riku`:
-
-```text
-cargo check
-Finished `dev` profile
-```
-
