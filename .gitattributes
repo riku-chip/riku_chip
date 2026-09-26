@@ -3,3 +3,4 @@
 *.oas binary
 # Scripts que corren en Linux (contenedor iic-osic-tools): siempre LF.
 *.sh text eol=lf
+*.desktop text eol=lf

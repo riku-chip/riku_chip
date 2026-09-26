@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Riku
+GenericName=Visor y diff de diseños de chips
+Comment=Esquemáticos Xschem y layouts GDS/OASIS con diff entre commits
+Exec=riku gui %f
+Icon=riku
+Terminal=false
+Categories=Development;Electronics;Engineering;
+MimeType=application/x-gds;application/x-oasis;

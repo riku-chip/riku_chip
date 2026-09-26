@@ -47,3 +47,17 @@ gui = ["dep:eframe", "dep:viewer-core", "dep:tokio", "dep:poll-promise", "dep:ea
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# Paquete .deb (cargo-deb), generado por .github/workflows/release.yml.
+[package.metadata.deb]
+name = "riku"
+section = "electronics"
+priority = "optional"
+extended-description = "Diff semántico de esquemáticos Xschem y diff geométrico de layouts GDS/OASIS entre commits de Git, con visor de escritorio (riku gui)."
+depends = "$auto"
+assets = [
+    ["target/release/riku", "usr/bin/", "755"],
+    ["../packaging/riku.desktop", "usr/share/applications/", "644"],
+    ["../packaging/riku.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../README.md", "usr/share/doc/riku/README.md", "644"],
+]
