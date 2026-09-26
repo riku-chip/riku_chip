@@ -179,25 +179,38 @@ pub fn diff_gds(a: &[u8], b: &[u8]) -> Result<GdsDiffReport, GdsError> {
 
 /// Diff de dos GDSII: cells anadidas/removidas + XOR geometrico por
 /// (cell, layer, datatype) con metricas en µm² + bbox + flag cosmetico.
+///
+/// Un lado vacio (0 bytes: el archivo no existia en ese commit) cuenta como
+/// library vacia: todas las cells del otro lado son anadidas o removidas.
+/// Bytes no vacios que no son GDSII siguen siendo error.
 pub fn diff_gds_with_config(
     a: &[u8],
     b: &[u8],
     cfg: &DiffConfig,
 ) -> Result<GdsDiffReport, GdsError> {
-    let lib_a = parse_side(a, "A")?;
-    let lib_b = parse_side(b, "B")?;
+    let parse_opt = |bytes: &[u8], side| -> Result<Option<Library>, GdsError> {
+        if bytes.is_empty() { Ok(None) } else { parse_side(bytes, side).map(Some) }
+    };
+    let lib_a = parse_opt(a, "A")?;
+    let lib_b = parse_opt(b, "B")?;
 
     // unit es metros/unit. Para µm: factor = unit / 1e-6.
     // Si A y B difieren en unit, usamos el de B (lado "after").
-    let unit_factor = lib_b.unit() / 1e-6;
+    let unit_factor = lib_b.as_ref().or(lib_a.as_ref()).map_or(1.0, |l| l.unit() / 1e-6);
 
     let mut report = GdsDiffReport::default();
 
-    let names_a: BTreeSet<String> = lib_a.cells().map(|c| c.name().to_string()).collect();
-    let names_b: BTreeSet<String> = lib_b.cells().map(|c| c.name().to_string()).collect();
+    let names = |l: &Option<Library>| -> BTreeSet<String> {
+        l.as_ref().map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+    };
+    let (names_a, names_b) = (names(&lib_a), names(&lib_b));
 
     report.cells_removed = names_a.difference(&names_b).cloned().collect();
     report.cells_added = names_b.difference(&names_a).cloned().collect();
+
+    let (Some(lib_a), Some(lib_b)) = (lib_a, lib_b) else {
+        return Ok(report);
+    };
 
     let mut layers: BTreeSet<LayerKey> = BTreeSet::new();
     for t in lib_a.layers().into_iter().chain(lib_b.layers()) {
@@ -419,6 +432,21 @@ mod tests {
     fn rejects_non_gdsii() {
         let res = diff_gds(b"NOT_GDS", &proof_lib_bytes());
         assert!(matches!(res, Err(GdsError::NotGdsii { side: "A" })));
+    }
+
+    #[test]
+    fn empty_side_means_file_added_or_removed() {
+        let lib = proof_lib_bytes();
+        let cells: BTreeSet<String> = Library::from_bytes(&lib)
+            .unwrap()
+            .cells()
+            .map(|c| c.name().to_string())
+            .collect();
+        let added = diff_gds(&[], &lib).expect("archivo nuevo");
+        assert_eq!(added.cells_added.iter().cloned().collect::<BTreeSet<_>>(), cells);
+        assert!(added.cells_removed.is_empty() && added.geometry.is_empty());
+        let removed = diff_gds(&lib, &[]).expect("archivo borrado");
+        assert_eq!(removed.cells_removed.len(), cells.len());
     }
 
     #[test]
