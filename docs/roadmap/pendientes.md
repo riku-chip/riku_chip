@@ -68,6 +68,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 | 11 | Autocompletado en el shell (`riku` sin argumentos) | El shell ya tiene historial (rustyline); falta completar comandos y rutas | S |
 | 12 | Build en Windows | MSVC 2019 falla (LNK1171/OOM/DLLs vcpkg). Documentado en `docs/integracion_gds_estado.md` §6; solución real: VS 2022 o `rust-lld` | M |
 | 13 | Tracking tipográfico por tamaño | La guía de diseño lo pide, pero egui no permite ajustar el espaciado entre letras | — (limitación del toolkit) |
+| 14 | Paletas GF180 e IHP completas | `gds-renderer/src/palette.rs` solo tiene las capas principales (~36 GF180, ~40 IHP; el `.lyp` de IHP trae 376). El resto usa la paleta genérica con rol deducido del datatype. Generar las tablas desde los `.lyp` oficiales (`libs.tech/klayout/tech`) | S |
 
 ---
 
