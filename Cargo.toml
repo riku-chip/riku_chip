@@ -1,0 +1,13 @@
+# Workspace de riku_chip: un solo Cargo.lock y un solo target/ para los
+# crates propios. Los motores externos (external/) siguen compilando por
+# su cuenta; entran como dependencias por path.
+[workspace]
+resolver = "2"
+members = ["viewer-core", "gds-renderer", "riku"]
+exclude = ["external"]
+
+# Perfil de release del ejecutable que se distribuye.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

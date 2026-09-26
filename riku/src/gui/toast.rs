@@ -10,7 +10,7 @@
 
 use eframe::egui::{self, Align2, Color32, RichText, Stroke};
 
-use crate::theme::{mix, space};
+use crate::gui::theme::{mix, space};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToastKind {

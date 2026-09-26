@@ -1,4 +1,4 @@
-# Env vars persistentes para compilar `riku-gui`.
+# Env vars persistentes para compilar el workspace en Windows.
 #
 # - VCPKG_ROOT: ruta al checkout de vcpkg con zlib y qhull instalados.
 #   gdstk-rs (transitivo via gds-renderer) lo usa para localizar las libs
@@ -12,7 +12,7 @@
 # defaults — usa `set VCPKG_ROOT=...` (cmd) o `$env:VCPKG_ROOT=...`
 # (PowerShell) si tu vcpkg vive en otra ruta.
 #
-# Nota: este archivo esta duplicado en `riku/.cargo/config.toml` porque
+# Nota: este archivo esta duplicado en `riku-gui/.cargo/config.toml` porque
 # Cargo busca `.cargo/config.toml` solo hacia arriba del crate que se
 # compila, no entre crates hermanos. Mantener ambos en sincronia.
 [env]

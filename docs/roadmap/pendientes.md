@@ -12,23 +12,22 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
 ### 1. Paridad de la vista de esquemáticos (`.sch`) con la de GDS
 - **Por qué:** la ruta Xschem usa su painter propio (`sch_painter.rs`) y no recibió lo que se agregó para GDS. No tiene tooltip; las etiquetas van sin pastillas ni anti-solapamiento; no hay animación ni inercia; `+`/`−` no hacen zoom; y conserva un slider de zoom que la vista GDS no tiene. La experiencia cambia según el tipo de archivo.
-- **Dónde:** `riku-gui/src/sch_painter.rs` y la rama `self.sch` de `app.rs`. Opción de fondo: pasar Xschem por la ruta neutra (`XschemBackend` ya existe), conservando fantasmas y anotaciones como overlays.
+- **Dónde:** `riku/src/gui/sch_painter.rs` y la rama `self.sch` de `app.rs`. Opción de fondo: pasar Xschem por la ruta neutra (`XschemBackend` ya existe), conservando fantasmas y anotaciones como overlays.
 - **Esfuerzo:** M–L.
 - **Listo cuando:** las mismas interacciones funcionan igual en `.sch` y en `.gds`.
 
 ### 2. Diff de layouts muy grandes
-- **Por qué:** en un `user_project_wrapper` de 42 MB (Caravel), el primer `riku diff` tarda BENCH_COLD. La cache (#9 del diseño) hace que la segunda vez tarde BENCH_WARM, pero la primera sigue siendo lenta: se aplana la jerarquía completa de cada celda, y las celdas que instancian a otras repiten el trabajo.
+- **Por qué:** en un `user_project_wrapper` de 42 MB (Caravel), el primer `riku diff` **no terminó en 45 minutos** (se midió con el binario de release; se cortó). La cache (#9 del diseño) evita repetirlo, pero la primera vez sigue siendo inviable: se aplana la jerarquía completa de cada celda, y las celdas que instancian a otras repiten el trabajo.
 - **Dónde:** `gds-renderer/src/gds_diff.rs`. Idea: una huella *estructural* por celda (polígonos propios + references con su transformación, combinada con la de sus hijas y memoizada), que detecta las celdas sin cambios en O(formas) y sin aplanar. El XOR queda solo para las celdas que cambiaron de verdad, empezando por las hojas.
 - **Esfuerzo:** M.
 - **Listo cuando:** el primer diff de ese layout baja de un minuto y los tests contra KLayout (`tools/verify/compare.sh --xor`) siguen idénticos.
 
 ### 3. Empaquetado e instalación
-- **Por qué:** hoy Riku se instala compilando (`cargo install --path riku` y `--path riku-gui`). Los binarios de release pesan 3,3 MB (`riku`) y 11 MB (`riku-gui`) sin símbolos. En Linux dependen de `libssl`, `zlib`, `libqhull_r` y `libstdc++`.
+- **Por qué:** hoy Riku se instala compilando (`cargo install --path riku`, un solo ejecutable con visor incluido). En Linux dependen de `libssl`, `zlib`, `libqhull_r` y `libstdc++`.
 - **Dónde:** un workflow `release.yml` que, con cada tag `v*`, publique:
   - un `.tar.gz` con los dos binarios y un `install.sh` que los copia a `~/.local/bin`;
   - un `.deb` generado con `cargo-deb`, con `libqhull-r8.0` como dependencia.
 
-  `riku` ya encuentra `riku-gui` junto a su propio ejecutable o en el `PATH`.
 - **Esfuerzo:** M.
 - **Listo cuando:** en una máquina Linux limpia, `tar xf riku-*.tar.gz && ./install.sh`, o `apt install ./riku_*.deb`, deja `riku` y `riku-gui` listos para usar desde cualquier terminal.
 
@@ -44,7 +43,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
 ### 5. Pestaña "Antes" de una celda renombrada
 - **Por qué:** en el diff de la GUI, la pestaña **Diff** de una celda renombrada compara bien contra su nombre anterior. La pestaña **Antes**, en cambio, busca el nombre nuevo en la versión A, donde no existe.
-- **Dónde:** `riku-gui/src/app.rs` (`select_diff_tab`) y `GdsBackend::load_entry`: pasar el nombre anterior cuando la entrada está marcada como renombrada.
+- **Dónde:** `riku/src/gui/app.rs` (`select_diff_tab`) y `GdsBackend::load_entry`: pasar el nombre anterior cuando la entrada está marcada como renombrada.
 - **Esfuerzo:** S.
 
 ### 6. Renombres con cambios
@@ -54,7 +53,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
 ### 7. Nivel de detalle (LOD) para layouts enormes
 - **Por qué:** con 6,2 M de polígonos (el mismo wrapper de 42 MB), cargar la escena tarda ~5 s. Con el zoom alejado se dibujan millones de polígonos más chicos que un píxel.
-- **Dónde:** `riku-gui/src/scene_painter.rs`: no dibujar polígonos de menos de ~1 px (o dibujarlos como un punto) y agrupar por celda al alejarse.
+- **Dónde:** `riku/src/gui/scene_painter.rs`: no dibujar polígonos de menos de ~1 px (o dibujarlos como un punto) y agrupar por celda al alejarse.
 - **Esfuerzo:** M.
 
 ---

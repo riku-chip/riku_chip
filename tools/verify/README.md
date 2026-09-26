@@ -1,6 +1,6 @@
 # Verificación contra KLayout
 
-Scripts para comprobar que Riku lee los layouts igual que KLayout y para probar `riku-gui` sin mouse. No corren en la CI porque necesitan KLayout, los PDKs y un servidor X. Se corren a mano en el contenedor **iic-osic-tools**, antes de tocar el render, las etiquetas o el diff.
+Scripts para comprobar que Riku lee los layouts igual que KLayout y para probar el visor (`riku gui`) sin mouse. No corren en la CI porque necesitan KLayout, los PDKs y un servidor X. Se corren a mano en el contenedor **iic-osic-tools**, antes de tocar el render, las etiquetas o el diff.
 
 ```bash
 docker exec -it <contenedor-iic-osic-tools> bash
@@ -42,14 +42,14 @@ python3 tools/verify/klayout_snapshot.py \
   /tmp/klayout_inv1.png sky130_fd_sc_hd__inv_1 800 600
 ```
 
-Genera la captura de KLayout con la paleta oficial, para ponerla al lado de una de `riku-gui` abierta en la misma celda (`riku-gui <archivo> --cell <celda>`).
+Genera la captura de KLayout con la paleta oficial, para ponerla al lado de una del visor abierto en la misma celda (`riku gui <archivo> --cell <celda>`).
 
 ## Pruebas de la GUI sin mouse (`gui/`)
 
-`xt.py` usa XTest para simular clics, arrastres, rueda y teclado sobre la ventana de `riku-gui`, y captura la ventana con `xwd`:
+`xt.py` usa XTest para simular clics, arrastres, rueda y teclado sobre la ventana del visor, y captura la ventana con `xwd`:
 
 ```bash
-cd riku-gui && env -u WAYLAND_DISPLAY cargo run -- archivo.gds &   # XWayland para poder capturar
+env -u WAYLAND_DISPLAY cargo run --release -- gui archivo.gds &   # XWayland para poder capturar
 W=$(xwininfo -root -tree | grep 'riku-gui")' | awk '{print $1}')
 python3 tools/verify/gui/xt.py $W raise
 python3 tools/verify/gui/xt.py $W click 120 80
@@ -58,4 +58,4 @@ python3 tools/verify/gui/xt.py $W keytap f                     # atajo "encuadra
 python3 tools/verify/gui/xt.py $W shot /tmp/riku.png
 ```
 
-`gui/xwd2png.py` convierte una captura `xwd` suelta a PNG. Para matar la GUI usar `pkill -x riku-gui` (con `-f` también se mata la shell que lo lanzó).
+`gui/xwd2png.py` convierte una captura `xwd` suelta a PNG. Para matar la GUI usar `pkill -f "riku gui"` (cuidado: `-f` también mata la shell que lo lanzó si su línea contiene ese texto).

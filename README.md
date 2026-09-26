@@ -57,7 +57,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 | **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
 | **Salida JSON estable**| `--json` con schemas versionados (`riku-status/v1`, `riku-log/v1`) para CI y scripts. |
 | **Detección de PDK**   | Descubre rutas de símbolos desde `.xschemrc`, `$PDK_ROOT`/`$PDK` y `$TOOLS` sin configuración manual. |
-| **Arquitectura plugin**| Trait `ViewerBackend` común a todos los formatos. Añadir un nuevo formato (GDS, KiCad, etc.) no toca riku-gui ni riku-cli. |
+| **Arquitectura plugin**| Trait `ViewerBackend` común a todos los formatos. Añadir un nuevo formato (GDS, KiCad, etc.) no toca el visor ni la CLI. |
 
 ---
 
@@ -85,7 +85,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
     sobrescribí la env var antes de `cargo build`. El workspace ya configura
     `VCPKGRS_DYNAMIC=1` via `.cargo/config.toml` para evitar el conflicto
     LNK2005 entre el zlib vendored de `libz-sys` y el zlib dinámico de vcpkg.
-    Para ejecutar (no compilar) `riku-gui`, agregá las DLLs al PATH:
+    Para ejecutar (no compilar) `riku`, agregá las DLLs al PATH:
     `set PATH=%VCPKG_ROOT%\installed\x64-windows\bin;%PATH%`.
   - **Linux**: paquetes `zlib1g-dev` y `libqhull-dev` (Debian/Ubuntu) o equivalentes.
   - **macOS**: `brew install zlib qhull pkg-config`.
@@ -109,21 +109,15 @@ git submodule update --init --recursive
 
 ### Compilar
 
-Cada producto vive en su propio crate y se compila desde adentro. No hay
-workspace raíz: `riku` es el producto principal y los demás crates
-(`gds-renderer`, `viewer-core`, `xschem-viewer-rust`, `gdstk`) entran como
-librerías por path.
+Es un workspace de Cargo: un solo `Cargo.lock`, un solo `target/` y **un solo ejecutable**, `riku`, que trae la CLI, el shell y el visor. Los crates `gds-renderer`, `viewer-core`, `xschem-viewer-rust` y `gdstk-rs` entran como librerías.
 
 ```bash
-# CLI (riku)
-cd riku_chip/riku
+cd riku_chip
 cargo build --release
-# Binario: riku_chip/riku/target/release/riku
+# Ejecutable: riku_chip/target/release/riku  (CLI + shell + visor)
 
-# GUI (riku-gui)
-cd riku_chip/riku-gui
-cargo build --release
-# Binario: riku_chip/riku-gui/target/release/riku-gui
+# Versión solo de terminal (sin egui; servidores, CI):
+cargo build --release -p riku --no-default-features
 ```
 
 ### Primer comando
@@ -268,10 +262,10 @@ riku log --json                                # JSON estable (schema riku-log/v
 ```bash
 riku open archivo.sch
 # o directamente:
-riku-gui archivo.sch
-riku-gui layout.gds
-riku-gui chip.oas
-riku-gui sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1   # una celda concreta
+riku gui archivo.sch
+riku gui layout.gds
+riku gui chip.oas
+riku gui sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1   # una celda concreta
 ```
 
 ### Verificar el entorno
@@ -287,10 +281,10 @@ Reporta estado de: repo Git, `.xschemrc`, variables `PDK_ROOT` / `PDK` / `TOOLS`
 ## GUI de escritorio
 
 <div align="center">
-<em>riku-gui — navegación por árbol de proyecto, render vectorial, zoom/pan con la rueda del mouse, diff semántico con colores.</em>
+<em>riku gui — navegación por árbol de proyecto, render vectorial, zoom/pan con la rueda del mouse, diff semántico con colores.</em>
 </div>
 
-La GUI nativa (`riku-gui`) está construida con [egui](https://github.com/emilk/egui) / `eframe` sobre el backend `glow`. Características:
+La GUI nativa (`riku gui`) está construida con [egui](https://github.com/emilk/egui) / `eframe` sobre el backend `glow`. Características:
 
 - **Árbol de proyecto** lateral con los archivos del directorio raíz.
 - **Render vectorial** con pan (arrastrar), zoom anclado al cursor (rueda) y **Fit**.
@@ -352,8 +346,7 @@ Riku es un workspace de varios crates con una separación clara entre **contrato
 ```
 riku_chip/
 ├── viewer-core/                          ← trait ViewerBackend, RenderableScene, DrawElement neutros
-├── riku/                                 ← CLI: diff, log, status, doctor, open
-├── riku-gui/                             ← GUI nativa egui con runtime Tokio para cargas async
+├── riku/                                 ← ejecutable: núcleo, CLI (diff, log, status, doctor, open, shell) y visor (src/gui, egui)
 ├── gds-renderer/                         ← backend GDS: escena, diff geométrico, paletas PDK, SVG
 ├── external/
 │   ├── gdstk/               (submodule)  ← gdstk-rs: binding Rust de gdstk (C++)
@@ -365,7 +358,7 @@ riku_chip/
 
 ```text
 ┌──────────┐   ┌────────────────┐   ┌───────────┐   ┌───────────┐
-│ *.sch    │──▶│ XschemBackend  │──▶│ Scene     │──▶│ riku-gui  │
+│ *.sch    │──▶│ XschemBackend  │──▶│ Scene     │──▶│ visor     │
 │ *.gds    │──▶│ GdsBackend     │──▶│ (neutro)  │──▶│ riku      │
 └──────────┘   └────────────────┘   └───────────┘   └───────────┘
                (impl ViewerBackend)  (viewer-core)    (consumidor)
@@ -392,21 +385,18 @@ Cualquier formato futuro solo necesita implementar `ViewerBackend` en su propio 
 
 ### Compilación
 
-Cada crate se compila desde adentro (no hay workspace unificado):
+Todo se compila desde la raíz del workspace:
 
 ```bash
-cd riku_chip/riku       && cargo build --release   # CLI
-cd riku_chip/riku-gui   && cargo build --release   # GUI
-cd riku_chip/gds-renderer && cargo build           # lib (consumida por los anteriores)
+cd riku_chip && cargo build --release          # target/release/riku
 ```
 
 ### Tests
 
 ```bash
-cd riku_chip/riku           && cargo test    # CLI + integración (incluye tests/gds_e2e.rs)
-cd riku_chip/gds-renderer   && cargo test    # lógica GDS: diff, paletas, escena
-cd riku_chip/riku-gui       && cargo test    # transformaciones, relleno, selector, tooltip
-cd riku_chip/viewer-core    && cargo test    # contrato neutro
+cargo test --workspace                    # todo: núcleo, CLI, visor, gds-renderer, viewer-core
+cargo test -p riku                        # núcleo + CLI + visor (incluye tests/gds_e2e.rs)
+cargo test -p gds-renderer                # lógica GDS: diff, paletas, escena, cache
 ```
 
 Cada crate tiene su propio `target/`. Esto evita acoplamiento de workspace y permite compilar `riku` aislado en entornos Docker restringidos, a costa de recompilar deps compartidas si trabajás en varios crates a la vez.
@@ -449,7 +439,7 @@ Pendientes técnicos priorizados (paridad de la vista `.sch`, empaquetado, layou
 
 Las contribuciones son bienvenidas. Antes de abrir un PR:
 
-1. Asegúrate de que `cargo test` pasa en cada crate que tocaste (`riku/`, `riku-gui/`, `gds-renderer/`, `viewer-core/`; no hay workspace raíz).
+1. Asegúrate de que `cargo test --workspace` pasa (la CI lo corre con `-D warnings`).
 2. Sigue el estilo de commits convencional (`feat:`, `fix:`, `refactor:` …).
 3. Abre el PR contra `main`; los cambios grandes pueden necesitar discusión previa en un issue.
 

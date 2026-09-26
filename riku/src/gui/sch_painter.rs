@@ -1,8 +1,8 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
 
-use crate::theme::CanvasTheme;
+use crate::gui::theme::CanvasTheme;
 use xschem_viewer::{ResolvedScene, Viewport};
-use riku::core::domain::models::{ChangeKind, DiffReport};
+use crate::core::domain::models::{ChangeKind, DiffReport};
 
 /// Re-export local para que el resto del crate siga usando el nombre
 /// familiar (`SchViewport`) sin tocar cada llamada.
@@ -263,7 +263,7 @@ fn paint_ghosts(
 
     for comp in &report.components {
         // Mostrar fantasma si la posición cambió o el componente fue eliminado
-        let show = comp.position_changed || matches!(comp.kind, riku::core::domain::models::ChangeKind::Removed);
+        let show = comp.position_changed || matches!(comp.kind, crate::core::domain::models::ChangeKind::Removed);
         if !show { continue; }
 
         // Para renombrados, el nombre del lado A está antes del "→".

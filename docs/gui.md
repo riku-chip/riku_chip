@@ -1,15 +1,16 @@
-# riku-gui
+# El visor (`riku gui`)
 
-Visor de escritorio de Riku (egui/eframe). Abre esquemáticos Xschem (`.sch`) y layouts GDS (`.gds`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
+Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`) y layouts GDS (`.gds`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
 
 ## Uso
 
 ```bash
-riku-gui                                   # árbol del directorio actual
-riku-gui archivo.sch
-riku-gui layout.gds
-riku-gui libreria.gds --cell NOMBRE        # abre una celda concreta
-riku-gui --repo R --commit-a A --commit-b B archivo   # modo diff
+riku gui                                   # árbol del directorio actual
+riku gui archivo.sch
+riku gui layout.gds
+riku gui libreria.gds --cell NOMBRE        # abre una celda concreta
+riku gui --repo R --commit-a A --commit-b B archivo   # modo diff
+riku open archivo                          # igual, sin bloquear la terminal
 ```
 
 Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`. La CLI busca el binario en `$RIKU_GUI_BIN`, junto al ejecutable de `riku` o en `target/{release,debug}`.
@@ -62,9 +63,8 @@ src/
 ## Compilar y probar
 
 ```bash
-cd riku-gui
-cargo build --release
-cargo test
+cargo build --release            # target/release/riku
+cargo test -p riku gui::         # solo los tests del visor
 ```
 
 Se recomienda Linux (por ejemplo el contenedor iic-osic-tools): ver `docs/integracion_gds_estado.md` para los problemas conocidos de MSVC 2019 y vcpkg en Windows. Con WSLg la ventana aparece en el escritorio de Windows.

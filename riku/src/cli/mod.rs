@@ -30,7 +30,7 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "riku", about = "Riku - VCS semantico para diseno de chips")]
+#[command(name = "riku", version, about = "Riku - VCS semantico para diseno de chips")]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
@@ -118,6 +118,12 @@ pub(crate) enum Commands {
     },
     /// Abre un archivo .sch, .gds u .oas en el visor de escritorio.
     Open { file: Option<PathBuf> },
+    /// Abre el visor en este proceso: `riku gui [archivo] [--cell CELDA]`.
+    /// `open` y `diff -f visual` lo usan por debajo.
+    #[command(trailing_var_arg = true, allow_hyphen_values = true)]
+    Gui {
+        args: Vec<String>,
+    },
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────

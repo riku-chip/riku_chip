@@ -15,12 +15,8 @@ env:
 
 jobs:
   test:
-    name: test (${{ matrix.crate }})
+    name: test (linux)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        crate: [viewer-core, gds-renderer, riku, riku-gui]
     env:
       RUSTFLAGS: -D warnings
     steps:
@@ -38,11 +34,10 @@ jobs:
           git config --global user.email ci@localhost
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ matrix.crate }} -> target
-      - name: cargo test
-        working-directory: ${{ matrix.crate }}
-        run: cargo test --locked
+      - name: cargo test (workspace)
+        run: cargo test --workspace --locked
+      - name: riku sin visor (--no-default-features)
+        run: cargo build --locked -p riku --no-default-features
 
   xschem-compat:
     name: xschem-viewer-rust (viewer-core-compat)
@@ -65,10 +60,6 @@ jobs:
     name: windows (no bloqueante)
     runs-on: windows-latest
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        crate: [gds-renderer, riku, riku-gui]
     env:
       VCPKG_DEFAULT_TRIPLET: x64-windows
     steps:
@@ -83,8 +74,5 @@ jobs:
           vcpkg install zlib:x64-windows qhull:x64-windows
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ matrix.crate }} -> target
-      - name: cargo test
-        working-directory: ${{ matrix.crate }}
-        run: cargo test --locked
+      - name: cargo test (workspace)
+        run: cargo test --workspace --locked

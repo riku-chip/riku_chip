@@ -246,7 +246,7 @@ fn print_shell_help() {
     println!("    diff ... --format visual                      diff visual en HTML");
     println!();
     println!("  Visor:");
-    println!("    open [archivo.sch]                            abrir visor de escritorio");
+    println!("    open [archivo]                                abrir el visor (.sch, .gds, .oas)");
     println!();
     println!("  Entorno:");
     println!("    doctor                                        verificar PDK y repo");
@@ -321,5 +321,6 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 }
             }
         }
+        Commands::Gui { .. } => {}
     }
 }

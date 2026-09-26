@@ -89,6 +89,7 @@ impl Commands {
             }),
 
             Commands::Open { file } => gui::run(file).map(|_| Outcome::Ok),
+            Commands::Gui { args } => gui::run_here(args).map(|_| Outcome::Ok),
         }
     }
 }

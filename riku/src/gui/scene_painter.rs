@@ -25,9 +25,9 @@ use viewer_core::{
     viewport::{screen_to_world, world_to_screen, Viewport, YAxis},
 };
 
-use crate::label_layout::{place, LabelCandidate, PILL_PADDING};
-use crate::polygon_fill::paint_filled_polygon;
-use crate::theme::CanvasTheme;
+use crate::gui::label_layout::{place, LabelCandidate, PILL_PADDING};
+use crate::gui::polygon_fill::paint_filled_polygon;
+use crate::gui::theme::CanvasTheme;
 
 /// Paleta neutral mínima por layer. Se usa cuando la escena no provee su
 /// propio `LayerPaint` — suficiente para inspección genérica.

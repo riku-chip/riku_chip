@@ -11,16 +11,16 @@ use viewer_core::{
     CancellationToken,
 };
 
-use crate::entry_picker;
-use crate::launch::LaunchArgs;
-use crate::motion::{theme_fade_alpha, Inertia, ViewAnimation};
-use crate::project::ProjectEntry;
-use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
-use crate::scene_painter::{
+use crate::gui::entry_picker;
+use crate::gui::launch::LaunchArgs;
+use crate::gui::motion::{theme_fade_alpha, Inertia, ViewAnimation};
+use crate::gui::project::ProjectEntry;
+use crate::gui::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
+use crate::gui::scene_painter::{
     fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen, PaintOptions, ScreenXform,
 };
-use crate::theme::{space, CanvasTheme};
-use crate::toast::{ToastKind, Toasts};
+use crate::gui::theme::{space, CanvasTheme};
+use crate::gui::toast::{ToastKind, Toasts};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ struct SchState {
     /// Escena del commit A (estado anterior) — solo en modo diff
     scene_a: Option<xschem_viewer::ResolvedScene>,
     viewport: SchViewport,
-    diff: Option<riku::core::domain::models::DiffReport>,
+    diff: Option<crate::core::domain::models::DiffReport>,
     /// Encuadrar en el próximo frame con el tamaño real del panel.
     needs_fit: bool,
     /// Tab activo (solo relevante en modo diff)
@@ -209,7 +209,7 @@ impl RikuGuiApp {
             }
         }
         cc.egui_ctx.set_fonts(fonts);
-        crate::theme::install_style(&cc.egui_ctx);
+        crate::gui::theme::install_style(&cc.egui_ctx);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         // Ruta absoluta: con `riku-gui archivo.gds` el parent de una ruta
@@ -394,8 +394,8 @@ impl RikuGuiApp {
     /// Diff de un archivo no-Xschem entre dos commits via backend. El
     /// archivo puede no existir en el commit "antes" (archivo nuevo).
     fn load_backend_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path, entry: Option<String>) -> Result<(), String> {
-        use riku::core::domain::ports::GitRepository;
-        use riku::core::git::git_service::GitService;
+        use crate::core::domain::ports::GitRepository;
+        use crate::core::git::git_service::GitService;
 
         let svc = GitService::open(repo).map_err(|e| e.to_string())?;
         let file_str = file.to_string_lossy().to_string();
@@ -706,9 +706,9 @@ impl RikuGuiApp {
     }
 
     fn load_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path) -> Result<(), String> {
-        use riku::adapters::xschem_driver::XschemDriver;
-        use riku::core::analysis::diff_view::DiffView;
-        use riku::adapters::xschem_driver::parse;
+        use crate::adapters::xschem_driver::XschemDriver;
+        use crate::core::analysis::diff_view::DiffView;
+        use crate::adapters::xschem_driver::parse;
 
         let file_str = file.to_string_lossy();
         let driver = XschemDriver::new();
@@ -1285,8 +1285,8 @@ fn build_scene(content: &str) -> Result<xschem_viewer::ResolvedScene, String> {
 
 
 fn get_blob_content(repo: &Path, commit: &str, file_path: &str) -> Result<String, String> {
-    use riku::core::domain::ports::GitRepository;
-    use riku::core::git::git_service::GitService;
+    use crate::core::domain::ports::GitRepository;
+    use crate::core::git::git_service::GitService;
     let svc = GitService::open(repo).map_err(|e| e.to_string())?;
     let bytes = svc.get_blob(commit, file_path).map_err(|e| e.to_string())?;
     String::from_utf8(bytes).map_err(|e| e.to_string())
@@ -1360,7 +1360,7 @@ fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -
                     ChangeKind::Removed => "−",
                     ChangeKind::Modified => "~",
                 };
-                let color = crate::theme::change_color(c.kind, ui.visuals().dark_mode);
+                let color = crate::gui::theme::change_color(c.kind, ui.visuals().dark_mode);
                 let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
                 let text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
                 let resp = ui.add(
@@ -1514,8 +1514,8 @@ const COLOR_REMOVED: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
 const COLOR_MODIFIED: egui::Color32 = egui::Color32::from_rgb(255, 180, 0);
 const COLOR_MOVED: egui::Color32 = egui::Color32::from_rgb(0, 190, 255);
 
-fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::domain::models::DiffReport) {
-    use riku::core::domain::models::ChangeKind;
+fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::DiffReport) {
+    use crate::core::domain::models::ChangeKind;
 
     let mut any_shown = false;
 

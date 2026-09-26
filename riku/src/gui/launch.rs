@@ -9,8 +9,8 @@ pub struct LaunchArgs {
     pub cell: Option<String>,
 }
 
-pub fn parse_args() -> LaunchArgs {
-    let mut args = std::env::args().skip(1);
+/// Argumentos del visor (sin el nombre del programa).
+pub fn parse_args(mut args: impl Iterator<Item = String>) -> LaunchArgs {
     let mut file = None;
     let mut repo = None;
     let mut commit_a = None;

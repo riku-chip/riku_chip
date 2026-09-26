@@ -22,7 +22,7 @@ Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chip
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ riku-gui (egui/eframe, nativa)                                          │
+│ riku gui (visor egui, dentro del ejecutable riku)                                       │
 │   ScreenXform (mundo↔pantalla, eje Y) · polygon_fill (earcut)           │
 │   entry_picker (celdas) · Details (capas, cambios, tooltip)             │
 │   rutas: Xschem rica (sch_painter) │ neutra (ViewerBackend)             │
@@ -140,7 +140,7 @@ Todos corren en la CI (GitHub Actions) con cada push y cada PR, con `-D warnings
 |---|---|---|
 | `viewer-core` | 9 | eje Y, fit, hit-test y área de primitivas, contrato por defecto de `load_entry`/`load_diff` |
 | `gds-renderer` | 54 | diff por celda y jerárquico, un item por instancia (SREF y AREF), renombres, OASIS contra GDS, cache (aciertos, corrupción, límite, escena idéntica), lados vacíos, `changed_cells`, escena de diff, paletas curadas y generadas, detección de PDK, labels jerárquicos, anchors, catálogo de celdas |
-| `riku-gui` | 43 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios, colocación y prioridad de etiquetas, contraste por tema, springs e inercia, fundido de tema, mensajes, filtro del árbol |
+| `riku` (visor, `src/gui`) | 43 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios, colocación y prioridad de etiquetas, contraste por tema, springs e inercia, fundido de tema, mensajes, filtro del árbol |
 | `riku` | 87 | incluye `tests/gds_e2e.rs`: repo git real → `GitService` → `GdsDriver`, y el binario `riku diff -f json` (áreas, bbox absoluto, archivo nuevo, versiones idénticas, OASIS igual a GDS); renombres e instancias en el driver; autocompletado del shell |
 | `gdstk-rs` (submódulo) | +3 | OASIS: detección de formato, geometría idéntica a GDSII, bytes inválidos |
 
@@ -152,11 +152,11 @@ Windows + MSVC 2019 falla de varias formas al compilar gdstk-rs: LNK1171 por `ms
 
 ```bash
 docker exec -it <contenedor-iic-osic-tools> bash
-cd /foss/designs/riku_chip/riku && cargo test
-cd ../riku-gui && cargo run -- /foss/pdks/sky130A/libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1
+cd /foss/designs/riku_chip && cargo test --workspace
+cargo run --release -- gui /foss/pdks/sky130A/libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1
 ```
 
-Para usarlo instalado: `cargo install --path riku` y `cargo install --path riku-gui`. Los binarios de release pesan 3,3 MB y 11 MB sin símbolos; `riku` encuentra `riku-gui` junto a su propio ejecutable o en el `PATH`.
+Para usarlo instalado: `cargo install --path riku`. Es un solo ejecutable con CLI, shell y visor (`riku gui`, `riku open`); `--no-default-features` compila la versión solo de terminal.
 
 Con WSLg la ventana aparece en el escritorio de Windows. Si hace falta capturarla con herramientas X11, lanzar con `env -u WAYLAND_DISPLAY` para que use XWayland.
 

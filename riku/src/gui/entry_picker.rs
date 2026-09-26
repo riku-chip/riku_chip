@@ -118,7 +118,7 @@ fn change_mark(kind: ChangeKind, dark: bool) -> (&'static str, Color32) {
         ChangeKind::Removed => "−",
         ChangeKind::Modified => "~",
     };
-    (mark, crate::theme::change_color(kind, dark))
+    (mark, crate::gui::theme::change_color(kind, dark))
 }
 
 /// Fila: marcador de cambio (si hay), nombre distintivo (lo que se trunca es
