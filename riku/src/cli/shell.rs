@@ -3,7 +3,8 @@
 //! Es una capa delgada sobre `commands`: reusa el parser clap del módulo CLI
 //! para que un `diff ...` dentro del shell se comporte idéntico a un
 //! `riku diff ...` en la terminal. El shell solo agrega navegación (`cd`,
-//! `ls`), resolución de rutas relativas y un prompt con contexto (cwd + repo).
+//! `ls`), resolución de rutas relativas, un prompt con contexto (cwd + repo)
+//! y autocompletado con Tab (`shell_complete`).
 
 use std::path::PathBuf;
 
@@ -11,6 +12,7 @@ use clap::Parser;
 
 use crate::core::pdk::{pdk_status, PdkStatus};
 
+use super::shell_complete::RikuHelper;
 use super::{Cli, Commands};
 
 const LOGO: &str = r#"
@@ -87,7 +89,10 @@ impl ShellContext {
         }
         for entry in &entries {
             let path = entry.path();
-            if path.extension().map(|e| e == "sch").unwrap_or(false) {
+            let openable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                ["sch", "sym", "gds", "oas"].iter().any(|o| e.eq_ignore_ascii_case(o))
+            });
+            if openable {
                 let in_git = self
                     .repo
                     .as_ref()
@@ -103,7 +108,7 @@ impl ShellContext {
             }
         }
         if !found {
-            println!("  (sin archivos .sch ni subdirectorios)");
+            println!("  (sin esquemáticos, layouts ni subdirectorios)");
         }
         println!();
     }
@@ -176,9 +181,11 @@ pub(super) fn run_shell() -> Result<(), String> {
     if ctx.repo.is_none() {
         println!("  [!] No se detectó repositorio Git. Usa 'cd <ruta>' para navegar a uno.");
     }
-    println!("  'help' para ver los comandos. 'exit' para salir.\n");
+    println!("  'help' para ver los comandos, Tab para completar, 'exit' para salir.\n");
 
-    let mut rl = rustyline::DefaultEditor::new().map_err(|e| e.to_string())?;
+    let mut rl: rustyline::Editor<RikuHelper, rustyline::history::DefaultHistory> =
+        rustyline::Editor::new().map_err(|e| e.to_string())?;
+    rl.set_helper(Some(RikuHelper { cwd: ctx.cwd.clone() }));
 
     loop {
         let prompt = ctx.prompt();
@@ -203,7 +210,12 @@ pub(super) fn run_shell() -> Result<(), String> {
         match cmd {
             "exit" | "quit" | "q" => break,
             "help" => print_shell_help(),
-            "cd" => ctx.cd(if rest.is_empty() { "." } else { rest }),
+            "cd" => {
+                ctx.cd(if rest.is_empty() { "." } else { rest });
+                if let Some(h) = rl.helper_mut() {
+                    h.cwd = ctx.cwd.clone();
+                }
+            }
             "ls" => ctx.ls(if rest.is_empty() { None } else { Some(rest) }),
             _ => dispatch_shell_command(&mut ctx, &line),
         }
@@ -216,7 +228,7 @@ pub(super) fn run_shell() -> Result<(), String> {
 fn print_shell_help() {
     println!();
     println!("  Navegación:");
-    println!("    ls [ruta]                                     listar archivos .sch");
+    println!("    ls [ruta]                                     listar .sch, .sym, .gds y .oas");
     println!("    cd <ruta>                                     cambiar directorio");
     println!();
     println!("  Git:");

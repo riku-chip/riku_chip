@@ -18,6 +18,7 @@ mod doctor;
 mod format;
 mod gui;
 mod shell;
+mod shell_complete;
 
 // ─── Tipos del parser ────────────────────────────────────────────────────────
 
