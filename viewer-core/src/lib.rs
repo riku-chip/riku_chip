@@ -31,7 +31,7 @@ pub use bbox::BoundingBox;
 pub use element::{DrawElement, HAlign, Layer, VAlign};
 pub use error::{Result, ViewerError};
 pub use paint::{LayerPaint, Rgba};
-pub use scene::{RenderableScene, Scene, SceneHandle};
+pub use scene::{RenderableScene, Scene, SceneHandle, ViewEntry};
 pub use viewport::{screen_to_world, world_to_screen, Viewport, YAxis};
 
 // Re-export del token para que los backends no necesiten depender explícitamente

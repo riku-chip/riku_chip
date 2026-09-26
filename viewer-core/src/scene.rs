@@ -19,6 +19,19 @@ use crate::element::{DrawElement, Layer};
 use crate::paint::LayerPaint;
 use crate::viewport::YAxis;
 
+/// Sub-vista navegable de un archivo: una celda de un GDS, a futuro una página
+/// o un nivel de jerarquía. Un backend que las soporte las lista en la escena
+/// y carga una concreta con `ViewerBackend::load_entry`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewEntry {
+    /// Identificador estable dentro del archivo (en GDS, el nombre de celda).
+    pub id: String,
+    /// Raíz de la jerarquía (top cell): no la referencia ninguna otra entrada.
+    pub is_root: bool,
+    /// Ancho × alto en unidades de mundo, si se conoce.
+    pub size: Option<(f64, f64)>,
+}
+
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
 #[derive(Debug, Clone)]
 pub struct Scene {
@@ -32,6 +45,11 @@ pub struct Scene {
     /// Resumen legible (clave, valor) para paneles de detalle: celda, PDK,
     /// conteos… El orden es el de presentación.
     pub metadata: Vec<(String, String)>,
+    /// Sub-vistas del archivo de origen (vacío si no tiene). Van con la escena
+    /// para no parsear el archivo dos veces.
+    pub entries: Vec<ViewEntry>,
+    /// Entrada que representa esta escena, si el archivo tiene varias.
+    pub current_entry: Option<String>,
 }
 
 impl Default for Scene {
@@ -48,6 +66,8 @@ impl Scene {
             y_axis: YAxis::Down,
             layers: BTreeMap::new(),
             metadata: Vec::new(),
+            entries: Vec::new(),
+            current_entry: None,
         }
     }
 
@@ -99,6 +119,16 @@ pub trait RenderableScene: Send + Sync {
         &[]
     }
 
+    /// Sub-vistas del archivo (celdas, páginas…). Por defecto ninguna.
+    fn entries(&self) -> &[ViewEntry] {
+        &[]
+    }
+
+    /// Sub-vista que muestra esta escena. Por defecto ninguna.
+    fn current_entry(&self) -> Option<&str> {
+        None
+    }
+
     /// Enumera elementos visibles dentro de `viewport_bbox`. Los backends que
     /// quieran culling granular implementan esto; por defecto entrega todos.
     ///
@@ -130,6 +160,14 @@ impl RenderableScene for Scene {
 
     fn metadata(&self) -> &[(String, String)] {
         &self.metadata
+    }
+
+    fn entries(&self) -> &[ViewEntry] {
+        &self.entries
+    }
+
+    fn current_entry(&self) -> Option<&str> {
+        self.current_entry.as_deref()
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {
