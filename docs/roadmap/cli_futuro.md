@@ -2,15 +2,17 @@
 
 ## Estado actual
 
-El CLI actual de `riku_rust` ya cubre lo esencial:
+El CLI actual de `riku` ya cubre lo esencial (actualizado 2026-09-26):
 
-- `diff` entre dos commits de un archivo `.sch`
-- `log` del historial por archivo
-- `doctor` para verificar herramientas externas
+- `diff` entre dos commits de un `.sch` (semántico) o un `.gds` (geométrico, con `--cosmetic-threshold-um2`)
+- `status` y `log` con resumen semántico
+- `doctor` para verificar el entorno
+- `open` para abrir un archivo en `riku-gui`
 - salidas `text`, `json` y `visual`
+- **modo interactivo**: `riku` sin argumentos abre un shell (`cd`, `ls`, `help`, `exit` y cualquier subcomando) con historial de comandos (rustyline). Cubre la Fase 2 y parte de la Fase 3 de abajo; falta el autocompletado.
 - ejecución como `cargo run -- ...` o como binario instalado
 
-La prioridad actual es mantener este flujo estable y predecible.
+La prioridad actual es mantener este flujo estable y predecible. Pendientes técnicos priorizados: `docs/roadmap/pendientes.md`.
 
 ## Visión a futuro
 

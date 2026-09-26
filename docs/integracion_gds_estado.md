@@ -2,7 +2,7 @@
 
 Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chips) en riku, el VCS para circuitos integrados.
 
-**Última actualización:** 2026-09-26
+**Última actualización:** 2026-09-26 (incluye usabilidad de la GUI)
 **Autor de los cambios documentados:** Dante (Adriel2503)
 **Estado:** los bloques A–D del plan original están terminados. GDS tiene diff geométrico en la CLI y un visor con diff visual en la GUI, ambos verificados contra KLayout.
 
@@ -89,6 +89,20 @@ Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chip
 - **Librerías:** `changed_cells` detecta qué celdas cambiaron (incluidos cambios heredados de sub-celdas) con una huella de la geometría aplanada + confirmación por XOR (32 ms para 441 celdas en release). El selector las marca (`+` `−` `~`), filtra "solo con cambios" y abre la primera cambiada.
 - **Archivo nuevo o borrado:** un lado vacío cuenta como librería vacía (CLI y GUI).
 
+### 3.4 Usabilidad de la GUI
+
+Dos pasadas de diseño, verificadas con capturas antes/después (criterios de la guía *Designing Fluid Interfaces* y los principios de diseño de Apple, adaptados a un visor de escritorio):
+
+| Tema | Qué hace |
+|---|---|
+| Etiquetas | Tamaño fijo en pantalla, fusión de las que comparten punto (`VPB · VPWR`), pastilla con halo desplazada del pin, sin solaparse; aviso de cuántas quedaron ocultas |
+| Tema | Claro / Oscuro / Sistema, persistente; contraste de etiquetas WCAG AA verificado en tests; fundido de 250 ms al cambiar |
+| Movimiento | Encuadrar e ir a un cambio animados (spring sin rebote, interrumpible); inercia al soltar un arrastre; "Reducir movimiento" |
+| Orientación | Ruta `commits › archivo › celda › vista`, título de ventana, pantalla inicial con recientes, barra de estado con coordenadas en µm y escala |
+| Organización | Barra de herramientas en español, Detalles en secciones plegables, árbol de proyecto filtrado a archivos abribles |
+| Feedback | Mensajes temporales sobre el lienzo (estado, completado, aviso, error) con errores en lenguaje claro |
+| Acceso rápido | Atajos `F`, `L`, `+`/`−`; arrastrar un archivo a la ventana lo abre |
+
 ---
 
 ## 4. Verificación contra KLayout
@@ -113,7 +127,7 @@ Visualmente (láminas lado a lado con KLayout + `.lyp` oficial): misma geometrí
 |---|---|---|
 | `viewer-core` | 9 | eje Y, fit, hit-test y área de primitivas, contrato por defecto de `load_entry`/`load_diff` |
 | `gds-renderer` | 39 | diff por celda y jerárquico, lados vacíos, `changed_cells`, escena de diff, paletas y detección de PDK, labels jerárquicos, anchors, catálogo de celdas |
-| `riku-gui` | 20 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios |
+| `riku-gui` | 41 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios, colocación de etiquetas, contraste por tema, springs e inercia, fundido de tema, mensajes, filtro del árbol |
 | `riku` | 80 | incluye `tests/gds_e2e.rs`: repo git real → `GitService` → `GdsDriver`, y el binario `riku diff -f json` (áreas, bbox absoluto, archivo nuevo, versiones idénticas) |
 
 ---
@@ -134,14 +148,13 @@ Con WSLg la ventana aparece en el escritorio de Windows. Si hace falta capturarl
 
 ## 7. Pendiente
 
-| Tema | Por qué importa | Notas |
-|---|---|---|
-| OASIS (`.oas`) | Formato de foundries modernas | gdstk lo soporta; falta `from_bytes` para OASIS y registrar la extensión |
-| Celdas renombradas | Hoy aparecen como eliminada + añadida | La huella de `changed_cells` sirve de base para emparejarlas |
-| Cache del XOR | GDS de cientos de MB pueden tardar decenas de segundos | Por hash de contenido en `~/.cache/riku/` |
-| Triangulación al cargar | Hoy se triangulan los cóncavos en cada frame | Solo relevante en layouts grandes |
-| Cambio en varias instancias | Un item de cambio con bbox que abarca todas las instancias | Separar por instancia para navegar una por una |
-| Warnings `f32` | 18 warnings de rustc 1.98 (`float_literal_f32_fallback`) en `sch_painter.rs`/`app.rs` | Mecánico: escribir `1.0_f32` |
+La lista completa y priorizada vive en **`docs/roadmap/pendientes.md`**. Lo más urgente:
+
+1. **CI**: no hay integración continua; los tests solo corren a mano.
+2. **Warnings `float_literal_f32_fallback`** (18 en `riku-gui`): rustc anuncia que serán error en una versión futura.
+3. **Paridad de la vista `.sch`** con la de GDS (tooltip, etiquetas, movimiento, atajos de zoom).
+
+Luego: OASIS, celdas renombradas, un item por instancia en cambios repartidos, scripts de verificación dentro del repo, cache del XOR.
 
 ---
 

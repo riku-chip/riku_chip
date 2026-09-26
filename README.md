@@ -291,9 +291,18 @@ Para GDS además:
 
 - **Colores por PDK** con rol de capa: dispositivo (relleno), pozo (tinte tenue), implantes/marcadores/boundary/pines (solo contorno), en orden de apilado físico. El PDK se detecta por la ruta del archivo o por las capas presentes.
 - **Selector de celdas** con buscador y filtros (solo top cells, solo con cambios).
-- **Details** con celda, PDK, conteos, tamaño y la lista de capas con checkbox (las capas ocultas se mantienen al cambiar de celda).
+- **Detalles** en secciones plegables: resumen (celda, PDK, conteos, tamaño), cambios y capas con checkbox (las capas ocultas se mantienen al cambiar de celda).
 - **Tooltip** con capa, tamaño y área del polígono bajo el cursor.
+- **Etiquetas legibles**: tamaño fijo en pantalla, fusionadas si comparten punto, sin solaparse.
 - Polígonos cóncavos (earcut) y labels de toda la jerarquía con su anchor.
+
+Usabilidad general:
+
+- **Tema claro / oscuro / sistema** (se recuerda), con fundido suave al cambiar.
+- **Atajos**: `F` encuadrar, `L` etiquetas, `+`/`−` zoom. Encuadrar se anima y el arrastre suelta con inercia ("Reducir movimiento" en Ajustes los desactiva).
+- **Orientación**: ruta `commits › archivo › celda › vista` sobre el lienzo, pantalla inicial con archivos recientes y barra de estado con coordenadas en µm.
+- **Feedback**: mensajes temporales sobre el lienzo; los errores quedan hasta cerrarlos, en lenguaje claro.
+- **Arrastrar un archivo** a la ventana lo abre.
 
 Se abre sola desde `riku diff ... --format visual` o como programa standalone.
 
@@ -418,6 +427,8 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | `--graph` ASCII en `riku log`                                       | planificado   |
 | Modo `--ci` (exit code por severidad)                               | planificado   |
 | `riku show <commit> <file>`                                         | planificado   |
+
+Pendientes técnicos priorizados (CI, warnings, paridad de la vista `.sch`, OASIS…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
 
 ---
 
