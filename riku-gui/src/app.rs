@@ -1544,7 +1544,7 @@ fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::domain::models::Diff
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     2.0,
-                    egui::Stroke::new(2.0, extra),
+                    egui::Stroke::new(2.0_f32, extra),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -1575,7 +1575,7 @@ fn render_change_list(ui: &mut egui::Ui, diff: &riku::core::domain::models::Diff
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, 2.0, COLOR_MODIFIED);
-        ui.painter().rect_stroke(rect.expand(1.0), 2.0, egui::Stroke::new(2.0, COLOR_MOVED), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(rect.expand(1.0), 2.0, egui::Stroke::new(2.0_f32, COLOR_MOVED), egui::StrokeKind::Outside);
         ui.small("Modificado + trasladado");
     });
 }

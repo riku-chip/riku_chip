@@ -114,7 +114,7 @@ fn paint_element(
         Line { x1, y1, x2, y2, layer, .. } => {
             let a = world_to_screen(vp, rect, *x1, *y1);
             let b = world_to_screen(vp, rect, *x2, *y2);
-            painter.line_segment([a, b], Stroke::new(1.0, layer_color(*layer, dark)));
+            painter.line_segment([a, b], Stroke::new(1.0_f32, layer_color(*layer, dark)));
         }
         Rect { x, y, w, h, layer, filled, .. } => {
             let min = world_to_screen(vp, rect, *x, *y);
@@ -124,13 +124,13 @@ fn paint_element(
             if *filled {
                 painter.rect_filled(r, 0.0, color.gamma_multiply(0.3));
             }
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, color), StrokeKind::Outside);
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0_f32, color), StrokeKind::Outside);
         }
         Circle { cx, cy, r, layer, .. } => {
             let center = world_to_screen(vp, rect, *cx, *cy);
             let radius = (*r * vp.scale) as f32;
             let color = layer_color(*layer, dark);
-            painter.circle_stroke(center, radius, Stroke::new(1.0, color));
+            painter.circle_stroke(center, radius, Stroke::new(1.0_f32, color));
         }
         Arc { cx, cy, r, start_angle, sweep_angle, layer, .. } => {
             // egui no tiene arc nativo — aproximamos con líneas
@@ -145,7 +145,7 @@ fn paint_element(
                 pts.push(world_to_screen(vp, rect, wx, wy));
             }
             if pts.len() >= 2 {
-                painter.add(Shape::line(pts, Stroke::new(1.0, color)));
+                painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
             }
         }
         Polygon { points, layer, filled, .. } => {
@@ -157,10 +157,10 @@ fn paint_element(
                 painter.add(Shape::convex_polygon(
                     pts.clone(),
                     color.gamma_multiply(0.3),
-                    Stroke::new(1.0, color),
+                    Stroke::new(1.0_f32, color),
                 ));
             } else if pts.len() >= 2 {
-                painter.add(Shape::line(pts, Stroke::new(1.0, color)));
+                painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
             }
         }
         Text { x, y, content, v_size, rotation, mirror, h_center, v_center, layer, .. } => {
@@ -170,7 +170,7 @@ fn paint_element(
             let pos = world_to_screen(vp, rect, *x, *y);
             let half = (10.0 * scale_f(vp)).max(4.0);
             let r = egui::Rect::from_center_size(pos, egui::vec2(half * 2.0, half * 2.0));
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_rgb(200, 80, 80)), StrokeKind::Outside);
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0_f32, Color32::from_rgb(200, 80, 80)), StrokeKind::Outside);
             painter.text(
                 pos,
                 egui::Align2::CENTER_CENTER,
@@ -293,7 +293,7 @@ fn paint_wire_ghosts(
         if matches_b { continue; }
         let a = world_to_screen(vp, rect, *x1, *y1);
         let b = world_to_screen(vp, rect, *x2, *y2);
-        painter.line_segment([a, b], Stroke::new(1.0, ghost));
+        painter.line_segment([a, b], Stroke::new(1.0_f32, ghost));
     }
 }
 
@@ -313,16 +313,16 @@ fn paint_element_tinted(
         Line { x1, y1, x2, y2, .. } => {
             let a = world_to_screen(vp, rect, *x1, *y1);
             let b = world_to_screen(vp, rect, *x2, *y2);
-            painter.line_segment([a, b], Stroke::new(1.0, color));
+            painter.line_segment([a, b], Stroke::new(1.0_f32, color));
         }
         Rect { x, y, w, h, .. } => {
             let min = world_to_screen(vp, rect, *x, *y);
             let max = world_to_screen(vp, rect, x + w, y + h);
-            painter.rect_stroke(egui::Rect::from_min_max(min, max), 0.0, Stroke::new(1.0, color), StrokeKind::Outside);
+            painter.rect_stroke(egui::Rect::from_min_max(min, max), 0.0, Stroke::new(1.0_f32, color), StrokeKind::Outside);
         }
         Circle { cx, cy, r, .. } => {
             let center = world_to_screen(vp, rect, *cx, *cy);
-            painter.circle_stroke(center, (*r * vp.scale) as f32, Stroke::new(1.0, color));
+            painter.circle_stroke(center, (*r * vp.scale) as f32, Stroke::new(1.0_f32, color));
         }
         Arc { cx, cy, r, start_angle, sweep_angle, .. } => {
             let steps = (sweep_angle.abs() / 5.0).ceil() as usize + 1;
@@ -332,7 +332,7 @@ fn paint_element_tinted(
                 pts.push(world_to_screen(vp, rect, cx + r * angle_rad.cos(), cy + r * angle_rad.sin()));
             }
             if pts.len() >= 2 {
-                painter.add(Shape::line(pts, Stroke::new(1.0, color)));
+                painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
             }
         }
         Polygon { points, .. } => {
@@ -340,7 +340,7 @@ fn paint_element_tinted(
                 .map(|(wx, wy)| world_to_screen(vp, rect, *wx, *wy))
                 .collect();
             if pts.len() >= 2 {
-                painter.add(Shape::line(pts, Stroke::new(1.0, color)));
+                painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
             }
         }
         Text { x, y, content, v_size, .. } => {
@@ -370,11 +370,11 @@ fn paint_diff_annotations(
             let max = world_to_screen(vp, rect, b.2, b.3);
             let r = egui::Rect::from_min_max(min, max).expand(4.0);
             painter.rect_filled(r, 2.0, fill);
-            painter.rect_stroke(r, 2.0, Stroke::new(1.5, stroke), StrokeKind::Outside);
+            painter.rect_stroke(r, 2.0, Stroke::new(1.5_f32, stroke), StrokeKind::Outside);
             // Si es modificado + trasladado, añadir borde cian extra
             if matches!(comp.kind, ChangeKind::Modified) && !comp.cosmetic && comp.position_changed {
                 let cyan = Color32::from_rgb(0, 190, 255);
-                painter.rect_stroke(r.expand(2.0), 2.0, Stroke::new(1.5, cyan), StrokeKind::Outside);
+                painter.rect_stroke(r.expand(2.0), 2.0, Stroke::new(1.5_f32, cyan), StrokeKind::Outside);
             }
             painter.text(
                 r.left_top() + egui::vec2(2.0, -14.0),
@@ -397,7 +397,7 @@ fn paint_diff_annotations(
             if !matches { continue; }
             let a = world_to_screen(vp, rect, *x1, *y1);
             let b = world_to_screen(vp, rect, *x2, *y2);
-            painter.line_segment([a, b], Stroke::new(3.0, color));
+            painter.line_segment([a, b], Stroke::new(3.0_f32, color));
             if !labeled {
                 let mid = egui::pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
                 painter.text(
