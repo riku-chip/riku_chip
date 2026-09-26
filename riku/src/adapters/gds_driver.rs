@@ -54,6 +54,12 @@ fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
     }
     after.insert("origin_path".to_string(), g.origin_path.join("/"));
     after.insert("flattened".to_string(), g.flattened.to_string());
+    if g.instances > 0 {
+        after.insert("instances".to_string(), g.instances.to_string());
+    }
+    if let Some((x, y)) = g.instance_at_um {
+        after.insert("instance_at_um".to_string(), format!("{x:.3},{y:.3}"));
+    }
 
     // Element extendido: si el cambio nace via reference, el origen
     // se incrusta como sufijo. Asi el reporte text agrupa por (cell,

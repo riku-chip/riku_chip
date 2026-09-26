@@ -91,7 +91,13 @@ fn print_gds_geom(after: &BTreeMap<String, String>) {
         // origin_path = "<cell>" o "<cell>/<sub>"; mostrar solo si tiene >1 segmento.
         if origin.contains('/') {
             let pretty = origin.replace('/', " → ");
-            println!("      origen: {pretty}");
+            match after.get("instances").and_then(|n| n.parse::<usize>().ok()) {
+                Some(n) if n > 1 => println!("      origen: {pretty} (en {n} instancias)"),
+                _ => match after.get("instance_at_um") {
+                    Some(at) => println!("      origen: {pretty} @ ({})", at.replace(',', ", ")),
+                    None => println!("      origen: {pretty}"),
+                },
+            }
         }
     }
     let added_n = after.get("added_polygons").map(String::as_str).unwrap_or("0");

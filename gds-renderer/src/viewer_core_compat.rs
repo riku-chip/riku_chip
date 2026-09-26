@@ -506,9 +506,11 @@ fn change_items(diff: &CellDiff, pdk: Pdk, unit_factor: f64) -> Vec<ChangeItem> 
                 Some(n) => format!("{n} {}/{}", tag.layer, tag.datatype),
                 None => format!("{}/{}", tag.layer, tag.datatype),
             };
-            let label = match g.origin_path.get(1) {
-                Some(sub) => format!("{layer} · en {sub}"),
-                None => layer,
+            // Un item por instancia: la posicion distingue las copias.
+            let label = match (g.origin_path.get(1), g.instance_at_um) {
+                (Some(sub), Some((x, y))) => format!("{layer} · en {sub} @ ({x:.2}, {y:.2})"),
+                (Some(sub), None) => format!("{layer} · en {sub}"),
+                (None, _) => layer,
             };
             let kind = match (g.added_polygons > 0, g.removed_polygons > 0) {
                 (true, false) => ChangeKind::Added,
@@ -829,7 +831,7 @@ mod tests {
     async fn change_inside_subcell_is_located_in_top_coordinates() {
         let h = diff(Some("hier_inv_a.gds"), "hier_inv_b.gds", Some("TOP")).await;
         let c = &h.changes()[0];
-        assert_eq!((c.label.as_str(), c.kind), ("1/0 · en INV", ChangeKind::Added));
+        assert_eq!((c.label.as_str(), c.kind), ("1/0 · en INV @ (10.00, 10.00)", ChangeKind::Added));
         let b = c.bbox.expect("bbox");
         // Rect (2,0)-(3,1) de INV instanciado en (10,10).
         assert!((b.min_x - 12.0).abs() < 1e-9 && (b.max_y - 11.0).abs() < 1e-9, "{b:?}");

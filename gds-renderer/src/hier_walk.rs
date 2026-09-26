@@ -9,7 +9,7 @@
 //! sub-cells anidadas mas profundo se reportan via su reference
 //! inmediata.
 
-use gdstk_rs::{Cell, OwnedPolygon};
+use gdstk_rs::{BoundingBox, Cell, OwnedPolygon, Point2D};
 
 /// Identidad de origen: cadena de nombres de cells desde la cell raiz
 /// hasta la sub-cell que aporto el poligono. Longitud 1 si nace en la
@@ -45,36 +45,88 @@ fn polygon_bbox_center(p: &OwnedPolygon) -> Option<(f64, f64)> {
     Some(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5))
 }
 
-/// Atribuye el poligono a la reference mas especifica (bbox mas chico)
-/// cuyo bbox contenga el centro del poligono. Si ninguna reference lo
-/// contiene, atribuye a la propia cell raiz.
-pub fn origin_of_polygon<'a>(cell: &Cell<'a>, poly: &OwnedPolygon) -> OriginPath {
+/// Repeticiones por encima de las cuales no se busca la instancia exacta: se
+/// atribuye al arreglo completo (evita O(polígonos × repeticiones)).
+const MAX_REPETITIONS: u64 = 4096;
+
+/// Origen de un poligono del XOR.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Origin {
+    pub path: OriginPath,
+    /// Posicion (unidades de usuario) de la instancia que lo aporto: origen
+    /// de la reference mas el offset de su repeticion. `None` si nace en la
+    /// propia cell raiz. Para arreglos enormes, el origen del arreglo.
+    pub instance_at: Option<(f64, f64)>,
+}
+
+impl Origin {
+    /// Clave estable entre A y B: la misma instancia (no movida) tiene el
+    /// mismo origen en ambos lados aunque cambie el orden de references.
+    pub fn key(&self) -> (OriginPath, Option<(i64, i64)>) {
+        let q = |v: f64| (v * 1e6).round() as i64;
+        (self.path.clone(), self.instance_at.map(|(x, y)| (q(x), q(y))))
+    }
+}
+
+/// Atribuye el poligono a la instancia mas especifica (bbox mas chico) que
+/// contenga su centro. Cada repeticion de un AREF cuenta como una instancia
+/// propia. Si ninguna lo contiene, lo atribuye a la propia cell raiz.
+pub fn origin_of_polygon<'a>(cell: &Cell<'a>, poly: &OwnedPolygon) -> Origin {
     let cell_name = cell.name().to_string();
+    let root = || Origin { path: vec![cell_name.clone()], instance_at: None };
     let Some((cx, cy)) = polygon_bbox_center(poly) else {
-        return vec![cell_name];
+        return root();
+    };
+    let contains = |b: &BoundingBox| cx >= b.min_x && cx <= b.max_x && cy >= b.min_y && cy <= b.max_y;
+    let area = |b: &BoundingBox| (b.max_x - b.min_x).max(0.0) * (b.max_y - b.min_y).max(0.0);
+
+    // (area, cell, x, y): el menor gana; cell y posicion desempatan.
+    let mut best: Option<(f64, String, f64, f64)> = None;
+    let mut offer = |a: f64, target: &str, at: Point2D| {
+        let better = match &best {
+            None => true,
+            Some((ba, bn, bx, by)) => (a, target, at.x, at.y) < (*ba, bn.as_str(), *bx, *by),
+        };
+        if better {
+            best = Some((a, target.to_string(), at.x, at.y));
+        }
     };
 
-    let mut best: Option<(f64, String)> = None;
     for r in cell.references() {
-        let bb = r.bbox();
-        if cx >= bb.min_x && cx <= bb.max_x && cy >= bb.min_y && cy <= bb.max_y {
-            let area = (bb.max_x - bb.min_x).max(0.0) * (bb.max_y - bb.min_y).max(0.0);
-            let target = r.cell_name().to_string();
-            best = Some(match best {
-                None => (area, target),
-                Some((a, n)) => {
-                    if area < a || (area == a && target < n) {
-                        (area, target)
-                    } else {
-                        (a, n)
-                    }
-                }
-            });
+        let all = r.bbox();
+        if !contains(&all) {
+            continue;
+        }
+        let o = r.origin();
+        let target = r.cell_name();
+        let n = r.repetition_count();
+        if n <= 1 || n > MAX_REPETITIONS {
+            offer(area(&all), target, o);
+            continue;
+        }
+        // El bbox de gdstk cubre todas las repeticiones: es el de la
+        // instancia 0 desplazado por el rango de offsets (suma de Minkowski).
+        let offsets: Vec<Point2D> = r.repetition_offsets().collect();
+        let (mut lo, mut hi) = (offsets[0], offsets[0]);
+        for p in &offsets {
+            lo = Point2D { x: lo.x.min(p.x), y: lo.y.min(p.y) };
+            hi = Point2D { x: hi.x.max(p.x), y: hi.y.max(p.y) };
+        }
+        for off in &offsets {
+            let b = BoundingBox {
+                min_x: all.min_x - lo.x + off.x,
+                min_y: all.min_y - lo.y + off.y,
+                max_x: all.max_x - hi.x + off.x,
+                max_y: all.max_y - hi.y + off.y,
+            };
+            if contains(&b) {
+                offer(area(&b), target, Point2D { x: o.x + off.x, y: o.y + off.y });
+            }
         }
     }
 
     match best {
-        Some((_, target)) => vec![cell_name, target],
-        None => vec![cell_name],
+        Some((_, target, x, y)) => Origin { path: vec![cell_name, target], instance_at: Some((x, y)) },
+        None => root(),
     }
 }

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use gdstk_rs::{xor_split_flat, Cell, GdsTag, Library, OwnedPolygon};
 
-use crate::hier_walk::{origin_of_polygon, OriginPath};
+use crate::hier_walk::{origin_of_polygon, Origin, OriginPath};
 
 /// Identificador de capa GDS (par layer/datatype). Tipo propio para no
 /// filtrar `gdstk_rs::GdsTag` por la API publica de gds-renderer.
@@ -63,6 +63,14 @@ pub struct GdsGeomDiff {
     /// `true` si el poligono vino de un subtree atravesado (origin_path
     /// con mas de un segmento). El bbox esta en coords absolutas del top.
     pub flattened: bool,
+    /// Posicion (µm) de la instancia de la sub-cell que aporto el cambio.
+    /// `None` si es geometria directa de la cell o si el item agrupa varias
+    /// instancias (ver `instances`).
+    pub instance_at_um: Option<(f64, f64)>,
+    /// Instancias agrupadas en este item: 0 para geometria directa, 1 para
+    /// un item por instancia (`diff_cell`), N en el reporte agrupado de
+    /// `diff_gds` cuando la misma sub-cell cambia en N instancias.
+    pub instances: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -222,7 +230,7 @@ pub fn diff_gds_with_config(
             continue;
         };
         let cell = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg);
-        report.geometry.extend(cell.geometry);
+        report.geometry.extend(group_instances(cell.geometry, cfg));
     }
 
     Ok(report)
@@ -305,25 +313,36 @@ fn diff_one_cell(
             continue;
         }
 
-        // Bucketear cada poligono por origin_path. Para `added` consultamos
-        // las references del lado "after"; para `removed`, las del "before".
-        let mut buckets: BTreeMap<OriginPath, BucketAcc> = BTreeMap::new();
+        // Bucketear cada poligono por instancia de origen. Para `added`
+        // consultamos las references del lado "after"; para `removed`, las
+        // del "before". La clave es la posicion de la instancia, estable
+        // entre ambos lados.
+        let root = || Origin { path: vec![name.to_string()], instance_at: None };
+        let mut buckets: BTreeMap<_, BucketAcc> = BTreeMap::new();
         for p in &added {
-            let origin = cb.map_or_else(|| vec![name.to_string()], |c| origin_of_polygon(c, p));
-            buckets.entry(origin).or_default().added.push(p.clone());
+            let origin = cb.map_or_else(root, |c| origin_of_polygon(c, p));
+            let acc = buckets.entry(origin.key()).or_default();
+            acc.origin.get_or_insert(origin);
+            acc.added.push(p.clone());
         }
         for p in &removed {
-            let origin = ca.map_or_else(|| vec![name.to_string()], |c| origin_of_polygon(c, p));
-            buckets.entry(origin).or_default().removed.push(p.clone());
+            let origin = ca.map_or_else(root, |c| origin_of_polygon(c, p));
+            let acc = buckets.entry(origin.key()).or_default();
+            acc.origin.get_or_insert(origin);
+            acc.removed.push(p.clone());
         }
 
-        for (origin, acc) in buckets {
+        for (_, acc) in buckets {
             let added_area = sum_area_um2(&acc.added, unit_factor);
             let removed_area = sum_area_um2(&acc.removed, unit_factor);
-            let flattened = origin.len() > 1;
+            let origin = acc.origin.unwrap_or_else(root);
+            let flattened = origin.path.len() > 1;
+            let instance_at_um = origin.instance_at.map(|(x, y)| (x * unit_factor, y * unit_factor));
             out.geometry.push(GdsGeomDiff {
                 cell: name.to_string(),
-                origin_path: origin,
+                origin_path: origin.path,
+                instance_at_um,
+                instances: usize::from(flattened),
                 layer: *key,
                 added_polygons: acc.added.len(),
                 removed_polygons: acc.removed.len(),
@@ -341,8 +360,43 @@ fn diff_one_cell(
 
 #[derive(Default)]
 struct BucketAcc {
+    origin: Option<Origin>,
     added: Vec<OwnedPolygon>,
     removed: Vec<OwnedPolygon>,
+}
+
+/// Agrupa los items de una misma (cell, capa, sub-cell) que solo difieren en
+/// la instancia: la CLI reporta "en N instancias" en lugar de N lineas. Suma
+/// conteos y areas, une bboxes y recalcula el flag cosmetico.
+fn group_instances(items: Vec<GdsGeomDiff>, cfg: &DiffConfig) -> Vec<GdsGeomDiff> {
+    let mut out: Vec<GdsGeomDiff> = Vec::with_capacity(items.len());
+    for g in items {
+        let same = out.iter_mut().find(|o| {
+            o.instances > 0 && o.cell == g.cell && o.layer == g.layer && o.origin_path == g.origin_path
+        });
+        match same {
+            Some(o) if g.instances > 0 => {
+                o.added_polygons += g.added_polygons;
+                o.removed_polygons += g.removed_polygons;
+                o.added_area_um2 += g.added_area_um2;
+                o.removed_area_um2 += g.removed_area_um2;
+                o.bbox_um = match (o.bbox_um, g.bbox_um) {
+                    (Some(a), Some(b)) => Some(BBoxUm {
+                        min_x: a.min_x.min(b.min_x),
+                        min_y: a.min_y.min(b.min_y),
+                        max_x: a.max_x.max(b.max_x),
+                        max_y: a.max_y.max(b.max_y),
+                    }),
+                    (a, b) => a.or(b),
+                };
+                o.instances += g.instances;
+                o.instance_at_um = None;
+                o.cosmetic = (o.added_area_um2 + o.removed_area_um2) < cfg.cosmetic_threshold_um2;
+            }
+            _ => out.push(g),
+        }
+    }
+    out
 }
 
 /// Como cambio una cell entre dos libraries.
@@ -500,6 +554,58 @@ mod tests {
         assert_eq!(b0.min_y, 0.0);
         assert_eq!(b0.max_x, 10.0);
         assert_eq!(b0.max_y, 10.0);
+    }
+
+    fn multi_inst_libs() -> (Library, Library) {
+        let a = Library::from_bytes(&fixture_bytes("multi_inst_a.gds")).expect("a");
+        let b = Library::from_bytes(&fixture_bytes("multi_inst_b.gds")).expect("b");
+        (a, b)
+    }
+
+    #[test]
+    fn change_in_subcell_gives_one_item_per_instance() {
+        let (a, b) = multi_inst_libs();
+        let d = diff_cell(Some(&a), Some(&b), "TOP", &DiffConfig::default());
+        let mut items: Vec<_> = d.geometry.iter().collect();
+        items.sort_by(|x, y| x.instance_at_um.partial_cmp(&y.instance_at_um).unwrap());
+        assert_eq!(items.len(), 2, "{items:?}");
+        for (g, x) in items.iter().zip([10.0, 30.0]) {
+            assert_eq!(g.origin_path, vec!["TOP".to_string(), "INV".to_string()]);
+            assert_eq!(g.instance_at_um, Some((x, 10.0)));
+            assert_eq!((g.added_polygons, g.instances), (1, 1));
+            let bb = g.bbox_um.expect("bbox");
+            assert!((bb.min_x - (x + 2.0)).abs() < 1e-6 && (bb.max_x - (x + 3.0)).abs() < 1e-6, "{bb:?}");
+        }
+    }
+
+    #[test]
+    fn each_array_repetition_is_its_own_instance() {
+        let (a, b) = multi_inst_libs();
+        let d = diff_cell(Some(&a), Some(&b), "ARR", &DiffConfig::default());
+        let mut at: Vec<(f64, f64)> = d.geometry.iter().filter_map(|g| g.instance_at_um).collect();
+        at.sort_by(|p, q| p.partial_cmp(q).unwrap());
+        let expected: Vec<(f64, f64)> =
+            [0.0, 10.0, 20.0].iter().flat_map(|&x| [(x, 0.0), (x, 5.0)]).collect();
+        assert_eq!(at, expected);
+        for g in &d.geometry {
+            let (x, y) = g.instance_at_um.unwrap();
+            let bb = g.bbox_um.unwrap();
+            assert!((bb.min_x - (x + 2.0)).abs() < 1e-6 && (bb.min_y - y).abs() < 1e-6, "{bb:?}");
+        }
+    }
+
+    #[test]
+    fn report_groups_instances_of_the_same_subcell() {
+        let r = diff_gds(&fixture_bytes("multi_inst_a.gds"), &fixture_bytes("multi_inst_b.gds")).expect("diff");
+        let top: Vec<_> = r.geometry.iter().filter(|g| g.cell == "TOP").collect();
+        assert_eq!(top.len(), 1, "{top:?}");
+        assert_eq!((top[0].instances, top[0].added_polygons), (2, 2));
+        assert_eq!(top[0].instance_at_um, None);
+        assert!((top[0].added_area_um2 - 2.0).abs() < 1e-9);
+        let arr = r.geometry.iter().find(|g| g.cell == "ARR").expect("ARR");
+        assert_eq!(arr.instances, 6);
+        let inv = r.geometry.iter().find(|g| g.cell == "INV").expect("INV");
+        assert_eq!((inv.instances, inv.instance_at_um), (0, None));
     }
 
     #[test]
