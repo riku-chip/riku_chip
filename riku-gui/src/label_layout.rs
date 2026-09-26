@@ -6,8 +6,9 @@
 //! 2. **Desplazamiento:** la pastilla no tapa lo que etiqueta. Un punto marca
 //!    el anclaje exacto y el texto va arriba; si choca, prueba abajo,
 //!    derecha e izquierda.
-//! 3. **Anti-solapamiento voraz:** en el orden recibido (el backend pone
-//!    primero pines y al final textos decorativos); lo que no entra se omite
+//! 3. **Anti-solapamiento voraz:** primero las de alimentación y después en
+//!    el orden recibido (el backend pone primero pines y al final textos
+//!    decorativos); lo que no entra se omite
 //!    y se cuenta, para avisar al usuario.
 //!
 //! Todo en coordenadas de pantalla y sin egui::Painter, para testearlo.
@@ -40,22 +41,43 @@ const SAME_POINT: f32 = 2.0;
 /// Margen mínimo entre pastillas.
 const MARGIN: f32 = 2.0;
 
-/// Une etiquetas con el mismo anclaje (conserva el orden de la primera
-/// aparición y no repite textos iguales).
+/// Nombres de alimentación: van primero al fusionar y ganan el espacio.
+const POWER_NETS: &[&str] = &["VPWR", "VGND", "VDD", "VSS", "VCC", "VEE", "VDDIO", "VSSIO", "GND"];
+
+/// Prioridad de una etiqueta (menor = más importante): 0 alimentación,
+/// 1 el resto. El orden de llegada desempata.
+pub fn label_rank(text: &str) -> u8 {
+    let t = text.to_ascii_uppercase();
+    let power = POWER_NETS.contains(&t.as_str()) || t.starts_with("VDD") || t.starts_with("VSS");
+    if power { 0 } else { 1 }
+}
+
+/// Une etiquetas con el mismo anclaje sin repetir textos iguales. Dentro de
+/// cada grupo las partes van por prioridad (`VPWR · VPB`) y, a igual
+/// prioridad, en orden de llegada.
 pub fn merge_coincident(cands: Vec<LabelCandidate>) -> Vec<LabelCandidate> {
-    let mut out: Vec<LabelCandidate> = Vec::with_capacity(cands.len());
+    let mut groups: Vec<(LabelCandidate, Vec<String>)> = Vec::with_capacity(cands.len());
     for c in cands {
-        match out.iter_mut().find(|o| o.anchor.distance(c.anchor) <= SAME_POINT) {
-            Some(o) => {
-                if !o.text.split(" · ").any(|t| t == c.text) {
-                    o.text.push_str(" · ");
-                    o.text.push_str(&c.text);
+        match groups.iter_mut().find(|(g, _)| g.anchor.distance(c.anchor) <= SAME_POINT) {
+            Some((_, parts)) => {
+                if !parts.contains(&c.text) {
+                    parts.push(c.text);
                 }
             }
-            None => out.push(c),
+            None => {
+                let text = c.text.clone();
+                groups.push((c, vec![text]));
+            }
         }
     }
-    out
+    groups
+        .into_iter()
+        .map(|(mut c, mut parts)| {
+            parts.sort_by_key(|t| label_rank(t)); // estable: conserva el orden de llegada
+            c.text = parts.join(" · ");
+            c
+        })
+        .collect()
 }
 
 /// Posiciones a probar para una pastilla de tamaño `size`: arriba, abajo,
@@ -80,7 +102,10 @@ pub fn place(
 ) -> (Vec<PlacedLabel>, usize) {
     let mut placed: Vec<PlacedLabel> = Vec::new();
     let mut hidden = 0;
-    for c in merge_coincident(cands) {
+    let mut merged = merge_coincident(cands);
+    // Si falta espacio, que se omitan primero las que no son alimentación.
+    merged.sort_by_key(|c| label_rank(c.text.split(" · ").next().unwrap_or("")));
+    for c in merged {
         if !clip.contains(c.anchor) {
             continue;
         }
@@ -121,6 +146,32 @@ mod tests {
         ]);
         let texts: Vec<_> = m.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(texts, vec!["VPWR · VPB", "A"]);
+    }
+
+    #[test]
+    fn power_net_goes_first_when_merging() {
+        let m = merge_coincident(vec![
+            cand(10.0, 10.0, "VNB"),
+            cand(10.0, 10.0, "VGND"),
+            cand(30.0, 10.0, "VPB"),
+            cand(30.0, 10.0, "VPWR"),
+            cand(50.0, 10.0, "B"),
+            cand(50.0, 10.0, "A"),
+        ]);
+        let texts: Vec<_> = m.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, vec!["VGND · VNB", "VPWR · VPB", "B · A"]);
+    }
+
+    #[test]
+    fn power_label_wins_the_space() {
+        let (p, hidden) = place(
+            vec![cand(100.0, 100.0, "decorativo"), cand(104.0, 100.0, "vdd")],
+            measure,
+            Rect::from_min_size(Pos2::new(40.0, 70.0), Vec2::new(130.0, 32.0)),
+        );
+        assert_eq!(p[0].text, "vdd");
+        assert!(p[0].rect.max.y < 100.0, "la alimentación conserva la posición preferida");
+        assert_eq!(hidden + p.len(), 2);
     }
 
     #[test]
