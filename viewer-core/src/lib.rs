@@ -12,6 +12,7 @@
 //! - [`Viewport`] — pan + zoom isotrópico, agnóstico del sentido del eje Y.
 //! - [`YAxis`] — sentido del eje Y del mundo de una escena (Xschem Y-down, GDS Y-up).
 //! - [`LayerPaint`] / [`Rgba`] — estilo por capa que una escena puede proveer.
+//! - [`ChangeItem`] — cambio listable de una escena de diff.
 //! - [`ViewerBackend`] — trait asíncrono que implementa cada formato concreto.
 //! - [`ViewerError`] — errores unificados, incluyendo `Cancelled` y `Join`.
 //!
@@ -20,6 +21,7 @@
 
 pub mod backend;
 pub mod bbox;
+pub mod diff;
 pub mod element;
 pub mod error;
 pub mod paint;
@@ -28,6 +30,7 @@ pub mod viewport;
 
 pub use backend::{BackendInfo, ViewerBackend};
 pub use bbox::BoundingBox;
+pub use diff::{ChangeItem, ChangeKind};
 pub use element::{DrawElement, HAlign, Layer, VAlign};
 pub use error::{Result, ViewerError};
 pub use paint::{LayerPaint, Rgba};

@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::bbox::BoundingBox;
+use crate::diff::{ChangeItem, ChangeKind};
 use crate::element::{DrawElement, Layer};
 use crate::paint::LayerPaint;
 use crate::viewport::YAxis;
@@ -30,6 +31,9 @@ pub struct ViewEntry {
     pub is_root: bool,
     /// Ancho × alto en unidades de mundo, si se conoce.
     pub size: Option<(f64, f64)>,
+    /// En escenas de diff: cómo cambió esta entrada entre las dos versiones
+    /// (`None` = sin cambios o escena que no es diff).
+    pub change: Option<ChangeKind>,
 }
 
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
@@ -50,6 +54,8 @@ pub struct Scene {
     pub entries: Vec<ViewEntry>,
     /// Entrada que representa esta escena, si el archivo tiene varias.
     pub current_entry: Option<String>,
+    /// Cambios respecto a otra versión (solo en escenas de diff).
+    pub changes: Vec<ChangeItem>,
 }
 
 impl Default for Scene {
@@ -68,6 +74,7 @@ impl Scene {
             metadata: Vec::new(),
             entries: Vec::new(),
             current_entry: None,
+            changes: Vec::new(),
         }
     }
 
@@ -129,6 +136,11 @@ pub trait RenderableScene: Send + Sync {
         None
     }
 
+    /// Cambios respecto a otra versión (escenas de diff). Por defecto ninguno.
+    fn changes(&self) -> &[ChangeItem] {
+        &[]
+    }
+
     /// Enumera elementos visibles dentro de `viewport_bbox`. Los backends que
     /// quieran culling granular implementan esto; por defecto entrega todos.
     ///
@@ -168,6 +180,10 @@ impl RenderableScene for Scene {
 
     fn current_entry(&self) -> Option<&str> {
         self.current_entry.as_deref()
+    }
+
+    fn changes(&self) -> &[ChangeItem] {
+        &self.changes
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {

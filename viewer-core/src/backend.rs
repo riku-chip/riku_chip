@@ -12,7 +12,7 @@
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::Result;
+use crate::error::{Result, ViewerError};
 use crate::scene::SceneHandle;
 
 /// Metadatos de un backend — devueltos por `info()` para UI y diagnóstico.
@@ -68,6 +68,23 @@ pub trait ViewerBackend: Send + Sync {
         let _ = entry;
         self.load(content, path_hint, token).await
     }
+
+    /// Escena de diff entre dos versiones del archivo: geometría resaltada y
+    /// lista de cambios (`RenderableScene::changes`). `before` vacío = el
+    /// archivo no existía en esa versión. `entry` elige la sub-vista.
+    ///
+    /// Por defecto no soportado: cada backend decide si puede comparar.
+    async fn load_diff(
+        &self,
+        before: Vec<u8>,
+        after: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> Result<SceneHandle> {
+        let _ = (before, after, path_hint, entry, token);
+        Err(ViewerError::Unsupported(format!("{}: diff no soportado", self.info().name)))
+    }
 }
 
 #[cfg(test)]
@@ -100,5 +117,12 @@ mod tests {
             .expect("load_entry");
         assert!(s.entries().is_empty());
         assert!(s.current_entry().is_none());
+        assert!(s.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn default_load_diff_is_unsupported() {
+        let r = Plain.load_diff(Vec::new(), Vec::new(), None, None, CancellationToken::new()).await;
+        assert!(matches!(r, Err(ViewerError::Unsupported(_))));
     }
 }
