@@ -5,6 +5,7 @@
 **VCS semántico para diseño de chips.**
 Revisa cambios en esquemáticos y layouts al nivel del circuito, no del texto.
 
+[![CI](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml/badge.svg)](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#licencia)
 [![Status](https://img.shields.io/badge/status-alpha-yellow)](#estado-del-proyecto)
@@ -66,7 +67,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 |----------|---------------|:--------------:|:----------:|:----------:|
 | Xschem   | `.sch`, `.sym`| ✓              | ✓          | ✓          |
 | GDS      | `.gds`        | ✓ geométrico (XOR) | ✓      | ✓ (librería `gds-renderer`) |
-| OASIS    | `.oas`        | planificado    | planificado | — |
+| OASIS    | `.oas`        | ✓ geométrico (XOR) | ✓      | ✓ (librería `gds-renderer`) |
 | Magic    | `.mag`        | planificado    | planificado | — |
 | NGSpice  | `.raw`        | planificado    | —          | — |
 
@@ -197,13 +198,15 @@ Leyenda:
 | Cyan        | componente trasladado (solo posición) |
 | Amarillo + borde cyan | modificado **y** trasladado |
 
-### Diff de layouts GDS
+### Diff de layouts GDS y OASIS
 
 ```bash
 riku diff <commit_a> <commit_b> layout.gds                # texto
 riku diff <commit_a> <commit_b> layout.gds -f json        # JSON para CI
 riku diff <commit_a> <commit_b> layout.gds -f visual      # GUI
 riku diff <commit_a> <commit_b> layout.gds --cosmetic-threshold-um2 0.05
+riku diff <commit_a> <commit_b> chip.oas                  # OASIS: mismo diff
+riku diff <commit_a> <commit_b> layout.gds --no-cache     # sin la cache de diffs
 ```
 
 ```text
@@ -226,6 +229,13 @@ Cosméticos: 1
 ```
 
 Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se añade su nombre (`TOP:L1/0:INV`) y el bbox queda en coordenadas de la celda que la instancia. Un cambio con área total bajo el umbral (por defecto 0,01 µm², debajo del piso DRC de sky130/gf180) se marca **cosmético**. Si el archivo no existía en `commit_a`, todas sus celdas aparecen como añadidas.
+
+Más detalles del diff:
+
+- **Instancias:** si cambia una sub-celda instanciada varias veces, la CLI lo agrupa (`origen: TOP → INV (en 6 instancias)`) y la GUI muestra un cambio por instancia, con su posición y su recuadro.
+- **Renombres:** una celda renombrada sin cambios de geometría aparece como `r cell:INV → INV_X1`, no como baja + alta.
+- **Formatos:** `.gds` y `.oas` se pueden mezclar entre versiones (el lector se elige por la firma del archivo).
+- **Cache:** en layouts de más de 1 MiB el resultado se guarda en `~/.cache/riku/diff` (tope 512 MiB); repetir el diff o abrirlo en la GUI sale de ahí. Se desactiva con `--no-cache` o `RIKU_NO_CACHE=1`.
 
 En la GUI (`-f visual`), las vistas son las mismas que para Xschem:
 
@@ -260,6 +270,7 @@ riku open archivo.sch
 # o directamente:
 riku-gui archivo.sch
 riku-gui layout.gds
+riku-gui chip.oas
 riku-gui sky130_fd_sc_hd.gds --cell sky130_fd_sc_hd__inv_1   # una celda concreta
 ```
 
@@ -422,13 +433,15 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | Salida JSON estable con schema versionado                           | ✓ Estable     |
 | Diff GDS geométrico (texto + JSON), jerárquico, umbral cosmético    | ✓ Estable     |
 | Visor y diff visual GDS en la GUI                                   | ✓ Estable     |
-| OASIS, celdas renombradas, cache del XOR                            | planificado   |
+| OASIS, celdas renombradas, cambio por instancia, cache del diff    | ✓ Estable     |
+| Shell interactivo (`riku` sin argumentos) con historial y Tab       | ✓ Estable     |
+| Paquetes instalables (`.tar.gz`, `.deb`) y build en Windows         | planificado   |
 | Driver Magic / NGSpice                                              | planificado   |
 | `--graph` ASCII en `riku log`                                       | planificado   |
 | Modo `--ci` (exit code por severidad)                               | planificado   |
 | `riku show <commit> <file>`                                         | planificado   |
 
-Pendientes técnicos priorizados (CI, warnings, paridad de la vista `.sch`, OASIS…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
+Pendientes técnicos priorizados (paridad de la vista `.sch`, empaquetado, layouts muy grandes…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
 
 ---
 

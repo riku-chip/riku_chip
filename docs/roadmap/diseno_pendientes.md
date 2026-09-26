@@ -318,3 +318,23 @@ Se cierra: egui 0.34 no expone el espaciado entre letras. En `pendientes.md` pas
 - `pendientes.md`: mover los items hechos a "Hecho", #13 a limitaciones y actualizar el hash de `main`.
 - `integracion_gds_estado.md`: OASIS, renombres, instancias, CI y tablas de tests actualizadas.
 - `README.md`: badge de CI y `.oas` en la lista de formatos.
+
+---
+
+## Resultado de la implementación (2026-09-26)
+
+| # | Estado | Notas |
+|---|---|---|
+| 2 | Hecho | 18 literales con `_f32`; los 4 crates compilan sin warnings con `-D warnings` |
+| 1 | Hecho | La CI queda en verde en ~1–2 min por crate con la cache. Se versionó `viewer-core/Cargo.lock` para poder usar `--locked`. El job `fmt` quedó fuera (pasa a baja prioridad) |
+| 8 | Hecho | `label_rank` a partir del texto (nombres de alimentación); sin campo nuevo en `LabelCandidate` |
+| 6 | Hecho, con un cambio | La clave de instancia es su **posición** (origen de la reference + offset de la repetición), no el índice: así es estable entre A y B aunque cambie el orden de las references. La GUI muestra `@ (x, y)`; la CLI agrupa (`instances`) |
+| 5 | Hecho, con un cambio | Para no tocar `viewer-core` (el `ChangeKind` lo comparte el submódulo Xschem), la GUI marca el renombre como `~` y lo explica en la lista de cambios. Pendiente menor: la pestaña Antes (ver `pendientes.md`) |
+| 4 | Hecho | Commit `c1c32cb` en gdstk_rust (`from_oas_bytes`, `from_bytes_any`, `sniff_format`, `write_oas`); también faltaba `is_gds_path` en la CLI y `.gitattributes` para layouts binarios |
+| 7 | Hecho | Idéntico en las tres librerías (~30 s); `BBOX empty` normaliza la celda vacía de GF180 |
+| 10 | **Descartado** | Medido en 6,2 M de polígonos: triangular 4 ms/frame y `is_convex` 119 ms/frame, contra segundos de dibujo. Por debajo del umbral del 10 %; se documenta y se propone LOD |
+| 9 | Hecho, con un cambio | JSON (`serde_json`) en lugar de bincode, para no sumar dependencias; hash de 128 bits con SipHash. `diff_gds` además saltea el XOR de las celdas con la misma huella |
+| 11 | Hecho | `shell_complete.rs`: función pura + `Helper` de rustyline; `ls` también lista layouts |
+| 14 | Hecho | 116 capas de GF180 y 376 de IHP generadas |
+| 12 | En curso | Job `windows (no bloqueante)` en la CI |
+| 13 | Cerrado | Pasa a "Limitaciones conocidas" |

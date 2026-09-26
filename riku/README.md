@@ -36,7 +36,7 @@ El prompt muestra el directorio actual y si hay un repositorio Git activo. Dentr
 
 | Comando | Descripción |
 |---------|-------------|
-| `ls [ruta]` | Lista archivos `.sch` y subdirectorios. Marca `[git]` los que están bajo control de versiones. |
+| `ls [ruta]` | Lista archivos `.sch`, `.sym`, `.gds` y `.oas` y subdirectorios. Marca `[git]` los que están bajo control de versiones. |
 | `cd <ruta>` | Navega a otra carpeta sin salir del shell. Actualiza el repo Git activo automáticamente. |
 | `help` | Muestra todos los comandos disponibles. |
 | `exit` | Sale del shell. |
@@ -63,7 +63,7 @@ riku layout> ls
   (sin archivos .sch ni subdirectorios)
 ```
 
-El historial de comandos persiste con ↑↓ durante la sesión.
+El historial de comandos persiste con ↑↓ durante la sesión. **Tab** completa comandos, flags de cada subcomando, carpetas (después de `cd`), ramas, tags, commits recientes y archivos de diseño.
 
 ---
 
@@ -182,7 +182,7 @@ Solo se añaden los paths que existen en disco. En entornos como `iic-osic-tools
 ### `open`
 
 ```text
-riku open [archivo.sch | archivo.gds]
+riku open [archivo.sch | archivo.gds | archivo.oas]
 ```
 
 Abre el archivo en `riku-gui` (sin argumento, el árbol del directorio actual).
@@ -243,4 +243,4 @@ cargo test --test stress    # rendimiento
 
 - `diff --format visual` lanza `riku-gui` con los argumentos del diff.
 - `riku render` y el caché en disco fueron eliminados: el render se hace bajo demanda y se entrega como `String`, sin escribir a disco salvo cuando lo pide explícitamente otro consumidor.
-- `diff` soporta Xschem `.sch` (diff semántico) y GDS `.gds` (diff geométrico por celda y capa, con `--cosmetic-threshold-um2`). Detalle GDS en `docs/integracion_gds_estado.md`. Magic y NGSpice están en roadmap.
+- `diff` soporta Xschem `.sch` (diff semántico) y layouts `.gds`/`.oas` (diff geométrico por celda y capa, con `--cosmetic-threshold-um2`; renombres, cambios por instancia y cache en disco que se apaga con `--no-cache`). Detalle GDS en `docs/integracion_gds_estado.md`. Magic y NGSpice están en roadmap.
