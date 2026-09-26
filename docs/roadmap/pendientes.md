@@ -37,7 +37,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 ## Media prioridad
 
 ### 4. Build en Windows
-- **Por qué:** con MSVC 2019 local falla (LNK1171, OOM, DLLs de vcpkg). La CI tiene un job `windows (no bloqueante)` con VS 2022 y vcpkg. Resultado del primer intento: WINDOWS_RESULT.
+- **Por qué:** con MSVC 2019 local falla (LNK1171, OOM, DLLs de vcpkg). La CI tiene un job `windows (no bloqueante)` con VS 2022 y vcpkg. Tras aceptar el `z.lib` de zlib 1.3.2 (commit `ca86886` en gdstk_rust), **los tests de gds-renderer, riku y riku-gui pasan en Windows** (run `36271142299`). Falta ver que se mantenga estable y documentar la instalación en Windows (vcpkg + DLLs junto al `.exe`).
 - **Dónde:** `.github/workflows/ci.yml` (job `windows`) y `external/gdstk/rust/build.rs`. Si el problema es el linker, probar `rust-lld` en `.cargo/config.toml` solo para Windows.
 - **Esfuerzo:** M (exploratorio).
 - **Listo cuando:** el job queda en verde una semana y se le quita `continue-on-error`.
@@ -66,6 +66,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 | 8 | Formato con `cargo fmt` en la CI | El código no está formateado de forma uniforme; activarlo implica un commit grande solo de formato | S |
 | 9 | Clippy en la CI | Primero como job no bloqueante, hasta dejarlo limpio | S |
 | 10 | Paleta SKY130 completa desde su `.lyp` | `tools/palettes/gen_palettes.py` ya lo hace para GF180 e IHP; agregar SKY130 (429 capas) es sumar una entrada a `PDKS` | S |
+| 11 | Exportar SVG/PNG desde el visor | Botón "Exportar…" que escriba la escena neutra de `viewer-core` (sirve para `.sch` y `.gds`) o capture el lienzo; opcional `riku render` para scripts. El render SVG antiguo de gds-renderer nunca se usó y se borra | S |
 
 ---
 

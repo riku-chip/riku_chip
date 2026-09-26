@@ -148,7 +148,7 @@ Todos corren en la CI (GitHub Actions) con cada push y cada PR, con `-D warnings
 
 ## 6. Entorno de desarrollo
 
-Windows + MSVC 2019 falla de varias formas al compilar gdstk-rs: LNK1171 por `mspdbcore.dll`, OOM de LLVM y DLLs de vcpkg en runtime. La CI tiene un job `windows (no bloqueante)` con VS 2022 y vcpkg para seguirlo (ver `pendientes.md`, #4). En Linux todo compila sin ajustes. El entorno de referencia es el contenedor **iic-osic-tools**, que trae Rust vía `rustup`, zlib, qhull, KLayout y los PDKs en `/foss/pdks`.
+Windows + MSVC 2019 falla de varias formas al compilar gdstk-rs: LNK1171 por `mspdbcore.dll`, OOM de LLVM y DLLs de vcpkg en runtime. Con VS 2022 y zlib/qhull de vcpkg sí compila y pasan los tests: la CI lo prueba en el job `windows (no bloqueante)` (ver `pendientes.md`, #4). En Linux todo compila sin ajustes. El entorno de referencia es el contenedor **iic-osic-tools**, que trae Rust vía `rustup`, zlib, qhull, KLayout y los PDKs en `/foss/pdks`.
 
 ```bash
 docker exec -it <contenedor-iic-osic-tools> bash

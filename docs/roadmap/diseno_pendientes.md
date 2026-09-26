@@ -336,5 +336,5 @@ Se cierra: egui 0.34 no expone el espaciado entre letras. En `pendientes.md` pas
 | 9 | Hecho, con un cambio | JSON (`serde_json`) en lugar de bincode, para no sumar dependencias; hash de 128 bits con SipHash. `diff_gds` además saltea el XOR de las celdas con la misma huella |
 | 11 | Hecho | `shell_complete.rs`: función pura + `Helper` de rustyline; `ls` también lista layouts |
 | 14 | Hecho | 116 capas de GF180 y 376 de IHP generadas |
-| 12 | En curso | Job `windows (no bloqueante)` en la CI |
+| 12 | En verde | Job `windows (no bloqueante)`: el fallo era el nombre `z.lib` de zlib 1.3.2 en vcpkg (fix en gdstk_rust `ca86886`). Los tests de los 3 crates pasan con VS 2022; se quita `continue-on-error` cuando lleve una semana estable |
 | 13 | Cerrado | Pasa a "Limitaciones conocidas" |
