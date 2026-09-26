@@ -222,7 +222,40 @@ Cada fase deja `main` verde y con los mismos tests o más. El orden va de lo que
 | 2 | **Sacar formatos del kernel.** `detect()` en cada módulo; `format.rs` y `svg_annotator.rs` fuera del kernel; `DiffView` neutro; la CLI sin `is_gds_path` | C, D | M |
 | 3 | **Registro único.** `Registry` con `FormatModule::viewer()`; `modules.rs`; features por módulo | H | S |
 | 4 | **`Scene` con `ghost` y `annotations`; `XschemBackend` al módulo.** La GUI usa una sola ruta; `sch_painter.rs` se reduce a producir overlays; se quita la feature del submódulo | E, F, pendiente #1 | L |
-| 5 | Renombrar `gds-renderer` → `riku-mod-layout`; borrar el render SVG (nunca se conectó a un comando; la exportación futura sale de la escena neutra, ver pendientes #11) | G | S |
+| 5 | Renombrar `gds-renderer` → `riku-mod-layout`; borrar el render SVG (nunca se conectó a un comando; la exportación futura sale de la escena neutra, ver pendientes #11). Además, dos comandos que salen casi gratis del registro: **`riku show`** y **`--ci`** (ver 3.1) | G | S+S+S |
+| 6 | **`riku log --graph`**: grafo ASCII de ramas y merges a la izquierda del log semántico (ver 3.2) | — | M |
+| 7 | **Módulo Magic (`.mag`)**: primer formato nuevo sobre la arquitectura; prueba que agregar un formato no toca núcleo, CLI ni visor. NGSpice (`.raw`) queda después: son formas de onda, no geometría ni netlist, y necesita otro tipo de vista (ver 3.3) | — | L |
+
+### 3.1 Fase 5: `riku show` y `--ci`
+
+**`riku show <commit> [archivo]`** — como `git show`, pero semántico: los cambios de ese commit respecto a su primer padre, por archivo con módulo. Sin archivo, todos los que cambió el commit. Reutiliza `analyze_diff_with_repo` y los formatters existentes; no toca el núcleo.
+
+```text
+riku show HEAD                       # resumen de todos los archivos del commit
+riku show abc123 amp.sch             # un archivo (= riku diff abc123~1 abc123 amp.sch)
+riku show abc123 chip.gds -f json    # riku-diff/v2
+riku show abc123 amp.sch -f visual   # visor con el diff de ese commit
+```
+
+Un commit sin padre (el primero) compara contra vacío: todo aparece como añadido.
+
+**`--ci`** en `diff`, `show` y `status` — código de salida según lo que cambió, para usar en GitHub Actions sin parsear JSON:
+
+| Código | Significado |
+|---|---|
+| 0 | sin cambios, o solo cosméticos (Move All, bajo el umbral de área) |
+| 1 | hay cambios funcionales |
+| 2 | error (commit o archivo inexistente, formato ilegible) |
+
+`--ci` no cambia lo que se imprime; se combina con `-f json`. La clasificación ya existe (`Change.cosmetic`); solo falta mapearla a `std::process::exit`.
+
+### 3.2 Fase 6: `--graph`
+
+Columnas de ramas calculadas sobre el orden topológico que ya recorre `log/walk.rs` (mismo algoritmo que `git log --graph`: una columna por rama abierta, `|`, `/`, `\`, `*`). Solo afecta a la salida de texto; `--json` sigue igual (ya trae los padres de cada commit).
+
+### 3.3 Fase 7: Magic
+
+`riku/src/modules/magic.rs` con feature `magic`: parser de `.mag` (texto: `<< capa >>` + `rect x1 y1 x2 y2`, `use` para instancias), diff por celda y capa en los mismos tipos `Element::Geometry` que el layout, y un `ViewerBackend` que arma la escena con las paletas existentes. Criterio de éxito de la arquitectura: el diff del commit solo toca `modules/` y `Cargo.toml`.
 
 **Qué NO cambia:** los algoritmos (diff semántico de Carlos, XOR de gdstk, paletas, etiquetas, motion), `viewer-core` (solo gana campos), la CLI para el usuario (mismos comandos; el JSON cambia de schema una sola vez, en la Fase 1, y se documenta).
 

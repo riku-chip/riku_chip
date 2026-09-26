@@ -457,10 +457,11 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | Ejecutable único y paquetes instalables (`.tar.gz`, `.deb`)         | ✓ Estable     |
 | Núcleo + módulos de formato (microkernel)                           | ✓ Estable     |
 | Exportar la vista del visor a SVG/PNG                               | planificado   |
-| Driver Magic / NGSpice                                              | planificado   |
-| `--graph` ASCII en `riku log`                                       | planificado   |
-| Modo `--ci` (exit code por severidad)                               | planificado   |
-| `riku show <commit> <file>`                                         | planificado   |
+| `riku show <commit> [archivo]`                                      | planificado (fase 5) |
+| Modo `--ci` (exit code: 0 cosmético, 1 funcional, 2 error)          | planificado (fase 5) |
+| `--graph` ASCII en `riku log`                                       | planificado (fase 6) |
+| Módulo Magic (`.mag`)                                               | planificado (fase 7) |
+| NGSpice (`.raw`)                                                    | planificado   |
 
 Pendientes técnicos priorizados (layouts muy grandes, exportación desde el visor…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).
 
