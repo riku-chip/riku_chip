@@ -281,3 +281,49 @@ fn git_service_reports_large_blobs() {
         } if path == file_path && size == LARGE_BLOB_THRESHOLD + 1
     ));
 }
+
+#[test]
+fn show_compares_a_commit_against_its_parent() {
+    use riku::core::analysis::show::analyze_show;
+    use riku::core::domain::git_types::ChangeStatus;
+    use riku::core::domain::models::Element;
+
+    let temp = test_tempdir();
+    let repo = Repository::init(temp.path()).unwrap();
+    let sch = |v: &str| format!("v {{xschem version=3.0.0 file_version=1.2}}\nC {{res.sym}} 10 20 0 0 {{name=R1 value={v}}}\n");
+    commit_file(&repo, "amp.sch", &sch("10k"), "init");
+    commit_file(&repo, "amp.sch", &sch("22k"), "valor");
+    commit_file(&repo, "notas.txt", "hola", "notas");
+
+    let svc = GitService::open(temp.path()).unwrap();
+    let modules = riku::modules::registry();
+    let opts = riku_kernel::DiffOptions::default();
+
+    // Commit con padre: el valor de R1 cambió.
+    let r = analyze_show(&svc, "HEAD~1", None, &modules, &opts).unwrap();
+    assert_eq!(r.commit.info.message, "valor");
+    assert!(r.parent().is_some());
+    assert_eq!(r.files.len(), 1);
+    assert_eq!(r.files[0].status, Some(ChangeStatus::Modified));
+    let change = r.files[0].change.as_ref().unwrap();
+    assert!(matches!(&change.changes[0].element, Element::Component { name } if name == "R1"));
+    assert!(r.has_functional_changes());
+
+    // Commit inicial: se compara contra vacío.
+    let root = analyze_show(&svc, "HEAD~2", None, &modules, &opts).unwrap();
+    assert!(root.parent().is_none());
+    assert_eq!(root.files[0].status, Some(ChangeStatus::Added));
+
+    // Archivo sin módulo: se lista, sin diff, y no cuenta como cambio funcional.
+    let txt = analyze_show(&svc, "HEAD", None, &modules, &opts).unwrap();
+    assert_eq!(txt.files[0].path, "notas.txt");
+    assert!(txt.files[0].change.is_none());
+    assert!(!txt.has_functional_changes());
+
+    // Un archivo que el commit no tocó: sin cambios.
+    let same = analyze_show(&svc, "HEAD", Some("amp.sch"), &modules, &opts).unwrap();
+    assert_eq!(same.files[0].status, None);
+    assert!(same.files[0].change.as_ref().unwrap().is_empty());
+
+    assert!(analyze_show(&svc, "no-existe", None, &modules, &opts).is_err());
+}

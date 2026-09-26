@@ -1,7 +1,7 @@
-use git2::{DiffOptions, Repository};
+use git2::{Diff, DiffOptions, Repository};
 
-use crate::core::domain::git_types::{ChangeStatus, ChangedFile, GitError};
-use crate::core::git::helpers::resolve_commit;
+use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitChanges, CommitWithParents, GitError};
+use crate::core::git::helpers::{commit_info_from, resolve_commit};
 
 pub(super) fn get_changed_files(
     repo: &Repository,
@@ -11,8 +11,30 @@ pub(super) fn get_changed_files(
     let tree_a = resolve_commit(repo, commit_a)?.tree()?;
     let tree_b = resolve_commit(repo, commit_b)?.tree()?;
     let mut options = DiffOptions::new();
-    let mut diff =
+    let diff =
         repo.diff_tree_to_tree(Some(&tree_a), Some(&tree_b), Some(&mut options))?;
+    changed_files(diff)
+}
+
+/// Un commit, sus padres y los archivos que cambió respecto al primero. El
+/// commit inicial se compara contra un árbol vacío: todo aparece añadido.
+pub(super) fn commit_changes(repo: &Repository, commit_ish: &str) -> Result<CommitChanges, GitError> {
+    let commit = resolve_commit(repo, commit_ish)?;
+    let parent_tree = match commit.parent(0) {
+        Ok(parent) => Some(parent.tree()?),
+        Err(_) => None,
+    };
+    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit.tree()?), None)?;
+    Ok(CommitChanges {
+        commit: CommitWithParents {
+            info: commit_info_from(&commit),
+            parents: commit.parent_ids().map(|oid| oid.to_string()).collect(),
+        },
+        files: changed_files(diff)?,
+    })
+}
+
+fn changed_files(mut diff: Diff<'_>) -> Result<Vec<ChangedFile>, GitError> {
     let mut find_options = git2::DiffFindOptions::new();
     diff.find_similar(Some(&mut find_options))?;
 

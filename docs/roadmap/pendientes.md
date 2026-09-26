@@ -12,7 +12,7 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
 ### 1. Paridad de la vista de esquemáticos con la de GDS — hecho (2026-09-26)
 - El visor dibuja `.sch` y `.gds` por la misma ruta (fase 4 de `diseno_arquitectura_final.md`): los esquemáticos ganaron tooltip, capas activables, animación, inercia, atajos `+`/`−`/`F` y la lista de cambios con "ir al cambio" y el detalle de parámetros. Fantasmas, recuadros por componente y nets resaltadas se conservan como overlays de la escena.
-- **Queda:** en un `.sch` nuevo (no existía en el commit anterior) el diff no lista nada porque el módulo avisa que un lado está vacío; debería contar todo como añadido, como en los layouts.
+- Un `.sch` nuevo o eliminado entre dos commits ahora lista todos sus componentes y nets como añadidos o eliminados (un lado vacío es un esquemático sin nada, como en los layouts).
 
 ### 2. Diff de layouts muy grandes
 - **Por qué:** en un `user_project_wrapper` de 42 MB (Caravel), el primer `riku diff` **no terminó en 45 minutos** (se midió con el binario de release; se cortó). La cache (#9 del diseño) evita repetirlo, pero la primera vez sigue siendo inviable: se aplana la jerarquía completa de cada celda, y las celdas que instancian a otras repiten el trabajo.

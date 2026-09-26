@@ -242,8 +242,9 @@ fn print_shell_help() {
     println!(
         "                                                    historial con resumen semántico por commit"
     );
-    println!("    diff <commit_a> <commit_b> <archivo.sch>      diff semántico");
-    println!("    diff ... --format visual                      diff visual en HTML");
+    println!("    diff <commit_a> <commit_b> <archivo>          diff semántico (.sch, .gds, .oas)");
+    println!("    diff ... --format visual                      diff en el visor");
+    println!("    show <commit> [archivo]                       cambios de un commit respecto a su padre");
     println!();
     println!("  Visor:");
     println!("    open [archivo]                                abrir el visor (.sch, .gds, .oas)");
@@ -265,7 +266,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                 return;
             };
             resolve_for_shell(&mut cmd, ctx);
-            // `Outcome::Status*` se descarta a propósito — el shell no usa
+            // `Outcome::Clean/Functional` se descarta a propósito — el shell no usa
             // exit codes; cambios pendientes se reflejan en la salida del
             // propio comando.
             if let Err(e) = cmd.execute() {
@@ -299,6 +300,14 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
         } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
             *file_path = ctx.resolve_file(file_path);
+        }
+        Commands::Show {
+            repo, file_path, ..
+        } => {
+            *repo = ctx.resolve_repo(std::mem::take(repo));
+            if let Some(f) = file_path.as_mut() {
+                *f = ctx.resolve_file(f);
+            }
         }
         Commands::Log {
             repo, file_path, ..

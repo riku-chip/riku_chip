@@ -137,6 +137,20 @@ Salida JSON estable bajo el schema `riku-log/v1`.
 
 ---
 
+### `riku show`
+
+Los cambios semánticos de un commit respecto a su primer padre, por archivo (el commit inicial contra vacío).
+
+```bash
+riku show <commit> [archivo] [-f text|json|visual] [--ci] [--cosmetic-threshold-um2 X] [--no-cache]
+```
+
+`-f json` sale en el schema `riku-show/v1` (el commit y, por archivo, los mismos cambios que `riku diff -f json`). `-f visual` necesita el archivo.
+
+Con `--ci` (también en `riku diff`): `0` sin cambios o solo cosméticos, `1` cambios funcionales, `2` error.
+
+---
+
 ### `riku status`
 
 Reporta el estado del working tree comparado con `HEAD`.

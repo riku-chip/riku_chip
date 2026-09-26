@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::core::domain::git_types::{
-    BranchInfo, ChangedFile, CommitInfo, CommitWithParents, GitError, LogQuery, WorkingChange,
+    BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
+    WorkingChange,
 };
 
 pub trait GitRepository {
@@ -51,6 +52,12 @@ pub trait GitRepository {
     /// Mapa `oid → [refs]` para anotar el log. Default vacío.
     fn refs_by_oid(&self) -> Result<HashMap<String, Vec<String>>, GitError> {
         Ok(HashMap::new())
+    }
+
+    /// Un commit, sus padres y los archivos que cambió respecto al primero
+    /// (`riku show`). Default: error, para no forzar a los mocks.
+    fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError> {
+        Err(GitError::CommitNotFound(commit_ish.to_string()))
     }
 }
 

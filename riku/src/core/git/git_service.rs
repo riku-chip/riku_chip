@@ -4,7 +4,8 @@ use std::path::Path;
 use git2::Repository;
 
 use crate::core::domain::git_types::{
-    BranchInfo, ChangedFile, CommitInfo, CommitWithParents, GitError, LogQuery, WorkingChange,
+    BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
+    WorkingChange,
 };
 use crate::core::domain::ports::{GitRepository, RepoRoot};
 use crate::core::git::{blob, branch, commit_log, diff, working_tree};
@@ -69,5 +70,9 @@ impl GitRepository for GitService {
 
     fn refs_by_oid(&self) -> Result<HashMap<String, Vec<String>>, GitError> {
         branch::refs_by_oid(&self.repo)
+    }
+
+    fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError> {
+        diff::commit_changes(&self.repo, commit_ish)
     }
 }

@@ -281,6 +281,36 @@ riku log design/op_amp.sch -n 10               # filtrado por archivo
 riku log --json                                # JSON estable (schema riku-log/v1)
 ```
 
+### Un commit: `riku show`
+
+Como `git show`, pero semántico: los cambios de un commit respecto a su padre, archivo por archivo.
+
+```bash
+riku show HEAD                                 # todos los archivos del commit
+riku show abc123 design/op_amp.sch             # uno (= riku diff abc123~1 abc123 …)
+riku show abc123 chip.gds -f json              # schema riku-show/v1
+riku show abc123 design/op_amp.sch -f visual   # el diff de ese commit en el visor
+```
+
+El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final.
+
+### En CI: códigos de salida
+
+`riku status` siempre, y `riku diff` / `riku show` con `--ci`, terminan con:
+
+| Código | Significado |
+|---|---|
+| 0 | sin cambios, o solo cosméticos (Move All, bajo el umbral de área) |
+| 1 | hay cambios funcionales |
+| 2 | error (commit o archivo inexistente, repo inválido…) |
+
+```yaml
+# GitHub Actions: avisar si un PR cambia el circuito
+- run: riku show HEAD --ci || echo "::warning::el commit cambia el circuito"
+```
+
+Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error), como siempre.
+
 ### Abrir un archivo en la GUI
 
 ```bash
@@ -457,8 +487,8 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | Ejecutable único y paquetes instalables (`.tar.gz`, `.deb`)         | ✓ Estable     |
 | Núcleo + módulos de formato (microkernel)                           | ✓ Estable     |
 | Exportar la vista del visor a SVG/PNG                               | planificado   |
-| `riku show <commit> [archivo]`                                      | planificado (fase 5) |
-| Modo `--ci` (exit code: 0 cosmético, 1 funcional, 2 error)          | planificado (fase 5) |
+| `riku show <commit> [archivo]`                                      | ✓ Estable     |
+| Modo `--ci` (exit code: 0 cosmético, 1 funcional, 2 error)          | ✓ Estable     |
 | `--graph` ASCII en `riku log`                                       | planificado (fase 6) |
 | Módulo Magic (`.mag`)                                               | planificado (fase 7) |
 | NGSpice (`.raw`)                                                    | planificado   |

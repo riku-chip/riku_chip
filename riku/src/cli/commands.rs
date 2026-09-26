@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use riku_kernel::DiffOptions;
 
 use crate::core::analysis::commit_diff::analyze_diff_with_repo;
+use crate::core::analysis::show::analyze_show;
+use crate::core::domain::ports::GitRepository;
 use crate::core::domain::models::FileChange;
 use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
@@ -33,9 +35,9 @@ pub(super) fn run_diff(
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
     use_cache: bool,
-) -> Result<(), String> {
+) -> Result<Changes, String> {
     if matches!(format, OutputFormat::Visual) {
-        return present_visual(&repo, commit_a, commit_b, file_path);
+        return present_visual(&repo, commit_a, commit_b, file_path).map(|_| Changes::Clean);
     }
     // Mismo flujo que log/status; el umbral cosmético y la cache los usa el
     // módulo de layouts, los demás los ignoran.
@@ -44,7 +46,61 @@ pub(super) fn run_diff(
     let mut report = analyze_diff_with_repo(&svc, commit_a, commit_b, file_path, &crate::modules::registry(), &opts)
         .map_err(|e| e.to_string())?;
     let warnings = std::mem::take(&mut report.warnings);
-    print_diff(&report, &warnings, file_path, format)
+    print_diff(&report, &warnings, file_path, format)?;
+    Ok(Changes::of(report.functional().next().is_some()))
+}
+
+/// Si un comando encontró cambios funcionales. Lo usan los códigos de salida
+/// de `status` y de `diff`/`show --ci` (ver `cli::run`).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Changes {
+    /// Sin cambios, o solo cosméticos.
+    Clean,
+    /// Al menos un cambio funcional.
+    Functional,
+}
+
+impl Changes {
+    fn of(functional: bool) -> Self {
+        if functional { Changes::Functional } else { Changes::Clean }
+    }
+}
+
+// ─── Show ────────────────────────────────────────────────────────────────────
+
+/// `riku show`: los cambios de un commit respecto a su primer padre.
+pub(super) fn run_show(
+    repo: PathBuf,
+    commit: &str,
+    file_path: Option<&str>,
+    format: OutputFormat,
+    cosmetic_threshold_um2: f64,
+    use_cache: bool,
+) -> Result<Changes, String> {
+    let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
+    if matches!(format, OutputFormat::Visual) {
+        let Some(file) = file_path else {
+            return Err("show -f visual necesita un archivo: riku show <commit> <archivo> -f visual".into());
+        };
+        let changes = svc.commit_changes(commit).map_err(|e| e.to_string())?;
+        let Some(parent) = changes.commit.parents.first() else {
+            return Err(format!(
+                "{commit} es el commit inicial: no hay versión anterior con la que comparar. Para verlo: riku open {file}"
+            ));
+        };
+        return present_visual(&repo, parent, &changes.commit.info.oid, file).map(|_| Changes::Clean);
+    }
+    if matches!(format, OutputFormat::JsonV1) {
+        return Err("show no tiene salida json-v1; usa -f json (schema riku-show/v1)".into());
+    }
+
+    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache };
+    let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
+    match format {
+        OutputFormat::Json => format::show_json::print(&report, true)?,
+        _ => format::show_text::print(&report)?,
+    }
+    Ok(Changes::of(report.has_functional_changes()))
 }
 
 /// Imprime un diff en el formato pedido (texto, JSON v2 o JSON v1).
@@ -134,16 +190,7 @@ pub(super) struct StatusArgs {
     pub paths: Vec<String>,
 }
 
-/// Resultado funcional de `riku status`. Mapeo a exit codes en `cli::run`.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum StatusOutcome {
-    /// Sin cambios semánticos.
-    Clean,
-    /// Hay al menos un cambio semántico.
-    Dirty,
-}
-
-pub(super) fn run_status(args: StatusArgs) -> Result<StatusOutcome, String> {
+pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     let level = DetailLevel::from_flags(args.detail, args.full);
 
     let opts = StatusOptions {
@@ -158,10 +205,6 @@ pub(super) fn run_status(args: StatusArgs) -> Result<StatusOutcome, String> {
         format::status_text::print(&report, level, args.include_unknown);
     }
 
-    Ok(if report.has_semantic_changes() {
-        StatusOutcome::Dirty
-    } else {
-        StatusOutcome::Clean
-    })
+    Ok(Changes::of(report.has_semantic_changes()))
 }
 

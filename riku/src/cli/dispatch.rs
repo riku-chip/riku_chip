@@ -6,7 +6,7 @@
 //! clap (en `cli/mod.rs`) y el brazo correspondiente de `execute`.
 
 use super::Commands;
-use super::commands;
+use super::commands::{self, Changes};
 use super::doctor;
 use super::gui;
 
@@ -14,8 +14,19 @@ use super::gui;
 /// El caller decide cómo mapearlo a exit codes (o ignorarlo, en el shell).
 pub(super) enum Outcome {
     Ok,
-    StatusClean,
-    StatusDirty,
+    /// Sin cambios, o solo cosméticos (`status`, `diff`, `show`).
+    Clean,
+    /// Hay al menos un cambio funcional (`status`, `diff`, `show`).
+    Functional,
+}
+
+impl From<Changes> for Outcome {
+    fn from(c: Changes) -> Self {
+        match c {
+            Changes::Clean => Outcome::Clean,
+            Changes::Functional => Outcome::Functional,
+        }
+    }
 }
 
 impl Commands {
@@ -29,6 +40,7 @@ impl Commands {
                 format,
                 cosmetic_threshold_um2,
                 no_cache,
+                ci: _,
             } => commands::run_diff(
                 repo,
                 &commit_a,
@@ -38,7 +50,18 @@ impl Commands {
                 cosmetic_threshold_um2,
                 !no_cache,
             )
-            .map(|_| Outcome::Ok),
+            .map(Outcome::from),
+
+            Commands::Show {
+                commit,
+                file_path,
+                repo,
+                format,
+                cosmetic_threshold_um2,
+                no_cache,
+                ci: _,
+            } => commands::run_show(repo, &commit, file_path.as_deref(), format, cosmetic_threshold_um2, !no_cache)
+                .map(Outcome::from),
 
             Commands::Log {
                 file_path,
@@ -83,10 +106,7 @@ impl Commands {
                 full,
                 paths,
             })
-            .map(|outcome| match outcome {
-                commands::StatusOutcome::Clean => Outcome::StatusClean,
-                commands::StatusOutcome::Dirty => Outcome::StatusDirty,
-            }),
+            .map(Outcome::from),
 
             Commands::Open { file } => gui::run(file).map(|_| Outcome::Ok),
             Commands::Gui { args } => gui::run_here(args).map(|_| Outcome::Ok),

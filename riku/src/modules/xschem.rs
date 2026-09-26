@@ -33,7 +33,9 @@ fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result
     let text = std::str::from_utf8(content).map_err(|_| {
         format!("{path_hint} ({side}): contenido no es UTF-8 valido, se omite el diff semantico.")
     })?;
-    if !is_xschem(content) {
+    // Vacío = el archivo no existía en ese commit (nuevo o eliminado): un
+    // esquemático sin nada, así todo aparece añadido o eliminado.
+    if !content.is_empty() && !is_xschem(content) {
         return Err(format!(
             "{path_hint} ({side}): no es formato Xschem, se omite el diff semantico."
         ));
@@ -190,6 +192,21 @@ mod tests {
 
     fn driver() -> XschemModule {
         XschemModule::new()
+    }
+
+    #[test]
+    fn a_new_or_deleted_schematic_lists_everything() {
+        let sch = b"v {xschem version=3.0.0 file_version=1.2}\n\
+C {res.sym} 10 20 0 0 {name=R1 value=10k}\n\
+N 0 0 10 0 {lab=OUT}\n";
+        let added = driver().diff(b"", sch, "x.sch", &DiffOptions::default());
+        assert!(added.warnings.is_empty(), "{:?}", added.warnings);
+        assert!(added.changes.iter().any(|c| c.kind == ChangeKind::Added && c.element.name() == "R1"));
+        assert!(added.changes.iter().any(|c| c.kind == ChangeKind::Added && matches!(c.element, Element::Net { .. })));
+        assert!(added.functional().next().is_some());
+
+        let removed = driver().diff(sch, b"", "x.sch", &DiffOptions::default());
+        assert!(removed.changes.iter().any(|c| c.kind == ChangeKind::Removed && c.element.name() == "R1"));
     }
 
     #[test]

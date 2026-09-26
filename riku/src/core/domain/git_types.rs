@@ -46,6 +46,14 @@ pub struct ChangedFile {
     pub old_path: Option<String>,
 }
 
+/// Un commit y los archivos que cambió respecto a su primer padre (o a un
+/// árbol vacío si es el commit inicial). Lo emite `commit_changes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitChanges {
+    pub commit: CommitWithParents,
+    pub files: Vec<ChangedFile>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeStatus {

@@ -59,6 +59,32 @@ pub(crate) enum Commands {
         /// (también: RIKU_NO_CACHE=1).
         #[arg(long = "no-cache")]
         no_cache: bool,
+        /// Código de salida para CI: 0 sin cambios o solo cosméticos,
+        /// 1 cambios funcionales, 2 error.
+        #[arg(long)]
+        ci: bool,
+    },
+    /// Muestra los cambios semanticos de un commit respecto a su padre.
+    Show {
+        /// Commit (hash, rama, HEAD~2…).
+        commit: String,
+        /// Solo este archivo; sin él, todos los que cambió el commit.
+        file_path: Option<String>,
+        #[arg(short, long, default_value = ".")]
+        repo: PathBuf,
+        /// text, json (schema riku-show/v1) o visual (necesita el archivo).
+        #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        /// Umbral cosmetico de layouts en µm² (como en `diff`).
+        #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
+        cosmetic_threshold_um2: f64,
+        /// No usar ni guardar la cache de diffs de layouts grandes.
+        #[arg(long = "no-cache")]
+        no_cache: bool,
+        /// Código de salida para CI: 0 sin cambios o solo cosméticos,
+        /// 1 cambios funcionales, 2 error.
+        #[arg(long)]
+        ci: bool,
     },
     /// Lista commits con resumen semantico por archivo.
     Log {
@@ -138,16 +164,21 @@ pub fn run() -> ExitCode {
         return shell_to_exit(shell::run_shell());
     };
 
-    // `Status` tiene exit codes propios (0 limpio, 1 con cambios, 2 error).
-    // El resto sigue la convención clásica (0 ok, 1 error). Capturamos el tipo
-    // del comando antes del `execute` para distinguir el código de error.
-    let is_status = matches!(cmd, Commands::Status { .. });
+    // `status` (siempre) y `diff`/`show` con `--ci` usan los códigos de CI:
+    // 0 sin cambios o solo cosméticos, 1 cambios funcionales, 2 error. El
+    // resto sigue la convención clásica (0 ok, 1 error). Se decide antes del
+    // `execute`, que consume el comando.
+    let ci_codes = match &cmd {
+        Commands::Status { .. } => true,
+        Commands::Diff { ci, .. } | Commands::Show { ci, .. } => *ci,
+        _ => false,
+    };
     match cmd.execute() {
-        Ok(Outcome::Ok | Outcome::StatusClean) => ExitCode::SUCCESS,
-        Ok(Outcome::StatusDirty) => ExitCode::from(1),
+        Ok(Outcome::Ok | Outcome::Clean) => ExitCode::SUCCESS,
+        Ok(Outcome::Functional) => ExitCode::from(if ci_codes { 1 } else { 0 }),
         Err(err) => {
             eprintln!("{err}");
-            ExitCode::from(if is_status { 2 } else { 1 })
+            ExitCode::from(if ci_codes { 2 } else { 1 })
         }
     }
 }
