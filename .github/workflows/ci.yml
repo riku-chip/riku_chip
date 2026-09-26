@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.crate }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [viewer-core, gds-renderer, riku, riku-gui]
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config zlib1g-dev libqhull-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - name: Identidad git para los tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@localhost
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }} -> target
+      - name: cargo test
+        working-directory: ${{ matrix.crate }}
+        run: cargo test --locked
+
+  xschem-compat:
+    name: xschem-viewer-rust (viewer-core-compat)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: external/xschem-viewer-rust -> target
+      - name: cargo check
+        working-directory: external/xschem-viewer-rust
+        run: cargo check --features viewer-core-compat
