@@ -9,7 +9,7 @@
 //! ese estilo, no el numero de layer GDS crudo.
 
 use async_trait::async_trait;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 use gdstk_rs::{Anchor, GdsTag, Library, Point2D};
@@ -19,7 +19,7 @@ use viewer_core::{
     element::{DrawElement, HAlign, Layer, VAlign},
     error::{Result as VcResult, ViewerError},
     paint::{LayerPaint, Rgba},
-    scene::{Scene as VcScene, SceneHandle},
+    scene::{Scene as VcScene, SceneHandle, ViewEntry},
     viewport::YAxis,
     CancellationToken,
 };
@@ -172,9 +172,9 @@ fn command_to_element(cmd: &DrawCommand, keys: &LayerKeys, text_size: f64) -> Op
     }
 }
 
-fn vc_scene_from_cell(cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> VcScene {
+fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> VcScene {
     let cfg = RenderConfig::default();
-    let render_scene = crate::compat::scene_from_cell(cell, &cfg);
+    let render_scene = crate::compat::scene_from_cell_in(lib, cell, &cfg);
     let keys = LayerKeys::new(&render_scene.commands, path_hint);
 
     let mut scene = VcScene::new();
@@ -268,6 +268,19 @@ impl ViewerBackend for GdsBackend {
         path_hint: Option<String>,
         token: CancellationToken,
     ) -> VcResult<SceneHandle> {
+        self.load_entry(content, path_hint, None, token).await
+    }
+
+    /// `entry` es el nombre de una celda. Se re-parsea el archivo en cada
+    /// llamada: `Library` no es `Send` y el parseo es barato (~30 ms para la
+    /// libreria completa de celdas estandar de SKY130, 4 MB).
+    async fn load_entry(
+        &self,
+        content: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> VcResult<SceneHandle> {
         if token.is_cancelled() {
             return Err(ViewerError::Cancelled);
         }
@@ -279,18 +292,60 @@ impl ViewerBackend for GdsBackend {
                 return Err(ViewerError::Cancelled);
             }
 
-            // Selector determinista de top-cell (alfabetico en empate).
-            // Library vacia o ciclica -> escena vacia (no es error).
-            let Some(cell) = crate::select_top_cell(&lib) else {
-                return Ok(VcScene::default());
+            let entries = list_cells(&lib);
+            let cell = match entry.as_deref() {
+                // Celda pedida explicitamente: si no existe es un error, no se
+                // sustituye en silencio por otra.
+                Some(name) => lib
+                    .find_cell(name)
+                    .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en el archivo")))?,
+                // Por defecto: top-cell determinista (alfabetica en empate).
+                // Library vacia o ciclica -> escena vacia (no es error).
+                None => match crate::select_top_cell(&lib) {
+                    Some(cell) => cell,
+                    None => {
+                        let mut scene = VcScene::default();
+                        scene.entries = entries;
+                        return Ok(scene);
+                    }
+                },
             };
 
-            Ok(vc_scene_from_cell(&cell, path_hint.as_deref()))
+            let mut scene = vc_scene_from_cell(&lib, &cell, path_hint.as_deref());
+            let tops = entries.iter().filter(|e| e.is_root).count();
+            // Justo despues de "Cell": cuantas celdas hay para elegir.
+            scene.metadata.insert(1, ("Celdas".into(), format!("{tops} top / {} total", entries.len())));
+            scene.current_entry = Some(cell.name().to_string());
+            scene.entries = entries;
+            Ok(scene)
         })
         .await??;
 
         Ok(Arc::new(scene) as SceneHandle)
     }
+}
+
+/// Todas las celdas de la library como `ViewEntry`: primero las top cells y
+/// luego el resto, cada grupo en orden alfabetico. El tamano sale del bbox
+/// (celdas sin geometria -> `None`).
+pub fn list_cells(lib: &Library) -> Vec<ViewEntry> {
+    let tops = lib.top_level();
+    let top_names: HashSet<String> = (0..tops.count()).map(|i| tops.cell(i).name().to_string()).collect();
+
+    let mut entries: Vec<ViewEntry> = lib
+        .cells()
+        .map(|cell| {
+            let b = cell.bbox();
+            let size = [b.min_x, b.min_y, b.max_x, b.max_y]
+                .iter()
+                .all(|v| v.is_finite())
+                .then(|| (b.max_x - b.min_x, b.max_y - b.min_y));
+            let id = cell.name().to_string();
+            ViewEntry { is_root: top_names.contains(&id), id, size }
+        })
+        .collect();
+    entries.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.id.cmp(&b.id)));
+    entries
 }
 
 #[cfg(test)]
@@ -441,5 +496,54 @@ mod tests {
         // pero el hint no debe romper la carga.
         let h = load(fixture("datatype_a.gds"), Some("/foss/pdks/sky130A/x.gds")).await;
         assert!(!h.is_empty());
+    }
+
+    async fn load_cell(name: &str, cell: Option<&str>) -> VcResult<SceneHandle> {
+        GdsBackend::new()
+            .load_entry(fixture(name), None, cell.map(str::to_string), CancellationToken::new())
+            .await
+    }
+
+    fn ids(h: &SceneHandle) -> Vec<(&str, bool)> {
+        h.entries().iter().map(|e| (e.id.as_str(), e.is_root)).collect()
+    }
+
+    #[tokio::test]
+    async fn entries_list_tops_first_then_rest_alphabetically() {
+        let multi = load(fixture("top_multi.gds"), None).await;
+        assert_eq!(ids(&multi), vec![("ALPHA", true), ("BETA", true), ("ZETA", true)]);
+
+        let nested = load(fixture("top_nested.gds"), None).await;
+        assert_eq!(ids(&nested), vec![("TOP", true), ("GATE", false), ("INV", false)]);
+        let gate = &nested.entries()[1];
+        let (w, h) = gate.size.expect("GATE tiene geometria");
+        assert!((w - 1.0).abs() < 1e-9 && (h - 1.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn default_entry_matches_select_top_cell() {
+        let h = load_cell("top_multi.gds", None).await.expect("load");
+        assert_eq!(h.current_entry(), Some("ALPHA"));
+        let celdas = h.metadata().iter().find(|(k, _)| k == "Celdas").map(|(_, v)| v.as_str());
+        assert_eq!(celdas, Some("3 top / 3 total"));
+    }
+
+    #[tokio::test]
+    async fn explicit_entry_loads_that_cell_even_if_not_top() {
+        let h = load_cell("top_nested.gds", Some("INV")).await.expect("load INV");
+        assert_eq!(h.current_entry(), Some("INV"));
+        // INV contiene GATE desplazado (5,5): el bbox no es el de TOP (+10,+10).
+        let b = h.bbox();
+        assert!((b.min_x - 5.0).abs() < 1e-9 && (b.min_y - 5.0).abs() < 1e-9, "{b:?}");
+        assert_eq!(h.entries().len(), 3, "el catalogo viaja con cualquier celda");
+    }
+
+    #[tokio::test]
+    async fn unknown_entry_is_an_error() {
+        match load_cell("top_multi.gds", Some("NO_EXISTE")).await {
+            Err(ViewerError::Backend(msg)) => assert!(msg.contains("NO_EXISTE")),
+            Err(e) => panic!("esperaba Backend, got {e:?}"),
+            Ok(_) => panic!("esperaba error"),
+        }
     }
 }
