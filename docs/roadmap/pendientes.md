@@ -22,14 +22,9 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 - **Esfuerzo:** M.
 - **Listo cuando:** el primer diff de ese layout baja de un minuto y los tests contra KLayout (`tools/verify/compare.sh --xor`) siguen idénticos.
 
-### 3. Empaquetado e instalación
-- **Por qué:** hoy Riku se instala compilando (`cargo install --path riku`, un solo ejecutable con visor incluido). En Linux dependen de `libssl`, `zlib`, `libqhull_r` y `libstdc++`.
-- **Dónde:** un workflow `release.yml` que, con cada tag `v*`, publique:
-  - un `.tar.gz` con los dos binarios y un `install.sh` que los copia a `~/.local/bin`;
-  - un `.deb` generado con `cargo-deb`, con `libqhull-r8.0` como dependencia.
-
-- **Esfuerzo:** M.
-- **Listo cuando:** en una máquina Linux limpia, `tar xf riku-*.tar.gz && ./install.sh`, o `apt install ./riku_*.deb`, deja `riku` y `riku-gui` listos para usar desde cualquier terminal.
+### 3. Empaquetado e instalación — hecho (2026-09-26)
+- Un solo ejecutable `riku` (visor incluido). `.github/workflows/release.yml` compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estáticas (`GDSTK_STATIC`) y verifica que el binario solo dependa de glibc. Publica `.tar.gz` (5,6 MB, con `install.sh`, entrada de menú e icono), `.deb` (4,1 MB) y `SHA256SUMS` con cada tag `v*`. Probado en un Ubuntu 22.04 limpio (tar y deb) y con el visor abierto.
+- **Falta:** publicar la primera versión (crear el tag) y agregar el archivo `LICENSE` (el README dice MIT pero el archivo no existe).
 
 ---
 

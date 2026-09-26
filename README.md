@@ -73,6 +73,29 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 
 ---
 
+## Instalación (Linux)
+
+Riku es **un solo ejecutable** (`riku`) con la CLI, el shell y el visor adentro, incluidos gdstk, el motor de Xschem y las paletas de los PDKs. Solo necesita glibc 2.35 o más nueva (Ubuntu 22.04+, Debian 12+, Fedora 36+, iic-osic-tools) y, para el visor, un escritorio con X11 o Wayland.
+
+Desde [Releases](https://github.com/riku-chip/riku_chip/releases):
+
+```bash
+tar xf riku-<versión>-linux-x86_64.tar.gz
+./riku-<versión>-linux-x86_64/install.sh          # en ~/.local/bin (o --system para /usr/local/bin)
+# o bien
+sudo apt install ./riku_<versión>-1_amd64.deb
+```
+
+```bash
+riku                 # shell interactivo (Tab completa)
+riku gui chip.gds    # visor
+riku --version
+```
+
+Plataforma oficial: **Linux x86_64**. Windows compila en la CI, sin instaladores ni soporte.
+
+---
+
 ## Inicio rápido
 
 ### Prerrequisitos
