@@ -25,7 +25,7 @@ use viewer_core::{
     CancellationToken,
 };
 
-use crate::gds_diff::{changed_cells, diff_cell, CellChange, CellDiff, DiffConfig};
+use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
 use crate::palette::{detect_pdk, layer_spec, LayerRole};
 use crate::scene::DrawCommand;
 use crate::style::{Pdk, RenderConfig};
@@ -407,9 +407,18 @@ fn build_diff_scene(
         e.change = changed.get(&e.id).map(|c| match c {
             CellChange::Added => ChangeKind::Added,
             CellChange::Removed => ChangeKind::Removed,
-            CellChange::Modified => ChangeKind::Modified,
+            CellChange::Modified | CellChange::Renamed { .. } => ChangeKind::Modified,
         });
     }
+    // El nombre viejo de una celda renombrada ya no es una entrada propia.
+    let renamed_from: HashSet<&str> = changed
+        .values()
+        .filter_map(|c| match c {
+            CellChange::Renamed { from } => Some(from.as_str()),
+            _ => None,
+        })
+        .collect();
+    entries.retain(|e| !renamed_from.contains(e.id.as_str()));
 
     // Por defecto, la primera celda con cambios (las top van primero en el
     // catalogo); si no hay cambios, la top-cell determinista.
@@ -439,7 +448,12 @@ fn build_diff_scene(
     }
 
     let cfg = DiffConfig::default();
-    let diff = diff_cell(lib_a, lib_b, &name, &cfg);
+    // Celda renombrada: comparar con su nombre anterior, no contra vacio.
+    let name_a = match changed.get(&name) {
+        Some(CellChange::Renamed { from }) => from.as_str(),
+        _ => name.as_str(),
+    };
+    let diff = diff_cell_as(lib_a, name_a, lib_b, &name, &cfg);
     let unit_factor = base_lib.unit() / 1e-6;
 
     // Capas del overlay, al final de la lista (y por encima al pintar).
@@ -548,6 +562,7 @@ fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem
         .filter_map(|(name, c)| match c {
             CellChange::Added => Some(item(ChangeKind::Added, "añadida", name)),
             CellChange::Removed => Some(item(ChangeKind::Removed, "eliminada", name)),
+            CellChange::Renamed { from } => Some(item(ChangeKind::Modified, "renombrada", &format!("{from} → {name}"))),
             CellChange::Modified => None,
         })
         .collect()
@@ -817,6 +832,15 @@ mod tests {
         assert!(h.changes().is_empty());
         assert_eq!(overlay_count(&h, "Δ añadido"), 0);
         assert_eq!(meta(&h, "Diff"), "sin cambios geométricos");
+    }
+
+    #[tokio::test]
+    async fn renamed_cell_is_shown_as_rename_without_geometry_changes() {
+        let h = diff(Some("rename_a.gds"), "rename_b.gds", Some("INV_X1")).await;
+        assert_eq!(overlay_count(&h, "Δ añadido"), 0, "comparada contra su nombre anterior");
+        assert!(h.changes().iter().any(|c| c.label == "celda renombrada: INV → INV_X1"));
+        let ids: Vec<&str> = h.entries().iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"INV_X1") && !ids.contains(&"INV"), "{ids:?}");
     }
 
     #[tokio::test]

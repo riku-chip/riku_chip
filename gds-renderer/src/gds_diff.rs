@@ -77,6 +77,8 @@ pub struct GdsGeomDiff {
 pub struct GdsDiffReport {
     pub cells_added: Vec<String>,
     pub cells_removed: Vec<String>,
+    /// Pares `(nombre en A, nombre en B)` con la misma geometria.
+    pub cells_renamed: Vec<(String, String)>,
     pub geometry: Vec<GdsGeomDiff>,
     pub warnings: Vec<String>,
 }
@@ -220,6 +222,13 @@ pub fn diff_gds_with_config(
         return Ok(report);
     };
 
+    let (only_a, only_b) = (names_a.difference(&names_b).cloned().collect(), names_b.difference(&names_a).cloned().collect());
+    for (from, to) in detect_renames(&lib_a, &lib_b, &only_a, &only_b) {
+        report.cells_removed.retain(|n| *n != from);
+        report.cells_added.retain(|n| *n != to);
+        report.cells_renamed.push((from, to));
+    }
+
     let mut layers: BTreeSet<LayerKey> = BTreeSet::new();
     for t in lib_a.layers().into_iter().chain(lib_b.layers()) {
         layers.insert(t.into());
@@ -264,6 +273,18 @@ pub fn diff_cell(
     name: &str,
     cfg: &DiffConfig,
 ) -> CellDiff {
+    diff_cell_as(lib_a, name, lib_b, name, cfg)
+}
+
+/// Como [`diff_cell`], con otro nombre de cada lado (celda renombrada:
+/// `name_a` en A, `name_b` en B).
+pub fn diff_cell_as(
+    lib_a: Option<&Library>,
+    name_a: &str,
+    lib_b: Option<&Library>,
+    name_b: &str,
+    cfg: &DiffConfig,
+) -> CellDiff {
     let unit_factor = lib_b.or(lib_a).map_or(1.0, |l| l.unit() / 1e-6);
     let layers: BTreeSet<LayerKey> = lib_a
         .into_iter()
@@ -271,9 +292,9 @@ pub fn diff_cell(
         .flat_map(|l| l.layers())
         .map(LayerKey::from)
         .collect();
-    let ca = lib_a.and_then(|l| l.find_cell(name));
-    let cb = lib_b.and_then(|l| l.find_cell(name));
-    diff_one_cell(name, ca.as_ref(), cb.as_ref(), &layers, unit_factor, cfg)
+    let ca = lib_a.and_then(|l| l.find_cell(name_a));
+    let cb = lib_b.and_then(|l| l.find_cell(name_b));
+    diff_one_cell(name_b, ca.as_ref(), cb.as_ref(), &layers, unit_factor, cfg)
 }
 
 /// Poligonos de `cell` en una capa, aplanando toda la jerarquia.
@@ -400,11 +421,52 @@ fn group_instances(items: Vec<GdsGeomDiff>, cfg: &DiffConfig) -> Vec<GdsGeomDiff
 }
 
 /// Como cambio una cell entre dos libraries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellChange {
     Added,
     Removed,
     Modified,
+    /// Misma geometria con otro nombre; `from` es el nombre en A.
+    Renamed { from: String },
+}
+
+/// Empareja cells que desaparecen de A con cells que aparecen en B y tienen
+/// la misma geometria aplanada: son renombres, no baja + alta. Retorna pares
+/// `(nombre en A, nombre en B)`.
+///
+/// La huella propone y el XOR confirma. Si una huella se repite (varias
+/// candidatas) no se adivina, y las cells sin geometria nunca se emparejan.
+fn detect_renames(
+    la: &Library,
+    lb: &Library,
+    removed: &BTreeSet<String>,
+    added: &BTreeSet<String>,
+) -> Vec<(String, String)> {
+    let by_fp = |lib: &Library, names: &BTreeSet<String>| {
+        let mut m: BTreeMap<Vec<u64>, Vec<String>> = BTreeMap::new();
+        for n in names {
+            if let Some(c) = lib.find_cell(n) {
+                let fp = geometry_fingerprint(&c);
+                if !fp.is_empty() {
+                    m.entry(fp).or_default().push(n.clone());
+                }
+            }
+        }
+        m
+    };
+    let (fa, fb) = (by_fp(la, removed), by_fp(lb, added));
+    let layers: BTreeSet<LayerKey> = la.layers().into_iter().chain(lb.layers()).map(LayerKey::from).collect();
+    let cfg = DiffConfig { cosmetic_threshold_um2: 0.0 };
+    let mut out = Vec::new();
+    for (fp, to) in &fb {
+        let Some(from) = fa.get(fp) else { continue };
+        let ([from], [to]) = (from.as_slice(), to.as_slice()) else { continue };
+        let (Some(ca), Some(cb)) = (la.find_cell(from), lb.find_cell(to)) else { continue };
+        if diff_one_cell(to, Some(&ca), Some(&cb), &layers, 1.0, &cfg).geometry.is_empty() {
+            out.push((from.clone(), to.clone()));
+        }
+    }
+    out
 }
 
 /// Cells con cambios geometricos entre A y B (incluye cambios heredados de
@@ -425,6 +487,12 @@ pub fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> BTreeM
     out.extend(na.difference(&nb).map(|n| (n.clone(), CellChange::Removed)));
 
     let (Some(la), Some(lb)) = (lib_a, lib_b) else { return out };
+    let only_a: BTreeSet<String> = na.difference(&nb).cloned().collect();
+    let only_b: BTreeSet<String> = nb.difference(&na).cloned().collect();
+    for (from, to) in detect_renames(la, lb, &only_a, &only_b) {
+        out.remove(&from);
+        out.insert(to, CellChange::Renamed { from });
+    }
     let cfg = DiffConfig::default();
     for name in na.intersection(&nb) {
         let (Some(ca), Some(cb)) = (la.find_cell(name), lb.find_cell(name)) else { continue };
@@ -560,6 +628,33 @@ mod tests {
         let a = Library::from_bytes(&fixture_bytes("multi_inst_a.gds")).expect("a");
         let b = Library::from_bytes(&fixture_bytes("multi_inst_b.gds")).expect("b");
         (a, b)
+    }
+
+    #[test]
+    fn pure_rename_is_detected_and_parents_are_unchanged() {
+        let a = Library::from_bytes(&fixture_bytes("rename_a.gds")).expect("a");
+        let b = Library::from_bytes(&fixture_bytes("rename_b.gds")).expect("b");
+        let changed = changed_cells(Some(&a), Some(&b));
+        assert_eq!(changed.get("INV_X1"), Some(&CellChange::Renamed { from: "INV".into() }));
+        assert!(!changed.contains_key("INV"), "el nombre viejo no queda como eliminada");
+        assert!(!changed.contains_key("TOP"), "renombrar la sub-celda no cambia la geometria del padre");
+        // Sin geometria no se adivina; con geometria distinta no es renombre.
+        assert_eq!(changed.get("EMPTY_A"), Some(&CellChange::Removed));
+        assert_eq!(changed.get("EMPTY_B"), Some(&CellChange::Added));
+        assert_eq!(changed.get("OLD"), Some(&CellChange::Removed));
+        assert_eq!(changed.get("NEW"), Some(&CellChange::Added));
+
+        let d = diff_cell_as(Some(&a), "INV", Some(&b), "INV_X1", &DiffConfig::default());
+        assert!(d.geometry.is_empty(), "{:?}", d.geometry);
+    }
+
+    #[test]
+    fn report_lists_renames_apart_from_added_and_removed() {
+        let r = diff_gds(&fixture_bytes("rename_a.gds"), &fixture_bytes("rename_b.gds")).expect("diff");
+        assert_eq!(r.cells_renamed, vec![("INV".to_string(), "INV_X1".to_string())]);
+        assert_eq!(r.cells_removed, vec!["EMPTY_A".to_string(), "OLD".to_string()]);
+        assert_eq!(r.cells_added, vec!["EMPTY_B".to_string(), "NEW".to_string()]);
+        assert!(r.geometry.is_empty(), "{:?}", r.geometry);
     }
 
     #[test]

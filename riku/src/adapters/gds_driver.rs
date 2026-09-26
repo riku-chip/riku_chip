@@ -156,6 +156,10 @@ impl RikuDriver for GdsDriver {
         for n in r.cells_added {
             report.changes.push(cell_entry(&n, ChangeKind::Added));
         }
+        // "A → B" con kind Modified: el formateador lo marca como renombre.
+        for (from, to) in r.cells_renamed {
+            report.changes.push(cell_entry(&format!("{from} → {to}"), ChangeKind::Modified));
+        }
         for g in &r.geometry {
             report.changes.push(geom_entry(g));
         }
@@ -284,5 +288,39 @@ mod tests {
         assert!(d.can_handle("foo.gds"));
         assert!(d.can_handle("path/to/Bar.GDS"));
         assert!(!d.can_handle("foo.sch"));
+    }
+
+    fn renderer_fixture(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../gds-renderer/tests/fixtures")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    #[test]
+    fn renamed_cell_is_one_rename_entry() {
+        let r = GdsDriver::new().diff(
+            &renderer_fixture("rename_a.gds"),
+            &renderer_fixture("rename_b.gds"),
+            "rename.gds",
+        );
+        let rename: Vec<_> = r.changes.iter().filter(|c| c.element.contains(" → ")).collect();
+        assert_eq!(rename.len(), 1);
+        assert_eq!(rename[0].element, "cell:INV → INV_X1");
+        assert_eq!(rename[0].kind, ChangeKind::Modified);
+        assert!(!r.changes.iter().any(|c| c.element == "cell:INV" || c.element == "cell:INV_X1"));
+    }
+
+    #[test]
+    fn instances_of_the_same_subcell_are_grouped() {
+        let r = GdsDriver::new().diff(
+            &renderer_fixture("multi_inst_a.gds"),
+            &renderer_fixture("multi_inst_b.gds"),
+            "multi.gds",
+        );
+        let top = r.changes.iter().find(|c| c.element == "TOP:L1/0:INV").expect("TOP");
+        let after = top.after.as_ref().unwrap();
+        assert_eq!(after.get("instances").map(String::as_str), Some("2"));
+        assert!(!after.contains_key("instance_at_um"));
     }
 }
