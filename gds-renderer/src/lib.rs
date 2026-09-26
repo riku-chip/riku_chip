@@ -15,7 +15,8 @@ mod viewport;
 pub use compat::{render_cell, render_cell_with_highlights, scene_from_cell, scene_from_cell_in};
 pub use labels::{flatten_labels, FlatLabel};
 pub use gds_diff::{
-    diff_gds, diff_gds_with_config, BBoxUm, DiffConfig, GdsDiffReport, GdsError, GdsGeomDiff,
+    changed_cells, diff_cell, diff_gds, diff_gds_with_config, BBoxUm, CellChange, CellDiff, DiffConfig,
+    GdsDiffReport, GdsError, GdsGeomDiff, LayerPolygons,
     LayerKey, DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
 pub use output::RenderOutput;

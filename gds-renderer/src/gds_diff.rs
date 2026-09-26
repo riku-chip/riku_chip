@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gdstk_rs::{xor_split_flat, GdsTag, Library, OwnedPolygon};
+use gdstk_rs::{xor_split_flat, Cell, GdsTag, Library, OwnedPolygon};
 
 use crate::hier_walk::{origin_of_polygon, OriginPath};
 
@@ -138,7 +138,9 @@ fn polygon_area_um2(p: &OwnedPolygon, unit_factor: f64) -> f64 {
 }
 
 fn sum_area_um2(polys: &[OwnedPolygon], unit_factor: f64) -> f64 {
-    polys.iter().map(|p| polygon_area_um2(p, unit_factor)).sum()
+    // fold desde +0.0: `Sum` de f64 parte de -0.0, y una lista vacia se
+    // imprimia como "-0.000" ("+-0.000" en la CLI).
+    polys.iter().map(|p| polygon_area_um2(p, unit_factor)).fold(0.0, |acc, a| acc + a)
 }
 
 fn union_bbox_um(
@@ -203,72 +205,192 @@ pub fn diff_gds_with_config(
     }
 
     for name in names_a.intersection(&names_b) {
-        let Some(ca) = lib_a.find_cell(name) else {
+        let (Some(ca), Some(cb)) = (lib_a.find_cell(name), lib_b.find_cell(name)) else {
             continue;
         };
-        let Some(cb) = lib_b.find_cell(name) else {
-            continue;
-        };
-        for key in &layers {
-            // Flatten ambos lados con depth=-1 + filtro por (layer, dt).
-            // Asi atravesamos SREF/AREF y no perdemos cambios en sub-cells.
-            let fp_a = ca
-                .get_polygons()
-                .with_filter(key.layer, key.datatype)
-                .build();
-            let fp_b = cb
-                .get_polygons()
-                .with_filter(key.layer, key.datatype)
-                .build();
-            let split = xor_split_flat(&fp_a, &fp_b);
-            if split.added.is_empty() && split.removed.is_empty() {
-                continue;
-            }
-
-            // Bucketear cada poligono del split por origin_path. Para
-            // poligonos `added` consultamos las references de cb (lado
-            // "after"); para `removed`, las de ca (lado "before").
-            let mut buckets: BTreeMap<OriginPath, BucketAcc> = BTreeMap::new();
-            for p in &split.added {
-                let origin = origin_of_polygon(&cb, p);
-                buckets.entry(origin).or_default().added.push(p.clone());
-            }
-            for p in &split.removed {
-                let origin = origin_of_polygon(&ca, p);
-                buckets.entry(origin).or_default().removed.push(p.clone());
-            }
-
-            for (origin, acc) in buckets {
-                let added_n = acc.added.len();
-                let removed_n = acc.removed.len();
-                let added_area = sum_area_um2(&acc.added, unit_factor);
-                let removed_area = sum_area_um2(&acc.removed, unit_factor);
-                let bbox = union_bbox_um(&acc.added, &acc.removed, unit_factor);
-                let cosmetic = (added_area + removed_area) < cfg.cosmetic_threshold_um2;
-                let flattened = origin.len() > 1;
-                report.geometry.push(GdsGeomDiff {
-                    cell: name.clone(),
-                    origin_path: origin,
-                    layer: *key,
-                    added_polygons: added_n,
-                    removed_polygons: removed_n,
-                    added_area_um2: added_area,
-                    removed_area_um2: removed_area,
-                    bbox_um: bbox,
-                    cosmetic,
-                    flattened,
-                });
-            }
-        }
+        let cell = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg);
+        report.geometry.extend(cell.geometry);
     }
 
     Ok(report)
+}
+
+/// Poligonos del XOR de una capa, en coordenadas de la cell comparada
+/// (unidades de usuario de la library, como el resto de la escena).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerPolygons {
+    pub layer: LayerKey,
+    /// Presentes en B y no en A.
+    pub added: Vec<OwnedPolygon>,
+    /// Presentes en A y no en B.
+    pub removed: Vec<OwnedPolygon>,
+}
+
+/// Diff completo de una sola cell: metricas (como en [`GdsDiffReport`]) y
+/// los poligonos del XOR para pintarlos.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CellDiff {
+    pub geometry: Vec<GdsGeomDiff>,
+    pub polygons: Vec<LayerPolygons>,
+}
+
+/// Diff de la cell `name` entre dos libraries. Un lado `None` (archivo que
+/// no existia) o una cell ausente de un lado cuentan como vacios: todo lo
+/// del otro lado es anadido o removido.
+pub fn diff_cell(
+    lib_a: Option<&Library>,
+    lib_b: Option<&Library>,
+    name: &str,
+    cfg: &DiffConfig,
+) -> CellDiff {
+    let unit_factor = lib_b.or(lib_a).map_or(1.0, |l| l.unit() / 1e-6);
+    let layers: BTreeSet<LayerKey> = lib_a
+        .into_iter()
+        .chain(lib_b)
+        .flat_map(|l| l.layers())
+        .map(LayerKey::from)
+        .collect();
+    let ca = lib_a.and_then(|l| l.find_cell(name));
+    let cb = lib_b.and_then(|l| l.find_cell(name));
+    diff_one_cell(name, ca.as_ref(), cb.as_ref(), &layers, unit_factor, cfg)
+}
+
+/// Poligonos de `cell` en una capa, aplanando toda la jerarquia.
+fn flat_layer(cell: &Cell<'_>, key: &LayerKey) -> Vec<OwnedPolygon> {
+    cell.get_polygons()
+        .with_filter(key.layer, key.datatype)
+        .build()
+        .polygons()
+        .map(|p| OwnedPolygon { layer: p.layer(), datatype: p.datatype(), points: p.points().collect() })
+        .collect()
+}
+
+fn diff_one_cell(
+    name: &str,
+    ca: Option<&Cell<'_>>,
+    cb: Option<&Cell<'_>>,
+    layers: &BTreeSet<LayerKey>,
+    unit_factor: f64,
+    cfg: &DiffConfig,
+) -> CellDiff {
+    let mut out = CellDiff::default();
+    for key in layers {
+        // Flatten con depth=-1 + filtro por (layer, dt): atravesamos
+        // SREF/AREF y no perdemos cambios en sub-cells.
+        let (added, removed) = match (ca, cb) {
+            (Some(ca), Some(cb)) => {
+                let fp_a = ca.get_polygons().with_filter(key.layer, key.datatype).build();
+                let fp_b = cb.get_polygons().with_filter(key.layer, key.datatype).build();
+                let split = xor_split_flat(&fp_a, &fp_b);
+                (split.added, split.removed)
+            }
+            (None, Some(cb)) => (flat_layer(cb, key), Vec::new()),
+            (Some(ca), None) => (Vec::new(), flat_layer(ca, key)),
+            (None, None) => (Vec::new(), Vec::new()),
+        };
+        if added.is_empty() && removed.is_empty() {
+            continue;
+        }
+
+        // Bucketear cada poligono por origin_path. Para `added` consultamos
+        // las references del lado "after"; para `removed`, las del "before".
+        let mut buckets: BTreeMap<OriginPath, BucketAcc> = BTreeMap::new();
+        for p in &added {
+            let origin = cb.map_or_else(|| vec![name.to_string()], |c| origin_of_polygon(c, p));
+            buckets.entry(origin).or_default().added.push(p.clone());
+        }
+        for p in &removed {
+            let origin = ca.map_or_else(|| vec![name.to_string()], |c| origin_of_polygon(c, p));
+            buckets.entry(origin).or_default().removed.push(p.clone());
+        }
+
+        for (origin, acc) in buckets {
+            let added_area = sum_area_um2(&acc.added, unit_factor);
+            let removed_area = sum_area_um2(&acc.removed, unit_factor);
+            let flattened = origin.len() > 1;
+            out.geometry.push(GdsGeomDiff {
+                cell: name.to_string(),
+                origin_path: origin,
+                layer: *key,
+                added_polygons: acc.added.len(),
+                removed_polygons: acc.removed.len(),
+                added_area_um2: added_area,
+                removed_area_um2: removed_area,
+                bbox_um: union_bbox_um(&acc.added, &acc.removed, unit_factor),
+                cosmetic: (added_area + removed_area) < cfg.cosmetic_threshold_um2,
+                flattened,
+            });
+        }
+        out.polygons.push(LayerPolygons { layer: *key, added, removed });
+    }
+    out
 }
 
 #[derive(Default)]
 struct BucketAcc {
     added: Vec<OwnedPolygon>,
     removed: Vec<OwnedPolygon>,
+}
+
+/// Como cambio una cell entre dos libraries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellChange {
+    Added,
+    Removed,
+    Modified,
+}
+
+/// Cells con cambios geometricos entre A y B (incluye cambios heredados de
+/// sub-cells: si cambia `inv_2`, cambia toda cell que la instancie).
+///
+/// Dos pasadas: una huella barata de la geometria aplanada descarta las
+/// cells identicas y el XOR confirma las candidatas (una huella distinta
+/// puede ser solo reordenamiento de poligonos, sin cambio real). Un lado
+/// `None` = archivo inexistente: todas sus cells cuentan como anadidas o
+/// removidas.
+pub fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> BTreeMap<String, CellChange> {
+    let names = |l: Option<&Library>| -> BTreeSet<String> {
+        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+    };
+    let (na, nb) = (names(lib_a), names(lib_b));
+    let mut out: BTreeMap<String, CellChange> = BTreeMap::new();
+    out.extend(nb.difference(&na).map(|n| (n.clone(), CellChange::Added)));
+    out.extend(na.difference(&nb).map(|n| (n.clone(), CellChange::Removed)));
+
+    let (Some(la), Some(lb)) = (lib_a, lib_b) else { return out };
+    let cfg = DiffConfig::default();
+    for name in na.intersection(&nb) {
+        let (Some(ca), Some(cb)) = (la.find_cell(name), lb.find_cell(name)) else { continue };
+        if geometry_fingerprint(&ca) == geometry_fingerprint(&cb) {
+            continue;
+        }
+        if !diff_cell(Some(la), Some(lb), name, &cfg).geometry.is_empty() {
+            out.insert(name.clone(), CellChange::Modified);
+        }
+    }
+    out
+}
+
+/// Huella de la geometria aplanada de una cell, independiente del orden de
+/// los poligonos: hash de cada (layer, datatype, puntos) y lista ordenada.
+fn geometry_fingerprint(cell: &Cell<'_>) -> Vec<u64> {
+    use std::hash::{Hash, Hasher};
+    let flat = cell.get_polygons().build();
+    let mut hashes: Vec<u64> = flat
+        .polygons()
+        .map(|p| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (p.layer(), p.datatype()).hash(&mut h);
+            for q in p.points() {
+                // Cuantizado a 1e-6 unidades de usuario: muy por debajo de la
+                // grilla de cualquier PDK, estable ante ruido de punto flotante.
+                ((q.x * 1e6).round() as i64, (q.y * 1e6).round() as i64).hash(&mut h);
+            }
+            h.finish()
+        })
+        .collect();
+    hashes.sort_unstable();
+    hashes
 }
 
 #[cfg(test)]
@@ -335,6 +457,8 @@ mod tests {
         // El fixture es un rectangulo 10×10 µm = 100 µm². Tolerancia 1e-6.
         assert!((dt0.removed_area_um2 - 100.0).abs() < 1e-6, "{}", dt0.removed_area_um2);
         assert_eq!(dt0.added_area_um2, 0.0);
+        // +0.0, no -0.0: la CLI imprimia "+-0.000".
+        assert!(dt0.added_area_um2.is_sign_positive());
         assert!((dt1.added_area_um2 - 100.0).abs() < 1e-6, "{}", dt1.added_area_um2);
         assert_eq!(dt1.removed_area_um2, 0.0);
 

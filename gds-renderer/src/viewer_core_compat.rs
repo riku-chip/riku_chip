@@ -16,6 +16,7 @@ use gdstk_rs::{Anchor, GdsTag, Library, Point2D};
 use viewer_core::{
     backend::{BackendInfo, ViewerBackend},
     bbox::BoundingBox as VcBBox,
+    diff::{ChangeItem, ChangeKind},
     element::{DrawElement, HAlign, Layer, VAlign},
     error::{Result as VcResult, ViewerError},
     paint::{LayerPaint, Rgba},
@@ -24,6 +25,7 @@ use viewer_core::{
     CancellationToken,
 };
 
+use crate::gds_diff::{changed_cells, diff_cell, CellChange, CellDiff, DiffConfig};
 use crate::palette::{detect_pdk, layer_spec, LayerRole};
 use crate::scene::DrawCommand;
 use crate::style::{Pdk, RenderConfig};
@@ -172,7 +174,8 @@ fn command_to_element(cmd: &DrawCommand, keys: &LayerKeys, text_size: f64) -> Op
     }
 }
 
-fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> VcScene {
+/// Escena de una cell y el PDK detectado (lo reusa el diff para nombrar capas).
+fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, Pdk) {
     let cfg = RenderConfig::default();
     let render_scene = crate::compat::scene_from_cell_in(lib, cell, &cfg);
     let keys = LayerKeys::new(&render_scene.commands, path_hint);
@@ -226,7 +229,7 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
             format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height()),
         ),
     ];
-    scene
+    (scene, keys.pdk)
 }
 
 fn pdk_name(pdk: Pdk) -> &'static str {
@@ -311,7 +314,7 @@ impl ViewerBackend for GdsBackend {
                 },
             };
 
-            let mut scene = vc_scene_from_cell(&lib, &cell, path_hint.as_deref());
+            let (mut scene, _) = vc_scene_from_cell(&lib, &cell, path_hint.as_deref());
             let tops = entries.iter().filter(|e| e.is_root).count();
             // Justo despues de "Cell": cuantas celdas hay para elegir.
             scene.metadata.insert(1, ("Celdas".into(), format!("{tops} top / {} total", entries.len())));
@@ -323,6 +326,215 @@ impl ViewerBackend for GdsBackend {
 
         Ok(Arc::new(scene) as SceneHandle)
     }
+
+    /// Diff geometrico de una celda: la version "after" atenuada con el XOR
+    /// encima (verde = anadido, rojo = eliminado) y la lista de cambios.
+    async fn load_diff(
+        &self,
+        before: Vec<u8>,
+        after: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> VcResult<SceneHandle> {
+        if token.is_cancelled() {
+            return Err(ViewerError::Cancelled);
+        }
+        let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
+            let parse = |bytes: &[u8], side: &str| -> VcResult<Option<Library>> {
+                if bytes.is_empty() {
+                    return Ok(None);
+                }
+                Library::from_bytes(bytes)
+                    .map(Some)
+                    .map_err(|e| ViewerError::Parse(format!("GDSII ({side}): {e}")))
+            };
+            let lib_a = parse(&before, "antes")?;
+            let lib_b = parse(&after, "después")?;
+            if token.is_cancelled() {
+                return Err(ViewerError::Cancelled);
+            }
+            build_diff_scene(lib_a.as_ref(), lib_b.as_ref(), entry.as_deref(), path_hint.as_deref())
+        })
+        .await??;
+
+        Ok(Arc::new(scene) as SceneHandle)
+    }
+}
+
+/// Colores del overlay de diff. Relleno semitransparente para ver la capa
+/// debajo, contorno opaco para ubicar cambios chicos.
+const DIFF_ADDED: (Rgba, Rgba) = (Rgba::new(40, 220, 90, 150), Rgba::new(90, 255, 130, 255));
+const DIFF_REMOVED: (Rgba, Rgba) = (Rgba::new(240, 60, 60, 150), Rgba::new(255, 100, 100, 255));
+
+/// Arma la escena de diff de una celda. `None` = el archivo no existia de
+/// ese lado. Sincrona para poder testearla sin runtime.
+fn build_diff_scene(
+    lib_a: Option<&Library>,
+    lib_b: Option<&Library>,
+    entry: Option<&str>,
+    path_hint: Option<&str>,
+) -> VcResult<VcScene> {
+    let Some(base_lib) = lib_b.or(lib_a) else {
+        return Err(ViewerError::Parse("diff sin contenido en ninguno de los dos lados".into()));
+    };
+
+    // Catalogo: celdas de "after" y, a continuacion, las que solo existian antes.
+    let mut entries = list_cells(base_lib);
+    if let (Some(a), Some(_)) = (lib_a, lib_b) {
+        let known: HashSet<String> = entries.iter().map(|e| e.id.clone()).collect();
+        entries.extend(list_cells(a).into_iter().filter(|e| !known.contains(&e.id)));
+    }
+
+    // Marcar que celdas cambiaron: en una libreria de cientos es lo que
+    // permite encontrar el cambio.
+    let changed = changed_cells(lib_a, lib_b);
+    for e in &mut entries {
+        e.change = changed.get(&e.id).map(|c| match c {
+            CellChange::Added => ChangeKind::Added,
+            CellChange::Removed => ChangeKind::Removed,
+            CellChange::Modified => ChangeKind::Modified,
+        });
+    }
+
+    // Por defecto, la primera celda con cambios (las top van primero en el
+    // catalogo); si no hay cambios, la top-cell determinista.
+    let name = match entry {
+        Some(n) => n.to_string(),
+        None => match entries.iter().find(|e| e.change.is_some()) {
+            Some(e) => e.id.clone(),
+            None => lib_b
+                .and_then(crate::select_top_cell)
+                .or_else(|| lib_a.and_then(crate::select_top_cell))
+                .map(|c| c.name().to_string())
+                .ok_or_else(|| ViewerError::Parse("library sin top cells".into()))?,
+        },
+    };
+
+    // Base visual: la celda en "after"; si ya no existe, la de "before".
+    let (lib, cell) = lib_b
+        .and_then(|l| l.find_cell(&name).map(|c| (l, c)))
+        .or_else(|| lib_a.and_then(|l| l.find_cell(&name).map(|c| (l, c))))
+        .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en ninguna versión")))?;
+    let (mut scene, pdk) = vc_scene_from_cell(lib, &cell, path_hint);
+
+    // Atenuar el layout para que resalten los cambios.
+    for paint in scene.layers.values_mut() {
+        paint.fill.a /= 3;
+        paint.stroke.a = 110;
+    }
+
+    let cfg = DiffConfig::default();
+    let diff = diff_cell(lib_a, lib_b, &name, &cfg);
+    let unit_factor = base_lib.unit() / 1e-6;
+
+    // Capas del overlay, al final de la lista (y por encima al pintar).
+    let next = scene.layers.keys().next_back().map_or(0, |k| k.saturating_add(1));
+    let (k_removed, k_added) = (next, next.saturating_add(1));
+    scene.layers.insert(
+        k_removed,
+        LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1 },
+    );
+    scene.layers.insert(
+        k_added,
+        LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1 },
+    );
+    let polygon = |p: &gdstk_rs::OwnedPolygon, layer| DrawElement::Polygon {
+        points: p.points.iter().map(|q| (q.x, q.y)).collect(),
+        layer,
+        filled: true,
+    };
+    for lp in &diff.polygons {
+        for p in &lp.removed {
+            scene.push(polygon(p, k_removed));
+        }
+        for p in &lp.added {
+            scene.push(polygon(p, k_added));
+        }
+    }
+
+    scene.changes = change_items(&diff, pdk, unit_factor);
+    scene.changes.extend(cell_presence_items(&changed));
+
+    let relevant = diff.geometry.iter().filter(|g| !g.cosmetic).count();
+    let cosmetic = diff.geometry.len() - relevant;
+    // fold desde +0.0: `sum()` de f64 vacio da -0.0 ("+-0.0000").
+    let area_add = diff.geometry.iter().fold(0.0, |acc, g| acc + g.added_area_um2);
+    let area_rem = diff.geometry.iter().fold(0.0, |acc, g| acc + g.removed_area_um2);
+    let summary = if diff.geometry.is_empty() {
+        "sin cambios geométricos".to_string()
+    } else {
+        format!("{relevant} relevantes · {cosmetic} cosméticos")
+    };
+    let mut head = vec![("Diff".to_string(), summary)];
+    if !diff.geometry.is_empty() {
+        head.push(("Área".to_string(), format!("+{area_add:.4} / −{area_rem:.4} µm²")));
+    }
+    head.push(("Cambiadas".to_string(), format!("{} de {} celdas", changed.len(), entries.len())));
+    scene.metadata.splice(0..0, head);
+    scene.current_entry = Some(name);
+    scene.entries = entries;
+    Ok(scene)
+}
+
+/// Un item por (capa, origen): relevantes primero y, dentro de cada grupo,
+/// los de mayor area.
+fn change_items(diff: &CellDiff, pdk: Pdk, unit_factor: f64) -> Vec<ChangeItem> {
+    let mut geo: Vec<&crate::GdsGeomDiff> = diff.geometry.iter().collect();
+    geo.sort_by(|a, b| {
+        let area = |g: &crate::GdsGeomDiff| g.added_area_um2 + g.removed_area_um2;
+        a.cosmetic.cmp(&b.cosmetic).then(area(b).total_cmp(&area(a)))
+    });
+    geo.into_iter()
+        .map(|g| {
+            let tag = GdsTag { layer: g.layer.layer, datatype: g.layer.datatype };
+            let layer = match layer_spec(tag, pdk).name {
+                Some(n) => format!("{n} {}/{}", tag.layer, tag.datatype),
+                None => format!("{}/{}", tag.layer, tag.datatype),
+            };
+            let label = match g.origin_path.get(1) {
+                Some(sub) => format!("{layer} · en {sub}"),
+                None => layer,
+            };
+            let kind = match (g.added_polygons > 0, g.removed_polygons > 0) {
+                (true, false) => ChangeKind::Added,
+                (false, true) => ChangeKind::Removed,
+                _ => ChangeKind::Modified,
+            };
+            let detail = format!(
+                "+{} / −{} pol · +{:.4} / −{:.4} µm²",
+                g.added_polygons, g.removed_polygons, g.added_area_um2, g.removed_area_um2
+            );
+            // bbox_um esta en µm; la escena, en unidades de usuario.
+            let bbox = g.bbox_um.map(|b| VcBBox {
+                min_x: b.min_x / unit_factor,
+                min_y: b.min_y / unit_factor,
+                max_x: b.max_x / unit_factor,
+                max_y: b.max_y / unit_factor,
+            });
+            ChangeItem { kind, label, detail, bbox, cosmetic: g.cosmetic }
+        })
+        .collect()
+}
+
+/// Celdas que aparecen o desaparecen en la library (no tienen ubicacion en
+/// la celda mostrada).
+fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem> {
+    let item = |kind, what: &str, name: &String| ChangeItem {
+        kind,
+        label: format!("celda {what}: {name}"),
+        detail: String::new(),
+        bbox: None,
+        cosmetic: false,
+    };
+    changed
+        .iter()
+        .filter_map(|(name, c)| match c {
+            CellChange::Added => Some(item(ChangeKind::Added, "añadida", name)),
+            CellChange::Removed => Some(item(ChangeKind::Removed, "eliminada", name)),
+            CellChange::Modified => None,
+        })
+        .collect()
 }
 
 /// Todas las celdas de la library como `ViewEntry`: primero las top cells y
@@ -341,7 +553,7 @@ pub fn list_cells(lib: &Library) -> Vec<ViewEntry> {
                 .all(|v| v.is_finite())
                 .then(|| (b.max_x - b.min_x, b.max_y - b.min_y));
             let id = cell.name().to_string();
-            ViewEntry { is_root: top_names.contains(&id), id, size }
+            ViewEntry { is_root: top_names.contains(&id), id, size, change: None }
         })
         .collect();
     entries.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.id.cmp(&b.id)));
@@ -545,5 +757,81 @@ mod tests {
             Err(e) => panic!("esperaba Backend, got {e:?}"),
             Ok(_) => panic!("esperaba error"),
         }
+    }
+
+    async fn diff(a: Option<&str>, b: &str, cell: Option<&str>) -> SceneHandle {
+        let before = a.map(fixture).unwrap_or_default();
+        GdsBackend::new()
+            .load_diff(before, fixture(b), None, cell.map(str::to_string), CancellationToken::new())
+            .await
+            .expect("load_diff")
+    }
+
+    /// Cantidad de poligonos pintados en la capa de overlay `name`.
+    fn overlay_count(h: &SceneHandle, name: &str) -> usize {
+        let key = h.layer_list().into_iter().find(|(_, p)| p.name == name).map(|(k, _)| k).expect(name);
+        let mut n = 0;
+        h.visit(&VcBBox::empty(), &mut |el| {
+            n += usize::from(el.layer() == key);
+            true
+        });
+        n
+    }
+
+    fn meta<'a>(h: &'a SceneHandle, key: &str) -> &'a str {
+        h.metadata().iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()).unwrap_or("")
+    }
+
+    #[tokio::test]
+    async fn diff_datatype_change_is_one_removed_and_one_added() {
+        let h = diff(Some("datatype_a.gds"), "datatype_b.gds", None).await;
+        assert_eq!(overlay_count(&h, "Δ eliminado"), 1);
+        assert_eq!(overlay_count(&h, "Δ añadido"), 1);
+        let kinds: Vec<_> = h.changes().iter().map(|c| (c.label.as_str(), c.kind)).collect();
+        assert!(kinds.contains(&("1/0", ChangeKind::Removed)), "{kinds:?}");
+        assert!(kinds.contains(&("1/1", ChangeKind::Added)), "{kinds:?}");
+        assert!(h.changes().iter().all(|c| c.bbox.is_some() && !c.cosmetic));
+        assert_eq!(meta(&h, "Diff"), "2 relevantes · 0 cosméticos");
+    }
+
+    #[tokio::test]
+    async fn identical_files_have_no_changes() {
+        let h = diff(Some("datatype_a.gds"), "datatype_a.gds", None).await;
+        assert!(h.changes().is_empty());
+        assert_eq!(overlay_count(&h, "Δ añadido"), 0);
+        assert_eq!(meta(&h, "Diff"), "sin cambios geométricos");
+    }
+
+    #[tokio::test]
+    async fn missing_before_means_everything_added() {
+        let h = diff(None, "datatype_b.gds", None).await;
+        assert_eq!(overlay_count(&h, "Δ añadido"), 1);
+        assert_eq!(overlay_count(&h, "Δ eliminado"), 0);
+        assert!(h.changes().iter().any(|c| c.label == "celda añadida: TOP"));
+    }
+
+    #[tokio::test]
+    async fn change_inside_subcell_is_located_in_top_coordinates() {
+        let h = diff(Some("hier_inv_a.gds"), "hier_inv_b.gds", Some("TOP")).await;
+        let c = &h.changes()[0];
+        assert_eq!((c.label.as_str(), c.kind), ("1/0 · en INV", ChangeKind::Added));
+        let b = c.bbox.expect("bbox");
+        // Rect (2,0)-(3,1) de INV instanciado en (10,10).
+        assert!((b.min_x - 12.0).abs() < 1e-9 && (b.max_y - 11.0).abs() < 1e-9, "{b:?}");
+        assert_eq!(h.current_entry(), Some("TOP"));
+    }
+
+    #[tokio::test]
+    async fn diff_marks_changed_cells_and_opens_first_changed() {
+        // INV cambia y TOP la instancia: ambas modificadas.
+        let h = diff(Some("hier_inv_a.gds"), "hier_inv_b.gds", None).await;
+        let marks: Vec<_> = h.entries().iter().map(|e| (e.id.as_str(), e.change)).collect();
+        assert_eq!(marks, vec![("TOP", Some(ChangeKind::Modified)), ("INV", Some(ChangeKind::Modified))]);
+        assert_eq!(h.current_entry(), Some("TOP"), "top cambiada primero");
+        assert_eq!(meta(&h, "Cambiadas"), "2 de 2 celdas");
+
+        let same = diff(Some("hier_inv_a.gds"), "hier_inv_a.gds", None).await;
+        assert!(same.entries().iter().all(|e| e.change.is_none()));
+        assert_eq!(meta(&same, "Área"), "", "sin cambios no hay fila de área");
     }
 }
