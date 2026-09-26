@@ -1,12 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Extensiones que la GUI sabe abrir. Con el filtro activo, el árbol solo
-/// muestra estas (y las carpetas que las contienen): en un proyecto real la
-/// carpeta suele estar llena de scripts, logs e imágenes que no se pueden
-/// visualizar y esconden lo importante.
-const OPENABLE: &[&str] = &["sch", "sym", "gds", "oas"];
-
 /// Carpetas que nunca contienen diseño y cuestan recorrer.
 const SKIPPED_DIRS: &[&str] = &["target", "node_modules", "__pycache__"];
 
@@ -24,9 +18,12 @@ pub enum ProjectEntry {
 }
 
 impl ProjectEntry {
-    /// Árbol de `root`. Con `show_all = false` solo quedan archivos
-    /// abribles, sin carpetas ocultas ni de build, y sin carpetas vacías.
-    pub fn build(root: &Path, show_all: bool) -> Self {
+    /// Árbol de `root`. Con `show_all = false` solo quedan archivos con una de
+    /// las extensiones de `openable` (las que saben abrir los módulos del
+    /// registro), sin carpetas ocultas ni de build, y sin carpetas vacías: en
+    /// un proyecto real la carpeta suele estar llena de scripts, logs e
+    /// imágenes que no se pueden visualizar y esconden lo importante.
+    pub fn build(root: &Path, show_all: bool, openable: &[String]) -> Self {
         Self::Directory {
             path: root.to_path_buf(),
             name: root
@@ -34,18 +31,18 @@ impl ProjectEntry {
                 .and_then(|name| name.to_str())
                 .map(|name| name.to_string())
                 .unwrap_or_else(|| root.display().to_string()),
-            children: read_children(root, show_all),
+            children: read_children(root, show_all, openable),
         }
     }
 }
 
-pub fn is_openable(path: &Path) -> bool {
+pub fn is_openable(path: &Path, openable: &[String]) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| OPENABLE.iter().any(|o| e.eq_ignore_ascii_case(o)))
+        .is_some_and(|e| openable.iter().any(|o| e.eq_ignore_ascii_case(o)))
 }
 
-fn read_children(path: &Path, show_all: bool) -> Vec<ProjectEntry> {
+fn read_children(path: &Path, show_all: bool, openable: &[String]) -> Vec<ProjectEntry> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
@@ -60,12 +57,12 @@ fn read_children(path: &Path, show_all: bool) -> Vec<ProjectEntry> {
             if !show_all && (name.starts_with('.') || SKIPPED_DIRS.contains(&name.as_str())) {
                 continue;
             }
-            let children = read_children(&entry_path, show_all);
+            let children = read_children(&entry_path, show_all, openable);
             if !show_all && children.is_empty() {
                 continue;
             }
             dirs.push(ProjectEntry::Directory { path: entry_path.clone(), name, children });
-        } else if show_all || is_openable(&entry_path) {
+        } else if show_all || is_openable(&entry_path, openable) {
             files.push(ProjectEntry::File { path: entry_path, name });
         }
     }
@@ -110,10 +107,11 @@ mod tests {
             fs::write(root.join(f), b"").unwrap();
         }
 
-        let filtered = names(&ProjectEntry::build(&root, false));
+        let openable: Vec<String> = ["sch", "sym", "gds", "oas"].map(String::from).to_vec();
+        let filtered = names(&ProjectEntry::build(&root, false, &openable));
         assert_eq!(&filtered[1..], ["  lay/", "    inv.GDS", "  top.sch"]);
 
-        let all = names(&ProjectEntry::build(&root, true));
+        let all = names(&ProjectEntry::build(&root, true, &openable));
         assert!(all.iter().any(|n| n.trim() == "notas.txt"));
         assert!(all.iter().any(|n| n.trim() == "vacia/"));
         fs::remove_dir_all(&root).unwrap();

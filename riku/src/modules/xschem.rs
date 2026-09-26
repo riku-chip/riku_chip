@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use xschem_viewer::semantic::{ChangeKind as XsKind, ComponentDiff, SemanticSchematic as Schematic};
 
-use crate::core::domain::driver::{DriverInfo, RikuDriver};
-use crate::core::domain::models::{Change, ChangeKind, DriverKind, Element, FileChange, FileFormat, Value};
-use crate::adapters::xschem_pdk as pdk;
+use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
+use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
+use super::xschem_pdk as pdk;
 
 const MOVE_ALL_NOTE: &str = "reorganizacion cosmetica (Move All)";
 
@@ -44,7 +44,7 @@ fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result
 /// riku (tema dark + símbolos de `.xschemrc` + PDK). Expuesto como helper
 /// para que los consumidores no tengan que duplicar esta configuración.
 /// En blobs no-UTF-8 devuelve `Schematic::default()`; los callers que
-/// necesiten distinguir error vs vacío deben usar `XschemDriver::diff`.
+/// necesiten distinguir error vs vacío deben usar `XschemModule::diff`.
 pub fn parse(content: &[u8]) -> Schematic {
     match std::str::from_utf8(content) {
         Ok(text) => parse_text(text),
@@ -52,11 +52,11 @@ pub fn parse(content: &[u8]) -> Schematic {
     }
 }
 
-pub struct XschemDriver {
-    cached_info: std::sync::OnceLock<DriverInfo>,
+pub struct XschemModule {
+    cached_info: std::sync::OnceLock<ModuleInfo>,
 }
 
-impl XschemDriver {
+impl XschemModule {
     pub fn new() -> Self {
         Self {
             cached_info: std::sync::OnceLock::new(),
@@ -64,14 +64,14 @@ impl XschemDriver {
     }
 }
 
-impl Default for XschemDriver {
+impl Default for XschemModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RikuDriver for XschemDriver {
-    fn info(&self) -> DriverInfo {
+impl FormatModule for XschemModule {
+    fn info(&self) -> ModuleInfo {
         if let Some(info) = self.cached_info.get() {
             return info.clone();
         }
@@ -90,18 +90,19 @@ impl RikuDriver for XschemDriver {
             }
         };
 
-        let info = DriverInfo {
-            name: DriverKind::Xschem,
-            available: true,
+        let info = ModuleInfo {
+            name: "xschem".into(),
             version: format!("Native Renderer | {}", pdk_status),
+            format: FileFormat::Xschem,
             extensions: vec![".sch".to_string()],
+            available: true,
         };
 
         let _ = self.cached_info.set(info.clone());
         info
     }
 
-    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> FileChange {
+    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str, _opts: &DiffOptions) -> FileChange {
         let mut report = FileChange::new(FileFormat::Xschem);
 
         let text_a = match validate_xschem(content_a, "A", path_hint) {
@@ -139,12 +140,14 @@ impl RikuDriver for XschemDriver {
         report
     }
 
-    fn format(&self) -> FileFormat {
-        FileFormat::Xschem
-    }
-
     fn detect(&self, content: &[u8]) -> bool {
         is_xschem(content)
+    }
+
+    /// Visor de símbolos y esquemáticos (`XschemBackend` del motor).
+    #[cfg(feature = "gui")]
+    fn viewer(&self) -> Option<std::sync::Arc<dyn viewer_core::ViewerBackend>> {
+        Some(std::sync::Arc::new(xschem_viewer::XschemBackend::new()))
     }
 }
 
@@ -183,14 +186,14 @@ mod tests {
     const VALID_SCH: &[u8] = br#"v {xschem version=3.0.0 file_version=1.2}
 "#;
 
-    fn driver() -> XschemDriver {
-        XschemDriver::new()
+    fn driver() -> XschemModule {
+        XschemModule::new()
     }
 
     #[test]
     fn diff_warns_on_invalid_utf8_in_a() {
         let invalid: &[u8] = &[0xFF, 0xFE, 0x00, 0x80];
-        let report = driver().diff(invalid, VALID_SCH, "x.sch");
+        let report = driver().diff(invalid, VALID_SCH, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty(), "no debe inventar cambios");
         assert_eq!(report.warnings.len(), 1);
         assert!(
@@ -203,7 +206,7 @@ mod tests {
     #[test]
     fn diff_warns_on_invalid_utf8_in_b() {
         let invalid: &[u8] = &[0xFF, 0xFE, 0x00, 0x80];
-        let report = driver().diff(VALID_SCH, invalid, "x.sch");
+        let report = driver().diff(VALID_SCH, invalid, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(
@@ -216,7 +219,7 @@ mod tests {
     #[test]
     fn diff_warns_on_non_xschem_b() {
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
-        let report = driver().diff(VALID_SCH, svg, "x.sch");
+        let report = driver().diff(VALID_SCH, svg, "x.sch", &DiffOptions::default());
         assert!(
             report.changes.is_empty(),
             "no debe reportar 'todo removido' falso: {:?}",
@@ -233,7 +236,7 @@ mod tests {
     #[test]
     fn diff_warns_on_non_xschem_a() {
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
-        let report = driver().diff(svg, VALID_SCH, "x.sch");
+        let report = driver().diff(svg, VALID_SCH, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("(A)"));

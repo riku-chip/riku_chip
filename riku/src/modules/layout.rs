@@ -1,16 +1,17 @@
-//! Adapter delgado al trait `RikuDriver` que delega el diff GDS en
-//! `gds_renderer::diff_gds`. Este crate ya no depende directamente de
-//! `gdstk_rs`; toda la lógica vive en `gds-renderer`.
+//! Módulo de layouts (GDSII y OASIS): traduce el diff de `gds-renderer` al
+//! vocabulario del núcleo y ofrece su backend del visor. Toda la lógica de
+//! geometría vive en `gds-renderer`; aquí no se usa `gdstk_rs`.
+
+use std::sync::Arc;
 
 use gds_renderer::{
     diff_gds_cached, DiffCache, DiffConfig, GdsError, GdsGeomDiff,
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
+use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
+use viewer_core::ViewerBackend;
 
-use crate::core::domain::driver::{DriverInfo, RikuDriver};
-use crate::core::domain::models::{
-    Bounds, Change, ChangeKind, DriverKind, Element, FileChange, FileFormat, Via,
-};
+use crate::core::domain::models::{Bounds, Change, ChangeKind, Element, FileChange, FileFormat, Via};
 
 fn cell_change(name: &str, kind: ChangeKind) -> Change {
     Change::new(kind, Element::Cell { name: name.to_string() })
@@ -57,62 +58,48 @@ fn translate_error(e: GdsError, path_hint: &str) -> String {
     }
 }
 
-pub struct GdsDriver {
-    cached_info: std::sync::OnceLock<DriverInfo>,
-    cosmetic_threshold_um2: f64,
+/// Módulo de layouts: GDSII y OASIS (motor: gdstk vía gds-renderer).
+pub struct LayoutModule {
     /// Cache en disco del reporte (solo layouts grandes; ver `DiffCache`).
     cache: DiffCache,
 }
 
-impl GdsDriver {
+impl LayoutModule {
     pub fn new() -> Self {
-        Self::with_threshold(DEFAULT_COSMETIC_THRESHOLD_UM2)
-    }
-
-    /// Constructor con umbral cosmetico custom (µm²) (flag
-    /// `--cosmetic-threshold-um2`). Usa la cache segun el entorno.
-    pub fn with_threshold(cosmetic_threshold_um2: f64) -> Self {
-        Self::with_config(cosmetic_threshold_um2, true)
-    }
-
-    /// `use_cache = false` (flag `--no-cache`) desactiva la cache de diffs.
-    pub fn with_config(cosmetic_threshold_um2: f64, use_cache: bool) -> Self {
-        Self {
-            cached_info: std::sync::OnceLock::new(),
-            cosmetic_threshold_um2,
-            cache: if use_cache { DiffCache::from_env() } else { DiffCache::disabled() },
-        }
+        Self { cache: DiffCache::from_env() }
     }
 }
 
-impl Default for GdsDriver {
+impl Default for LayoutModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RikuDriver for GdsDriver {
-    fn info(&self) -> DriverInfo {
-        if let Some(info) = self.cached_info.get() {
-            return info.clone();
-        }
-        let info = DriverInfo {
-            name: DriverKind::Gds,
-            available: true,
-            version: "gds-renderer (gdstk cxx)".to_string(),
+impl FormatModule for LayoutModule {
+    fn info(&self) -> ModuleInfo {
+        ModuleInfo {
+            name: "layout".into(),
+            version: "gds-renderer (gdstk cxx)".into(),
+            format: FileFormat::Gds,
             extensions: vec![".gds".to_string(), ".oas".to_string()],
-        };
-        let _ = self.cached_info.set(info.clone());
-        info
+            available: true,
+        }
     }
 
-    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> FileChange {
+    fn detect(&self, content: &[u8]) -> bool {
+        gds_renderer::is_layout(content)
+    }
+
+    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str, opts: &DiffOptions) -> FileChange {
         let mut report = FileChange::new(FileFormat::Gds);
 
         let cfg = DiffConfig {
-            cosmetic_threshold_um2: self.cosmetic_threshold_um2,
+            cosmetic_threshold_um2: opts.cosmetic_threshold.unwrap_or(DEFAULT_COSMETIC_THRESHOLD_UM2),
         };
-        let r = match diff_gds_cached(content_a, content_b, &cfg, &self.cache) {
+        let off = DiffCache::disabled();
+        let cache = if opts.use_cache { &self.cache } else { &off };
+        let r = match diff_gds_cached(content_a, content_b, &cfg, cache) {
             Ok(r) => r,
             Err(e) => {
                 report.warnings.push(translate_error(e, path_hint));
@@ -138,19 +125,14 @@ impl RikuDriver for GdsDriver {
         report
     }
 
-    fn format(&self) -> FileFormat {
-        FileFormat::Gds
-    }
-
-    fn detect(&self, content: &[u8]) -> bool {
-        gds_renderer::is_layout(content)
+    fn viewer(&self) -> Option<Arc<dyn ViewerBackend>> {
+        Some(Arc::new(gds_renderer::GdsBackend::new()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::registry::detect_format;
 
     fn proof_lib_bytes() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -166,14 +148,14 @@ mod tests {
     #[test]
     fn detect_returns_gds_for_magic() {
         let bytes = [0x00u8, 0x06, 0x00, 0x02, 0x01, 0x00];
-        assert_eq!(detect_format(&bytes), FileFormat::Gds);
+        assert!(LayoutModule::new().detect(&bytes));
     }
 
     #[test]
     fn diff_warns_on_non_gds_a() {
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
         let gds = proof_lib_bytes();
-        let report = GdsDriver::new().diff(svg, &gds, "x.gds");
+        let report = LayoutModule::new().diff(svg, &gds, "x.gds", &DiffOptions::default());
         assert!(report.changes.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(
@@ -187,7 +169,7 @@ mod tests {
     fn diff_warns_on_non_gds_b() {
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
         let gds = proof_lib_bytes();
-        let report = GdsDriver::new().diff(&gds, svg, "x.gds");
+        let report = LayoutModule::new().diff(&gds, svg, "x.gds", &DiffOptions::default());
         assert!(report.changes.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert!(
@@ -200,7 +182,7 @@ mod tests {
     #[test]
     fn diff_identical_returns_empty() {
         let gds = proof_lib_bytes();
-        let report = GdsDriver::new().diff(&gds, &gds, "x.gds");
+        let report = LayoutModule::new().diff(&gds, &gds, "x.gds", &DiffOptions::default());
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
         assert!(
             report.is_empty(),
@@ -225,8 +207,8 @@ mod tests {
         // el diff debe marcar todos los entries geometricos como cosmetic.
         let a = fixture_bytes("datatype_a.gds");
         let b = fixture_bytes("datatype_b.gds");
-        let driver = GdsDriver::with_threshold(200.0);
-        let report = driver.diff(&a, &b, "datatype.gds");
+        let opts = DiffOptions { cosmetic_threshold: Some(200.0), ..Default::default() };
+        let report = LayoutModule::new().diff(&a, &b, "datatype.gds", &opts);
         let geom: Vec<&Change> = report
             .changes
             .iter()
@@ -244,7 +226,7 @@ mod tests {
         // Con default 0.01 µm², un cambio de 100 µm² NO debe ser cosmetico.
         let a = fixture_bytes("datatype_a.gds");
         let b = fixture_bytes("datatype_b.gds");
-        let report = GdsDriver::new().diff(&a, &b, "datatype.gds");
+        let report = LayoutModule::new().diff(&a, &b, "datatype.gds", &DiffOptions::default());
         let geom: Vec<&Change> = report
             .changes
             .iter()
@@ -259,10 +241,10 @@ mod tests {
 
     #[test]
     fn can_handle_gds_extension() {
-        let d = GdsDriver::new();
-        assert!(d.can_handle("foo.gds"));
-        assert!(d.can_handle("path/to/Bar.GDS"));
-        assert!(!d.can_handle("foo.sch"));
+        let d = LayoutModule::new();
+        assert!(d.handles_path("foo.gds"));
+        assert!(d.handles_path("path/to/Bar.GDS"));
+        assert!(!d.handles_path("foo.sch"));
     }
 
     fn renderer_fixture(name: &str) -> Vec<u8> {
@@ -274,10 +256,11 @@ mod tests {
 
     #[test]
     fn renamed_cell_is_one_rename_entry() {
-        let r = GdsDriver::new().diff(
+        let r = LayoutModule::new().diff(
             &renderer_fixture("rename_a.gds"),
             &renderer_fixture("rename_b.gds"),
             "rename.gds",
+            &DiffOptions::default(),
         );
         let rename: Vec<&Change> = r.changes.iter().filter(|c| c.kind == ChangeKind::Renamed).collect();
         assert_eq!(rename.len(), 1);
@@ -289,10 +272,11 @@ mod tests {
 
     #[test]
     fn instances_of_the_same_subcell_are_grouped() {
-        let r = GdsDriver::new().diff(
+        let r = LayoutModule::new().diff(
             &renderer_fixture("multi_inst_a.gds"),
             &renderer_fixture("multi_inst_b.gds"),
             "multi.gds",
+            &DiffOptions::default(),
         );
         let top = r.changes.iter().find(|c| c.element.name() == "TOP:L1/0:INV").expect("TOP");
         let Element::Geometry { via: Some(via), .. } = &top.element else { panic!("sin via: {top:?}") };

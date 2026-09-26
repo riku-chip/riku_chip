@@ -1,15 +1,19 @@
+#![cfg(feature = "xschem")]
 use std::fs;
 use std::path::Path;
 
 use git2::{Repository, Signature};
 use serde_json::json;
 
-use riku::adapters::xschem_driver::parse;
+use riku::modules::xschem::parse;
 use riku::core::domain::git_types::{GitError, LARGE_BLOB_THRESHOLD};
 use riku::core::domain::models::FileFormat;
 use xschem_viewer::semantic::ChangeKind;
 use riku::core::domain::ports::GitRepository;
-use riku::adapters::registry::detect_format;
+/// Formato por firma, según los módulos del ejecutable.
+fn detect_format(content: &[u8]) -> FileFormat {
+    riku::modules::registry().detect_format(content)
+}
 use riku::core::git::git_service::GitService;
 use xschem_viewer::semantic::diff;
 

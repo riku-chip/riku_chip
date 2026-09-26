@@ -1,8 +1,13 @@
+//! Diff de un archivo entre dos commits.
+//!
+//! El núcleo no elige formatos: el módulo sale del [`Registry`] que recibe
+//! (por la extensión del archivo).
+
 use std::path::Path;
 
+use riku_kernel::{DiffOptions, Registry};
 use thiserror::Error;
 
-use crate::adapters::registry::{get_driver_for_with_config, DriverConfig};
 use crate::core::analysis::blob_io;
 use crate::core::domain::git_types::GitError;
 use crate::core::domain::models::{FileChange, FileFormat};
@@ -15,54 +20,40 @@ pub enum AnalyzeError {
     Git(#[from] GitError),
 }
 
+/// Abre el repo en `repo_path` y compara `file_path` entre los dos commits.
 pub fn analyze_diff(
     repo_path: &Path,
     commit_a: &str,
     commit_b: &str,
     file_path: &str,
+    modules: &Registry,
+    opts: &DiffOptions,
 ) -> Result<FileChange, AnalyzeError> {
     let svc = GitService::open(repo_path)?;
-    analyze_diff_with_repo(&svc, commit_a, commit_b, file_path)
+    analyze_diff_with_repo(&svc, commit_a, commit_b, file_path, modules, opts)
 }
 
+/// Como [`analyze_diff`], con el repositorio inyectado (tests, composición).
+/// Un archivo sin módulo da un `FileChange` vacío con un aviso.
 pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     repo: &R,
     commit_a: &str,
     commit_b: &str,
     file_path: &str,
+    modules: &Registry,
+    opts: &DiffOptions,
 ) -> Result<FileChange, AnalyzeError> {
-    analyze_diff_with_config(repo, commit_a, commit_b, file_path, &DriverConfig::default())
-}
-
-/// Variante que inyecta `DriverConfig` (umbral cosmetico GDS, etc.). Misma
-/// logica que `analyze_diff_with_repo` pero construye el driver con config
-/// custom via `get_driver_for_with_config`. El default sigue al alcance de
-/// `analyze_diff_with_repo`.
-pub fn analyze_diff_with_config<R: GitRepository + ?Sized>(
-    repo: &R,
-    commit_a: &str,
-    commit_b: &str,
-    file_path: &str,
-    cfg: &DriverConfig,
-) -> Result<FileChange, AnalyzeError> {
-    let driver = match get_driver_for_with_config(file_path, cfg) {
-        Some(driver) => driver,
-        None => {
-            let mut report = FileChange::new(FileFormat::Unknown);
-            report.warnings.push(format!(
-                "{file_path}: no hay driver disponible para este formato."
-            ));
-            return Ok(report);
-        }
+    let Some(module) = modules.for_path(file_path) else {
+        let mut report = FileChange::new(FileFormat::Unknown);
+        report.warnings.push(format!("{file_path}: no hay driver disponible para este formato."));
+        return Ok(report);
     };
 
     let mut warnings = Vec::new();
-    let content_a = blob_io::read_blob_lenient(repo, commit_a, file_path, &mut warnings)?
-        .unwrap_or_default();
-    let content_b = blob_io::read_blob_lenient(repo, commit_b, file_path, &mut warnings)?
-        .unwrap_or_default();
+    let content_a = blob_io::read_blob_lenient(repo, commit_a, file_path, &mut warnings)?.unwrap_or_default();
+    let content_b = blob_io::read_blob_lenient(repo, commit_b, file_path, &mut warnings)?.unwrap_or_default();
 
-    let mut report = driver.diff(&content_a, &content_b, file_path);
+    let mut report = module.diff(&content_a, &content_b, file_path, opts);
     report.warnings.extend(warnings);
     Ok(report)
 }

@@ -140,6 +140,8 @@ pub struct RikuGuiApp {
     runtime: Arc<Runtime>,
     /// Backends registrados. El primero que responda `accepts()` gana.
     backends: Vec<Arc<dyn ViewerBackend>>,
+    /// Extensiones que saben abrir los backends (filtro del árbol).
+    openable: Vec<String>,
     /// Escena actual cargada via backend (path neutro).
     backend_state: Option<BackendState>,
     /// Carga async en vuelo (solo una — al llegar una nueva se cancela).
@@ -231,7 +233,6 @@ impl RikuGuiApp {
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
         let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
-        let project_tree = ProjectEntry::build(&project_root, show_all_files);
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
         // scheduler principal. Dos workers son suficientes para una GUI.
@@ -242,12 +243,12 @@ impl RikuGuiApp {
             .expect("tokio runtime");
         let runtime = Arc::new(runtime);
 
-        // Registry de backends. XschemBackend siempre presente; otros se
-        // agregarán cuando los crates estén disponibles (gds-renderer, ...).
-        let backends: Vec<Arc<dyn ViewerBackend>> = vec![
-            Arc::new(xschem_viewer::XschemBackend::new()),
-            Arc::new(gds_renderer::GdsBackend::new()),
-        ];
+        // Los módulos del ejecutable deciden qué formatos se pueden abrir.
+        let modules = crate::modules::registry();
+        let backends: Vec<Arc<dyn ViewerBackend>> = modules.viewers();
+        let openable: Vec<String> =
+            backends.iter().flat_map(|b| b.info().extensions.iter().map(|e| e.to_string())).collect();
+        let project_tree = ProjectEntry::build(&project_root, show_all_files, &openable);
 
         let mut app = Self {
             project_root,
@@ -259,6 +260,7 @@ impl RikuGuiApp {
             error: None,
             runtime,
             backends,
+            openable,
             backend_state: None,
             pending_load: None,
             pending_token: None,
@@ -316,7 +318,7 @@ impl RikuGuiApp {
     }
 
     fn refresh_tree(&mut self) {
-        self.project_tree = ProjectEntry::build(&self.project_root, self.show_all_files);
+        self.project_tree = ProjectEntry::build(&self.project_root, self.show_all_files, &self.openable);
     }
 
     /// Feedback breve (estado, completado, aviso) en un mensaje temporal.
@@ -708,7 +710,14 @@ impl RikuGuiApp {
     fn load_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path) -> Result<(), String> {
         let file_str = file.to_string_lossy();
         // El diff lo da el driver del registro, igual que en la CLI.
-        let report = crate::core::analysis::commit_diff::analyze_diff(repo, commit_a, commit_b, &file_str)
+        let report = crate::core::analysis::commit_diff::analyze_diff(
+            repo,
+            commit_a,
+            commit_b,
+            &file_str,
+            &crate::modules::registry(),
+            &riku_kernel::DiffOptions::default(),
+        )
             .map_err(|e| e.to_string())?;
 
         let opts = sch_render_opts();

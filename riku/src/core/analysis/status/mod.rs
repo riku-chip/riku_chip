@@ -1,6 +1,6 @@
 //! Orquestación de `riku status`.
 //!
-//! Composición de `GitRepository` (working tree + HEAD) con `RikuDriver` para
+//! Composición de `GitRepository` (working tree + HEAD) con los módulos de formato para
 //! producir una lista de `FileSummary` clasificados.
 //!
 //! Este módulo no formatea — entrega `StatusReport` y la capa CLI decide cómo

@@ -1,3 +1,4 @@
+#![cfg(feature = "layout")]
 //! Diff GDS de punta a punta: repo git real → `GitService` → driver → CLI.
 //!
 //! Fixtures (de `gds-renderer/tests/fixtures`, generados con gdstk):
@@ -14,10 +15,13 @@ use std::process::Command;
 use git2::{Repository, Signature};
 use serde_json::Value;
 
-use riku::adapters::registry::get_driver_for;
+
 use riku::core::domain::models::{ChangeKind, FileFormat};
 use riku::core::domain::ports::GitRepository;
-use riku::adapters::registry::detect_format;
+/// Formato por firma, según los módulos del ejecutable.
+fn detect_format(content: &[u8]) -> FileFormat {
+    riku::modules::registry().detect_format(content)
+}
 use riku::core::git::git_service::GitService;
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -109,8 +113,9 @@ fn git_blob_to_driver_detects_hierarchical_change() {
     let after = svc.get_blob(&r.b, "layout.gds").unwrap();
     assert_eq!(detect_format(&after), FileFormat::Gds);
 
-    let driver = get_driver_for("layout.gds").expect("driver GDS registrado");
-    let report = driver.diff(&before, &after, "layout.gds");
+    let modules = riku::modules::registry();
+    let driver = modules.for_path("layout.gds").expect("módulo de layouts registrado");
+    let report = driver.diff(&before, &after, "layout.gds", &riku_kernel::DiffOptions::default());
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
 
     let names: Vec<String> = report.changes.iter().map(|c| c.element.name()).collect();

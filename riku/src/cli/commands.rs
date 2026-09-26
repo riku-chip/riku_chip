@@ -7,8 +7,9 @@
 
 use std::path::PathBuf;
 
-use crate::adapters::registry::DriverConfig;
-use crate::core::analysis::commit_diff::analyze_diff_with_config;
+use riku_kernel::DiffOptions;
+
+use crate::core::analysis::commit_diff::analyze_diff_with_repo;
 use crate::core::domain::models::FileChange;
 use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
@@ -37,11 +38,11 @@ pub(super) fn run_diff(
         return present_visual(&repo, commit_a, commit_b, file_path);
     }
     // Mismo flujo que log/status; el umbral cosmético y la cache los usa el
-    // driver de layouts, los demás los ignoran.
-    let cfg = DriverConfig { cosmetic_threshold_um2, use_cache };
+    // módulo de layouts, los demás los ignoran.
+    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache };
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
-    let mut report =
-        analyze_diff_with_config(&svc, commit_a, commit_b, file_path, &cfg).map_err(|e| e.to_string())?;
+    let mut report = analyze_diff_with_repo(&svc, commit_a, commit_b, file_path, &crate::modules::registry(), &opts)
+        .map_err(|e| e.to_string())?;
     let warnings = std::mem::take(&mut report.warnings);
     print_diff(&report, &warnings, file_path, format)
 }
@@ -109,7 +110,7 @@ pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
         limit: Some(args.limit),
         start: args.branch,
     };
-    let report = log::analyze_with_options_path(&args.repo, &opts).map_err(|e| e.to_string())?;
+    let report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 
     if args.json {
         format::log_json::print(&report, !args.compact)?;
@@ -149,7 +150,7 @@ pub(super) fn run_status(args: StatusArgs) -> Result<StatusOutcome, String> {
         level,
         paths: args.paths,
     };
-    let report = status::analyze_with_options_path(&args.repo, &opts).map_err(|e| e.to_string())?;
+    let report = status::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 
     if args.json {
         format::status_json::print(&report, !args.compact)?;

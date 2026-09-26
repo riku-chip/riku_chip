@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::adapters::xschem_pdk::{pdk_status, PdkStatus};
+use crate::modules::xschem_pdk::{pdk_status, PdkStatus};
 
 use super::shell_complete::RikuHelper;
 use super::{Cli, Commands};

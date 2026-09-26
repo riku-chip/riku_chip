@@ -57,7 +57,7 @@ Para layouts GDS responde las preguntas equivalentes en términos geométricos:
 | **Historial semántico**| `riku log` anota cada commit con un resumen por archivo (componentes/nets) y refs anotadas. |
 | **Salida JSON estable**| `--json` con schemas versionados (`riku-status/v1`, `riku-log/v1`) para CI y scripts. |
 | **Detección de PDK**   | Descubre rutas de símbolos desde `.xschemrc`, `$PDK_ROOT`/`$PDK` y `$TOOLS` sin configuración manual. |
-| **Arquitectura plugin**| Trait `ViewerBackend` común a todos los formatos. Añadir un nuevo formato (GDS, KiCad, etc.) no toca el visor ni la CLI. |
+| **Arquitectura modular**| Núcleo (`riku-kernel`) que no conoce ningún formato y módulos que se registran en él (`FormatModule`: detectar, comparar y mostrar). Añadir un formato (Magic, KiCad…) es un módulo nuevo en `riku/src/modules/`; no toca el núcleo, la CLI ni el visor. |
 
 ---
 
@@ -378,7 +378,8 @@ Riku es un workspace de varios crates con una separación clara entre **contrato
 ```
 riku_chip/
 ├── viewer-core/                          ← trait ViewerBackend, RenderableScene, DrawElement neutros
-├── riku/                                 ← ejecutable: núcleo, CLI (diff, log, status, doctor, open, shell) y visor (src/gui, egui)
+├── riku-kernel/                          ← núcleo: tipos de cambio (FileChange, Change, Element), FormatModule y Registry; sin formatos
+├── riku/                                 ← ejecutable: análisis y git (src/core), módulos de formato (src/modules: xschem, layout), CLI y visor (src/gui)
 ├── gds-renderer/                         ← backend GDS: escena, diff geométrico, paletas PDK, SVG
 ├── external/
 │   ├── gdstk/               (submodule)  ← gdstk-rs: binding Rust de gdstk (C++)

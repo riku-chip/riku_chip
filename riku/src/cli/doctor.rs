@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::adapters::registry::get_drivers;
-use crate::core::domain::driver::DriverInfo;
-use crate::adapters::xschem_pdk::{pdk_status, PdkStatus};
+use riku_kernel::ModuleInfo;
+
+use crate::modules::xschem_pdk::{pdk_status, PdkStatus};
 
 // ─── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ pub(super) struct DoctorReport {
     pub pdk: PdkStatus,
     pub tools: ToolsStatus,
     pub has_symbols: bool,
-    pub drivers: Vec<DriverInfo>,
+    pub drivers: Vec<ModuleInfo>,
 }
 
 pub(super) enum ToolsStatus {
@@ -46,7 +46,7 @@ fn analyze(repo: &Path) -> DoctorReport {
         || matches!(pdk, PdkStatus::Found(_))
         || matches!(tools, ToolsStatus::Found(_));
 
-    let drivers = get_drivers().iter().map(|d| d.info()).collect();
+    let drivers = crate::modules::registry().modules().iter().map(|m| m.info()).collect();
 
     DoctorReport {
         repo_workdir,

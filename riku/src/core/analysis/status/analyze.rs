@@ -3,7 +3,8 @@
 use std::io;
 use std::path::Path;
 
-use crate::adapters::registry::get_driver_for;
+use riku_kernel::Registry;
+
 use crate::core::analysis::blob_io;
 use crate::core::analysis::pipeline;
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
@@ -20,10 +21,11 @@ use super::types::{StatusError, StatusOptions, StatusReport};
 pub fn analyze_with_options_path(
     repo_path: &Path,
     opts: &StatusOptions,
+    modules: &Registry,
 ) -> Result<StatusReport, StatusError> {
     let svc = GitService::open(repo_path)?;
     let workdir = svc.root().map(|p| p.to_path_buf());
-    analyze_with_options(&svc, workdir.as_deref(), opts)
+    analyze_with_options(&svc, workdir.as_deref(), opts, modules)
 }
 
 /// Versión inyectable con repo (para tests y composición).
@@ -31,6 +33,7 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
     opts: &StatusOptions,
+    modules: &Registry,
 ) -> Result<StatusReport, StatusError> {
     let branch = repo.current_branch()?;
     let changes = repo.working_tree_changes()?;
@@ -44,7 +47,7 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
         if !matcher.matches(&change.path) {
             continue;
         }
-        let summary = summarize_change(repo, workdir, &change, opts.level, &mut warnings);
+        let summary = summarize_change(repo, workdir, &change, opts.level, modules, &mut warnings);
         files.push(summary);
     }
 
@@ -63,11 +66,11 @@ fn summarize_change<R: GitRepository + ?Sized>(
     workdir: Option<&Path>,
     change: &WorkingChange,
     level: DetailLevel,
+    modules: &Registry,
     warnings: &mut Vec<String>,
 ) -> FileSummary {
-    let driver = match get_driver_for(&change.path) {
-        Some(d) => d,
-        None => return FileSummary::unknown(&change.path),
+    let Some(module) = modules.for_path(&change.path) else {
+        return FileSummary::unknown(&change.path);
     };
 
     // Contenido "antes": HEAD si el archivo existía allí; vacío si nuevo.
@@ -92,7 +95,7 @@ fn summarize_change<R: GitRepository + ?Sized>(
         },
     };
 
-    pipeline::summarize(&*driver, &content_before, &content_after, &change.path, level)
+    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level)
 }
 
 fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {
@@ -154,7 +157,7 @@ mod tests {
             head_blobs: Default::default(),
             branch: None,
         };
-        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default(), &crate::modules::registry()).unwrap();
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].category, SummaryCategory::Unknown);
         assert!(!report.has_semantic_changes());
@@ -178,7 +181,7 @@ mod tests {
             head_blobs: Default::default(),
             branch: None,
         };
-        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default(), &crate::modules::registry()).unwrap();
         assert_eq!(report.files[0].path, "a.txt");
         assert_eq!(report.files[1].path, "z.txt");
     }
@@ -210,7 +213,7 @@ mod tests {
             level: DetailLevel::Resumen,
             paths: vec!["amp_*.sch".to_string()],
         };
-        let report = analyze_with_options(&repo, None, &opts).unwrap();
+        let report = analyze_with_options(&repo, None, &opts, &crate::modules::registry()).unwrap();
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].path, "amp_ota.sch");
     }
@@ -229,7 +232,7 @@ mod tests {
                 behind: 0,
             }),
         };
-        let report = analyze_with_options(&repo, None, &StatusOptions::default()).unwrap();
+        let report = analyze_with_options(&repo, None, &StatusOptions::default(), &crate::modules::registry()).unwrap();
         assert_eq!(
             report.branch.as_ref().map(|b| b.name.as_str()),
             Some("feature-amp")

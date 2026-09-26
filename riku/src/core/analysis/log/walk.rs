@@ -2,7 +2,8 @@
 
 use std::path::Path;
 
-use crate::adapters::registry::get_driver_for;
+use riku_kernel::Registry;
+
 use crate::core::analysis::blob_io;
 use crate::core::analysis::pipeline;
 use crate::core::analysis::summary::{FileSummary, SummaryCategory};
@@ -19,14 +20,16 @@ use super::types::{LogCommit, LogError, LogOptions, LogReport};
 pub fn analyze_with_options_path(
     repo_path: &Path,
     opts: &LogOptions,
+    modules: &Registry,
 ) -> Result<LogReport, LogError> {
     let svc = GitService::open(repo_path)?;
-    walk_with_summary(&svc, opts)
+    walk_with_summary(&svc, opts, modules)
 }
 
 pub fn walk_with_summary<R: GitRepository + ?Sized>(
     repo: &R,
     opts: &LogOptions,
+    modules: &Registry,
 ) -> Result<LogReport, LogError> {
     // Para mantener semántica de Git nativo cuando hay `paths`, recorremos
     // todo y filtramos por commit. Si en el futuro hace falta optimizar,
@@ -42,7 +45,7 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     let mut warnings = Vec::new();
     let mut commits = Vec::with_capacity(raw.len());
     for c in raw {
-        let log_commit = build_log_commit(repo, c, &refs_map, opts, &mut warnings);
+        let log_commit = build_log_commit(repo, c, &refs_map, opts, modules, &mut warnings);
         // Si hay filtro de paths y este commit no tocó ninguno, lo omitimos.
         if !opts.paths.is_empty() && log_commit.files.is_empty() && !log_commit.is_merge {
             continue;
@@ -60,6 +63,7 @@ fn build_log_commit<R: GitRepository + ?Sized>(
     raw: CommitWithParents,
     refs_map: &std::collections::HashMap<String, Vec<String>>,
     opts: &LogOptions,
+    modules: &Registry,
     warnings: &mut Vec<String>,
 ) -> LogCommit {
     let oid = raw.info.oid.clone();
@@ -71,7 +75,7 @@ fn build_log_commit<R: GitRepository + ?Sized>(
         Vec::new()
     } else {
         let parent = &raw.parents[0];
-        diff_against_parent(repo, parent, &oid, opts, warnings)
+        diff_against_parent(repo, parent, &oid, opts, modules, warnings)
     };
 
     LogCommit {
@@ -88,6 +92,7 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
     parent: &str,
     commit: &str,
     opts: &LogOptions,
+    modules: &Registry,
     warnings: &mut Vec<String>,
 ) -> Vec<FileSummary> {
     let changed = match repo.get_changed_files(parent, commit) {
@@ -105,9 +110,8 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
         if !matcher.matches(&cf.path) {
             continue;
         }
-        let driver = match get_driver_for(&cf.path) {
-            Some(d) => d,
-            None => continue, // formatos sin driver no se listan en log
+        let Some(module) = modules.for_path(&cf.path) else {
+            continue; // formatos sin módulo no se listan en log
         };
 
         let content_before = if cf.status == ChangeStatus::Added {
@@ -121,7 +125,7 @@ fn diff_against_parent<R: GitRepository + ?Sized>(
             blob_io::read_blob_silent(repo, commit, &cf.path, warnings)
         };
 
-        let summary = pipeline::summarize(&*driver, &content_before, &content_after, &cf.path, opts.level);
+        let summary = pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level);
         // Saltamos archivos sin cambio semántico ni cosmético detectado, para
         // no inflar el log con ruido de driver.
         if matches!(summary.category, SummaryCategory::Unchanged) {
@@ -208,7 +212,7 @@ mod tests {
             changed: Default::default(),
             refs: Default::default(),
         };
-        let report = walk_with_summary(&repo, &LogOptions::default()).unwrap();
+        let report = walk_with_summary(&repo, &LogOptions::default(), &crate::modules::registry()).unwrap();
         assert_eq!(report.commits.len(), 1);
         assert!(report.commits[0].is_merge);
         assert!(report.commits[0].files.is_empty());
@@ -222,7 +226,7 @@ mod tests {
             changed: Default::default(),
             refs: Default::default(),
         };
-        let report = walk_with_summary(&repo, &LogOptions::default()).unwrap();
+        let report = walk_with_summary(&repo, &LogOptions::default(), &crate::modules::registry()).unwrap();
         assert!(!report.commits[0].is_merge);
         assert!(report.commits[0].files.is_empty());
     }
@@ -240,7 +244,7 @@ mod tests {
             changed: Default::default(),
             refs,
         };
-        let report = walk_with_summary(&repo, &LogOptions::default()).unwrap();
+        let report = walk_with_summary(&repo, &LogOptions::default(), &crate::modules::registry()).unwrap();
         assert!(report.commits[0].refs.contains(&"main".to_string()));
         assert!(report.commits[0].refs.contains(&"HEAD".to_string()));
     }
@@ -258,7 +262,7 @@ mod tests {
             paths: vec!["*.sch".to_string()],
             ..Default::default()
         };
-        let report = walk_with_summary(&repo, &opts).unwrap();
+        let report = walk_with_summary(&repo, &opts, &crate::modules::registry()).unwrap();
         assert!(report.commits.is_empty());
     }
 

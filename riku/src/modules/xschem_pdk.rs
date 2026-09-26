@@ -1,7 +1,7 @@
 //! PDK para el módulo Xschem: dónde están los símbolos del PDK.
 //!
 //! Fuente única de verdad para resolver `$PDK_ROOT/$PDK/libs.tech/xschem`.
-//! Consumido por `cli::doctor` (diagnóstico) y `adapters::xschem_driver`
+//! Consumido por `cli::doctor` (diagnóstico) y `modules::xschem`
 //! (opciones de render y string de estado en `DriverInfo`).
 
 use std::path::{Path, PathBuf};
