@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::labels::{flatten_labels, FlatLabel};
 use crate::palette::{color_for_tag, default_layer_style};
 use crate::renderer::render_scene;
 use crate::scene::{DrawCommand, HighlightSet, OwnedPolygon, RenderScene};
@@ -25,7 +26,34 @@ pub fn render_cell_with_highlights(
     render_scene(&scene)
 }
 
+/// Escena de `cell` con la geometria de toda la jerarquia y los labels de la
+/// propia cell (sin library no se pueden resolver las sub-cells). Para los
+/// labels de toda la jerarquia, ver [`scene_from_cell_in`].
 pub fn scene_from_cell(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig) -> RenderScene {
+    let labels = cell
+        .labels()
+        .map(|label| FlatLabel {
+            tag: GdsTag { layer: label.layer(), datatype: label.texttype() },
+            text: label.text().into_owned(),
+            origin: label.origin(),
+            anchor: label.anchor(),
+        })
+        .collect();
+    build_scene(cell, config, labels)
+}
+
+/// Como [`scene_from_cell`], pero con los labels de todas las sub-cells
+/// transformados a coordenadas de `cell` (igual que KLayout muestra una cell
+/// jerarquica).
+pub fn scene_from_cell_in(
+    lib: &gdstk_rs::Library,
+    cell: &gdstk_rs::Cell<'_>,
+    config: &RenderConfig,
+) -> RenderScene {
+    build_scene(cell, config, flatten_labels(lib, cell))
+}
+
+fn build_scene(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig, labels: Vec<FlatLabel>) -> RenderScene {
     let flattened = cell.get_polygons().build();
     let mut commands = Vec::new();
     let mut tags = HashSet::new();
@@ -43,18 +71,9 @@ pub fn scene_from_cell(cell: &gdstk_rs::Cell<'_>, config: &RenderConfig) -> Rend
     }
 
     if config.show_labels {
-        for label in cell.labels() {
-            let tag = GdsTag {
-                layer: label.layer(),
-                datatype: label.texttype(),
-            };
+        for FlatLabel { tag, text, origin, anchor } in labels {
             tags.insert(tag);
-            commands.push(DrawCommand::Label {
-                tag,
-                text: label.text().into_owned(),
-                origin: label.origin(),
-                anchor: label.anchor(),
-            });
+            commands.push(DrawCommand::Label { tag, text, origin, anchor });
         }
     }
 
