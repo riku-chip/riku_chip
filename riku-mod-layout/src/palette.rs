@@ -1,4 +1,4 @@
-use crate::style::{Color, LayerStyle, Pdk};
+use crate::style::{Color, Pdk};
 use gdstk_rs::GdsTag;
 
 pub fn color_for_tag(tag: GdsTag, pdk: Pdk) -> Color {
@@ -13,28 +13,6 @@ pub fn color_for_tag(tag: GdsTag, pdk: Pdk) -> Color {
     };
     let index = ((tag.layer as usize) * 31 + tag.datatype as usize) % palette.len();
     palette[index]
-}
-
-pub fn default_layer_style(tag: GdsTag, order: u32, fill: Color) -> LayerStyle {
-    LayerStyle {
-        tag,
-        name: format!("layer_{}_{}", tag.layer, tag.datatype),
-        fill,
-        stroke: fill,
-        opacity: 1.0,
-        visible: true,
-        order,
-        hatch: None,
-    }
-}
-
-pub fn highlight_style(kind: &str) -> (Color, Color) {
-    match kind {
-        "added" => (Color::rgba(0, 200, 0, 255), Color::rgba(0, 120, 0, 255)),
-        "removed" => (Color::rgba(200, 0, 0, 255), Color::rgba(120, 0, 0, 255)),
-        "modified" => (Color::rgba(255, 180, 0, 255), Color::rgba(180, 120, 0, 255)),
-        _ => (Color::rgba(255, 0, 0, 255), Color::rgba(180, 0, 0, 255)),
-    }
 }
 
 const GENERIC_PALETTE: [Color; 12] = [

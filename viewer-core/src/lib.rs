@@ -1,7 +1,7 @@
 //! Abstracciones neutras para visores de layout y esquemático.
 //!
 //! Este crate define el **contrato común** que cumplen los backends específicos
-//! (`xschem-viewer`, `gds-renderer`, …) para que los consumidores (`riku-gui`,
+//! (`xschem-viewer`, `riku-mod-layout`, …) para que los consumidores (`riku-gui`,
 //! `riku` CLI) puedan integrarlos sin acoplarse al formato.
 //!
 //! # Tipos principales

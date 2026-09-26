@@ -30,8 +30,8 @@ rustyline = "14.0"
 # `git clone --recurse-submodules` y compilar sin pasos extra. Al publicar
 # viewer-core en crates.io, esto puede migrarse a una git/crates dependency.
 xschem_viewer = { package = "xschem-viewer", path = "../external/xschem-viewer-rust", optional = true }
-# Módulo de layouts: gds-renderer encapsula gdstk_rs (diff geométrico y visor).
-gds-renderer = { path = "../gds-renderer", optional = true }
+# Módulo de layouts: riku-mod-layout encapsula gdstk_rs (diff geométrico y visor).
+riku-mod-layout = { path = "../riku-mod-layout", optional = true }
 # Contrato del visor (los módulos ofrecen su backend).
 viewer-core = { path = "../viewer-core" }
 
@@ -47,7 +47,7 @@ async-trait = { version = "0.1", optional = true }
 default = ["xschem", "layout", "gui"]
 # Módulos de formato (ver src/modules/mod.rs).
 xschem = ["dep:xschem_viewer"]
-layout = ["dep:gds-renderer"]
+layout = ["dep:riku-mod-layout"]
 # Visor de escritorio. Sin `gui` sale un `riku` solo de terminal (servidores,
 # CI), sin egui. Cada módulo aporta su visor (ver FormatModule::viewer).
 gui = ["dep:eframe", "dep:tokio", "dep:poll-promise", "dep:earcutr", "dep:async-trait"]

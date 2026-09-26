@@ -1017,20 +1017,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gds-renderer"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "dirs",
- "gdstk-rs",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "viewer-core",
-]
-
-[[package]]
 name = "gdstk-rs"
 version = "0.1.0"
 dependencies = [
@@ -2409,11 +2395,11 @@ dependencies = [
  "dirs",
  "earcutr",
  "eframe",
- "gds-renderer",
  "git2",
  "glob",
  "poll-promise",
  "riku-kernel",
+ "riku-mod-layout",
  "rustyline",
  "serde",
  "serde_json",
@@ -2430,6 +2416,20 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "viewer-core",
+]
+
+[[package]]
+name = "riku-mod-layout"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dirs",
+ "gdstk-rs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
  "viewer-core",
 ]
 

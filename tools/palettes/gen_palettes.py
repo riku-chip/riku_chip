@@ -1,4 +1,4 @@
-"""Genera gds-renderer/src/palette_generated.rs desde los .lyp oficiales.
+"""Genera riku-mod-layout/src/palette_generated.rs desde los .lyp oficiales.
 
     python3 tools/palettes/gen_palettes.py [PDK_ROOT]     # por defecto /foss/pdks
 
@@ -16,7 +16,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUT = os.path.join(ROOT, "gds-renderer", "src", "palette_generated.rs")
+OUT = os.path.join(ROOT, "riku-mod-layout", "src", "palette_generated.rs")
 
 # (constante, ruta relativa a PDK_ROOT, datatypes que se rellenan)
 PDKS = [

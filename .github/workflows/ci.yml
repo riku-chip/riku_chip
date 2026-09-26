@@ -45,7 +45,7 @@ jobs:
           cargo build --locked -p riku --no-default-features --features layout,gui
       - name: El núcleo no depende de ningún formato
         run: |
-          if cargo tree --locked -p riku-kernel -e normal | grep -E "gds-renderer|xschem-viewer|gdstk-rs"; then
+          if cargo tree --locked -p riku-kernel -e normal | grep -E "riku-mod-layout|xschem-viewer|gdstk-rs"; then
             echo "::error::riku-kernel depende de un módulo o motor de formato"; exit 1
           fi
 

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::process::ExitCode;
 
 use gdstk_rs::Library;
-use gds_renderer::{diff_cell, flatten_labels, DiffConfig};
+use riku_mod_layout::{diff_cell, flatten_labels, DiffConfig};
 
 fn load(path: &str) -> Library {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));

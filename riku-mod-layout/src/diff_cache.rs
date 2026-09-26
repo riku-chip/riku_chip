@@ -5,7 +5,7 @@
 //! guarda con esa clave y la segunda vez (otro `riku diff`, `riku log`, volver
 //! a abrir el diff en la GUI) sale del disco.
 //!
-//! - **Clave:** hash de 128 bits de (version de gds-renderer, tipo de
+//! - **Clave:** hash de 128 bits de (version de riku-mod-layout, tipo de
 //!   resultado, bytes de cada lado, parametros). Cambiar de version invalida
 //!   todo; una clave que no coincide solo cuesta recalcular.
 //! - **Cuando:** solo si las entradas suman mas de [`MIN_BYTES`]: los diffs

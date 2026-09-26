@@ -1,10 +1,10 @@
-//! Módulo de layouts (GDSII y OASIS): traduce el diff de `gds-renderer` al
+//! Módulo de layouts (GDSII y OASIS): traduce el diff de `riku-mod-layout` al
 //! vocabulario del núcleo y ofrece su backend del visor. Toda la lógica de
-//! geometría vive en `gds-renderer`; aquí no se usa `gdstk_rs`.
+//! geometría vive en `riku-mod-layout`; aquí no se usa `gdstk_rs`.
 
 use std::sync::Arc;
 
-use gds_renderer::{
+use riku_mod_layout::{
     diff_gds_cached, DiffCache, DiffConfig, GdsError, GdsGeomDiff,
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
@@ -17,7 +17,7 @@ fn cell_change(name: &str, kind: ChangeKind) -> Change {
     Change::new(kind, Element::Cell { name: name.to_string() })
 }
 
-/// Traduce un cambio de geometría de gds-renderer al vocabulario del núcleo:
+/// Traduce un cambio de geometría de riku-mod-layout al vocabulario del núcleo:
 /// áreas y conteos como números, sub-celda e instancia tipadas.
 fn geom_change(g: &GdsGeomDiff) -> Change {
     let kind = match (g.added_polygons, g.removed_polygons) {
@@ -58,7 +58,7 @@ fn translate_error(e: GdsError, path_hint: &str) -> String {
     }
 }
 
-/// Módulo de layouts: GDSII y OASIS (motor: gdstk vía gds-renderer).
+/// Módulo de layouts: GDSII y OASIS (motor: gdstk vía riku-mod-layout).
 pub struct LayoutModule {
     /// Cache en disco del reporte (solo layouts grandes; ver `DiffCache`).
     cache: DiffCache,
@@ -80,7 +80,7 @@ impl FormatModule for LayoutModule {
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "layout".into(),
-            version: "gds-renderer (gdstk cxx)".into(),
+            version: "riku-mod-layout (gdstk cxx)".into(),
             format: FileFormat::Gds,
             extensions: vec![".gds".to_string(), ".oas".to_string()],
             available: true,
@@ -88,7 +88,7 @@ impl FormatModule for LayoutModule {
     }
 
     fn detect(&self, content: &[u8]) -> bool {
-        gds_renderer::is_layout(content)
+        riku_mod_layout::is_layout(content)
     }
 
     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str, opts: &DiffOptions) -> FileChange {
@@ -126,7 +126,7 @@ impl FormatModule for LayoutModule {
     }
 
     fn viewer(&self) -> Option<Arc<dyn ViewerBackend>> {
-        Some(Arc::new(gds_renderer::GdsBackend::new()))
+        Some(Arc::new(riku_mod_layout::GdsBackend::new()))
     }
 }
 
@@ -194,7 +194,7 @@ mod tests {
     fn fixture_bytes(name: &str) -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join("gds-renderer")
+            .join("riku-mod-layout")
             .join("tests")
             .join("fixtures")
             .join(name);
@@ -249,7 +249,7 @@ mod tests {
 
     fn renderer_fixture(name: &str) -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../gds-renderer/tests/fixtures")
+            .join("../riku-mod-layout/tests/fixtures")
             .join(name);
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }

@@ -12,9 +12,9 @@ tools/verify/compare.sh
 
 | Script | Qué hace |
 |---|---|
-| `compare.sh` | Compila `verify_dump` (ejemplo de `gds-renderer`), vuelca cada librería con Riku y con KLayout y compara los dos textos. Sale con código 1 si hay diferencias |
+| `compare.sh` | Compila `verify_dump` (ejemplo de `riku-mod-layout`), vuelca cada librería con Riku y con KLayout y compara los dos textos. Sale con código 1 si hay diferencias |
 | `klayout_dump.py` | Lado KLayout del volcado (`cells` y `xor`) |
-| `gds-renderer/examples/verify_dump.rs` | Lado Riku, mismo formato |
+| `riku-mod-layout/examples/verify_dump.rs` | Lado Riku, mismo formato |
 
 ```bash
 tools/verify/compare.sh                          # SKY130, GF180 e IHP (librerías de celdas estándar)

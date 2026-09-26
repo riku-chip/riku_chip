@@ -124,7 +124,7 @@ git submodule update --init --recursive
 
 ### Compilar
 
-Es un workspace de Cargo: un solo `Cargo.lock`, un solo `target/` y **un solo ejecutable**, `riku`, que trae la CLI, el shell y el visor. Los crates `gds-renderer`, `viewer-core`, `xschem-viewer-rust` y `gdstk-rs` entran como librerías.
+Es un workspace de Cargo: un solo `Cargo.lock`, un solo `target/` y **un solo ejecutable**, `riku`, que trae la CLI, el shell y el visor. Los crates `riku-kernel`, `riku-mod-layout`, `viewer-core`, `xschem-viewer-rust` y `gdstk-rs` entran como librerías.
 
 ```bash
 cd riku_chip
@@ -376,7 +376,7 @@ riku_chip/
 ├── viewer-core/                          ← trait ViewerBackend, RenderableScene, DrawElement neutros
 ├── riku-kernel/                          ← núcleo: tipos de cambio (FileChange, Change, Element), FormatModule y Registry; sin formatos
 ├── riku/                                 ← ejecutable: análisis y git (src/core), módulos de formato (src/modules: xschem, layout), CLI y visor (src/gui)
-├── gds-renderer/                         ← backend GDS: escena, diff geométrico, paletas PDK, SVG
+├── riku-mod-layout/                      ← módulo de layouts GDS/OASIS: diff geométrico, cache, paletas PDK, visor
 ├── external/
 │   ├── gdstk/               (submodule)  ← gdstk-rs: binding Rust de gdstk (C++)
 │   └── xschem-viewer-rust/  (submodule)  ← backend Xschem: parser PEG, semantic, renderer
@@ -423,9 +423,9 @@ cd riku_chip && cargo build --release          # target/release/riku
 ### Tests
 
 ```bash
-cargo test --workspace                    # todo: núcleo, CLI, visor, gds-renderer, viewer-core
+cargo test --workspace                    # todo: núcleo, CLI, visor, riku-mod-layout, viewer-core
 cargo test -p riku                        # núcleo + CLI + visor (incluye tests/gds_e2e.rs)
-cargo test -p gds-renderer                # lógica GDS: diff, paletas, escena, cache
+cargo test -p riku-mod-layout             # lógica GDS: diff, paletas, escena, cache
 ```
 
 Es un solo workspace: un `Cargo.lock` y un `target/` para todos los crates. La CI además compila la variante solo terminal (`--no-default-features`) y cada módulo por separado (`--features layout` / `xschem`).

@@ -1,7 +1,7 @@
 #![cfg(feature = "layout")]
 //! Diff GDS de punta a punta: repo git real → `GitService` → driver → CLI.
 //!
-//! Fixtures (de `gds-renderer/tests/fixtures`, generados con gdstk):
+//! Fixtures (de `riku-mod-layout/tests/fixtures`, generados con gdstk):
 //! - `hier_inv_a.gds`: TOP instancia INV en (10, 10); INV = rect (0,0)-(2,1) en 1/0.
 //! - `hier_inv_b.gds`: igual, pero INV suma el rect (2,0)-(3,1).
 //!
@@ -26,7 +26,7 @@ use riku::core::git::git_service::GitService;
 
 fn fixture(name: &str) -> Vec<u8> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../gds-renderer/tests/fixtures")
+        .join("../riku-mod-layout/tests/fixtures")
         .join(name);
     fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }

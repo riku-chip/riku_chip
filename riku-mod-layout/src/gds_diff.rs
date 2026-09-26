@@ -8,7 +8,7 @@ use gdstk_rs::{sniff_format, xor_split_flat, Cell, GdsTag, Library, OwnedPolygon
 use crate::hier_walk::{origin_of_polygon, Origin, OriginPath};
 
 /// Identificador de capa GDS (par layer/datatype). Tipo propio para no
-/// filtrar `gdstk_rs::GdsTag` por la API publica de gds-renderer.
+/// filtrar `gdstk_rs::GdsTag` por la API publica de riku-mod-layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct LayerKey {
     pub layer: u32,

@@ -58,8 +58,8 @@ jobs:
           $B --version
           git config --global user.name ci; git config --global user.email ci@localhost
           mkdir /tmp/smoke && cd /tmp/smoke && git init -q
-          cp $GITHUB_WORKSPACE/gds-renderer/tests/fixtures/hier_inv_a.gds layout.gds && git add . && git commit -qm a
-          cp $GITHUB_WORKSPACE/gds-renderer/tests/fixtures/hier_inv_b.gds layout.gds && git add . && git commit -qm b
+          cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_a.gds layout.gds && git add . && git commit -qm a
+          cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_b.gds layout.gds && git add . && git commit -qm b
           $B diff HEAD~1 HEAD layout.gds -f json | grep -q '"TOP:L1/0:INV"'
           if $B gui layout.gds 2>err.txt; then echo "::error::gui sin DISPLAY debía fallar"; exit 1; fi
           grep -q "escritorio gráfico" err.txt

@@ -1,7 +1,7 @@
 # Env vars persistentes para compilar el workspace en Windows.
 #
 # - VCPKG_ROOT: ruta al checkout de vcpkg con zlib y qhull instalados.
-#   gdstk-rs (transitivo via gds-renderer) lo usa para localizar las libs
+#   gdstk-rs (transitivo via riku-mod-layout) lo usa para localizar las libs
 #   nativas (ver external/gdstk/rust/build.rs:resolve_zlib).
 # - VCPKGRS_DYNAMIC: fuerza a libz-sys (y otros *-sys que usen vcpkg-rs)
 #   a linkear dinamicamente contra el zlib1.dll de vcpkg en vez de

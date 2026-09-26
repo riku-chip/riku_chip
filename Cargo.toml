@@ -3,7 +3,7 @@
 # su cuenta; entran como dependencias por path.
 [workspace]
 resolver = "2"
-members = ["viewer-core", "riku-kernel", "gds-renderer", "riku"]
+members = ["viewer-core", "riku-kernel", "riku-mod-layout", "riku"]
 exclude = ["external"]
 
 # Perfil de release del ejecutable que se distribuye.

@@ -37,10 +37,10 @@ Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chip
         │                        │   (LayerPaint), metadata, entries    │
         ▼                        │   (ViewEntry), changes (ChangeItem), │
 ┌──────────────────────────────────┐ world_unit                        │
-│ gds-renderer                     └──────────────────────────────────────┘
+│ riku-mod-layout                  └──────────────────────────────────────┘
 │  GdsBackend (impl ViewerBackend) · diff_gds / diff_cell /            │
 │  changed_cells · labels (jerarquía) · palette (SKY130/GF180/IHP)     │
-│  render SVG (render_scene)                                           │
+│  diff_cache (cache en disco de layouts grandes)                      │
 └──────────────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -139,7 +139,7 @@ Todos corren en la CI (GitHub Actions) con cada push y cada PR, con `-D warnings
 | Crate | Tests | Cubren |
 |---|---|---|
 | `viewer-core` | 9 | eje Y, fit, hit-test y área de primitivas, contrato por defecto de `load_entry`/`load_diff` |
-| `gds-renderer` | 54 | diff por celda y jerárquico, un item por instancia (SREF y AREF), renombres, OASIS contra GDS, cache (aciertos, corrupción, límite, escena idéntica), lados vacíos, `changed_cells`, escena de diff, paletas curadas y generadas, detección de PDK, labels jerárquicos, anchors, catálogo de celdas |
+| `riku-mod-layout` | 52 | diff por celda y jerárquico, un item por instancia (SREF y AREF), renombres, OASIS contra GDS, cache (aciertos, corrupción, límite, escena idéntica), lados vacíos, `changed_cells`, escena de diff, paletas curadas y generadas, detección de PDK, labels jerárquicos, anchors, catálogo de celdas |
 | `riku` (visor, `src/gui`) | 43 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios, colocación y prioridad de etiquetas, contraste por tema, springs e inercia, fundido de tema, mensajes, filtro del árbol |
 | `riku` | 87 | incluye `tests/gds_e2e.rs`: repo git real → `GitService` → `GdsDriver`, y el binario `riku diff -f json` (áreas, bbox absoluto, archivo nuevo, versiones idénticas, OASIS igual a GDS); renombres e instancias en el driver; autocompletado del shell |
 | `gdstk-rs` (submódulo) | +3 | OASIS: detección de formato, geometría idéntica a GDSII, bytes inválidos |

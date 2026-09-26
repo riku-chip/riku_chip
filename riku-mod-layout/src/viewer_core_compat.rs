@@ -1,8 +1,8 @@
-//! Adaptador `gds-renderer` ↔ `viewer-core`.
+//! Adaptador `riku-mod-layout` ↔ `viewer-core`.
 //!
 //! Expone `GdsBackend`, que implementa `ViewerBackend` para que `riku-gui`
 //! abra archivos `.gds`/`.oas` por la ruta neutra: `Library::from_bytes_any` →
-//! `scene_from_cell` → conversión `DrawCommand → DrawElement` → `Scene`.
+//! `draw_commands` → conversión `DrawCommand → DrawElement` → `Scene`.
 //!
 //! La escena resultante es Y-up y trae un `LayerPaint` por cada
 //! (layer, datatype): el campo `layer` de cada `DrawElement` es la clave de
@@ -29,7 +29,7 @@ use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
 use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
 use crate::palette::{detect_pdk, layer_spec, LayerRole};
 use crate::scene::DrawCommand;
-use crate::style::{Pdk, RenderConfig};
+use crate::style::Pdk;
 
 pub struct GdsBackend {
     /// Cache del diff (celdas cambiadas y XOR) para layouts grandes.
@@ -77,7 +77,7 @@ struct LayerKeys {
 
 impl LayerKeys {
     fn new(commands: &[DrawCommand], path_hint: Option<&str>) -> Self {
-        let tags: BTreeSet<(u32, u32)> = commands.iter().map(|c| tag_tuple(command_tag(c))).collect();
+        let tags: BTreeSet<(u32, u32)> = commands.iter().map(|c| tag_tuple(c.tag())).collect();
         let as_gds: Vec<GdsTag> = tags.iter().map(|&t| gds_tag(t)).collect();
         let pdk = detect_pdk(path_hint, &as_gds);
 
@@ -109,12 +109,6 @@ fn tag_tuple(tag: GdsTag) -> (u32, u32) {
 
 fn gds_tag((layer, datatype): (u32, u32)) -> GdsTag {
     GdsTag { layer, datatype }
-}
-
-fn command_tag(cmd: &DrawCommand) -> GdsTag {
-    match cmd {
-        DrawCommand::Polygon { tag, .. } | DrawCommand::Label { tag, .. } => *tag,
-    }
 }
 
 fn layer_paint(tag: GdsTag, pdk: Pdk) -> LayerPaint {
@@ -185,9 +179,8 @@ fn command_to_element(cmd: &DrawCommand, keys: &LayerKeys, text_size: f64) -> Op
 
 /// Escena de una cell y el PDK detectado (lo reusa el diff para nombrar capas).
 fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, Pdk) {
-    let cfg = RenderConfig::default();
-    let render_scene = crate::compat::scene_from_cell_in(lib, cell, &cfg);
-    let keys = LayerKeys::new(&render_scene.commands, path_hint);
+    let draw = crate::scene::draw_commands(lib, cell);
+    let keys = LayerKeys::new(&draw, path_hint);
 
     let mut scene = VcScene::new();
     // GDS usa la convencion matematica: Y crece hacia arriba.
@@ -213,8 +206,8 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
     // Orden de pintado: poligonos por apilado (las claves ya siguen el rank)
     // y los textos al final para que queden encima. Sort estable: dentro de
     // una capa se conserva el orden del archivo.
-    let mut commands: Vec<&DrawCommand> = render_scene.commands.iter().collect();
-    commands.sort_by_key(|c| (matches!(c, DrawCommand::Label { .. }), keys.key(command_tag(c))));
+    let mut commands: Vec<&DrawCommand> = draw.iter().collect();
+    commands.sort_by_key(|c| (matches!(c, DrawCommand::Label { .. }), keys.key(c.tag())));
 
     let text_size = label_size(&scene.bbox);
     let (mut polygons, mut labels) = (0usize, 0usize);
