@@ -123,11 +123,27 @@ fn pdk_table(pdk: Pdk) -> Option<&'static [PdkLayer]> {
     }
 }
 
+/// Tabla completa generada del `.lyp` oficial (ver `palette_generated.rs`).
+fn lyp_table(pdk: Pdk) -> &'static [PdkLayer] {
+    match pdk {
+        Pdk::Gf180 => crate::palette_generated::GF180_LYP,
+        Pdk::Ihp => crate::palette_generated::IHP_LYP,
+        Pdk::Sky130 | Pdk::Generic => &[],
+    }
+}
+
+/// Busca la capa en la tabla curada (manda: rol y apilado a mano) y, si no
+/// esta, en la generada del `.lyp`, apilada encima de las curadas.
 fn find_pdk_layer(tag: GdsTag, pdk: Pdk) -> Option<(usize, &'static PdkLayer)> {
-    pdk_table(pdk)?
-        .iter()
-        .enumerate()
-        .find(|(_, l)| l.tag == (tag.layer, tag.datatype))
+    let curated = pdk_table(pdk)?;
+    let key = (tag.layer, tag.datatype);
+    curated.iter().enumerate().find(|(_, l)| l.tag == key).or_else(|| {
+        lyp_table(pdk)
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.tag == key)
+            .map(|(i, l)| (curated.len() + i, l))
+    })
 }
 
 /// Infere el PDK de un layout. Primero por el path (los PDK de iic-osic-tools
@@ -168,18 +184,18 @@ pub fn detect_pdk(path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
         .map_or(Pdk::Generic, |(_, pdk)| pdk)
 }
 
-struct PdkLayer {
+pub(crate) struct PdkLayer {
     tag: (u32, u32),
     name: &'static str,
     color: Color,
     role: LayerRole,
 }
 
-const fn pl(layer: u32, datatype: u32, name: &'static str, color: Color, role: LayerRole) -> PdkLayer {
+pub(crate) const fn pl(layer: u32, datatype: u32, name: &'static str, color: Color, role: LayerRole) -> PdkLayer {
     PdkLayer { tag: (layer, datatype), name, color, role }
 }
 
-const fn rgb(r: u8, g: u8, b: u8) -> Color {
+pub(crate) const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::rgba(r, g, b, 255)
 }
 
@@ -384,5 +400,26 @@ mod tests {
         assert!(act.rank < layer_spec(tag(8, 0), Pdk::Ihp).rank, "Activ debajo de Metal1");
         assert_eq!(layer_spec(tag(10, 1), Pdk::Ihp).role, LayerRole::Outline, "label");
         assert_eq!(layer_spec(tag(8, 22), Pdk::Ihp).role, LayerRole::Device, "filler");
+    }
+
+    #[test]
+    fn layers_only_in_the_lyp_get_name_and_color() {
+        let ihp_curated = pdk_table(Pdk::Ihp).unwrap().len() as u32;
+        let s = layer_spec(tag(32, 21), Pdk::Ihp);
+        assert_eq!(s.name, Some("nBuLay.block"));
+        assert_eq!(s.color, rgb(0x26, 0x8c, 0x6b));
+        assert!(s.rank >= ihp_curated, "las generadas van encima de las curadas");
+        // La tabla curada manda sobre la generada.
+        assert_eq!(layer_spec(tag(8, 0), Pdk::Ihp).name, Some("Metal1"));
+        assert_eq!(layer_spec(tag(34, 0), Pdk::Gf180).name, Some("Metal1"));
+    }
+
+    #[test]
+    fn generated_tables_have_no_duplicate_layers() {
+        for t in [crate::palette_generated::GF180_LYP, crate::palette_generated::IHP_LYP] {
+            let tags: std::collections::HashSet<_> = t.iter().map(|l| l.tag).collect();
+            assert_eq!(tags.len(), t.len());
+        }
+        assert!(crate::palette_generated::IHP_LYP.len() > 300);
     }
 }

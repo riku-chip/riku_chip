@@ -5,6 +5,7 @@ mod hier_walk;
 mod labels;
 mod output;
 mod palette;
+mod palette_generated;
 mod renderer;
 mod scene;
 mod style;
