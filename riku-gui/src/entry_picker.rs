@@ -1,26 +1,38 @@
 //! Selector de sub-vistas (celdas de un GDS) con buscador.
 //!
 //! Una librería de celdas estándar trae cientos de top cells; la lista se
-//! filtra por texto y, por defecto, muestra solo las raíces. Las filas se
+//! filtra por texto y, por defecto, muestra solo las raíces. En un diff, las
+//! celdas cambiadas llevan un marcador y se pueden listar solas. Las filas se
 //! dibujan virtualizadas (`show_rows`): solo las visibles cuestan.
 
 use eframe::egui::{self, Color32, RichText};
-use viewer_core::scene::ViewEntry;
+use viewer_core::{diff::ChangeKind, scene::ViewEntry};
 
 /// Estado del filtro que el caller conserva entre frames.
 pub struct PickerState<'a> {
     pub query: &'a mut String,
     pub only_roots: &'a mut bool,
+    /// Solo celdas con cambios (se ignora si ninguna entrada tiene cambios).
+    pub only_changed: &'a mut bool,
+}
+
+/// Criterios de filtrado ya resueltos.
+#[derive(Clone, Copy)]
+pub struct Filter<'a> {
+    pub query: &'a str,
+    pub only_roots: bool,
+    pub only_changed: bool,
 }
 
 /// Índices de `entries` que pasan el filtro, en el orden original.
 /// Búsqueda por subcadena sin distinguir mayúsculas.
-pub fn filter_entries(entries: &[ViewEntry], query: &str, only_roots: bool) -> Vec<usize> {
-    let q = query.trim().to_lowercase();
+pub fn filter_entries(entries: &[ViewEntry], f: Filter<'_>) -> Vec<usize> {
+    let q = f.query.trim().to_lowercase();
     entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| !only_roots || e.is_root)
+        .filter(|(_, e)| !f.only_roots || e.is_root)
+        .filter(|(_, e)| !f.only_changed || e.change.is_some())
         .filter(|(_, e)| q.is_empty() || e.id.to_lowercase().contains(&q))
         .map(|(i, _)| i)
         .collect()
@@ -34,6 +46,7 @@ pub fn show(
     state: PickerState<'_>,
 ) -> Option<String> {
     let roots = entries.iter().filter(|e| e.is_root).count();
+    let changed = entries.iter().filter(|e| e.change.is_some()).count();
     ui.horizontal(|ui| {
         ui.label(RichText::new("Celdas").strong());
         ui.label(
@@ -48,10 +61,23 @@ pub fn show(
             .desired_width(f32::INFINITY),
     );
     ui.checkbox(state.only_roots, "solo top cells");
+    if changed > 0 {
+        ui.checkbox(state.only_changed, format!("solo con cambios ({changed})"));
+    }
 
-    let visible = filter_entries(entries, state.query, *state.only_roots);
+    let filter = Filter {
+        query: state.query,
+        only_roots: *state.only_roots,
+        only_changed: *state.only_changed && changed > 0,
+    };
+    let visible = filter_entries(entries, filter);
     if visible.is_empty() {
-        ui.label(RichText::new("sin coincidencias").italics().color(Color32::from_gray(140)));
+        let hint = if filter.only_changed && filter.only_roots {
+            "sin coincidencias (los cambios pueden estar en subceldas: desmarca \"solo top cells\")"
+        } else {
+            "sin coincidencias"
+        };
+        ui.label(RichText::new(hint).italics().color(Color32::from_gray(140)));
         return None;
     }
 
@@ -65,7 +91,7 @@ pub fn show(
                 let e = &entries[i];
                 let selected = current == Some(e.id.as_str());
                 let resp = ui
-                    .add(egui::Button::selectable(selected, row_text(ui, &e.id)).truncate())
+                    .add(egui::Button::selectable(selected, row_text(ui, e)).truncate())
                     .on_hover_text(hover_text(e));
                 if resp.clicked() && !selected {
                     picked = Some(e.id.clone());
@@ -85,15 +111,32 @@ fn split_name(id: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// Fila: nombre distintivo primero (lo que se trunca es la librería, al
-/// final) y el prefijo en gris, así `sky130_ef_sc_hd__decap_12` y
-/// `sky130_fd_sc_hd__decap_12` se distinguen sin perder la parte útil.
-fn row_text(ui: &egui::Ui, id: &str) -> egui::text::LayoutJob {
-    let (cell, lib) = split_name(id);
+/// Marcador y color de un cambio de celda (mismos colores que el overlay).
+fn change_mark(kind: ChangeKind) -> (&'static str, Color32) {
+    match kind {
+        ChangeKind::Added => ("+", Color32::from_rgb(90, 220, 120)),
+        ChangeKind::Removed => ("−", Color32::from_rgb(240, 100, 100)),
+        ChangeKind::Modified => ("~", Color32::from_rgb(230, 190, 80)),
+    }
+}
+
+/// Fila: marcador de cambio (si hay), nombre distintivo (lo que se trunca es
+/// la librería, al final) y el prefijo en gris, así `sky130_ef_sc_hd__decap_12`
+/// y `sky130_fd_sc_hd__decap_12` se distinguen sin perder la parte útil.
+fn row_text(ui: &egui::Ui, e: &ViewEntry) -> egui::text::LayoutJob {
+    let (cell, lib) = split_name(&e.id);
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let strong = ui.visuals().text_color();
     let mut job = egui::text::LayoutJob::default();
-    job.append(cell, 0.0, egui::TextFormat::simple(font.clone(), strong));
+    let name_color = match e.change {
+        Some(kind) => {
+            let (mark, color) = change_mark(kind);
+            job.append(mark, 0.0, egui::TextFormat::simple(font.clone(), color));
+            job.append(" ", 0.0, egui::TextFormat::simple(font.clone(), color));
+            color
+        }
+        None => ui.visuals().text_color(),
+    };
+    job.append(cell, 0.0, egui::TextFormat::simple(font.clone(), name_color));
     if let Some(lib) = lib {
         job.append(lib, 6.0, egui::TextFormat::simple(font, Color32::from_gray(120)));
     }
@@ -102,9 +145,15 @@ fn row_text(ui: &egui::Ui, id: &str) -> egui::text::LayoutJob {
 
 fn hover_text(e: &ViewEntry) -> String {
     let kind = if e.is_root { "top cell" } else { "subcelda" };
+    let change = match e.change {
+        Some(ChangeKind::Added) => " · añadida",
+        Some(ChangeKind::Removed) => " · eliminada",
+        Some(ChangeKind::Modified) => " · modificada",
+        None => "",
+    };
     match e.size {
-        Some((w, h)) => format!("{}\n{kind} · {w:.3} × {h:.3} µm", e.id),
-        None => format!("{}\n{kind} · sin geometría", e.id),
+        Some((w, h)) => format!("{}\n{kind} · {w:.3} × {h:.3} µm{change}", e.id),
+        None => format!("{}\n{kind} · sin geometría{change}", e.id),
     }
 }
 
@@ -113,24 +162,38 @@ mod tests {
     use super::*;
 
     fn entry(id: &str, is_root: bool) -> ViewEntry {
-        ViewEntry { id: id.into(), is_root, size: None }
+        ViewEntry { id: id.into(), is_root, size: None, change: None }
     }
 
     fn lib() -> Vec<ViewEntry> {
-        vec![
+        let mut v = vec![
             entry("sky130_fd_sc_hd__inv_1", true),
             entry("sky130_fd_sc_hd__INV_4", true),
             entry("sky130_fd_sc_hd__nand2_1", true),
             entry("sky130_fd_pr__inv_core", false),
-        ]
+        ];
+        v[2].change = Some(ChangeKind::Modified);
+        v[3].change = Some(ChangeKind::Added);
+        v
+    }
+
+    fn f(query: &str, only_roots: bool, only_changed: bool) -> Filter<'_> {
+        Filter { query, only_roots, only_changed }
     }
 
     #[test]
     fn filter_is_case_insensitive_and_respects_roots() {
-        assert_eq!(filter_entries(&lib(), "inv", true), vec![0, 1]);
-        assert_eq!(filter_entries(&lib(), " INV ", false), vec![0, 1, 3]);
-        assert_eq!(filter_entries(&lib(), "", true), vec![0, 1, 2]);
-        assert!(filter_entries(&lib(), "xor", false).is_empty());
+        assert_eq!(filter_entries(&lib(), f("inv", true, false)), vec![0, 1]);
+        assert_eq!(filter_entries(&lib(), f(" INV ", false, false)), vec![0, 1, 3]);
+        assert_eq!(filter_entries(&lib(), f("", true, false)), vec![0, 1, 2]);
+        assert!(filter_entries(&lib(), f("xor", false, false)).is_empty());
+    }
+
+    #[test]
+    fn filter_only_changed() {
+        assert_eq!(filter_entries(&lib(), f("", false, true)), vec![2, 3]);
+        assert_eq!(filter_entries(&lib(), f("", true, true)), vec![2]);
+        assert_eq!(filter_entries(&lib(), f("inv", false, true)), vec![3]);
     }
 
     #[test]
@@ -142,10 +205,12 @@ mod tests {
     }
 
     #[test]
-    fn hover_text_shows_kind_and_size() {
+    fn hover_text_shows_kind_size_and_change() {
         let mut e = entry("sky130_fd_sc_hd__inv_1", true);
         e.size = Some((1.38, 3.2));
         assert_eq!(hover_text(&e), "sky130_fd_sc_hd__inv_1\ntop cell · 1.380 × 3.200 µm");
+        e.change = Some(ChangeKind::Modified);
+        assert!(hover_text(&e).ends_with("µm · modificada"));
         assert!(hover_text(&entry("X", false)).contains("subcelda · sin geometría"));
     }
 }

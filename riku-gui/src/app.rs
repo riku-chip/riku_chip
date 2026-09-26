@@ -6,7 +6,8 @@ use eframe::egui::{self, RichText};
 use poll_promise::Promise;
 use tokio::runtime::Runtime;
 use viewer_core::{
-    backend::ViewerBackend, element::Layer, scene::SceneHandle, viewport::Viewport as VcViewport,
+    backend::ViewerBackend, bbox::BoundingBox, diff::ChangeKind, element::Layer, scene::SceneHandle,
+    viewport::Viewport as VcViewport,
     CancellationToken,
 };
 
@@ -14,7 +15,7 @@ use crate::entry_picker;
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
-use crate::scene_painter::{fit_scene, paint_scene, to_color32, zoom_at_screen};
+use crate::scene_painter::{fit_bbox, fit_scene, focus_area, paint_scene, to_color32, zoom_at_screen};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -69,6 +70,20 @@ struct BackendState {
     /// Buscador y filtro del selector de celdas.
     entry_query: String,
     only_roots: bool,
+    /// En diff: listar solo celdas con cambios.
+    only_changed: bool,
+    /// Qué se carga: un archivo suelto o un diff entre dos versiones.
+    kind: LoadKind,
+    /// Zona a encuadrar en el próximo frame (clic en un cambio).
+    focus: Option<BoundingBox>,
+}
+
+/// Qué produce una carga via backend. En modo diff, `source` (en
+/// `BackendState`) es la versión "después" y `before` la "antes".
+#[derive(Clone)]
+enum LoadKind {
+    Single,
+    Diff { before: Arc<Vec<u8>>, tab: DiffTab },
 }
 
 impl BackendState {
@@ -89,6 +104,10 @@ struct LoadedScene {
     backend: Arc<dyn ViewerBackend>,
     source: Arc<Vec<u8>>,
     path: String,
+    kind: LoadKind,
+    /// Re-encuadrar al llegar (nueva celda). Al cambiar de pestaña del diff
+    /// se conserva la vista para comparar la misma zona.
+    refit: bool,
 }
 
 pub struct RikuGuiApp {
@@ -190,7 +209,13 @@ impl RikuGuiApp {
                 commit_b: cb.clone(),
                 file: file.clone(),
             });
-            match app.load_diff(repo, ca, cb, file) {
+            // .sch: diff semántico rico; otros formatos (GDS): diff via backend.
+            let result = if is_sch_renderable(file) {
+                app.load_diff(repo, ca, cb, file)
+            } else {
+                app.load_backend_diff(repo, ca, cb, file, launch.cell.clone())
+            };
+            match result {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
                 Err(e) => { app.error = Some(e.clone()); app.status = "Error en diff".to_string(); }
             }
@@ -256,23 +281,84 @@ impl RikuGuiApp {
             .cloned();
         let Some(backend) = backend else { return false };
 
-        self.spawn_backend_load(backend, Arc::new(content), path_str, entry);
+        self.spawn_backend_load(backend, Arc::new(content), path_str, entry, LoadKind::Single, true);
         true
+    }
+
+    /// Diff de un archivo no-Xschem entre dos commits via backend. El
+    /// archivo puede no existir en el commit "antes" (archivo nuevo).
+    fn load_backend_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path, entry: Option<String>) -> Result<(), String> {
+        use riku::core::domain::ports::GitRepository;
+        use riku::core::git::git_service::GitService;
+
+        let svc = GitService::open(repo).map_err(|e| e.to_string())?;
+        let file_str = file.to_string_lossy().to_string();
+        let after = svc.get_blob(commit_b, &file_str).map_err(|e| format!("{commit_b}: {e}"))?;
+        // Si falta en "antes" se compara contra vacío: todo cuenta como añadido.
+        let before = svc.get_blob(commit_a, &file_str).unwrap_or_default();
+
+        let backend = self.backends.iter()
+            .find(|b| b.accepts(&after, Some(&file_str)))
+            .cloned()
+            .ok_or_else(|| format!("{file_str}: formato sin visor"))?;
+
+        self.selected_path = Some(file.to_path_buf());
+        let kind = LoadKind::Diff { before: Arc::new(before), tab: DiffTab::Diff };
+        self.spawn_backend_load(backend, Arc::new(after), file_str, entry, kind, true);
+        Ok(())
     }
 
     /// Carga otra sub-vista del archivo ya abierto (sin releer el disco). La
     /// escena actual sigue visible hasta que llega la nueva.
     fn select_entry(&mut self, id: &str) {
         let Some(bs) = &self.backend_state else { return };
-        let (backend, source, path) = (bs.backend.clone(), bs.source.clone(), bs.path.clone());
+        let (backend, source, path, kind) = (bs.backend.clone(), bs.source.clone(), bs.path.clone(), bs.kind.clone());
         self.error = None;
         self.status = format!("Cargando celda {id} …");
-        self.spawn_backend_load(backend, source, path, Some(id.to_string()));
+        self.spawn_backend_load(backend, source, path, Some(id.to_string()), kind, true);
+    }
+
+    /// Cambia la pestaña del diff (Diff / Before / After) sobre la misma
+    /// celda, conservando la vista para comparar la misma zona.
+    fn select_diff_tab(&mut self, tab: DiffTab) {
+        let Some(bs) = &self.backend_state else { return };
+        let LoadKind::Diff { before, .. } = &bs.kind else { return };
+        let kind = LoadKind::Diff { before: before.clone(), tab };
+        let entry = bs.scene.current_entry().map(str::to_string);
+        let (backend, source, path) = (bs.backend.clone(), bs.source.clone(), bs.path.clone());
+        self.error = None;
+        self.spawn_backend_load(backend, source, path, entry, kind, false);
+    }
+
+    /// Pestaña actual si hay un diff cargado via backend.
+    fn backend_diff_tab(&self) -> Option<DiffTab> {
+        match &self.backend_state.as_ref()?.kind {
+            LoadKind::Diff { tab, .. } if self.sch.is_none() => Some(*tab),
+            _ => None,
+        }
+    }
+
+    /// Selector de celdas bajo el panel izquierdo, si el archivo tiene más de una.
+    fn show_entry_picker(&mut self, ui: &mut egui::Ui) {
+        let picked = match &mut self.backend_state {
+            Some(bs) if self.sch.is_none() && bs.scene.entries().len() > 1 => {
+                ui.separator();
+                render_entry_picker(ui, bs)
+            }
+            _ => None,
+        };
+        if let Some(id) = picked {
+            self.select_entry(&id);
+        }
     }
 
     /// Relee el archivo del disco conservando la sub-vista actual.
     fn reload_backend(&mut self) {
         let Some(bs) = &self.backend_state else { return };
+        // En diff los bytes vienen de git, no del disco.
+        if matches!(bs.kind, LoadKind::Diff { .. }) {
+            return;
+        }
         let path = PathBuf::from(&bs.path);
         let entry = bs.scene.current_entry().map(str::to_string);
         self.error = None;
@@ -287,6 +373,8 @@ impl RikuGuiApp {
         source: Arc<Vec<u8>>,
         path: String,
         entry: Option<String>,
+        kind: LoadKind,
+        refit: bool,
     ) {
         // Cancelar carga previa si había.
         if let Some(tok) = self.pending_token.take() {
@@ -297,10 +385,22 @@ impl RikuGuiApp {
 
         let _guard = self.runtime.enter();
         let fut = async move {
-            backend
-                .load_entry(source.as_ref().clone(), Some(path.clone()), entry, token)
-                .await
-                .map(|scene| LoadedScene { scene, backend, source, path })
+            let hint = Some(path.clone());
+            let result = match &kind {
+                LoadKind::Single | LoadKind::Diff { tab: DiffTab::After, .. } => {
+                    backend.load_entry(source.as_ref().clone(), hint, entry, token).await
+                }
+                LoadKind::Diff { before, tab: DiffTab::Before } => {
+                    backend.load_entry(before.as_ref().clone(), hint, entry, token).await
+                }
+                LoadKind::Diff { before, tab: DiffTab::Diff } => {
+                    backend
+                        .load_diff(before.as_ref().clone(), source.as_ref().clone(), hint, entry, token)
+                        .await
+                }
+            };
+            result
+                .map(|scene| LoadedScene { scene, backend, source, path, kind, refit })
                 .map_err(|e| e.to_string())
         };
         self.pending_load = Some(Promise::spawn_async(fut));
@@ -314,19 +414,27 @@ impl RikuGuiApp {
         match promise.block_and_take() {
             Ok(loaded) => {
                 let name = loaded.backend.info().name;
-                self.status = match loaded.scene.current_entry() {
-                    Some(entry) => format!("Loaded via {name} · {entry}"),
-                    None => format!("Loaded via {name}"),
+                let what = match &loaded.kind {
+                    LoadKind::Single => format!("Loaded via {name}"),
+                    LoadKind::Diff { tab: DiffTab::Diff, .. } => "Diff".to_string(),
+                    LoadKind::Diff { tab: DiffTab::Before, .. } => "Before".to_string(),
+                    LoadKind::Diff { tab: DiffTab::After, .. } => "After".to_string(),
                 };
-                // Mismo archivo (cambio de celda o recarga): se conservan capas
-                // ocultas y buscador. Cada celda tiene otro tamaño → re-encuadre.
+                self.status = match loaded.scene.current_entry() {
+                    Some(entry) => format!("{what} · {entry}"),
+                    None => what,
+                };
+                // Mismo archivo (cambio de celda, de pestaña o recarga): se
+                // conservan capas ocultas, buscador y vista. Una celda nueva
+                // tiene otro tamaño → re-encuadre; otra pestaña, no.
                 let prev = self.backend_state.take().filter(|bs| bs.path == loaded.path);
                 self.backend_state = Some(match prev {
                     Some(bs) => BackendState {
                         scene: loaded.scene,
                         backend: loaded.backend,
                         source: loaded.source,
-                        needs_fit: true,
+                        kind: loaded.kind,
+                        needs_fit: loaded.refit || bs.needs_fit,
                         ..bs
                     },
                     None => BackendState {
@@ -340,6 +448,9 @@ impl RikuGuiApp {
                         hidden_layers: HashSet::new(),
                         entry_query: String::new(),
                         only_roots: true,
+                        only_changed: true,
+                        kind: loaded.kind,
+                        focus: None,
                     },
                 });
             }
@@ -457,6 +568,24 @@ impl eframe::App for RikuGuiApp {
                     view_selector(ui, &mut sch.tab, DiffTab::Diff, "Diff");
                     view_selector(ui, &mut sch.tab, DiffTab::Before, "Before");
                     view_selector(ui, &mut sch.tab, DiffTab::After, "After");
+                } else if let (Some(ctx), Some(current)) = (self.diff_ctx.as_ref(), self.backend_diff_tab()) {
+                    // Diff via backend (GDS): mismas vistas; cada una es otra carga.
+                    ui.heading("Vistas");
+                    ui.label(RichText::new(ctx.file.file_name()
+                        .unwrap_or_default().to_string_lossy().as_ref())
+                        .color(egui::Color32::from_gray(180)));
+                    ui.label(RichText::new(format!("{} → {}",
+                        short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)))
+                        .small().color(egui::Color32::from_gray(140)));
+                    ui.separator();
+                    let mut tab = current;
+                    view_selector(ui, &mut tab, DiffTab::Diff, "Diff");
+                    view_selector(ui, &mut tab, DiffTab::Before, "Before");
+                    view_selector(ui, &mut tab, DiffTab::After, "After");
+                    if tab != current {
+                        self.select_diff_tab(tab);
+                    }
+                    self.show_entry_picker(ui);
                 } else {
                     // Modo archivo único: árbol de proyecto
                     ui.heading("Project");
@@ -466,18 +595,7 @@ impl eframe::App for RikuGuiApp {
                     let selected_path = self.selected_path.clone();
                     let mut open_path = |path: &Path| self.open_path(path);
                     show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
-
-                    // Selector de celdas: solo si el archivo tiene más de una.
-                    let picked = match &mut self.backend_state {
-                        Some(bs) if self.sch.is_none() && bs.scene.entries().len() > 1 => {
-                            ui.separator();
-                            render_entry_picker(ui, bs)
-                        }
-                        _ => None,
-                    };
-                    if let Some(id) = picked {
-                        self.select_entry(&id);
-                    }
+                    self.show_entry_picker(ui);
                 }
             });
 
@@ -558,6 +676,12 @@ impl eframe::App for RikuGuiApp {
                         fit_scene(&mut bs.viewport, bs.scene.as_ref(), response.rect);
                         bs.needs_fit = false;
                         bs.fitted_size = Some(size);
+                    }
+                    // Clic en un cambio: encuadrarlo con contexto alrededor. Es
+                    // una vista elegida, no se re-encuadra sola al redimensionar.
+                    if let Some(target) = bs.focus.take() {
+                        fit_bbox(&mut bs.viewport, &focus_area(&target, &bs.scene.bbox()), bs.scene.y_axis(), response.rect);
+                        bs.fitted_size = None;
                     }
                     ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
                         paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &bs.hidden_keys());
@@ -679,8 +803,56 @@ fn render_entry_picker(ui: &mut egui::Ui, bs: &mut BackendState) -> Option<Strin
         ui,
         scene.entries(),
         scene.current_entry(),
-        entry_picker::PickerState { query: &mut bs.entry_query, only_roots: &mut bs.only_roots },
+        entry_picker::PickerState {
+            query: &mut bs.entry_query,
+            only_roots: &mut bs.only_roots,
+            only_changed: &mut bs.only_changed,
+        },
     )
+}
+
+// ─── Lista de cambios de una escena de diff ─────────────────────────────────
+
+/// Lista de cambios (relevantes primero; los cosméticos en gris). Un clic en
+/// un cambio con ubicación retorna su bbox para encuadrarlo.
+fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -> Option<BoundingBox> {
+    if changes.is_empty() {
+        return None;
+    }
+    ui.separator();
+    ui.label(RichText::new(format!("Cambios ({})", changes.len())).strong());
+    let mut picked = None;
+    egui::ScrollArea::vertical()
+        .id_salt("change_list")
+        .max_height(220.0)
+        .show(ui, |ui| {
+            for c in changes {
+                let (sign, color) = match c.kind {
+                    ChangeKind::Added => ("+", egui::Color32::from_rgb(90, 220, 120)),
+                    ChangeKind::Removed => ("−", egui::Color32::from_rgb(240, 100, 100)),
+                    ChangeKind::Modified => ("~", egui::Color32::from_rgb(230, 190, 80)),
+                };
+                let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
+                let text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
+                let resp = ui.add(
+                    egui::Label::new(text)
+                        .truncate()
+                        .sense(if c.bbox.is_some() { egui::Sense::click() } else { egui::Sense::hover() }),
+                );
+                if !c.detail.is_empty() {
+                    ui.label(RichText::new(&c.detail).small().color(dim(egui::Color32::from_gray(150))));
+                }
+                let hover = match (c.cosmetic, c.bbox.is_some()) {
+                    (true, _) => "cosmético (bajo el umbral de relevancia)",
+                    (false, true) => "clic para ir al cambio",
+                    (false, false) => "sin ubicación en esta celda",
+                };
+                if resp.on_hover_text(hover).clicked() {
+                    picked = c.bbox;
+                }
+            }
+        });
+    picked
 }
 
 // ─── Detalles de una escena cargada via backend ─────────────────────────────
@@ -703,6 +875,10 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
                 ui.end_row();
             }
         });
+    }
+
+    if let Some(target) = render_change_items(ui, scene.changes()) {
+        bs.focus = Some(target);
     }
 
     let layers = scene.layer_list();

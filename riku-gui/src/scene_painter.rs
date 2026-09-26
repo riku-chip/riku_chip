@@ -95,8 +95,25 @@ impl ScreenXform {
 
 /// Ajusta `vp` para que toda la escena quepa centrada en `rect`.
 pub fn fit_scene(vp: &mut Viewport, scene: &dyn RenderableScene, rect: Rect) {
-    let view_bbox = scene.y_axis().flip_bbox(&scene.bbox());
+    fit_bbox(vp, &scene.bbox(), scene.y_axis(), rect);
+}
+
+/// Ajusta `vp` para que `world_bbox` (coordenadas de mundo) quepa centrada en `rect`.
+pub fn fit_bbox(vp: &mut Viewport, world_bbox: &BoundingBox, y_axis: YAxis, rect: Rect) {
+    let view_bbox = y_axis.flip_bbox(world_bbox);
     vp.fit_to(&view_bbox, rect.width() as f64, rect.height() as f64);
+}
+
+/// Zona a encuadrar para mostrar `target` con contexto: 25 % de margen y,
+/// como mínimo, el 15 % del lado mayor de la escena (un contacto de 0.17 µm
+/// no debe llenar la pantalla sin referencia). Un margen mayor aleja de más
+/// los cambios grandes (p.ej. uno repartido en varias instancias).
+pub fn focus_area(target: &BoundingBox, scene: &BoundingBox) -> BoundingBox {
+    let min_side = scene.width().max(scene.height()) * 0.15;
+    let w = (target.width() * 1.25).max(min_side);
+    let h = (target.height() * 1.25).max(min_side);
+    let (cx, cy) = target.center();
+    BoundingBox::from_points((cx - w * 0.5, cy - h * 0.5), (cx + w * 0.5, cy + h * 0.5))
 }
 
 /// Zoom que mantiene fijo el punto de mundo bajo `pos` (pantalla absoluta).
@@ -275,6 +292,29 @@ mod tests {
         zoom_at_screen(&mut vp, 2.0, cursor, panel());
         let after = ScreenXform::new(panel(), &vp, YAxis::Up).to_screen(2.0, 8.0);
         assert!((after - cursor).length() < 1e-3);
+    }
+
+    #[test]
+    fn focus_area_adds_context_and_keeps_center() {
+        let scene = BoundingBox::from_points((0.0, 0.0), (10.0, 20.0));
+        // Cambio diminuto: se agranda al 15 % del lado mayor (3.0).
+        let tiny = BoundingBox::from_points((4.9, 9.9), (5.1, 10.1));
+        let f = focus_area(&tiny, &scene);
+        assert!((f.width() - 3.0).abs() < 1e-9 && (f.height() - 3.0).abs() < 1e-9);
+        assert_eq!(f.center(), tiny.center());
+        // Cambio grande: 25 % de margen.
+        let big = BoundingBox::from_points((0.0, 0.0), (8.0, 4.0));
+        let f = focus_area(&big, &scene);
+        assert!((f.width() - 10.0).abs() < 1e-9 && (f.height() - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_bbox_centers_target_region() {
+        let target = BoundingBox::from_points((100.0, 100.0), (110.0, 105.0));
+        let mut vp = Viewport::default();
+        fit_bbox(&mut vp, &target, YAxis::Up, panel());
+        let c = ScreenXform::new(panel(), &vp, YAxis::Up).to_screen(105.0, 102.5);
+        assert!((c - panel().center()).length() < 1e-3);
     }
 
     #[test]
