@@ -112,4 +112,98 @@ impl DrawElement {
             Self::Text { x, y, .. } => BoundingBox::point(*x, *y),
         }
     }
+
+    /// ¿El punto `(px, py)` cae dentro del primitivo? Solo tiene sentido para
+    /// primitivos con área (`Rect`, `Circle`, `Polygon`), rellenos o no: un
+    /// contorno también "ocupa" su interior para el usuario que apunta. Líneas
+    /// y textos no se pueden señalar así (retornan `false`).
+    ///
+    /// Polígonos con regla par-impar: correcta para simples y cóncavos, y para
+    /// los anillos "keyhole" de GDS (el hueco queda fuera).
+    pub fn contains_point(&self, px: f64, py: f64) -> bool {
+        match self {
+            Self::Rect { x, y, w, h, .. } => {
+                BoundingBox::from_points((*x, *y), (*x + *w, *y + *h)).contains(px, py)
+            }
+            Self::Circle { cx, cy, r, .. } => (px - cx).powi(2) + (py - cy).powi(2) <= r * r,
+            Self::Polygon { points, .. } => {
+                if points.len() < 3 {
+                    return false;
+                }
+                let mut inside = false;
+                let mut j = points.len() - 1;
+                for i in 0..points.len() {
+                    let (xi, yi) = points[i];
+                    let (xj, yj) = points[j];
+                    if (yi > py) != (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi {
+                        inside = !inside;
+                    }
+                    j = i;
+                }
+                inside
+            }
+            Self::Line { .. } | Self::Text { .. } => false,
+        }
+    }
+
+    /// Área en unidades de mundo al cuadrado, para primitivos con área.
+    pub fn area(&self) -> Option<f64> {
+        match self {
+            Self::Rect { w, h, .. } => Some((w * h).abs()),
+            Self::Circle { r, .. } => Some(std::f64::consts::PI * r * r),
+            Self::Polygon { points, .. } if points.len() >= 3 => {
+                let n = points.len();
+                let twice: f64 = (0..n)
+                    .map(|i| {
+                        let ((x1, y1), (x2, y2)) = (points[i], points[(i + 1) % n]);
+                        x1 * y2 - x2 * y1
+                    })
+                    .fold(0.0, |acc, v| acc + v);
+                Some(twice.abs() * 0.5)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn poly(points: &[(f64, f64)]) -> DrawElement {
+        DrawElement::Polygon { points: points.to_vec(), layer: 0, filled: true }
+    }
+
+    #[test]
+    fn concave_polygon_hit_test_and_area() {
+        // L de 3x3 menos la esquina superior derecha 2x2 → área 5.
+        let l = poly(&[(0.0, 0.0), (3.0, 0.0), (3.0, 1.0), (1.0, 1.0), (1.0, 3.0), (0.0, 3.0)]);
+        assert!(l.contains_point(0.5, 2.5));
+        assert!(l.contains_point(2.5, 0.5));
+        assert!(!l.contains_point(2.0, 2.0), "la esquina recortada queda fuera");
+        assert_eq!(l.area(), Some(5.0));
+    }
+
+    #[test]
+    fn keyhole_ring_excludes_hole() {
+        // Anillo 10x10 con hueco 6x6 codificado con corte (como en GDS).
+        let ring = poly(&[
+            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 2.0),
+            (2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0), (0.0, 2.0),
+        ]);
+        assert!(ring.contains_point(1.0, 5.0));
+        assert!(!ring.contains_point(5.0, 5.0), "el hueco no es parte del polígono");
+        assert!((ring.area().unwrap() - 64.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rect_circle_and_non_area_primitives() {
+        let r = DrawElement::Rect { x: 0.0, y: 0.0, w: 2.0, h: 1.0, layer: 0, filled: false };
+        assert!(r.contains_point(1.0, 0.5) && !r.contains_point(3.0, 0.5));
+        assert_eq!(r.area(), Some(2.0));
+        let c = DrawElement::Circle { cx: 0.0, cy: 0.0, r: 1.0, layer: 0, filled: true };
+        assert!(c.contains_point(0.5, 0.5) && !c.contains_point(1.0, 1.0));
+        let line = DrawElement::Line { x1: 0.0, y1: 0.0, x2: 1.0, y2: 1.0, layer: 0 };
+        assert!(!line.contains_point(0.5, 0.5) && line.area().is_none());
+    }
 }

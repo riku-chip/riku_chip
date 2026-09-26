@@ -15,7 +15,7 @@ use crate::entry_picker;
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
-use crate::scene_painter::{fit_bbox, fit_scene, focus_area, paint_scene, to_color32, zoom_at_screen};
+use crate::scene_painter::{fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -593,8 +593,20 @@ impl eframe::App for RikuGuiApp {
                     ui.separator();
                     let tree = self.project_tree.clone();
                     let selected_path = self.selected_path.clone();
-                    let mut open_path = |path: &Path| self.open_path(path);
-                    show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+                    // Con scroll propio: un árbol más alto que la ventana
+                    // agrandaba toda la UI y el lienzo quedaba fuera de pantalla.
+                    // Si abajo va el selector de celdas, el árbol cede espacio.
+                    let has_picker = self.sch.is_none()
+                        && self.backend_state.as_ref().is_some_and(|bs| bs.scene.entries().len() > 1);
+                    let tree_h = ui.available_height() * if has_picker { 0.4 } else { 1.0 };
+                    egui::ScrollArea::vertical()
+                        .id_salt("project_tree")
+                        .max_height(tree_h)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            let mut open_path = |path: &Path| self.open_path(path);
+                            show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+                        });
                     self.show_entry_picker(ui);
                 }
             });
@@ -683,9 +695,17 @@ impl eframe::App for RikuGuiApp {
                         fit_bbox(&mut bs.viewport, &focus_area(&target, &bs.scene.bbox()), bs.scene.y_axis(), response.rect);
                         bs.fitted_size = None;
                     }
+                    let hidden = bs.hidden_keys();
                     ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &bs.hidden_keys());
+                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &hidden);
                     });
+                    // Tooltip con capa/área del polígono bajo el cursor (no
+                    // mientras se arrastra: estorba al hacer pan).
+                    if let Some(pos) = response.hover_pos().filter(|_| !response.dragged()) {
+                        if let Some(info) = hover_info(bs.scene.as_ref(), &bs.viewport, response.rect, pos, &hidden) {
+                            response.on_hover_text_at_pointer(info);
+                        }
+                    }
                     return;
                 }
             }

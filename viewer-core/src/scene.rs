@@ -56,6 +56,9 @@ pub struct Scene {
     pub current_entry: Option<String>,
     /// Cambios respecto a otra versión (solo en escenas de diff).
     pub changes: Vec<ChangeItem>,
+    /// Unidad de las coordenadas de mundo (`"µm"` en GDS), para mostrar
+    /// medidas. `None` = unidades abstractas.
+    pub world_unit: Option<String>,
 }
 
 impl Default for Scene {
@@ -75,6 +78,7 @@ impl Scene {
             entries: Vec::new(),
             current_entry: None,
             changes: Vec::new(),
+            world_unit: None,
         }
     }
 
@@ -141,6 +145,11 @@ pub trait RenderableScene: Send + Sync {
         &[]
     }
 
+    /// Unidad de las coordenadas de mundo, si el backend la conoce.
+    fn world_unit(&self) -> Option<&str> {
+        None
+    }
+
     /// Enumera elementos visibles dentro de `viewport_bbox`. Los backends que
     /// quieran culling granular implementan esto; por defecto entrega todos.
     ///
@@ -184,6 +193,10 @@ impl RenderableScene for Scene {
 
     fn changes(&self) -> &[ChangeItem] {
         &self.changes
+    }
+
+    fn world_unit(&self) -> Option<&str> {
+        self.world_unit.as_deref()
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {

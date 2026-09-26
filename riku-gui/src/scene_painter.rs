@@ -85,6 +85,16 @@ impl ScreenXform {
         Pos2::new(self.rect.min.x + vx as f32, self.rect.min.y + vy as f32)
     }
 
+    /// Pantalla → mundo (inverso de `to_screen`).
+    pub fn to_world(&self, pos: Pos2) -> (f64, f64) {
+        let (x, vy) = screen_to_world(
+            &self.vp,
+            (pos.x - self.rect.min.x) as f64,
+            (pos.y - self.rect.min.y) as f64,
+        );
+        (x, self.y_axis.flip_y(vy))
+    }
+
     /// Región del mundo visible en `rect`, usada como bbox de culling.
     pub fn visible_world_bbox(&self) -> BoundingBox {
         let (x1, y1) = screen_to_world(&self.vp, 0.0, 0.0);
@@ -102,6 +112,53 @@ pub fn fit_scene(vp: &mut Viewport, scene: &dyn RenderableScene, rect: Rect) {
 pub fn fit_bbox(vp: &mut Viewport, world_bbox: &BoundingBox, y_axis: YAxis, rect: Rect) {
     let view_bbox = y_axis.flip_bbox(world_bbox);
     vp.fit_to(&view_bbox, rect.width() as f64, rect.height() as f64);
+}
+
+/// Elemento con área bajo el punto de mundo `(x, y)`: el de más arriba (el
+/// último que se pinta) entre los que tienen relleno visible. Las capas de
+/// solo contorno (boundary, implantes) cubren celdas enteras y taparían todo:
+/// solo se eligen si no hay nada relleno debajo. Ignora capas ocultas,
+/// líneas y textos.
+pub fn pick_at<'a>(
+    scene: &'a dyn RenderableScene,
+    (x, y): (f64, f64),
+    hidden: &HashSet<Layer>,
+) -> Option<&'a DrawElement> {
+    let (mut filled, mut outline) = (None, None);
+    // bbox puntual: el culling de la escena descarta casi todo sin probarlo.
+    scene.visit(&BoundingBox::point(x, y), &mut |el| {
+        if !hidden.contains(&el.layer()) && el.contains_point(x, y) {
+            let see_through = scene.layer_paint(el.layer()).is_some_and(|p| p.fill.a == 0);
+            if see_through { outline = Some(el) } else { filled = Some(el) }
+        }
+        true
+    });
+    filled.or(outline)
+}
+
+/// Texto del tooltip para el elemento bajo `pos` (pantalla), o `None` si no
+/// hay ninguno: capa, área y tamaño, con la unidad de la escena.
+pub fn hover_info(
+    scene: &dyn RenderableScene,
+    vp: &Viewport,
+    rect: Rect,
+    pos: Pos2,
+    hidden: &HashSet<Layer>,
+) -> Option<String> {
+    let xf = ScreenXform::new(rect, vp, scene.y_axis());
+    let el = pick_at(scene, xf.to_world(pos), hidden)?;
+    let layer = match scene.layer_paint(el.layer()) {
+        Some(p) => p.name.clone(),
+        None => format!("capa {}", el.layer()),
+    };
+    let unit = scene.world_unit().map(|u| format!(" {u}")).unwrap_or_default();
+    let b = el.bounding_box();
+    let mut text = format!("{layer}\n{:.3} × {:.3}{unit}", b.width(), b.height());
+    if let Some(a) = el.area() {
+        let sq = scene.world_unit().map(|u| format!(" {u}²")).unwrap_or_default();
+        text.push_str(&format!("\nárea {a:.4}{sq}"));
+    }
+    Some(text)
 }
 
 /// Zona a encuadrar para mostrar `target` con contexto: 25 % de margen y,
@@ -292,6 +349,67 @@ mod tests {
         zoom_at_screen(&mut vp, 2.0, cursor, panel());
         let after = ScreenXform::new(panel(), &vp, YAxis::Up).to_screen(2.0, 8.0);
         assert!((after - cursor).length() < 1e-3);
+    }
+
+    /// Dos rects superpuestos en capas 1 (abajo) y 2 (arriba), escena Y-up en µm.
+    fn stacked_scene() -> Scene {
+        let mut s = Scene::new();
+        s.y_axis = YAxis::Up;
+        s.world_unit = Some("µm".into());
+        s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0, layer: 1, filled: true });
+        s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 4.0, h: 2.0, layer: 2, filled: true });
+        s.layers.insert(2, viewer_core::paint::LayerPaint {
+            name: "met1 68/20".into(),
+            fill: Rgba::new(0, 0, 255, 90),
+            stroke: Rgba::new(0, 0, 255, 255),
+        });
+        s
+    }
+
+    #[test]
+    fn to_world_inverts_to_screen() {
+        let scene = stacked_scene();
+        let mut vp = Viewport::default();
+        fit_scene(&mut vp, &scene, panel());
+        let xf = ScreenXform::new(panel(), &vp, YAxis::Up);
+        let (x, y) = xf.to_world(xf.to_screen(3.0, 7.0));
+        assert!((x - 3.0).abs() < 1e-4 && (y - 7.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn pick_prefers_topmost_and_skips_hidden() {
+        let scene = stacked_scene();
+        let none = HashSet::new();
+        assert_eq!(pick_at(&scene, (1.0, 1.0), &none).map(|e| e.layer()), Some(2));
+        assert_eq!(pick_at(&scene, (8.0, 8.0), &none).map(|e| e.layer()), Some(1));
+        let hide_top: HashSet<Layer> = [2].into();
+        assert_eq!(pick_at(&scene, (1.0, 1.0), &hide_top).map(|e| e.layer()), Some(1));
+        assert!(pick_at(&scene, (20.0, 20.0), &none).is_none());
+    }
+
+    #[test]
+    fn pick_skips_outline_layers_unless_nothing_else() {
+        // Boundary de solo contorno (relleno transparente) pintado encima de todo.
+        let mut scene = stacked_scene();
+        scene.push(DrawElement::Rect { x: -1.0, y: -1.0, w: 30.0, h: 30.0, layer: 9, filled: true });
+        scene.layers.insert(9, viewer_core::paint::LayerPaint {
+            name: "prBoundary".into(),
+            fill: Rgba::new(150, 0, 230, 0),
+            stroke: Rgba::new(150, 0, 230, 255),
+        });
+        let none = HashSet::new();
+        assert_eq!(pick_at(&scene, (1.0, 1.0), &none).map(|e| e.layer()), Some(2));
+        assert_eq!(pick_at(&scene, (20.0, 20.0), &none).map(|e| e.layer()), Some(9), "fuera de todo lo relleno");
+    }
+
+    #[test]
+    fn hover_info_describes_layer_size_and_area() {
+        let scene = stacked_scene();
+        let mut vp = Viewport::default();
+        fit_scene(&mut vp, &scene, panel());
+        let pos = ScreenXform::new(panel(), &vp, YAxis::Up).to_screen(1.0, 1.0);
+        let text = hover_info(&scene, &vp, panel(), pos, &HashSet::new()).expect("hit");
+        assert_eq!(text, "met1 68/20\n4.000 × 2.000 µm\nárea 8.0000 µm²");
     }
 
     #[test]

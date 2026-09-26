@@ -183,6 +183,7 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
     let mut scene = VcScene::new();
     // GDS usa la convencion matematica: Y crece hacia arriba.
     scene.y_axis = YAxis::Up;
+    scene.world_unit = Some(unit_label(lib.unit()));
     scene.layers = keys.paints();
     // Sembrar el bbox con el de la cell aunque algún DrawCommand no contribuya
     // (Scene::push lo expandirá igualmente con cada elemento).
@@ -230,6 +231,19 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
         ),
     ];
     (scene, keys.pdk)
+}
+
+/// Unidad de las coordenadas de usuario (`Library::unit()` = metros por
+/// unidad). Los PDKs usan micrometros; el resto se muestra explicito.
+fn unit_label(meters: f64) -> String {
+    let near = |v: f64| (meters / v - 1.0).abs() < 1e-9;
+    if near(1e-6) {
+        "µm".into()
+    } else if near(1e-9) {
+        "nm".into()
+    } else {
+        format!("×{meters:e} m")
+    }
 }
 
 fn pdk_name(pdk: Pdk) -> &'static str {
@@ -548,10 +562,11 @@ pub fn list_cells(lib: &Library) -> Vec<ViewEntry> {
         .cells()
         .map(|cell| {
             let b = cell.bbox();
-            let size = [b.min_x, b.min_y, b.max_x, b.max_y]
-                .iter()
-                .all(|v| v.is_finite())
-                .then(|| (b.max_x - b.min_x, b.max_y - b.min_y));
+            // gdstk da bbox (0,0,0,0) para celdas vacias: sin tamano real.
+            let (w, h) = (b.max_x - b.min_x, b.max_y - b.min_y);
+            let size = ([b.min_x, b.min_y, b.max_x, b.max_y].iter().all(|v| v.is_finite())
+                && (w > 0.0 || h > 0.0))
+                .then_some((w, h));
             let id = cell.name().to_string();
             ViewEntry { is_root: top_names.contains(&id), id, size, change: None }
         })
