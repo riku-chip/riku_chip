@@ -83,43 +83,48 @@ pub struct LayerSpec {
 
 /// Nombre y color convencional de una capa conocida del PDK. `None` si la capa
 /// no esta en el mapa (el caller cae a la paleta generica por hash).
-///
-/// Solo SKY130 tiene mapa real por ahora; GF180 e IHP usan la paleta generica.
 pub fn named_layer(tag: GdsTag, pdk: Pdk) -> Option<(&'static str, Color)> {
     find_pdk_layer(tag, pdk).map(|(_, l)| (l.name, l.color))
 }
 
 /// Estilo completo de una capa: nombre, color, rol y orden de apilado.
 ///
-/// Capas fuera del mapa del PDK: en SKY130 el rol se infiere del datatype
-/// (16 = pin, 5/59 = label, 4 = marcador → contorno) y se apilan encima de
-/// todo; en `Generic` todas son `Device` con el mismo rank, de modo que un
-/// sort estable conserva el orden del archivo.
+/// Capas fuera del mapa del PDK: el rol se infiere de la convencion de
+/// datatypes de cada PDK (pines, labels, marcadores → contorno) y se apilan
+/// encima de todo. En `Generic` todas son `Device` con el mismo rank, de modo
+/// que un sort estable conserva el orden del archivo.
 pub fn layer_spec(tag: GdsTag, pdk: Pdk) -> LayerSpec {
     if let Some((rank, l)) = find_pdk_layer(tag, pdk) {
         return LayerSpec { name: Some(l.name), color: l.color, role: l.role, rank: rank as u32 };
     }
     let color = color_for_tag(tag, pdk);
+    let outline = match pdk {
+        // SKY130: 16 pin, 5/59 label, 4 boundary/marcador.
+        Pdk::Sky130 => matches!(tag.datatype, 4 | 5 | 16 | 59),
+        // GF180: 0 drawing, 4 dummy fill; el resto son labels (10),
+        // marcadores (5, 17…) y slots (3).
+        Pdk::Gf180 => !matches!(tag.datatype, 0 | 4),
+        // IHP: 0 drawing, 20 mask, 22 filler; el resto son labels (1),
+        // pines (2), boundaries (4), textos (25)…
+        Pdk::Ihp => !matches!(tag.datatype, 0 | 20 | 22),
+        Pdk::Generic => false,
+    };
+    let role = if outline { LayerRole::Outline } else { LayerRole::Device };
+    let rank = pdk_table(pdk).map_or(0, |t| t.len() as u32);
+    LayerSpec { name: None, color, role, rank }
+}
+
+fn pdk_table(pdk: Pdk) -> Option<&'static [PdkLayer]> {
     match pdk {
-        Pdk::Sky130 => {
-            let role = match tag.datatype {
-                4 | 5 | 16 | 59 => LayerRole::Outline,
-                _ => LayerRole::Device,
-            };
-            LayerSpec { name: None, color, role, rank: SKY130_LAYERS.len() as u32 }
-        }
-        Pdk::Gf180 | Pdk::Ihp | Pdk::Generic => {
-            LayerSpec { name: None, color, role: LayerRole::Device, rank: 0 }
-        }
+        Pdk::Sky130 => Some(SKY130_LAYERS),
+        Pdk::Gf180 => Some(GF180_LAYERS),
+        Pdk::Ihp => Some(IHP_LAYERS),
+        Pdk::Generic => None,
     }
 }
 
 fn find_pdk_layer(tag: GdsTag, pdk: Pdk) -> Option<(usize, &'static PdkLayer)> {
-    let table: &'static [PdkLayer] = match pdk {
-        Pdk::Sky130 => SKY130_LAYERS,
-        Pdk::Gf180 | Pdk::Ihp | Pdk::Generic => return None,
-    };
-    table
+    pdk_table(pdk)?
         .iter()
         .enumerate()
         .find(|(_, l)| l.tag == (tag.layer, tag.datatype))
@@ -141,17 +146,26 @@ pub fn detect_pdk(path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
             return Pdk::Ihp;
         }
     }
-    // poly 66/20, li1 67/20, met1 68/20: combinacion propia de SKY130.
-    const SKY130_MARKERS: [(u32, u32); 3] = [(66, 20), (67, 20), (68, 20)];
-    let hits = SKY130_MARKERS
+    // Tres capas de dibujo caracteristicas de cada PDK (difusion/poly/metal1).
+    // Hacen falta al menos dos para decidir: una sola capa (p.ej. 1/0) es
+    // demasiado comun como para identificar un proceso.
+    const MARKERS: [(Pdk, [(u32, u32); 3]); 3] = [
+        (Pdk::Sky130, [(66, 20), (67, 20), (68, 20)]), // poly, li1, met1
+        (Pdk::Gf180, [(22, 0), (30, 0), (34, 0)]),     // COMP, Poly2, Metal1
+        (Pdk::Ihp, [(1, 0), (5, 0), (8, 0)]),          // Activ, GatPoly, Metal1
+    ];
+    let hits = |markers: &[(u32, u32)]| {
+        markers
+            .iter()
+            .filter(|(l, d)| tags.iter().any(|t| t.layer == *l && t.datatype == *d))
+            .count()
+    };
+    MARKERS
         .iter()
-        .filter(|(l, d)| tags.iter().any(|t| t.layer == *l && t.datatype == *d))
-        .count();
-    if hits >= 2 {
-        Pdk::Sky130
-    } else {
-        Pdk::Generic
-    }
+        .map(|(pdk, m)| (hits(m), *pdk))
+        .filter(|(n, _)| *n >= 2)
+        .max_by_key(|(n, _)| *n)
+        .map_or(Pdk::Generic, |(_, pdk)| pdk)
 }
 
 struct PdkLayer {
@@ -214,6 +228,93 @@ const SKY130_LAYERS: &[PdkLayer] = &[
     pl(83, 44, "text", rgb(220, 220, 160), O),
 ];
 
+/// Capas de GF180MCU. Nombres y colores de relleno del `gf180mcu.lyp`
+/// oficial (libs.tech/klayout/tech). Mismo orden de apilado que SKY130.
+/// Ojo: el boundary de place&route (`PR_bndry`) vive en la capa 0/0.
+const GF180_LAYERS: &[PdkLayer] = &[
+    pl(12, 0, "DNWELL", rgb(0x88, 0xcb, 0x1d), W),
+    pl(204, 0, "LVPWELL", rgb(0x3a, 0x28, 0x88), W),
+    pl(21, 0, "Nwell", rgb(0xf9, 0x94, 0x6b), W),
+    pl(5, 0, "NAT", rgb(0x91, 0xd3, 0x39), O),
+    pl(55, 0, "Dualgate", rgb(0xc1, 0x6f, 0x5c), O),
+    pl(32, 0, "Nplus", rgb(0xbf, 0x3e, 0xfb), O),
+    pl(31, 0, "Pplus", rgb(0x34, 0xc5, 0x90), O),
+    pl(49, 0, "SAB", rgb(0x67, 0x39, 0x2f), O),
+    pl(24, 0, "ESD", rgb(0xd9, 0xef, 0x03), O),
+    pl(62, 0, "Resistor", rgb(0x14, 0x37, 0xff), O),
+    pl(22, 0, "COMP", rgb(0xbd, 0x74, 0xbd), D),
+    pl(30, 0, "Poly2", rgb(0x2e, 0x95, 0x21), D),
+    pl(33, 0, "Contact", rgb(0xc8, 0x66, 0x34), D),
+    pl(34, 0, "Metal1", rgb(0xed, 0xdd, 0x07), D),
+    pl(35, 0, "Via1", rgb(0xf5, 0xe7, 0xf1), D),
+    pl(36, 0, "Metal2", rgb(0xcc, 0xf3, 0x38), D),
+    pl(38, 0, "Via2", rgb(0xe1, 0xd8, 0xca), D),
+    pl(42, 0, "Metal3", rgb(0x97, 0xb9, 0x1b), D),
+    pl(40, 0, "Via3", rgb(0x53, 0xe2, 0xe8), D),
+    pl(46, 0, "Metal4", rgb(0x80, 0x31, 0x7c), D),
+    pl(41, 0, "Via4", rgb(0xa7, 0xb1, 0xd1), D),
+    pl(81, 0, "Metal5", rgb(0xcd, 0xc1, 0x6b), D),
+    pl(82, 0, "Via5", rgb(0x82, 0x7e, 0x5b), D),
+    pl(53, 0, "MetalTop", rgb(0xb1, 0xdd, 0x9c), D),
+    pl(37, 0, "Pad", rgb(0x72, 0x34, 0x2b), O),
+    pl(112, 1, "V5_XTOR", rgb(0x49, 0xb4, 0x03), O),
+    pl(22, 10, "COMP_Label", rgb(0x46, 0x65, 0xc7), O),
+    pl(30, 10, "Poly2_Label", rgb(0xfb, 0x18, 0x79), O),
+    pl(34, 10, "Metal1_Label", rgb(0xed, 0xdd, 0x07), O),
+    pl(36, 10, "Metal2_Label", rgb(0xcc, 0xf3, 0x38), O),
+    pl(42, 10, "Metal3_Label", rgb(0x97, 0xb9, 0x1b), O),
+    pl(46, 10, "Metal4_Label", rgb(0x80, 0x31, 0x7c), O),
+    pl(81, 10, "Metal5_Label", rgb(0xcd, 0xc1, 0x6b), O),
+    pl(53, 10, "MetalTop_Label", rgb(0xb1, 0xdd, 0x9c), O),
+    pl(0, 0, "PR_bndry", rgb(0xd9, 0xf8, 0x17), O),
+    pl(63, 0, "Border", rgb(0xed, 0xeb, 0x06), O),
+];
+
+/// Capas de IHP SG13G2. Nombres y colores de relleno del `sg13g2.lyp`
+/// oficial (libs.tech/klayout/tech). Mismo orden de apilado que SKY130.
+const IHP_LAYERS: &[PdkLayer] = &[
+    pl(32, 0, "nBuLay", rgb(0x8c, 0x8c, 0xa6), W),
+    pl(46, 0, "PWell", rgb(0xff, 0xff, 0x00), W),
+    pl(31, 0, "NWell", rgb(0x26, 0x8c, 0x6b), W),
+    pl(44, 0, "ThickGateOx", rgb(0xff, 0xff, 0xcc), O),
+    pl(14, 0, "pSD", rgb(0xcc, 0xb8, 0x99), O),
+    pl(7, 0, "nSD", rgb(0x00, 0xcc, 0x66), O),
+    pl(28, 0, "SalBlock", rgb(0x99, 0x00, 0xe6), O),
+    pl(1, 0, "Activ", rgb(0x00, 0xff, 0x00), D),
+    pl(5, 0, "GatPoly", rgb(0xbf, 0x40, 0x26), D),
+    pl(128, 0, "PolyRes", rgb(0xbf, 0x40, 0x26), D),
+    pl(6, 0, "Cont", rgb(0x00, 0xff, 0xff), D),
+    pl(8, 0, "Metal1", rgb(0x39, 0xbf, 0xff), D),
+    pl(19, 0, "Via1", rgb(0xcc, 0xcc, 0xff), D),
+    pl(10, 0, "Metal2", rgb(0xcc, 0xcc, 0xd9), D),
+    pl(29, 0, "Via2", rgb(0xff, 0x37, 0x36), D),
+    pl(30, 0, "Metal3", rgb(0xd8, 0x00, 0x00), D),
+    pl(49, 0, "Via3", rgb(0x9b, 0xa9, 0x40), D),
+    pl(50, 0, "Metal4", rgb(0x93, 0xe8, 0x37), D),
+    pl(66, 0, "Via4", rgb(0xde, 0xac, 0x5e), D),
+    pl(67, 0, "Metal5", rgb(0xdc, 0xd1, 0x46), D),
+    pl(36, 0, "MIM", rgb(0x26, 0x8c, 0x6b), D),
+    pl(129, 0, "Vmim", rgb(0xff, 0xe6, 0xbf), D),
+    pl(125, 0, "TopVia1", rgb(0xff, 0xe6, 0xbf), D),
+    pl(126, 0, "TopMetal1", rgb(0xff, 0xe6, 0xbf), D),
+    pl(133, 0, "TopVia2", rgb(0xff, 0x80, 0x00), D),
+    pl(134, 0, "TopMetal2", rgb(0xff, 0x80, 0x00), D),
+    pl(9, 0, "Passiv", rgb(0xe6, 0x1f, 0x0d), O),
+    pl(1, 2, "Activ.pin", rgb(0x00, 0xff, 0x00), O),
+    pl(5, 2, "GatPoly.pin", rgb(0xbf, 0x40, 0x26), O),
+    pl(8, 2, "Metal1.pin", rgb(0x39, 0xbf, 0xff), O),
+    pl(10, 2, "Metal2.pin", rgb(0xcc, 0xcc, 0xd9), O),
+    pl(30, 2, "Metal3.pin", rgb(0xd8, 0x00, 0x00), O),
+    pl(50, 2, "Metal4.pin", rgb(0x93, 0xe8, 0x37), O),
+    pl(67, 2, "Metal5.pin", rgb(0xdc, 0xd1, 0x46), O),
+    pl(126, 2, "TopMetal1.pin", rgb(0xff, 0xe6, 0xbf), O),
+    pl(134, 2, "TopMetal2.pin", rgb(0xff, 0x80, 0x00), O),
+    pl(8, 25, "Metal1.text", rgb(0x39, 0xbf, 0xff), O),
+    pl(189, 0, "prBoundary", rgb(0x99, 0x00, 0xe6), O),
+    pl(189, 4, "prBoundary.boundary", rgb(0x99, 0x00, 0xe6), O),
+    pl(63, 0, "TEXT", rgb(0xff, 0xff, 0xff), O),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +361,28 @@ mod tests {
         assert_eq!(detect_pdk(Some("/foss/pdks/ihp-sg13g2/x.gds"), &[]), Pdk::Ihp);
         assert_eq!(detect_pdk(None, &[tag(67, 20), tag(68, 20)]), Pdk::Sky130);
         assert_eq!(detect_pdk(None, &[tag(1, 0)]), Pdk::Generic);
+        // Capas de gf180mcu_fd_sc_mcu7t5v0__inv_1 y sg13g2_inv_1 (sin path).
+        let gf = [tag(0, 0), tag(21, 0), tag(22, 0), tag(30, 0), tag(33, 0), tag(34, 0), tag(34, 10)];
+        assert_eq!(detect_pdk(None, &gf), Pdk::Gf180);
+        let ihp = [tag(1, 0), tag(5, 0), tag(6, 0), tag(8, 0), tag(8, 2), tag(14, 0), tag(31, 0)];
+        assert_eq!(detect_pdk(None, &ihp), Pdk::Ihp);
+    }
+
+    #[test]
+    fn gf180_and_ihp_tables_and_datatype_fallbacks() {
+        let m1 = layer_spec(tag(34, 0), Pdk::Gf180);
+        assert_eq!((m1.name, m1.role), (Some("Metal1"), LayerRole::Device));
+        assert_eq!(layer_spec(tag(21, 0), Pdk::Gf180).role, LayerRole::Well);
+        // PR_bndry en 0/0: contorno, nunca relleno que tape la celda.
+        assert_eq!(layer_spec(tag(0, 0), Pdk::Gf180).role, LayerRole::Outline);
+        // Fuera de tabla: label (10) contorno, dummy fill (4) dispositivo.
+        assert_eq!(layer_spec(tag(21, 10), Pdk::Gf180).role, LayerRole::Outline);
+        assert_eq!(layer_spec(tag(99, 4), Pdk::Gf180).role, LayerRole::Device);
+
+        let act = layer_spec(tag(1, 0), Pdk::Ihp);
+        assert_eq!((act.name, act.role), (Some("Activ"), LayerRole::Device));
+        assert!(act.rank < layer_spec(tag(8, 0), Pdk::Ihp).rank, "Activ debajo de Metal1");
+        assert_eq!(layer_spec(tag(10, 1), Pdk::Ihp).role, LayerRole::Outline, "label");
+        assert_eq!(layer_spec(tag(8, 22), Pdk::Ihp).role, LayerRole::Device, "filler");
     }
 }
