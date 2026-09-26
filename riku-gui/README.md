@@ -18,10 +18,11 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 
 | Acción | Cómo |
 |---|---|
-| Mover la vista | arrastrar |
-| Zoom | rueda (anclado al cursor) |
-| Encuadrar todo | botón **Encuadrar** |
-| Mostrar/ocultar textos | botón **Etiquetas** |
+| Mover la vista | arrastrar; al soltar rápido sigue por inercia (un clic la frena) |
+| Zoom | rueda (anclado al cursor) o **+** / **−** |
+| Encuadrar todo | botón **Encuadrar** o **F** (animado) |
+| Mostrar/ocultar textos | botón **Etiquetas** o **L** |
+| Sin animaciones ni inercia | **Ajustes → Reducir movimiento** (se recuerda) |
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
 | Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo `.sch`, `.sym`, `.gds`) |
@@ -42,6 +43,7 @@ src/
 ├── sch_painter.rs    ruta rica de Xschem (fantasmas, anotaciones)
 ├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
 │                     fit/zoom, hit-test y tooltip
+├── motion.rs         springs interrumpibles e inercia de la vista
 ├── polygon_fill.rs   relleno de polígonos cóncavos (earcut)
 ├── entry_picker.rs   selector de celdas con buscador y filtros
 ├── label_layout.rs   colocación de etiquetas sin solaparse
@@ -53,6 +55,7 @@ src/
 - **Coordenadas.** Mundo (Y-up en GDS) → vista (Y-down, relativa al panel, donde vive el `Viewport`) → pantalla. `ScreenXform` concentra las tres para que dibujo, culling, fit, zoom y hit-test usen la misma cuenta.
 - **Etiquetas legibles** (`label_layout.rs`). Tamaño fijo en pantalla (10–14 px); se ocultan si el zoom es tan lejano que serían ruido. Las del mismo punto se fusionan (`VPB · VPWR`). Cada una es una pastilla con halo, desplazada del anclaje (marcado con un punto) para no tapar el pin; si choca, prueba otras posiciones y, si no entra, se omite y la barra de estado lo avisa.
 - **Tema** (`theme.rs`). Fondo, halos, colores de capa, overlays de diff y el painter de Xschem se adaptan a claro/oscuro. El contraste de las etiquetas (WCAG AA, ≥ 4.5:1) se verifica en tests para los colores de los tres PDKs.
+- **Movimiento** (`motion.rs`, criterios de *Designing Fluid Interfaces*, WWDC 2018). Encuadrar e ir a un cambio usan un spring críticamente amortiguado (respuesta 0,3 s, sin rebote) sobre centro + log de escala; cualquier arrastre o rueda lo interrumpe desde el valor en pantalla. Al soltar un arrastre rápido la vista sigue con la velocidad del puntero y desacelera a 0,998 por ms (proyección de momento de iOS). "Reducir movimiento" lo reemplaza por saltos directos.
 
 ## Compilar y probar
 

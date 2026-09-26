@@ -13,6 +13,7 @@ use viewer_core::{
 
 use crate::entry_picker;
 use crate::launch::LaunchArgs;
+use crate::motion::{Inertia, ViewAnimation};
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
 use crate::scene_painter::{
@@ -81,6 +82,15 @@ struct BackendState {
     kind: LoadKind,
     /// Zona a encuadrar en el próximo frame (clic en un cambio).
     focus: Option<BoundingBox>,
+    /// El próximo encuadre lo pidió el usuario (Encuadrar / F): se anima.
+    /// Los automáticos (al cargar, al redimensionar) son inmediatos.
+    animate_fit: bool,
+    /// Zoom pedido por teclado (+/−), aplicado sobre el centro del lienzo.
+    pending_zoom: Option<f64>,
+    /// Transición de vista en curso (spring interrumpible).
+    anim: Option<ViewAnimation>,
+    /// Inercia del pan tras soltar un arrastre rápido.
+    inertia: Option<Inertia>,
 }
 
 /// Qué produce una carga via backend. En modo diff, `source` (en
@@ -141,6 +151,8 @@ pub struct RikuGuiApp {
     show_labels: bool,
     /// Árbol de proyecto con todos los archivos, no solo los que se abren.
     show_all_files: bool,
+    /// Sin animaciones ni inercia (accesibilidad: movimiento reducido).
+    reduce_motion: bool,
 
     // ─── Lectura del lienzo para la barra de estado (frame anterior) ────────
     /// Posición del cursor en coordenadas de mundo, si está sobre el lienzo.
@@ -156,6 +168,7 @@ pub struct RikuGuiApp {
 /// Claves de persistencia (eframe storage).
 const PREF_LABELS: &str = "riku.show_labels";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
+const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 
 impl RikuGuiApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: LaunchArgs) -> Self {
@@ -197,6 +210,7 @@ impl RikuGuiApp {
         };
         let show_labels = pref(PREF_LABELS, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
+        let reduce_motion = pref(PREF_REDUCE_MOTION, false);
         let project_tree = ProjectEntry::build(&project_root, show_all_files);
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
@@ -230,6 +244,7 @@ impl RikuGuiApp {
             pending_token: None,
             show_labels,
             show_all_files,
+            reduce_motion,
             cursor_world: None,
             px_world: None,
             labels_hidden: 0,
@@ -366,6 +381,45 @@ impl RikuGuiApp {
         self.spawn_backend_load(backend, source, path, entry, kind, false);
     }
 
+    /// Encuadrar todo, pedido por el usuario (se anima salvo movimiento reducido).
+    fn request_fit(&mut self) {
+        if let Some(sch) = self.sch.as_mut() {
+            sch.needs_fit = true;
+        } else if let Some(bs) = self.backend_state.as_mut() {
+            bs.needs_fit = true;
+            bs.animate_fit = true;
+        }
+    }
+
+    /// Atajos de teclado, solo si ningún campo de texto tiene el foco (si no,
+    /// escribir "f" en el buscador de celdas encuadraría la vista).
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        let (fit, labels, zoom_in, zoom_out) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::F),
+                i.key_pressed(egui::Key::L),
+                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
+                i.key_pressed(egui::Key::Minus),
+            )
+        });
+        if fit {
+            self.request_fit();
+        }
+        if labels {
+            self.show_labels = !self.show_labels;
+        }
+        if let Some(bs) = self.backend_state.as_mut().filter(|_| self.sch.is_none()) {
+            let step = 1.25;
+            let factor = if zoom_in { Some(step) } else if zoom_out { Some(1.0 / step) } else { None };
+            if let Some(f) = factor {
+                bs.pending_zoom = Some(bs.pending_zoom.unwrap_or(1.0) * f);
+            }
+        }
+    }
+
     /// Pestaña actual si hay un diff cargado via backend.
     fn backend_diff_tab(&self) -> Option<DiffTab> {
         match &self.backend_state.as_ref()?.kind {
@@ -487,6 +541,10 @@ impl RikuGuiApp {
                         only_changed: true,
                         kind: loaded.kind,
                         focus: None,
+                        animate_fit: false,
+                        pending_zoom: None,
+                        anim: None,
+                        inertia: None,
                     },
                 });
             }
@@ -544,6 +602,7 @@ impl eframe::App for RikuGuiApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, PREF_LABELS, &self.show_labels);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
+        eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -556,6 +615,8 @@ impl eframe::App for RikuGuiApp {
         if self.pending_load.is_some() {
             ctx.request_repaint();
         }
+
+        self.handle_shortcuts(&ctx);
 
         // Título de ventana: archivo (y celda) abiertos.
         let file = self.selected_path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
@@ -579,14 +640,10 @@ impl eframe::App for RikuGuiApp {
                 let has_view = self.sch.is_some() || self.backend_state.is_some();
                 if ui
                     .add_enabled(has_view, egui::Button::new("Encuadrar"))
-                    .on_hover_text("Ajustar la vista para ver todo el diseño")
+                    .on_hover_text("Ajustar la vista para ver todo el diseño  (F)")
                     .clicked()
                 {
-                    if let Some(sch) = self.sch.as_mut() {
-                        sch.needs_fit = true;
-                    } else if let Some(bs) = self.backend_state.as_mut() {
-                        bs.needs_fit = true;
-                    }
+                    self.request_fit();
                 }
                 if ui
                     .button("Recargar")
@@ -601,7 +658,7 @@ impl eframe::App for RikuGuiApp {
                 }
                 ui.separator();
                 ui.toggle_value(&mut self.show_labels, "Etiquetas")
-                    .on_hover_text("Mostrar u ocultar los textos del layout (pines, nombres)");
+                    .on_hover_text("Mostrar u ocultar los textos del layout (pines, nombres)  (L)");
 
                 if let Some(sch) = self.sch.as_mut() {
                     ui.separator();
@@ -612,6 +669,26 @@ impl eframe::App for RikuGuiApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Lo menos frecuente, un nivel más abajo.
+                    ui.menu_button("Ajustes", |ui| {
+                        ui.checkbox(&mut self.reduce_motion, "Reducir movimiento")
+                            .on_hover_text("Sin animaciones al encuadrar ni inercia al soltar un arrastre");
+                        ui.separator();
+                        ui.label(RichText::new("Atajos").strong());
+                        for (k, what) in [
+                            ("F", "Encuadrar"),
+                            ("L", "Etiquetas"),
+                            ("+ / −", "Acercar / alejar"),
+                            ("Rueda", "Zoom en el cursor"),
+                            ("Arrastrar", "Mover (suelta con impulso)"),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.monospace(format!("{k:>9}"));
+                                ui.label(what);
+                            });
+                        }
+                    });
+                    ui.separator();
                     theme_selector(ui);
                 });
             });
@@ -774,35 +851,96 @@ impl eframe::App for RikuGuiApp {
                 if let Some(bs) = &mut self.backend_state {
                     let available = ui.available_size_before_wrap();
                     let response = ui.allocate_response(available, egui::Sense::drag());
+                    let rect = response.rect;
+                    let (w, h) = (rect.width() as f64, rect.height() as f64);
+                    let animate = !self.reduce_motion;
+
+                    // El usuario manda: tocar el lienzo o usar la rueda frena
+                    // cualquier animación o inercia en el valor que tenga en
+                    // pantalla (interrumpible, sin saltos).
+                    let pressed = response.hovered() && ctx.input(|i| i.pointer.any_pressed());
+                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
+                    let wheel = scroll.abs() > f64::EPSILON && response.hovered();
+                    if pressed || wheel {
+                        bs.anim = None;
+                        bs.inertia = None;
+                    }
                     if response.dragged() {
                         let delta = response.drag_delta();
                         bs.viewport.pan_by_screen(delta.x as f64, delta.y as f64);
                         bs.fitted_size = None;
                         ctx.request_repaint();
                     }
-                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
-                    if scroll.abs() > f64::EPSILON && response.hovered() {
+                    // Al soltar, la vista sigue a la velocidad del puntero y
+                    // desacelera (proyección de momento).
+                    if response.drag_stopped() && animate {
+                        let v = ctx.input(|i| i.pointer.velocity());
+                        bs.inertia = Inertia::from_release(v.x as f64, v.y as f64);
+                    }
+                    if wheel {
                         // Zoom anclado al cursor (o al centro si no hay puntero).
-                        let anchor = response.hover_pos().unwrap_or(response.rect.center());
-                        zoom_at_screen(&mut bs.viewport, 1.0 + scroll * 0.002, anchor, response.rect);
+                        let anchor = response.hover_pos().unwrap_or(rect.center());
+                        zoom_at_screen(&mut bs.viewport, 1.0 + scroll * 0.002, anchor, rect);
                         bs.fitted_size = None;
                         ctx.request_repaint();
                     }
-                    // Encuadre al cargar / "Fit", y de nuevo si el lienzo cambia de
-                    // tamaño (paneles que se ensanchan, ventana) mientras el usuario
-                    // no haya movido la vista a mano.
-                    let size = response.rect.size();
-                    let resized = bs.fitted_size.is_some_and(|s| s != size);
+
+                    // Cambio de vista hacia `target`: animado si lo pidió el
+                    // usuario (y no hay movimiento reducido), inmediato si no.
+                    let go_to = |bs: &mut BackendState, target: VcViewport, user: bool| {
+                        if user && animate {
+                            bs.anim = Some(ViewAnimation::to(target));
+                        } else {
+                            bs.viewport = target;
+                        }
+                        bs.inertia = None;
+                    };
+
+                    // Encuadre al cargar / "Encuadrar", y de nuevo si el lienzo
+                    // cambia de tamaño (paneles, ventana) mientras el usuario no
+                    // haya movido la vista a mano.
+                    let size = rect.size();
+                    let resized = bs.anim.is_none() && bs.fitted_size.is_some_and(|s| s != size);
                     if (bs.needs_fit || resized) && size.x > 0.0 && size.y > 0.0 {
-                        fit_scene(&mut bs.viewport, bs.scene.as_ref(), response.rect);
+                        let mut target = bs.viewport;
+                        fit_scene(&mut target, bs.scene.as_ref(), rect);
+                        let user = std::mem::take(&mut bs.animate_fit);
+                        go_to(bs, target, user);
                         bs.needs_fit = false;
                         bs.fitted_size = Some(size);
                     }
                     // Clic en un cambio: encuadrarlo con contexto alrededor. Es
                     // una vista elegida, no se re-encuadra sola al redimensionar.
-                    if let Some(target) = bs.focus.take() {
-                        fit_bbox(&mut bs.viewport, &focus_area(&target, &bs.scene.bbox()), bs.scene.y_axis(), response.rect);
+                    if let Some(area) = bs.focus.take() {
+                        let mut target = bs.viewport;
+                        fit_bbox(&mut target, &focus_area(&area, &bs.scene.bbox()), bs.scene.y_axis(), rect);
+                        go_to(bs, target, true);
                         bs.fitted_size = None;
+                    }
+                    // Zoom por teclado (+/−) sobre el centro del lienzo.
+                    if let Some(factor) = bs.pending_zoom.take() {
+                        let mut target = bs.anim.map_or(bs.viewport, |a| a.target());
+                        zoom_at_screen(&mut target, factor, rect.center(), rect);
+                        go_to(bs, target, true);
+                        bs.fitted_size = None;
+                    }
+
+                    // Avanzar animación e inercia (tiempo real, no por frame).
+                    let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05) as f64;
+                    if let Some(mut anim) = bs.anim.take() {
+                        if !anim.step(&mut bs.viewport, dt, w, h) {
+                            bs.anim = Some(anim);
+                        }
+                        ctx.request_repaint();
+                    }
+                    if let Some(mut it) = bs.inertia.take() {
+                        let ((dx, dy), alive) = it.step(dt);
+                        bs.viewport.pan_by_screen(dx, dy);
+                        bs.fitted_size = None;
+                        if alive {
+                            bs.inertia = Some(it);
+                        }
+                        ctx.request_repaint();
                     }
                     let hidden = bs.hidden_keys();
                     let opts = PaintOptions { theme: CanvasTheme::from_visuals(ui.visuals()), labels: self.show_labels };

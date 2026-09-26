@@ -4,6 +4,7 @@ mod app;
 mod entry_picker;
 mod label_layout;
 mod launch;
+mod motion;
 mod polygon_fill;
 mod project;
 mod sch_painter;
