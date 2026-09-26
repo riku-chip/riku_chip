@@ -27,3 +27,25 @@ pub struct ChangeItem {
     /// Cambio por debajo del umbral de relevancia (ruido de snap, slivers).
     pub cosmetic: bool,
 }
+
+/// Marca visual de un cambio sobre la escena de diff: recuadro alrededor de
+/// un elemento o trazos resaltados (una net).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Annotation {
+    pub kind: ChangeKind,
+    /// Cambio sin efecto funcional (mismo significado que en `ChangeItem`).
+    pub cosmetic: bool,
+    /// El elemento además se movió.
+    pub moved: bool,
+    /// Texto junto a la marca (nombre del elemento o de la net).
+    pub label: String,
+    pub shape: AnnotationShape,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnnotationShape {
+    /// Recuadro en coordenadas de mundo.
+    Box(BoundingBox),
+    /// Segmentos `(x1, y1, x2, y2)` en coordenadas de mundo.
+    Segments(Vec<(f64, f64, f64, f64)>),
+}

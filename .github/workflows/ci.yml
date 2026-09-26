@@ -42,6 +42,7 @@ jobs:
         run: |
           cargo build --locked -p riku --no-default-features --features layout
           cargo build --locked -p riku --no-default-features --features xschem
+          cargo build --locked -p riku --no-default-features --features layout,gui
       - name: El núcleo no depende de ningún formato
         run: |
           if cargo tree --locked -p riku-kernel -e normal | grep -E "gds-renderer|xschem-viewer|gdstk-rs"; then

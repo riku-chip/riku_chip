@@ -15,7 +15,6 @@ use crate::gui::entry_picker;
 use crate::gui::launch::LaunchArgs;
 use crate::gui::motion::{theme_fade_alpha, Inertia, ViewAnimation};
 use crate::gui::project::ProjectEntry;
-use crate::gui::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
 use crate::gui::scene_painter::{
     fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen, PaintOptions, ScreenXform,
 };
@@ -31,32 +30,17 @@ enum DiffTab {
     Diff,
 }
 
-struct SchState {
-    /// Escena del commit B (estado posterior / archivo actual)
-    scene: xschem_viewer::ResolvedScene,
-    /// Escena del commit A (estado anterior) — solo en modo diff
-    scene_a: Option<xschem_viewer::ResolvedScene>,
-    viewport: SchViewport,
-    diff: Option<crate::core::domain::models::FileChange>,
-    /// Encuadrar en el próximo frame con el tamaño real del panel.
-    needs_fit: bool,
-    /// Tab activo (solo relevante en modo diff)
-    tab: DiffTab,
-}
-
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 /// Contexto persistente de un diff cargado — permite recargarlo sin perder estado.
 struct DiffContext {
-    repo: PathBuf,
     commit_a: String,
     commit_b: String,
     file: PathBuf,
 }
 
-/// Estado de una carga genérica via `ViewerBackend` (GDS o cualquier formato
-/// futuro). Convive con `SchState` — el path rico se conserva intacto para
-/// schematics Xschem con features especiales (diff, fantasmas, pins).
+/// Estado de una carga via `ViewerBackend`: todos los formatos (esquemáticos,
+/// layouts) se muestran por esta ruta.
 struct BackendState {
     scene: SceneHandle,
     viewport: VcViewport,
@@ -130,7 +114,6 @@ pub struct RikuGuiApp {
     project_root: PathBuf,
     project_tree: ProjectEntry,
     selected_path: Option<PathBuf>,
-    sch: Option<SchState>,
     diff_ctx: Option<DiffContext>,
     status: String,
     error: Option<String>,
@@ -254,7 +237,6 @@ impl RikuGuiApp {
             project_root,
             project_tree,
             selected_path,
-            sch: None,
             diff_ctx: None,
             status: String::from("Listo — abre un .sch, .gds u .oas del panel Proyecto"),
             error: None,
@@ -284,30 +266,17 @@ impl RikuGuiApp {
         if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
             let repo = launch.repo.as_deref().unwrap_or(Path::new("."));
             app.diff_ctx = Some(DiffContext {
-                repo: repo.to_path_buf(),
                 commit_a: ca.clone(),
                 commit_b: cb.clone(),
                 file: file.clone(),
             });
-            // .sch: diff semántico rico; otros formatos (GDS): diff via backend.
-            let result = if is_sch_renderable(file) {
-                app.load_diff(repo, ca, cb, file)
-            } else {
-                app.load_backend_diff(repo, ca, cb, file, launch.cell.clone())
-            };
-            match result {
+            match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone()) {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
                 Err(e) => app.fail("No se pudo calcular el diff", e),
             }
         } else if let Some(path) = app.selected_path.clone() {
             app.remember_recent(&path);
-            if is_sch_renderable(&path) {
-                match app.load_sch(&path) {
-                    Ok(()) => app.status = format!("Abierto {}", path.display()),
-                    Err(e) => app.fail("No se pudo abrir", e),
-                }
-            } else if app.load_via_backend(&path, launch.cell.clone()) {
-                // Otros formatos (ej: .gds) van por la ruta neutra ViewerBackend.
+            if app.load_via_backend(&path, launch.cell.clone()) {
                 app.status = format!("Cargando {} …", path.display());
             } else {
                 app.status = format!("{} — formato no soportado", path.display());
@@ -345,24 +314,11 @@ impl RikuGuiApp {
     fn open_path(&mut self, path: &Path) {
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
-        self.sch = None;
         self.backend_state = None;
         self.remember_recent(path);
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-        // .sch sigue por la ruta rica (diff semántico, fantasmas, etc.)
-        if is_sch_renderable(path) {
-            match self.load_sch(path) {
-                Ok(()) => {
-                    self.status = format!("Abierto {}", path.display());
-                    self.notify(ToastKind::Success, format!("{name} abierto"));
-                }
-                Err(e) => self.fail(&format!("No se pudo abrir {name}"), e),
-            }
-            return;
-        }
-
-        // Fallback: intentar con algún backend registrado (ruta neutra async).
+        // Cualquier formato con un backend registrado (ruta neutra async).
         if self.load_via_backend(path, None) {
             self.status = format!("Cargando {} …", path.display());
         } else if self.error.is_none() {
@@ -393,8 +349,9 @@ impl RikuGuiApp {
         true
     }
 
-    /// Diff de un archivo no-Xschem entre dos commits via backend. El
-    /// archivo puede no existir en el commit "antes" (archivo nuevo).
+    /// Diff de un archivo entre dos commits via el backend de su formato. El
+    /// archivo puede no existir en el commit "antes" (archivo nuevo); un
+    /// commit que no existe es un error, no "sin cambios".
     fn load_backend_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path, entry: Option<String>) -> Result<(), String> {
         use crate::core::domain::ports::GitRepository;
         use crate::core::git::git_service::GitService;
@@ -403,7 +360,11 @@ impl RikuGuiApp {
         let file_str = file.to_string_lossy().to_string();
         let after = svc.get_blob(commit_b, &file_str).map_err(|e| format!("{commit_b}: {e}"))?;
         // Si falta en "antes" se compara contra vacío: todo cuenta como añadido.
-        let before = svc.get_blob(commit_a, &file_str).unwrap_or_default();
+        let before = match svc.get_blob(commit_a, &file_str) {
+            Ok(bytes) => bytes,
+            Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Vec::new(),
+            Err(e) => return Err(format!("{commit_a}: {e}")),
+        };
 
         let backend = self.backends.iter()
             .find(|b| b.accepts(&after, Some(&file_str)))
@@ -447,15 +408,13 @@ impl RikuGuiApp {
         if let Some(p) = &self.selected_path {
             parts.push(p.file_name().unwrap_or_default().to_string_lossy().to_string());
         }
-        if let Some(bs) = self.backend_state.as_ref().filter(|_| self.sch.is_none()) {
+        if let Some(bs) = self.backend_state.as_ref() {
             if let Some(cell) = bs.scene.current_entry() {
                 parts.push(cell.to_string());
             }
             if let LoadKind::Diff { tab, .. } = bs.kind {
                 parts.push(tab_label(tab).to_string());
             }
-        } else if let Some(sch) = self.sch.as_ref().filter(|s| s.diff.is_some()) {
-            parts.push(tab_label(sch.tab).to_string());
         }
         parts
     }
@@ -506,9 +465,7 @@ impl RikuGuiApp {
 
     /// Encuadrar todo, pedido por el usuario (se anima salvo movimiento reducido).
     fn request_fit(&mut self) {
-        if let Some(sch) = self.sch.as_mut() {
-            sch.needs_fit = true;
-        } else if let Some(bs) = self.backend_state.as_mut() {
+        if let Some(bs) = self.backend_state.as_mut() {
             bs.needs_fit = true;
             bs.animate_fit = true;
         }
@@ -537,7 +494,7 @@ impl RikuGuiApp {
             let msg = if self.show_labels { "Etiquetas visibles" } else { "Etiquetas ocultas (L para mostrar)" };
             self.notify(ToastKind::Info, msg);
         }
-        if let Some(bs) = self.backend_state.as_mut().filter(|_| self.sch.is_none()) {
+        if let Some(bs) = self.backend_state.as_mut() {
             let step = 1.25;
             let factor = if zoom_in { Some(step) } else if zoom_out { Some(1.0 / step) } else { None };
             if let Some(f) = factor {
@@ -549,7 +506,7 @@ impl RikuGuiApp {
     /// Pestaña actual si hay un diff cargado via backend.
     fn backend_diff_tab(&self) -> Option<DiffTab> {
         match &self.backend_state.as_ref()?.kind {
-            LoadKind::Diff { tab, .. } if self.sch.is_none() => Some(*tab),
+            LoadKind::Diff { tab, .. } => Some(*tab),
             _ => None,
         }
     }
@@ -557,7 +514,7 @@ impl RikuGuiApp {
     /// Selector de celdas bajo el panel izquierdo, si el archivo tiene más de una.
     fn show_entry_picker(&mut self, ui: &mut egui::Ui) {
         let picked = match &mut self.backend_state {
-            Some(bs) if self.sch.is_none() && bs.scene.entries().len() > 1 => {
+            Some(bs) if bs.scene.entries().len() > 1 => {
                 ui.separator();
                 render_entry_picker(ui, bs)
             }
@@ -698,44 +655,6 @@ impl RikuGuiApp {
         self.pending_token = None;
     }
 
-    fn load_sch(&mut self, path: &Path) -> Result<(), String> {
-        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let scene = build_scene(&content)?;
-        // El encuadre se hace al pintar, con el tamaño real del panel.
-        let viewport = SchViewport::default();
-        self.sch = Some(SchState { scene, scene_a: None, viewport, diff: None, needs_fit: true, tab: DiffTab::After });
-        Ok(())
-    }
-
-    fn load_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path) -> Result<(), String> {
-        let file_str = file.to_string_lossy();
-        // El diff lo da el driver del registro, igual que en la CLI.
-        let report = crate::core::analysis::commit_diff::analyze_diff(
-            repo,
-            commit_a,
-            commit_b,
-            &file_str,
-            &crate::modules::registry(),
-            &riku_kernel::DiffOptions::default(),
-        )
-            .map_err(|e| e.to_string())?;
-
-        let opts = sch_render_opts();
-
-        let sch_a = get_blob_content(repo, commit_a, &file_str)?;
-        let parsed_a = xschem_viewer::parser::parse(&sch_a).map_err(|e| e.to_string())?;
-        let scene_a = xschem_viewer::SceneBuilder::new(&opts).build(&parsed_a);
-
-        let sch_content = get_blob_content(repo, commit_b, &file_str)?;
-        let parsed = xschem_viewer::parser::parse(&sch_content).map_err(|e| e.to_string())?;
-        let scene = xschem_viewer::SceneBuilder::new(&opts).build(&parsed);
-
-        let viewport = SchViewport::default();
-
-        self.selected_path = Some(file.to_path_buf());
-        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(report), needs_fit: true, tab: DiffTab::Diff });
-        Ok(())
-    }
 }
 
 impl eframe::App for RikuGuiApp {
@@ -749,7 +668,6 @@ impl eframe::App for RikuGuiApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        let mut reload = false;
         self.now = ctx.input(|i| i.time);
 
         // Cambio de tema: fundir desde el fondo anterior en vez de saltar de
@@ -778,7 +696,7 @@ impl eframe::App for RikuGuiApp {
 
         // Título de ventana: archivo (y celda) abiertos.
         let file = self.selected_path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
-        let cell = self.backend_state.as_ref().filter(|_| self.sch.is_none()).and_then(|bs| bs.scene.current_entry().map(str::to_string));
+        let cell = self.backend_state.as_ref().and_then(|bs| bs.scene.current_entry().map(str::to_string));
         let title = match (file, cell) {
             (Some(f), Some(c)) => format!("{f} · {c} — Riku"),
             (Some(f), None) => format!("{f} — Riku"),
@@ -795,7 +713,7 @@ impl eframe::App for RikuGuiApp {
                 ui.label(RichText::new("Riku").strong().size(16.0));
                 ui.separator();
 
-                let has_view = self.sch.is_some() || self.backend_state.is_some();
+                let has_view = self.backend_state.is_some();
                 if ui
                     .add_enabled(has_view, egui::Button::new("Encuadrar"))
                     .on_hover_text("Ajustar la vista para ver todo el diseño  (F)")
@@ -809,22 +727,12 @@ impl eframe::App for RikuGuiApp {
                     .clicked()
                 {
                     self.refresh_tree();
-                    // Un GDS abierto se relee del disco en la misma celda.
-                    if self.sch.is_none() {
-                        self.reload_backend();
-                    }
+                    // El archivo abierto se relee del disco en la misma sub-vista.
+                    self.reload_backend();
                 }
                 ui.separator();
                 ui.toggle_value(&mut self.show_labels, "Etiquetas")
                     .on_hover_text("Mostrar u ocultar los textos del layout (pines, nombres)  (L)");
-
-                if let Some(sch) = self.sch.as_mut() {
-                    ui.separator();
-                    let mut scale = sch.viewport.scale as f32;
-                    if ui.add(egui::Slider::new(&mut scale, 0.1..=20.0).text("Zoom")).changed() {
-                        sch.viewport.scale = scale as f64;
-                    }
-                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Lo menos frecuente, un nivel más abajo.
@@ -863,7 +771,7 @@ impl eframe::App for RikuGuiApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let unit = self.backend_state.as_ref()
-                        .filter(|_| self.sch.is_none())
+                        
                         .and_then(|bs| bs.scene.world_unit().map(str::to_string))
                         .unwrap_or_default();
                     if let Some(px) = self.px_world {
@@ -885,21 +793,8 @@ impl eframe::App for RikuGuiApp {
             .resizable(true)
             .default_size(200.0)
             .show_inside(ui, |ui| {
-                // Modo diff: mostrar solo selector de vistas (Diff/Before/After)
-                if let (Some(sch), Some(ctx)) = (self.sch.as_mut(), self.diff_ctx.as_ref()) {
-                    ui.heading("Vistas");
-                    ui.label(RichText::new(ctx.file.file_name()
-                        .unwrap_or_default().to_string_lossy().as_ref())
-                        .color(egui::Color32::from_gray(180)));
-                    ui.label(RichText::new(format!("{} → {}",
-                        short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)))
-                        .small().color(egui::Color32::from_gray(140)));
-                    ui.separator();
-                    view_selector(ui, &mut sch.tab, DiffTab::Diff, "Diff");
-                    view_selector(ui, &mut sch.tab, DiffTab::Before, "Before");
-                    view_selector(ui, &mut sch.tab, DiffTab::After, "After");
-                } else if let (Some(ctx), Some(current)) = (self.diff_ctx.as_ref(), self.backend_diff_tab()) {
-                    // Diff via backend (GDS): mismas vistas; cada una es otra carga.
+                // Modo diff: selector de vistas (Diff/Before/After); cada una es otra carga.
+                if let (Some(ctx), Some(current)) = (self.diff_ctx.as_ref(), self.backend_diff_tab()) {
                     ui.heading("Vistas");
                     ui.label(RichText::new(ctx.file.file_name()
                         .unwrap_or_default().to_string_lossy().as_ref())
@@ -935,8 +830,7 @@ impl eframe::App for RikuGuiApp {
                     // Con scroll propio: un árbol más alto que la ventana
                     // agrandaba toda la UI y el lienzo quedaba fuera de pantalla.
                     // Si abajo va el selector de celdas, el árbol cede espacio.
-                    let has_picker = self.sch.is_none()
-                        && self.backend_state.as_ref().is_some_and(|bs| bs.scene.entries().len() > 1);
+                    let has_picker = self.backend_state.as_ref().is_some_and(|bs| bs.scene.entries().len() > 1);
                     let tree_h = ui.available_height() * if has_picker { 0.4 } else { 1.0 };
                     egui::ScrollArea::vertical()
                         .id_salt("project_tree")
@@ -962,47 +856,10 @@ impl eframe::App for RikuGuiApp {
                 }
                 ui.add_space(space::XS);
 
-                if self.sch.is_none() {
-                    if let Some(bs) = &mut self.backend_state {
-                        render_backend_details(ui, bs);
-                    } else {
-                        ui.label(RichText::new("Nada abierto todavía.").weak());
-                    }
-                }
-
-                if let Some(sch) = &self.sch {
-                    section(ui, "sch_summary", "Resumen", None, true, |ui| {
-                        egui::Grid::new("sch_meta").num_columns(2).spacing([space::M, space::XS]).show(ui, |ui| {
-                            ui.label(RichText::new("Elementos").weak());
-                            ui.monospace(sch.scene.elements.len().to_string());
-                            ui.end_row();
-                            ui.label(RichText::new("Wires").weak());
-                            ui.monospace(sch.scene.wires.len().to_string());
-                            ui.end_row();
-                        });
-                    });
-
-                    if !sch.scene.missing_symbols.is_empty() {
-                        let n = sch.scene.missing_symbols.len();
-                        section(ui, "sch_missing", "Símbolos sin resolver", Some(n), true, |ui| {
-                            ui.label(
-                                RichText::new("Se dibujan como marcadores rojos. Revisa las rutas de símbolos (riku doctor).")
-                                    .small()
-                                    .color(ui.visuals().warn_fg_color),
-                            );
-                            for s in &sch.scene.missing_symbols {
-                                ui.add(egui::Label::new(RichText::new(s).small().monospace()).truncate());
-                            }
-                            if ui.button("Recargar").on_hover_text("Volver a resolver los símbolos").clicked() {
-                                reload = true;
-                            }
-                        });
-                    }
-
-                    if let Some(diff) = &sch.diff {
-                        let n = diff.changes.iter().filter(|c| !matches!(c.element, crate::core::domain::models::Element::Whole)).count();
-                        section(ui, "sch_changes", "Cambios", Some(n), true, |ui| render_change_list(ui, diff));
-                    }
+                if let Some(bs) = &mut self.backend_state {
+                    render_backend_details(ui, bs);
+                } else {
+                    ui.label(RichText::new("Nada abierto todavía.").weak());
                 }
             });
 
@@ -1030,8 +887,8 @@ impl eframe::App for RikuGuiApp {
                 ui.add_space(space::XS);
             }
 
-            // Path neutro: escena cargada via ViewerBackend.
-            if self.sch.is_none() {
+            // Escena cargada por el backend del formato (todos los formatos).
+            {
                 if let Some(bs) = &mut self.backend_state {
                     let available = ui.available_size_before_wrap();
                     let response = ui.allocate_response(available, egui::Sense::drag());
@@ -1150,56 +1007,7 @@ impl eframe::App for RikuGuiApp {
                 }
             }
 
-            if let Some(sch) = &mut self.sch {
-                let available = ui.available_size_before_wrap();
-                let response = ui.allocate_response(available, egui::Sense::drag());
-                canvas_cursor(&ctx, &response);
-
-                if response.dragged() {
-                    let delta = response.drag_delta();
-                    sch.viewport.pan_x -= delta.x as f64 / sch.viewport.scale;
-                    sch.viewport.pan_y -= delta.y as f64 / sch.viewport.scale;
-                    ctx.request_repaint();
-                }
-
-                let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
-                if scroll.abs() > f64::EPSILON && response.hovered() {
-                    sch.viewport.scale = (sch.viewport.scale * (1.0 + scroll * 0.002)).clamp(0.01, 100.0);
-                    ctx.request_repaint();
-                }
-                // Encuadre con el tamaño real del lienzo (antes se usaba un
-                // rect ficticio de 800×600 y el esquemático quedaba chico y
-                // descentrado).
-                if sch.needs_fit && response.rect.width() > 0.0 && response.rect.height() > 0.0 {
-                    fit_viewport_to_scene(&mut sch.viewport, &sch.scene, response.rect);
-                    sch.needs_fit = false;
-                }
-
-                ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                    // Determinar qué se pinta según el tab activo
-                    let in_diff_mode = sch.diff.is_some() && sch.scene_a.is_some();
-                    if in_diff_mode {
-                        match sch.tab {
-                            DiffTab::Before => {
-                                // Solo commit A, sin anotaciones ni fantasmas
-                                if let Some(scene_a) = sch.scene_a.as_ref() {
-                                    paint_sch(ui, scene_a, None, &sch.viewport, None);
-                                }
-                            }
-                            DiffTab::After => {
-                                // Solo commit B, sin anotaciones ni fantasmas
-                                paint_sch(ui, &sch.scene, None, &sch.viewport, None);
-                            }
-                            DiffTab::Diff => {
-                                paint_sch(ui, &sch.scene, sch.scene_a.as_ref(), &sch.viewport, sch.diff.as_ref());
-                            }
-                        }
-                    } else {
-                        paint_sch(ui, &sch.scene, None, &sch.viewport, None);
-                    }
-                });
-            } else {
-                if self.pending_load.is_some() {
+            if self.pending_load.is_some() {
                     ui.centered_and_justified(|ui| {
                         ui.horizontal(|ui| {
                             ui.spinner();
@@ -1208,27 +1016,8 @@ impl eframe::App for RikuGuiApp {
                     });
                 } else if let Some(path) = self.empty_state(ui) {
                     self.open_path(&path);
-                }
             }
         });
-
-        if reload {
-            // Si estamos en modo diff, recargar el diff completo (preserva tabs y contexto)
-            if let Some(ctx) = self.diff_ctx.as_ref().map(|c| DiffContext {
-                repo: c.repo.clone(),
-                commit_a: c.commit_a.clone(),
-                commit_b: c.commit_b.clone(),
-                file: c.file.clone(),
-            }) {
-                if let Err(e) = self.load_diff(&ctx.repo, &ctx.commit_a, &ctx.commit_b, &ctx.file) {
-                    self.fail("No se pudo recargar el diff", e);
-                }
-            } else if let Some(path) = self.selected_path.clone() {
-                if let Err(e) = self.load_sch(&path) {
-                    self.fail("No se pudo recargar", e);
-                }
-            }
-        }
 
         // Archivo arrastrado sobre la ventana: indicar que se puede soltar.
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
@@ -1273,36 +1062,6 @@ fn drop_hint(ctx: &egui::Context) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn sch_render_opts() -> xschem_viewer::RenderOptions {
-    let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
-    if let (Ok(root), Ok(pdk)) = (std::env::var("PDK_ROOT"), std::env::var("PDK")) {
-        let p = std::path::Path::new(&root).join(&pdk).join("libs.tech/xschem");
-        if p.exists() { opts = opts.with_sym_path(p.to_string_lossy().to_string()); }
-    }
-    opts
-}
-
-fn build_scene(content: &str) -> Result<xschem_viewer::ResolvedScene, String> {
-    let opts = sch_render_opts();
-    let parsed = xschem_viewer::parser::parse(content).map_err(|e| e.to_string())?;
-    Ok(xschem_viewer::SceneBuilder::new(&opts).build(&parsed))
-}
-
-
-fn get_blob_content(repo: &Path, commit: &str, file_path: &str) -> Result<String, String> {
-    use crate::core::domain::ports::GitRepository;
-    use crate::core::git::git_service::GitService;
-    let svc = GitService::open(repo).map_err(|e| e.to_string())?;
-    let bytes = svc.get_blob(commit, file_path).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
-}
-
-fn is_sch_renderable(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.eq_ignore_ascii_case("sch"))
-        .unwrap_or(false)
-}
 
 // ─── Selector de celdas de una escena cargada via backend ───────────────────
 
@@ -1415,6 +1174,16 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
         });
     }
 
+    // Avisos del backend (p. ej. símbolos sin resolver): arriba, visibles.
+    let notices = scene.notices();
+    if !notices.is_empty() {
+        section(ui, "notices", "Avisos", Some(notices.len()), true, |ui| {
+            for n in notices {
+                ui.label(RichText::new(n).small().color(ui.visuals().warn_fg_color));
+            }
+        });
+    }
+
     let changes = scene.changes();
     if !changes.is_empty() {
         let mut picked = None;
@@ -1510,94 +1279,6 @@ fn fmt_len(v: f64) -> String {
 
 fn short_hash(s: &str) -> String {
     s.chars().take(7).collect()
-}
-
-// ─── Panel de cambios ─────────────────────────────────────────────────────────
-
-const COLOR_ADDED: egui::Color32 = egui::Color32::from_rgb(0, 200, 0);
-const COLOR_REMOVED: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
-const COLOR_MODIFIED: egui::Color32 = egui::Color32::from_rgb(255, 180, 0);
-const COLOR_MOVED: egui::Color32 = egui::Color32::from_rgb(0, 190, 255);
-
-fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::FileChange) {
-    use crate::core::domain::models::{ChangeKind, Element};
-
-    let mut any_shown = false;
-
-    for c in &diff.changes {
-        let Element::Component { name } = &c.element else { continue };
-        let name = match (&c.renamed_from, c.kind) {
-            (Some(from), ChangeKind::Renamed) => format!("{from} → {name}"),
-            _ => name.clone(),
-        };
-        // Solo-cosmético sin posición cambiada lo omitimos (es "Move All" global)
-        if c.cosmetic && !c.position_changed { continue; }
-
-        let moved_only = matches!(c.kind, ChangeKind::Modified | ChangeKind::Renamed) && c.cosmetic && c.position_changed;
-
-        let (prefix, main_color, extra_color) = match c.kind {
-            ChangeKind::Added   => ("+", COLOR_ADDED, None),
-            ChangeKind::Removed => ("-", COLOR_REMOVED, None),
-            ChangeKind::Modified if moved_only =>
-                ("↦", COLOR_MOVED, None),
-            ChangeKind::Modified if c.position_changed =>
-                ("~", COLOR_MODIFIED, Some(COLOR_MOVED)),
-            ChangeKind::Modified =>
-                ("~", COLOR_MODIFIED, None),
-            ChangeKind::Renamed =>
-                ("r", COLOR_MODIFIED, c.position_changed.then_some(COLOR_MOVED)),
-        };
-
-        ui.horizontal(|ui| {
-            // Chip de color a la izquierda
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 2.0, main_color);
-            if let Some(extra) = extra_color {
-                ui.painter().rect_stroke(
-                    rect.expand(1.0),
-                    2.0,
-                    egui::Stroke::new(2.0_f32, extra),
-                    egui::StrokeKind::Outside,
-                );
-            }
-            ui.colored_label(main_color, format!("{prefix} {name}"));
-        });
-        any_shown = true;
-    }
-
-    for c in &diff.changes {
-        match (&c.element, c.kind) {
-            (Element::Net { name }, ChangeKind::Added) => ui.colored_label(COLOR_ADDED, format!("+ net:{name}")),
-            (Element::Net { name }, ChangeKind::Removed) => ui.colored_label(COLOR_REMOVED, format!("- net:{name}")),
-            _ => continue,
-        };
-        any_shown = true;
-    }
-
-    if !any_shown {
-        ui.label(egui::RichText::new("Sin cambios semánticos").italics().color(egui::Color32::from_gray(140)));
-    }
-
-    ui.separator();
-    ui.label(egui::RichText::new("Leyenda").small().color(egui::Color32::from_gray(160)));
-    legend_row(ui, COLOR_ADDED, "+", "Añadido");
-    legend_row(ui, COLOR_REMOVED, "-", "Removido");
-    legend_row(ui, COLOR_MODIFIED, "~", "Modificado");
-    legend_row(ui, COLOR_MOVED, "↦", "Trasladado");
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 2.0, COLOR_MODIFIED);
-        ui.painter().rect_stroke(rect.expand(1.0), 2.0, egui::Stroke::new(2.0_f32, COLOR_MOVED), egui::StrokeKind::Outside);
-        ui.small("Modificado + trasladado");
-    });
-}
-
-fn legend_row(ui: &mut egui::Ui, color: egui::Color32, prefix: &str, label: &str) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 2.0, color);
-        ui.small(format!("{prefix} {label}"));
-    });
 }
 
 fn show_entry_tree<F>(

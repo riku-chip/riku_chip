@@ -321,7 +321,7 @@ La GUI nativa (`riku gui`) está construida con [egui](https://github.com/emilk/
 - **Árbol de proyecto** lateral con los archivos del directorio raíz.
 - **Render vectorial** con pan (arrastrar), zoom anclado al cursor (rueda) y **Fit**.
 - **Modo diff** con selector Before / After / Diff y panel de cambios con colores.
-- **Fantasmas** (Xschem) — el commit A se muestra tenue debajo del B en modo Diff.
+- **Fantasmas** — en modo Diff la versión anterior de lo que se movió o se eliminó se ve tenue debajo (esquemáticos).
 - **Anotaciones de componente** (Xschem) — bounding boxes coloreados sobre los componentes cambiados.
 
 Para GDS además:

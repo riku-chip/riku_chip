@@ -30,11 +30,11 @@ pub mod viewport;
 
 pub use backend::{BackendInfo, ViewerBackend};
 pub use bbox::BoundingBox;
-pub use diff::{ChangeItem, ChangeKind};
+pub use diff::{Annotation, AnnotationShape, ChangeItem, ChangeKind};
 pub use element::{DrawElement, HAlign, Layer, VAlign};
 pub use error::{Result, ViewerError};
 pub use paint::{LayerPaint, Rgba};
-pub use scene::{RenderableScene, Scene, SceneHandle, ViewEntry};
+pub use scene::{RenderableScene, Scene, SceneHandle, TextStyle, ViewEntry};
 pub use viewport::{screen_to_world, world_to_screen, Viewport, YAxis};
 
 // Re-export del token para que los backends no necesiten depender explícitamente

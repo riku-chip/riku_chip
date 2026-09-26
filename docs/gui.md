@@ -42,7 +42,7 @@ src/
 ├── launch.rs         argumentos (--repo, --commit-a, --commit-b, --cell)
 ├── app.rs            estado, carga async por backend, paneles
 ├── project.rs        árbol de archivos
-├── sch_painter.rs    ruta rica de Xschem (fantasmas, anotaciones)
+├── (los esquemáticos los dibuja el backend del módulo Xschem: riku/src/modules/xschem_view.rs)
 ├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
 │                     fit/zoom, hit-test y tooltip
 ├── motion.rs         springs interrumpibles e inercia de la vista

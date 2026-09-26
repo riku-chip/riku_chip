@@ -25,7 +25,7 @@ Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chip
 │ riku gui (visor egui, dentro del ejecutable riku)                                       │
 │   ScreenXform (mundo↔pantalla, eje Y) · polygon_fill (earcut)           │
 │   entry_picker (celdas) · Details (capas, cambios, tooltip)             │
-│   rutas: Xschem rica (sch_painter) │ neutra (ViewerBackend)             │
+│   una sola ruta: backend del módulo (ViewerBackend) para .sch y .gds   │
 └───────────────────────────────────────────────────────────────────────┘
         │ lanza (riku diff -f visual)          │ Arc<dyn ViewerBackend>
         ▼                                      ▼
@@ -51,7 +51,7 @@ Documento de seguimiento del soporte de archivos GDSII (layouts físicos de chip
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Patrón clave:** la GUI tiene dos rutas. Xschem mantiene su ruta rica (fantasmas, anotaciones semánticas); GDS va por la ruta neutra `ViewerBackend`. Todo lo específico de GDS vive en `gds-renderer`: `viewer-core` y `riku-gui` solo conocen tipos neutros. Los métodos nuevos del contrato tienen implementación por defecto, así que `XschemBackend` (submódulo externo) no cambió.
+**Patrón clave:** el visor tiene una sola ruta: cada módulo de formato (`riku/src/modules`) ofrece su `ViewerBackend` y el visor solo conoce tipos neutros de `viewer-core`. Los esquemáticos agregan a la escena sus fantasmas y anotaciones de diff (`Scene::ghost`, `Scene::annotations`) y su texto escalable (`TextStyle::Drawn`). Los métodos nuevos del contrato tienen implementación por defecto, así que el crate de Xschem (submódulo) no cambió.
 
 ---
 

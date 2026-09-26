@@ -15,6 +15,8 @@ use riku_kernel::Registry;
 pub mod layout;
 #[cfg(feature = "xschem")]
 pub mod xschem;
+#[cfg(all(feature = "xschem", feature = "gui"))]
+pub mod xschem_view;
 // Solo std: el diagnóstico de PDK de `riku doctor` funciona sin el módulo.
 pub mod xschem_pdk;
 

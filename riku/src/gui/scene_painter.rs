@@ -19,9 +19,10 @@ use std::collections::HashSet;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Shape, Stroke, StrokeKind};
 use viewer_core::{
     bbox::BoundingBox,
-    element::{DrawElement, Layer},
+    diff::{Annotation, AnnotationShape, ChangeKind},
+    element::{DrawElement, HAlign, Layer, VAlign},
     paint::Rgba,
-    scene::RenderableScene,
+    scene::{RenderableScene, TextStyle},
     viewport::{screen_to_world, world_to_screen, Viewport, YAxis},
 };
 
@@ -226,15 +227,25 @@ pub fn paint_scene(
         return PaintStats::default();
     }
 
-    // Geometría primero; las etiquetas se juntan y se colocan al final, por
-    // encima de todo y sin pisarse entre sí.
+    // Fantasmas de la versión anterior (diff) debajo de todo; geometría;
+    // marcas del diff; y las etiquetas al final, por encima de todo y sin
+    // pisarse entre sí.
     let xf = ScreenXform::new(rect, vp, scene.y_axis());
+    let drawn_text = scene.text_style() == TextStyle::Drawn;
+    let ghost = ghost_color(&theme);
+    for el in scene.ghost() {
+        draw_tinted(&painter, &xf, vp.scale, el, ghost, drawn_text);
+    }
     let mut labels: Vec<(LabelCandidate, f32)> = Vec::new();
     let mut visitor = |el: &DrawElement| -> bool {
         if hidden.contains(&el.layer()) {
             return true;
         }
         match el {
+            DrawElement::Text { .. } if drawn_text => {
+                let (_, stroke) = theme.layer_colors(Color32::TRANSPARENT, layer_colors(scene, el.layer()).1);
+                draw_text(&painter, &xf, vp.scale, el, stroke);
+            }
             DrawElement::Text { x, y, content, size, .. } => {
                 let natural = (*size * vp.scale) as f32;
                 if opts.labels && natural >= LABEL_MIN_NATURAL_PX {
@@ -251,6 +262,7 @@ pub fn paint_scene(
         true
     };
     scene.visit(&xf.visible_world_bbox(), &mut visitor);
+    paint_annotations(&painter, &xf, scene.annotations(), &theme);
 
     PaintStats { labels_hidden: paint_labels(&painter, labels, rect, &theme) }
 }
@@ -340,6 +352,101 @@ fn draw_element(
         // Las etiquetas se dibujan aparte (paint_labels): horizontales y
         // legibles siempre, aunque el formato las declare rotadas.
         DrawElement::Text { .. } => {}
+    }
+}
+
+/// Texto que es parte del dibujo (`TextStyle::Drawn`): escala con el zoom y
+/// respeta ángulo y alineación. El ángulo es el visual (pantalla Y-down).
+fn draw_text(painter: &egui::Painter, xf: &ScreenXform, scale: f64, el: &DrawElement, color: Color32) {
+    let DrawElement::Text { x, y, content, size, angle_deg, h_align, v_align, .. } = el else { return };
+    let px = (*size * scale).clamp(4.0, 2000.0) as f32;
+    let galley = painter.layout_no_wrap(content.clone(), FontId::monospace(px), color);
+    let ax = match h_align {
+        HAlign::Start => 0.0,
+        HAlign::Middle => 0.5,
+        HAlign::End => 1.0,
+    };
+    let ay = match v_align {
+        VAlign::Top => 0.0,
+        VAlign::Middle => 0.5,
+        VAlign::Bottom => 1.0,
+    };
+    let angle = angle_deg.to_radians() as f32;
+    let (sin, cos) = angle.sin_cos();
+    // El galley se ancla por su esquina superior izquierda: se corre para
+    // que el punto de alineación caiga en el ancla y se rota alrededor de él.
+    let (lx, ly) = (-galley.size().x * ax, -galley.size().y * ay);
+    let pos = xf.to_screen(*x, *y) + egui::vec2(lx * cos - ly * sin, lx * sin + ly * cos);
+    painter.add(egui::epaint::TextShape::new(pos, galley, color).with_angle(angle));
+}
+
+/// Gris de los fantasmas de la versión anterior: visible sin competir con
+/// la versión actual.
+fn ghost_color(theme: &CanvasTheme) -> Color32 {
+    if theme.dark { Color32::from_gray(95) } else { Color32::from_gray(185) }
+}
+
+/// Un elemento de la versión anterior, solo en contorno y en un color.
+fn draw_tinted(painter: &egui::Painter, xf: &ScreenXform, scale: f64, el: &DrawElement, color: Color32, drawn_text: bool) {
+    let stroke = Stroke::new(1.0_f32, color);
+    match el {
+        DrawElement::Line { x1, y1, x2, y2, .. } => {
+            painter.line_segment([xf.to_screen(*x1, *y1), xf.to_screen(*x2, *y2)], stroke);
+        }
+        DrawElement::Rect { x, y, w, h, .. } => {
+            let r = Rect::from_two_pos(xf.to_screen(*x, *y), xf.to_screen(*x + *w, *y + *h));
+            painter.rect_stroke(r, 0.0, stroke, StrokeKind::Middle);
+        }
+        DrawElement::Circle { cx, cy, r, .. } => {
+            painter.circle_stroke(xf.to_screen(*cx, *cy), (*r * scale) as f32, stroke);
+        }
+        DrawElement::Polygon { points, .. } if points.len() >= 2 => {
+            painter.add(Shape::line(points.iter().map(|(x, y)| xf.to_screen(*x, *y)).collect(), stroke));
+        }
+        DrawElement::Text { .. } if drawn_text => draw_text(painter, xf, scale, el, color),
+        _ => {}
+    }
+}
+
+/// Relleno y contorno de la marca de un cambio: añadido verde, eliminado
+/// rojo, modificado ámbar, solo movido cian y cosmético gris.
+fn annotation_colors(a: &Annotation, theme: &CanvasTheme) -> (Color32, Color32) {
+    let (r, g, b) = match (a.kind, a.cosmetic, a.moved) {
+        (ChangeKind::Added, _, _) => (0, 200, 0),
+        (ChangeKind::Removed, _, _) => (220, 40, 40),
+        (ChangeKind::Modified, true, true) => (0, 190, 255),
+        (ChangeKind::Modified, true, false) => (150, 150, 150),
+        (ChangeKind::Modified, false, _) => (255, 180, 0),
+    };
+    theme.layer_colors(Color32::from_rgba_unmultiplied(r, g, b, 45), Color32::from_rgb(r, g, b))
+}
+
+/// Marcas del diff encima de la geometría: recuadro con el nombre (y un
+/// segundo borde cian si además se movió) o trazos gruesos para una net.
+fn paint_annotations(painter: &egui::Painter, xf: &ScreenXform, annotations: &[Annotation], theme: &CanvasTheme) {
+    let font = FontId::monospace(11.0);
+    for a in annotations {
+        let (fill, stroke) = annotation_colors(a, theme);
+        match &a.shape {
+            AnnotationShape::Box(b) => {
+                let r = Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y)).expand(4.0);
+                painter.rect(r, 2.0, fill, Stroke::new(1.5_f32, stroke), StrokeKind::Outside);
+                if a.moved && !a.cosmetic && a.kind == ChangeKind::Modified {
+                    let cyan = theme.layer_colors(Color32::TRANSPARENT, Color32::from_rgb(0, 190, 255)).1;
+                    painter.rect_stroke(r.expand(2.0), 2.0, Stroke::new(1.5_f32, cyan), StrokeKind::Outside);
+                }
+                painter.text(r.left_top() + egui::vec2(2.0, -3.0), Align2::LEFT_BOTTOM, &a.label, font.clone(), stroke);
+            }
+            AnnotationShape::Segments(segs) => {
+                for (x1, y1, x2, y2) in segs {
+                    painter.line_segment([xf.to_screen(*x1, *y1), xf.to_screen(*x2, *y2)], Stroke::new(3.0_f32, stroke));
+                }
+                if let Some((x1, y1, x2, y2)) = segs.first() {
+                    let mid = xf.to_screen((x1 + x2) / 2.0, (y1 + y2) / 2.0);
+                    painter.text(mid + egui::vec2(0.0, -8.0), Align2::CENTER_BOTTOM, &a.label, font.clone(), stroke);
+                }
+            }
+        }
     }
 }
 

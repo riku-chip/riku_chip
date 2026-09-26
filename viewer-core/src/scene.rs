@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::bbox::BoundingBox;
-use crate::diff::{ChangeItem, ChangeKind};
+use crate::diff::{Annotation, ChangeItem, ChangeKind};
 use crate::element::{DrawElement, Layer};
 use crate::paint::LayerPaint;
 use crate::viewport::YAxis;
@@ -34,6 +34,18 @@ pub struct ViewEntry {
     /// En escenas de diff: cómo cambió esta entrada entre las dos versiones
     /// (`None` = sin cambios o escena que no es diff).
     pub change: Option<ChangeKind>,
+}
+
+/// Cómo se dibujan los `DrawElement::Text` de una escena.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextStyle {
+    /// Etiquetas: tamaño fijo en pantalla, con pastilla y sin solaparse
+    /// (nombres de pines en un layout).
+    #[default]
+    Labels,
+    /// Texto que es parte del dibujo: escala con el zoom y respeta ángulo y
+    /// alineación (textos de un esquemático).
+    Drawn,
 }
 
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
@@ -59,6 +71,16 @@ pub struct Scene {
     /// Unidad de las coordenadas de mundo (`"µm"` en GDS), para mostrar
     /// medidas. `None` = unidades abstractas.
     pub world_unit: Option<String>,
+    /// Cómo dibujar los textos de `elements`.
+    pub text_style: TextStyle,
+    /// Diff: elementos de la versión anterior que ya no están donde estaban
+    /// (movidos o eliminados). Se dibujan atenuados debajo de `elements`.
+    pub ghost: Vec<DrawElement>,
+    /// Diff: marcas de cada cambio (recuadros, nets resaltadas), encima.
+    pub annotations: Vec<Annotation>,
+    /// Avisos para el usuario sobre esta escena (p. ej. símbolos que no se
+    /// pudieron resolver).
+    pub notices: Vec<String>,
 }
 
 impl Default for Scene {
@@ -79,6 +101,10 @@ impl Scene {
             current_entry: None,
             changes: Vec::new(),
             world_unit: None,
+            text_style: TextStyle::Labels,
+            ghost: Vec::new(),
+            annotations: Vec::new(),
+            notices: Vec::new(),
         }
     }
 
@@ -150,6 +176,27 @@ pub trait RenderableScene: Send + Sync {
         None
     }
 
+    /// Cómo dibujar los textos. Por defecto como etiquetas.
+    fn text_style(&self) -> TextStyle {
+        TextStyle::Labels
+    }
+
+    /// Diff: elementos de la versión anterior a dibujar atenuados. Por
+    /// defecto ninguno.
+    fn ghost(&self) -> &[DrawElement] {
+        &[]
+    }
+
+    /// Diff: marcas de cada cambio. Por defecto ninguna.
+    fn annotations(&self) -> &[Annotation] {
+        &[]
+    }
+
+    /// Avisos sobre la escena. Por defecto ninguno.
+    fn notices(&self) -> &[String] {
+        &[]
+    }
+
     /// Enumera elementos visibles dentro de `viewport_bbox`. Los backends que
     /// quieran culling granular implementan esto; por defecto entrega todos.
     ///
@@ -199,6 +246,22 @@ impl RenderableScene for Scene {
         self.world_unit.as_deref()
     }
 
+    fn text_style(&self) -> TextStyle {
+        self.text_style
+    }
+
+    fn ghost(&self) -> &[DrawElement] {
+        &self.ghost
+    }
+
+    fn annotations(&self) -> &[Annotation] {
+        &self.annotations
+    }
+
+    fn notices(&self) -> &[String] {
+        &self.notices
+    }
+
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {
         // Si viewport_bbox esta vacio (sin info de culling, p.ej. primer
         // frame antes del auto-fit), entregamos TODOS los elementos en vez
@@ -229,3 +292,48 @@ fn intersects(a: &BoundingBox, b: &BoundingBox) -> bool {
 /// Alias conveniente: handle compartido y mutable-safe para pasar escenas entre
 /// tareas async y el renderer de UI.
 pub type SceneHandle = Arc<dyn RenderableScene>;
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+    use crate::diff::AnnotationShape;
+
+    /// Escena mínima que solo implementa lo obligatorio del trait.
+    struct Bare;
+    impl RenderableScene for Bare {
+        fn bbox(&self) -> BoundingBox {
+            BoundingBox::empty()
+        }
+        fn len(&self) -> usize {
+            0
+        }
+        fn visit<'a>(&'a self, _: &BoundingBox, _: &mut dyn FnMut(&'a DrawElement) -> bool) {}
+    }
+
+    #[test]
+    fn overlays_are_optional_for_backends() {
+        let b = Bare;
+        assert_eq!(b.text_style(), TextStyle::Labels);
+        assert!(b.ghost().is_empty() && b.annotations().is_empty() && b.notices().is_empty());
+    }
+
+    #[test]
+    fn scene_exposes_its_overlays() {
+        let mut s = Scene::new();
+        s.text_style = TextStyle::Drawn;
+        s.ghost.push(DrawElement::Line { x1: 0.0, y1: 0.0, x2: 1.0, y2: 1.0, layer: 1 });
+        s.annotations.push(Annotation {
+            kind: ChangeKind::Added,
+            cosmetic: false,
+            moved: false,
+            label: "R1".into(),
+            shape: AnnotationShape::Box(BoundingBox::from_points((0.0, 0.0), (1.0, 1.0))),
+        });
+        s.notices.push("1 símbolo sin resolver".into());
+        let h: &dyn RenderableScene = &s;
+        assert_eq!(h.text_style(), TextStyle::Drawn);
+        assert_eq!((h.ghost().len(), h.annotations().len(), h.notices().len()), (1, 1, 1));
+        // Los fantasmas no cuentan como elementos de la escena.
+        assert!(h.is_empty());
+    }
+}

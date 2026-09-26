@@ -15,7 +15,6 @@ mod motion;
 mod polygon_fill;
 mod project;
 mod scene_painter;
-mod sch_painter;
 mod theme;
 mod toast;
 

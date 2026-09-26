@@ -10,11 +10,9 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
 ## Alta prioridad
 
-### 1. Paridad de la vista de esquemáticos (`.sch`) con la de GDS
-- **Por qué:** la ruta Xschem usa su painter propio (`sch_painter.rs`) y no recibió lo que se agregó para GDS. No tiene tooltip; las etiquetas van sin pastillas ni anti-solapamiento; no hay animación ni inercia; `+`/`−` no hacen zoom; y conserva un slider de zoom que la vista GDS no tiene. La experiencia cambia según el tipo de archivo.
-- **Dónde:** `riku/src/gui/sch_painter.rs` y la rama `self.sch` de `app.rs`. Opción de fondo: pasar Xschem por la ruta neutra (`XschemBackend` ya existe), conservando fantasmas y anotaciones como overlays.
-- **Esfuerzo:** M–L.
-- **Listo cuando:** las mismas interacciones funcionan igual en `.sch` y en `.gds`.
+### 1. Paridad de la vista de esquemáticos con la de GDS — hecho (2026-09-26)
+- El visor dibuja `.sch` y `.gds` por la misma ruta (fase 4 de `diseno_arquitectura_final.md`): los esquemáticos ganaron tooltip, capas activables, animación, inercia, atajos `+`/`−`/`F` y la lista de cambios con "ir al cambio" y el detalle de parámetros. Fantasmas, recuadros por componente y nets resaltadas se conservan como overlays de la escena.
+- **Queda:** en un `.sch` nuevo (no existía en el commit anterior) el diff no lista nada porque el módulo avisa que un lado está vacío; debería contar todo como añadido, como en los layouts.
 
 ### 2. Diff de layouts muy grandes
 - **Por qué:** en un `user_project_wrapper` de 42 MB (Caravel), el primer `riku diff` **no terminó en 45 minutos** (se midió con el binario de release; se cortó). La cache (#9 del diseño) evita repetirlo, pero la primera vez sigue siendo inviable: se aplana la jerarquía completa de cada celda, y las celdas que instancian a otras repiten el trabajo.

@@ -12,7 +12,7 @@ const MOVE_ALL_NOTE: &str = "reorganizacion cosmetica (Move All)";
 /// `.xschemrc` + ruta del PDK desde `$PDK_ROOT/$PDK` si está disponible.
 /// Fuente única para `parse`, `render` y diff — evita que el render
 /// encuentre símbolos que el diff semántico no.
-fn render_options() -> xschem_viewer::RenderOptions {
+pub(super) fn render_options() -> xschem_viewer::RenderOptions {
     let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
     if let Some(path) = pdk::pdk_symbol_path() {
         opts = opts.with_sym_path(path.to_string_lossy().to_string());
@@ -144,10 +144,10 @@ impl FormatModule for XschemModule {
         is_xschem(content)
     }
 
-    /// Visor de símbolos y esquemáticos (`XschemBackend` del motor).
+    /// Visor de símbolos y esquemáticos (ver `xschem_view.rs`).
     #[cfg(feature = "gui")]
     fn viewer(&self) -> Option<std::sync::Arc<dyn viewer_core::ViewerBackend>> {
-        Some(std::sync::Arc::new(xschem_viewer::XschemBackend::new()))
+        Some(std::sync::Arc::new(super::xschem_view::XschemViewer))
     }
 }
 

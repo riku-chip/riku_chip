@@ -2404,6 +2404,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 name = "riku"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "dirs",
  "earcutr",
@@ -3767,14 +3768,11 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 name = "xschem-viewer"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "dirs",
  "pest",
  "pest_derive",
  "serde",
  "thiserror 2.0.21",
- "tokio",
- "viewer-core",
 ]
 
 [[package]]
