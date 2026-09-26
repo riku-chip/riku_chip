@@ -10,6 +10,7 @@ use viewer_core::{
     CancellationToken,
 };
 
+use crate::entry_picker;
 use crate::launch::LaunchArgs;
 use crate::project::ProjectEntry;
 use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
@@ -51,12 +52,43 @@ struct DiffContext {
 struct BackendState {
     scene: SceneHandle,
     viewport: VcViewport,
-    backend_name: &'static str,
+    /// Backend que produjo la escena y bytes/ruta de origen: permiten cargar
+    /// otra sub-vista (celda) sin volver a leer el disco.
+    backend: Arc<dyn ViewerBackend>,
+    source: Arc<Vec<u8>>,
+    path: String,
     /// Encuadrar la escena en el próximo frame (al cargar o con "Fit"). El
     /// fit necesita el tamaño real del panel, que solo se conoce al pintar.
     needs_fit: bool,
-    /// Capas ocultas desde el panel de detalles.
-    hidden_layers: HashSet<Layer>,
+    /// Tamaño del lienzo en el último encuadre automático; `None` si el
+    /// usuario movió la vista a mano (entonces no se re-encuadra solo).
+    fitted_size: Option<egui::Vec2>,
+    /// Capas ocultas desde el panel de detalles, por **nombre** (`"met1 68/20"`):
+    /// las claves numéricas cambian entre celdas, el nombre no.
+    hidden_layers: HashSet<String>,
+    /// Buscador y filtro del selector de celdas.
+    entry_query: String,
+    only_roots: bool,
+}
+
+impl BackendState {
+    /// Claves de capa de la escena actual que están ocultas.
+    fn hidden_keys(&self) -> HashSet<Layer> {
+        self.scene
+            .layer_list()
+            .into_iter()
+            .filter(|(_, p)| self.hidden_layers.contains(&p.name))
+            .map(|(k, _)| k)
+            .collect()
+    }
+}
+
+/// Resultado de una carga async via backend, antes de fusionarse con el estado.
+struct LoadedScene {
+    scene: SceneHandle,
+    backend: Arc<dyn ViewerBackend>,
+    source: Arc<Vec<u8>>,
+    path: String,
 }
 
 pub struct RikuGuiApp {
@@ -76,7 +108,7 @@ pub struct RikuGuiApp {
     /// Escena actual cargada via backend (path neutro).
     backend_state: Option<BackendState>,
     /// Carga async en vuelo (solo una — al llegar una nueva se cancela).
-    pending_load: Option<Promise<Result<BackendState, String>>>,
+    pending_load: Option<Promise<Result<LoadedScene, String>>>,
     /// Token de cancelación de la carga en vuelo.
     pending_token: Option<CancellationToken>,
 }
@@ -168,7 +200,7 @@ impl RikuGuiApp {
                     Ok(()) => app.status = format!("Loaded {}", path.display()),
                     Err(e) => { app.error = Some(e.clone()); app.status = "Error".to_string(); }
                 }
-            } else if app.load_via_backend(&path) {
+            } else if app.load_via_backend(&path, launch.cell.clone()) {
                 // Otros formatos (ej: .gds) van por la ruta neutra ViewerBackend.
                 app.status = format!("Cargando {} …", path.display());
             } else {
@@ -199,16 +231,17 @@ impl RikuGuiApp {
         }
 
         // Fallback: intentar con algún backend registrado (ruta neutra async).
-        if self.load_via_backend(path) {
+        if self.load_via_backend(path, None) {
             self.status = format!("Cargando {} …", path.display());
         } else {
             self.status = format!("{} — formato no soportado aún", path.display());
         }
     }
 
-    /// Intenta cargar `path` via alguno de los backends registrados.
+    /// Intenta cargar `path` via alguno de los backends registrados; `entry`
+    /// elige una sub-vista (celda GDS) o `None` para la de por defecto.
     /// Retorna `true` si algún backend aceptó el archivo (la carga queda en vuelo).
-    fn load_via_backend(&mut self, path: &Path) -> bool {
+    fn load_via_backend(&mut self, path: &Path, entry: Option<String>) -> bool {
         let content = match std::fs::read(path) {
             Ok(c) => c,
             Err(e) => {
@@ -223,6 +256,38 @@ impl RikuGuiApp {
             .cloned();
         let Some(backend) = backend else { return false };
 
+        self.spawn_backend_load(backend, Arc::new(content), path_str, entry);
+        true
+    }
+
+    /// Carga otra sub-vista del archivo ya abierto (sin releer el disco). La
+    /// escena actual sigue visible hasta que llega la nueva.
+    fn select_entry(&mut self, id: &str) {
+        let Some(bs) = &self.backend_state else { return };
+        let (backend, source, path) = (bs.backend.clone(), bs.source.clone(), bs.path.clone());
+        self.error = None;
+        self.status = format!("Cargando celda {id} …");
+        self.spawn_backend_load(backend, source, path, Some(id.to_string()));
+    }
+
+    /// Relee el archivo del disco conservando la sub-vista actual.
+    fn reload_backend(&mut self) {
+        let Some(bs) = &self.backend_state else { return };
+        let path = PathBuf::from(&bs.path);
+        let entry = bs.scene.current_entry().map(str::to_string);
+        self.error = None;
+        if self.load_via_backend(&path, entry) {
+            self.status = format!("Recargando {} …", path.display());
+        }
+    }
+
+    fn spawn_backend_load(
+        &mut self,
+        backend: Arc<dyn ViewerBackend>,
+        source: Arc<Vec<u8>>,
+        path: String,
+        entry: Option<String>,
+    ) {
         // Cancelar carga previa si había.
         if let Some(tok) = self.pending_token.take() {
             tok.cancel();
@@ -230,21 +295,15 @@ impl RikuGuiApp {
         let token = CancellationToken::new();
         self.pending_token = Some(token.clone());
 
-        let backend_name = backend.info().name;
         let _guard = self.runtime.enter();
         let fut = async move {
-            backend.load(content, Some(path_str), token).await
-                .map(|scene| BackendState {
-                    scene,
-                    viewport: VcViewport::default(),
-                    backend_name,
-                    needs_fit: true,
-                    hidden_layers: HashSet::new(),
-                })
+            backend
+                .load_entry(source.as_ref().clone(), Some(path.clone()), entry, token)
+                .await
+                .map(|scene| LoadedScene { scene, backend, source, path })
                 .map_err(|e| e.to_string())
         };
         self.pending_load = Some(Promise::spawn_async(fut));
-        true
     }
 
     /// Drenar el promise si está listo. Se llama desde `ui()`.
@@ -253,9 +312,36 @@ impl RikuGuiApp {
         if !ready { return; }
         let Some(promise) = self.pending_load.take() else { return };
         match promise.block_and_take() {
-            Ok(state) => {
-                self.status = format!("Loaded via {}", state.backend_name);
-                self.backend_state = Some(state);
+            Ok(loaded) => {
+                let name = loaded.backend.info().name;
+                self.status = match loaded.scene.current_entry() {
+                    Some(entry) => format!("Loaded via {name} · {entry}"),
+                    None => format!("Loaded via {name}"),
+                };
+                // Mismo archivo (cambio de celda o recarga): se conservan capas
+                // ocultas y buscador. Cada celda tiene otro tamaño → re-encuadre.
+                let prev = self.backend_state.take().filter(|bs| bs.path == loaded.path);
+                self.backend_state = Some(match prev {
+                    Some(bs) => BackendState {
+                        scene: loaded.scene,
+                        backend: loaded.backend,
+                        source: loaded.source,
+                        needs_fit: true,
+                        ..bs
+                    },
+                    None => BackendState {
+                        scene: loaded.scene,
+                        viewport: VcViewport::default(),
+                        backend: loaded.backend,
+                        source: loaded.source,
+                        path: loaded.path,
+                        needs_fit: true,
+                        fitted_size: None,
+                        hidden_layers: HashSet::new(),
+                        entry_query: String::new(),
+                        only_roots: true,
+                    },
+                });
             }
             Err(e) => {
                 // Ignoramos errores de cancelación — vienen de nosotros mismos
@@ -329,6 +415,10 @@ impl eframe::App for RikuGuiApp {
 
                 if ui.button("Refresh").clicked() {
                     self.refresh_tree();
+                    // Un GDS abierto se relee del disco en la misma celda.
+                    if self.sch.is_none() {
+                        self.reload_backend();
+                    }
                 }
 
                 if let Some(sch) = self.sch.as_mut() {
@@ -376,6 +466,18 @@ impl eframe::App for RikuGuiApp {
                     let selected_path = self.selected_path.clone();
                     let mut open_path = |path: &Path| self.open_path(path);
                     show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+
+                    // Selector de celdas: solo si el archivo tiene más de una.
+                    let picked = match &mut self.backend_state {
+                        Some(bs) if self.sch.is_none() && bs.scene.entries().len() > 1 => {
+                            ui.separator();
+                            render_entry_picker(ui, bs)
+                        }
+                        _ => None,
+                    };
+                    if let Some(id) = picked {
+                        self.select_entry(&id);
+                    }
                 }
             });
 
@@ -436,6 +538,7 @@ impl eframe::App for RikuGuiApp {
                     if response.dragged() {
                         let delta = response.drag_delta();
                         bs.viewport.pan_by_screen(delta.x as f64, delta.y as f64);
+                        bs.fitted_size = None;
                         ctx.request_repaint();
                     }
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
@@ -443,14 +546,21 @@ impl eframe::App for RikuGuiApp {
                         // Zoom anclado al cursor (o al centro si no hay puntero).
                         let anchor = response.hover_pos().unwrap_or(response.rect.center());
                         zoom_at_screen(&mut bs.viewport, 1.0 + scroll * 0.002, anchor, response.rect);
+                        bs.fitted_size = None;
                         ctx.request_repaint();
                     }
-                    if bs.needs_fit && response.rect.width() > 0.0 && response.rect.height() > 0.0 {
+                    // Encuadre al cargar / "Fit", y de nuevo si el lienzo cambia de
+                    // tamaño (paneles que se ensanchan, ventana) mientras el usuario
+                    // no haya movido la vista a mano.
+                    let size = response.rect.size();
+                    let resized = bs.fitted_size.is_some_and(|s| s != size);
+                    if (bs.needs_fit || resized) && size.x > 0.0 && size.y > 0.0 {
                         fit_scene(&mut bs.viewport, bs.scene.as_ref(), response.rect);
                         bs.needs_fit = false;
+                        bs.fitted_size = Some(size);
                     }
                     ui.scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &bs.hidden_layers);
+                        paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &bs.hidden_keys());
                     });
                     return;
                 }
@@ -560,6 +670,19 @@ fn is_sch_renderable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+// ─── Selector de celdas de una escena cargada via backend ───────────────────
+
+/// Retorna el id de la celda elegida (la carga la dispara el caller).
+fn render_entry_picker(ui: &mut egui::Ui, bs: &mut BackendState) -> Option<String> {
+    let scene = bs.scene.clone();
+    entry_picker::show(
+        ui,
+        scene.entries(),
+        scene.current_entry(),
+        entry_picker::PickerState { query: &mut bs.entry_query, only_roots: &mut bs.only_roots },
+    )
+}
+
 // ─── Detalles de una escena cargada via backend ─────────────────────────────
 
 /// Resumen de la escena (metadatos del backend) + lista de capas con su color
@@ -574,7 +697,9 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
         egui::Grid::new("scene_meta").num_columns(2).striped(true).show(ui, |ui| {
             for (k, v) in meta {
                 ui.label(RichText::new(k).color(egui::Color32::from_gray(150)));
-                ui.label(v);
+                // Truncado: un nombre de celda largo no debe ensanchar el panel
+                // (y achicar el lienzo); el valor completo queda en el tooltip.
+                ui.add(egui::Label::new(v).truncate()).on_hover_text(v);
                 ui.end_row();
             }
         });
@@ -591,18 +716,18 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
             bs.hidden_layers.clear();
         }
         if ui.small_button("Ninguna").clicked() {
-            bs.hidden_layers.extend(layers.iter().map(|(k, _)| *k));
+            bs.hidden_layers.extend(layers.iter().map(|(_, p)| p.name.clone()));
         }
     });
     egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
-        for (key, paint) in &layers {
+        for (_, paint) in &layers {
             ui.horizontal(|ui| {
-                let mut visible = !bs.hidden_layers.contains(key);
+                let mut visible = !bs.hidden_layers.contains(&paint.name);
                 if ui.checkbox(&mut visible, "").changed() {
                     if visible {
-                        bs.hidden_layers.remove(key);
+                        bs.hidden_layers.remove(&paint.name);
                     } else {
-                        bs.hidden_layers.insert(*key);
+                        bs.hidden_layers.insert(paint.name.clone());
                     }
                 }
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());

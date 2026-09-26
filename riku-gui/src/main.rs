@@ -1,4 +1,5 @@
 mod app;
+mod entry_picker;
 mod launch;
 mod polygon_fill;
 mod project;

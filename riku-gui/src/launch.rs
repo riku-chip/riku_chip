@@ -5,6 +5,8 @@ pub struct LaunchArgs {
     pub repo: Option<PathBuf>,
     pub commit_a: Option<String>,
     pub commit_b: Option<String>,
+    /// Sub-vista a abrir (celda GDS). `None` = la que elija el backend.
+    pub cell: Option<String>,
 }
 
 pub fn parse_args() -> LaunchArgs {
@@ -13,15 +15,17 @@ pub fn parse_args() -> LaunchArgs {
     let mut repo = None;
     let mut commit_a = None;
     let mut commit_b = None;
+    let mut cell = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--repo"     => repo     = args.next().map(PathBuf::from),
             "--commit-a" => commit_a = args.next(),
             "--commit-b" => commit_b = args.next(),
+            "--cell"     => cell     = args.next(),
             _            => file     = Some(PathBuf::from(arg)),
         }
     }
 
-    LaunchArgs { file, repo, commit_a, commit_b }
+    LaunchArgs { file, repo, commit_a, commit_b, cell }
 }
