@@ -7,6 +7,67 @@
 
 use eframe::egui::{self, Color32};
 
+/// Escala de espaciado (px). Todo margen o separación de la UI sale de acá:
+/// valores deliberados y repetidos, no números sueltos por pantalla.
+pub mod space {
+    pub const XS: f32 = 4.0;
+    pub const S: f32 = 8.0;
+    pub const M: f32 = 12.0;
+    pub const L: f32 = 16.0;
+}
+
+/// Estilo global de la UI, para ambos temas: jerarquía tipográfica
+/// (título > cuerpo > secundario), espaciado de la escala, esquinas
+/// redondeadas coherentes y paneles con un tono propio que los separa del
+/// lienzo sin líneas duras.
+pub fn install_style(ctx: &egui::Context) {
+    use egui::{CornerRadius, FontFamily::*, FontId, Margin, TextStyle, Theme, Vec2};
+    ctx.all_styles_mut(|s| {
+        s.text_styles = [
+            (TextStyle::Heading, FontId::new(17.0, Proportional)),
+            (TextStyle::Body, FontId::new(13.5, Proportional)),
+            (TextStyle::Button, FontId::new(13.5, Proportional)),
+            (TextStyle::Monospace, FontId::new(12.5, Monospace)),
+            (TextStyle::Small, FontId::new(11.0, Proportional)),
+        ]
+        .into();
+        s.spacing.item_spacing = Vec2::new(space::S, 6.0);
+        s.spacing.button_padding = Vec2::new(10.0, space::XS);
+        s.spacing.interact_size.y = 24.0;
+        s.spacing.menu_margin = Margin::same(space::S as i8);
+        s.spacing.window_margin = Margin::same(space::M as i8);
+        s.spacing.indent = 14.0;
+        let r = CornerRadius::same(6);
+        for w in [
+            &mut s.visuals.widgets.noninteractive,
+            &mut s.visuals.widgets.inactive,
+            &mut s.visuals.widgets.hovered,
+            &mut s.visuals.widgets.active,
+            &mut s.visuals.widgets.open,
+        ] {
+            w.corner_radius = r;
+        }
+        s.visuals.window_corner_radius = CornerRadius::same(10);
+        s.visuals.menu_corner_radius = CornerRadius::same(8);
+        s.visuals.indent_has_left_vline = false;
+    });
+    // Paneles: en oscuro, apenas más claros que el lienzo (el diseño es lo
+    // más oscuro, como en KLayout); en claro, apenas más oscuros que el
+    // lienzo blanco. La diferencia de tono ya separa las regiones.
+    ctx.style_mut_of(Theme::Dark, |s| {
+        s.visuals.panel_fill = Color32::from_rgb(27, 27, 31);
+        s.visuals.window_fill = Color32::from_rgb(34, 34, 39);
+        s.visuals.extreme_bg_color = Color32::from_rgb(17, 17, 20);
+        s.visuals.faint_bg_color = Color32::from_rgb(33, 33, 38);
+    });
+    ctx.style_mut_of(Theme::Light, |s| {
+        s.visuals.panel_fill = Color32::from_rgb(242, 242, 238);
+        s.visuals.window_fill = Color32::WHITE;
+        s.visuals.extreme_bg_color = Color32::WHITE;
+        s.visuals.faint_bg_color = Color32::from_rgb(234, 234, 229);
+    });
+}
+
 /// Paleta del lienzo para el tema activo.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanvasTheme {

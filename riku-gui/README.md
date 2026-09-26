@@ -26,6 +26,7 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
 | Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo `.sch`, `.sym`, `.gds`) |
+| Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla inicial |
 | Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
 | Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
 | Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
@@ -47,7 +48,8 @@ src/
 ├── polygon_fill.rs   relleno de polígonos cóncavos (earcut)
 ├── entry_picker.rs   selector de celdas con buscador y filtros
 ├── label_layout.rs   colocación de etiquetas sin solaparse
-└── theme.rs          colores por tema (claro/oscuro)
+├── theme.rs          colores por tema, tipografía y escala de espaciado
+└── toast.rs          mensajes temporales (estado, completado, aviso, error)
 ```
 
 - **Dos rutas de render.** Xschem conserva su painter propio. Todo lo demás (GDS) llega como `Arc<dyn RenderableScene>` desde un `ViewerBackend` de `viewer-core`; la GUI no conoce tipos de gdstk.
@@ -74,3 +76,10 @@ Si el binario compila pero falla con `STATUS_DLL_NOT_FOUND` (0xc0000135), falta 
 ```powershell
 $env:PATH = "$env:VCPKG_ROOT\installed\x64-windows\bin;" + $env:PATH
 ```
+
+## Criterios de interfaz
+
+- **Jerarquía.** Títulos con peso, secundarios tenues y chicos, cifras en monoespaciada; espaciado de una sola escala (4/8/12/16 px) y esquinas coherentes.
+- **Orientación.** La ruta sobre el lienzo (`commits › archivo › celda › vista`) y el título de la ventana dicen qué se está viendo; la pantalla inicial explica cómo empezar y ofrece los recientes.
+- **Agrupación.** Detalles en secciones plegables (Resumen, Cambios, Capas, Símbolos sin resolver): lo relacionado junto y lo largo se puede plegar.
+- **Feedback.** Mensajes temporales sobre el lienzo: estado e *hecho* se van solos; los avisos duran más; los errores quedan hasta cerrarlos, en lenguaje claro con el detalle técnico entre paréntesis.

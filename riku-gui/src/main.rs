@@ -10,6 +10,7 @@ mod project;
 mod sch_painter;
 mod scene_painter;
 mod theme;
+mod toast;
 
 fn main() -> Result<(), eframe::Error> {
     let launch = launch::parse_args();

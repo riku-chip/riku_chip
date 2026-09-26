@@ -19,7 +19,8 @@ use crate::sch_painter::{SchViewport, fit_viewport_to_scene, paint_sch};
 use crate::scene_painter::{
     fit_bbox, fit_scene, focus_area, hover_info, paint_scene, to_color32, zoom_at_screen, PaintOptions, ScreenXform,
 };
-use crate::theme::CanvasTheme;
+use crate::theme::{space, CanvasTheme};
+use crate::toast::{ToastKind, Toasts};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
@@ -163,12 +164,25 @@ pub struct RikuGuiApp {
     labels_hidden: usize,
     /// Título aplicado a la ventana (para enviarlo solo cuando cambia).
     window_title: String,
+    /// Mensajes temporales (feedback de estado, completado, aviso, error).
+    toasts: Toasts,
+    /// Reloj de egui del frame actual (para fechar los mensajes).
+    now: f64,
+    /// Archivos abiertos recientemente (persistente), el último primero.
+    recent: Vec<String>,
+    /// Área del lienzo en el último frame (los mensajes se anclan ahí).
+    canvas_rect: Option<egui::Rect>,
+    /// Archivo de la carga en vuelo (para nombrarlo si falla).
+    loading_path: Option<String>,
 }
 
 /// Claves de persistencia (eframe storage).
 const PREF_LABELS: &str = "riku.show_labels";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
+const PREF_RECENT: &str = "riku.recent_files";
+/// Cuántos archivos recientes se recuerdan.
+const MAX_RECENT: usize = 6;
 
 impl RikuGuiApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: LaunchArgs) -> Self {
@@ -191,6 +205,7 @@ impl RikuGuiApp {
             }
         }
         cc.egui_ctx.set_fonts(fonts);
+        crate::theme::install_style(&cc.egui_ctx);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         // Ruta absoluta: con `riku-gui archivo.gds` el parent de una ruta
@@ -211,6 +226,7 @@ impl RikuGuiApp {
         let show_labels = pref(PREF_LABELS, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
+        let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
         let project_tree = ProjectEntry::build(&project_root, show_all_files);
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
@@ -249,6 +265,11 @@ impl RikuGuiApp {
             px_world: None,
             labels_hidden: 0,
             window_title: String::new(),
+            toasts: Toasts::default(),
+            now: 0.0,
+            recent,
+            canvas_rect: None,
+            loading_path: None,
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -268,13 +289,14 @@ impl RikuGuiApp {
             };
             match result {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
-                Err(e) => { app.error = Some(e.clone()); app.status = "Error en diff".to_string(); }
+                Err(e) => app.fail("No se pudo calcular el diff", e),
             }
         } else if let Some(path) = app.selected_path.clone() {
+            app.remember_recent(&path);
             if is_sch_renderable(&path) {
                 match app.load_sch(&path) {
                     Ok(()) => app.status = format!("Abierto {}", path.display()),
-                    Err(e) => { app.error = Some(e.clone()); app.status = "Error".to_string(); }
+                    Err(e) => app.fail("No se pudo abrir", e),
                 }
             } else if app.load_via_backend(&path, launch.cell.clone()) {
                 // Otros formatos (ej: .gds) van por la ruta neutra ViewerBackend.
@@ -291,17 +313,43 @@ impl RikuGuiApp {
         self.project_tree = ProjectEntry::build(&self.project_root, self.show_all_files);
     }
 
+    /// Feedback breve (estado, completado, aviso) en un mensaje temporal.
+    fn notify(&mut self, kind: ToastKind, text: impl Into<String>) {
+        self.toasts.push(kind, text, self.now);
+    }
+
+    /// Error: queda en la barra de estado y en un mensaje que no se va solo.
+    fn fail(&mut self, what: &str, e: impl std::fmt::Display) {
+        let msg = format!("{what}: {e}");
+        self.status = format!("{what} — error");
+        self.error = Some(msg.clone());
+        self.toasts.push(ToastKind::Error, msg, self.now);
+    }
+
+    /// Recuerda un archivo abierto (el más reciente primero, sin repetir).
+    fn remember_recent(&mut self, path: &Path) {
+        let p = path.to_string_lossy().to_string();
+        self.recent.retain(|r| *r != p);
+        self.recent.insert(0, p);
+        self.recent.truncate(MAX_RECENT);
+    }
+
     fn open_path(&mut self, path: &Path) {
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
         self.sch = None;
         self.backend_state = None;
+        self.remember_recent(path);
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
         // .sch sigue por la ruta rica (diff semántico, fantasmas, etc.)
         if is_sch_renderable(path) {
             match self.load_sch(path) {
-                Ok(()) => self.status = format!("Abierto {}", path.display()),
-                Err(e) => { self.error = Some(e.clone()); self.status = "Error".to_string(); }
+                Ok(()) => {
+                    self.status = format!("Abierto {}", path.display());
+                    self.notify(ToastKind::Success, format!("{name} abierto"));
+                }
+                Err(e) => self.fail(&format!("No se pudo abrir {name}"), e),
             }
             return;
         }
@@ -309,8 +357,9 @@ impl RikuGuiApp {
         // Fallback: intentar con algún backend registrado (ruta neutra async).
         if self.load_via_backend(path, None) {
             self.status = format!("Cargando {} …", path.display());
-        } else {
+        } else if self.error.is_none() {
             self.status = format!("{} — formato no soportado aún", path.display());
+            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym y .gds)"));
         }
     }
 
@@ -321,7 +370,7 @@ impl RikuGuiApp {
         let content = match std::fs::read(path) {
             Ok(c) => c,
             Err(e) => {
-                self.error = Some(format!("read: {e}"));
+                self.fail(&format!("No se pudo leer {}", path.display()), e);
                 return false;
             }
         };
@@ -381,6 +430,72 @@ impl RikuGuiApp {
         self.spawn_backend_load(backend, source, path, entry, kind, false);
     }
 
+    /// Ruta de lo que se está viendo: archivo › celda › vista del diff.
+    fn breadcrumb(&self) -> Vec<String> {
+        let mut parts = Vec::new();
+        if let Some(ctx) = &self.diff_ctx {
+            parts.push(format!("{} → {}", short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)));
+        }
+        if let Some(p) = &self.selected_path {
+            parts.push(p.file_name().unwrap_or_default().to_string_lossy().to_string());
+        }
+        if let Some(bs) = self.backend_state.as_ref().filter(|_| self.sch.is_none()) {
+            if let Some(cell) = bs.scene.current_entry() {
+                parts.push(cell.to_string());
+            }
+            if let LoadKind::Diff { tab, .. } = bs.kind {
+                parts.push(tab_label(tab).to_string());
+            }
+        } else if let Some(sch) = self.sch.as_ref().filter(|s| s.diff.is_some()) {
+            parts.push(tab_label(sch.tab).to_string());
+        }
+        parts
+    }
+
+    /// Pantalla inicial: qué es esto, cómo empezar, archivos recientes y
+    /// atajos. Retorna el archivo reciente elegido, si hubo clic.
+    fn empty_state(&self, ui: &mut egui::Ui) -> Option<PathBuf> {
+        let mut picked = None;
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.22).max(space::L));
+            ui.label(RichText::new("Abre un diseño").size(22.0).strong());
+            ui.add_space(space::XS);
+            ui.label(RichText::new("Elige un .sch o .gds en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
+            ui.add_space(space::L);
+
+            let recent: Vec<&String> = self.recent.iter().filter(|p| Path::new(p).is_file()).collect();
+            if !recent.is_empty() {
+                egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::same(space::M as i8))
+                    .show(ui, |ui| {
+                        ui.set_max_width(420.0);
+                        ui.label(RichText::new("Recientes").strong());
+                        ui.add_space(space::XS);
+                        for p in recent {
+                            let path = Path::new(p);
+                            let name = path.file_name().unwrap_or_default().to_string_lossy();
+                            let dir = path.parent().map(|d| d.display().to_string()).unwrap_or_default();
+                            let resp = ui
+                                .add(egui::Button::new(RichText::new(name.as_ref()).strong()).frame(false))
+                                .on_hover_text(p.as_str())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
+                            ui.add(egui::Label::new(RichText::new(dir).small().weak()).truncate());
+                            if resp.clicked() {
+                                picked = Some(path.to_path_buf());
+                            }
+                        }
+                    });
+                ui.add_space(space::L);
+            }
+            ui.label(
+                RichText::new("F encuadrar  ·  L etiquetas  ·  rueda para zoom  ·  arrastrar para mover")
+                    .small()
+                    .weak(),
+            );
+        });
+        picked
+    }
+
     /// Encuadrar todo, pedido por el usuario (se anima salvo movimiento reducido).
     fn request_fit(&mut self) {
         if let Some(sch) = self.sch.as_mut() {
@@ -410,6 +525,9 @@ impl RikuGuiApp {
         }
         if labels {
             self.show_labels = !self.show_labels;
+            // Con el teclado no se ve el botón cambiar: confirmarlo.
+            let msg = if self.show_labels { "Etiquetas visibles" } else { "Etiquetas ocultas (L para mostrar)" };
+            self.notify(ToastKind::Info, msg);
         }
         if let Some(bs) = self.backend_state.as_mut().filter(|_| self.sch.is_none()) {
             let step = 1.25;
@@ -472,6 +590,7 @@ impl RikuGuiApp {
         }
         let token = CancellationToken::new();
         self.pending_token = Some(token.clone());
+        self.loading_path = Some(path.clone());
 
         let _guard = self.runtime.enter();
         let fut = async move {
@@ -514,6 +633,14 @@ impl RikuGuiApp {
                     Some(entry) => format!("{what} · {entry}"),
                     None => what,
                 };
+                // Confirmar solo lo que el usuario pidió cargar (archivo o
+                // celda nuevos), no cada cambio de pestaña del diff.
+                if loaded.refit {
+                    let shown = loaded.scene.current_entry().map(str::to_string).unwrap_or_else(|| {
+                        Path::new(&loaded.path).file_name().unwrap_or_default().to_string_lossy().to_string()
+                    });
+                    self.notify(ToastKind::Success, format!("{shown} cargado"));
+                }
                 // Mismo archivo (cambio de celda, de pestaña o recarga): se
                 // conservan capas ocultas, buscador y vista. Una celda nueva
                 // tiene otro tamaño → re-encuadre; otra pestaña, no.
@@ -552,8 +679,11 @@ impl RikuGuiApp {
                 // Ignoramos errores de cancelación — vienen de nosotros mismos
                 // al abrir otro archivo antes de que terminara la carga previa.
                 if !e.contains("cancelled") {
-                    self.error = Some(e);
-                    self.status = "Error".to_string();
+                    let path = self.loading_path.take().unwrap_or_default();
+                    let name = Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
+                    // Un archivo que no abre no debe ofrecerse como reciente.
+                    self.recent.retain(|r| *r != path);
+                    self.fail(&format!("No se pudo abrir {name}"), friendly_error(&e));
                 }
             }
         }
@@ -603,11 +733,19 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_LABELS, &self.show_labels);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
+        eframe::set_value(storage, PREF_RECENT, &self.recent);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reload = false;
+        self.now = ctx.input(|i| i.time);
+
+        // Arrastrar un archivo desde el explorador lo abre.
+        let dropped = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
+        if let Some(path) = dropped {
+            self.open_path(&path);
+        }
 
         // Drenar carga async antes de pintar; si sigue en vuelo, solicitar
         // repaint para que el promise se consulte en el siguiente frame.
@@ -797,60 +935,87 @@ impl eframe::App for RikuGuiApp {
             .default_size(220.0)
             .show_inside(ui, |ui| {
                 ui.heading("Detalles");
-                ui.separator();
-
                 if let Some(path) = &self.selected_path {
-                    ui.label(path.file_name().unwrap_or_default().to_string_lossy().as_ref());
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    ui.add(egui::Label::new(RichText::new(&name).strong()).truncate())
+                        .on_hover_text(path.display().to_string());
                 }
+                ui.add_space(space::XS);
 
                 if self.sch.is_none() {
                     if let Some(bs) = &mut self.backend_state {
                         render_backend_details(ui, bs);
+                    } else {
+                        ui.label(RichText::new("Nada abierto todavía.").weak());
                     }
                 }
 
                 if let Some(sch) = &self.sch {
-                    ui.label(format!("Elementos: {}", sch.scene.elements.len()));
-                    ui.label(format!("Wires: {}", sch.scene.wires.len()));
+                    section(ui, "sch_summary", "Resumen", None, true, |ui| {
+                        egui::Grid::new("sch_meta").num_columns(2).spacing([space::M, space::XS]).show(ui, |ui| {
+                            ui.label(RichText::new("Elementos").weak());
+                            ui.monospace(sch.scene.elements.len().to_string());
+                            ui.end_row();
+                            ui.label(RichText::new("Wires").weak());
+                            ui.monospace(sch.scene.wires.len().to_string());
+                            ui.end_row();
+                        });
+                    });
 
                     if !sch.scene.missing_symbols.is_empty() {
-                        ui.separator();
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 160, 60),
-                            format!("Sin resolver: {}", sch.scene.missing_symbols.len()),
-                        );
-                        for s in &sch.scene.missing_symbols {
-                            ui.small(s);
-                        }
-                        if ui.button("Recargar").clicked() {
-                            reload = true;
-                        }
+                        let n = sch.scene.missing_symbols.len();
+                        section(ui, "sch_missing", "Símbolos sin resolver", Some(n), true, |ui| {
+                            ui.label(
+                                RichText::new("Se dibujan como marcadores rojos. Revisa las rutas de símbolos (riku doctor).")
+                                    .small()
+                                    .color(ui.visuals().warn_fg_color),
+                            );
+                            for s in &sch.scene.missing_symbols {
+                                ui.add(egui::Label::new(RichText::new(s).small().monospace()).truncate());
+                            }
+                            if ui.button("Recargar").on_hover_text("Volver a resolver los símbolos").clicked() {
+                                reload = true;
+                            }
+                        });
                     }
 
                     if let Some(diff) = &sch.diff {
-                        ui.separator();
-                        ui.label(RichText::new("Cambios").strong());
-                        render_change_list(ui, diff);
+                        let n = diff.components.len() + diff.nets_added.len() + diff.nets_removed.len();
+                        section(ui, "sch_changes", "Cambios", Some(n), true, |ui| render_change_list(ui, diff));
                     }
-                }
-
-                if let Some(error) = &self.error {
-                    ui.separator();
-                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), error);
                 }
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.canvas_rect = Some(ui.max_rect());
             // Lecturas para la barra de estado: las repone quien pinte.
             self.cursor_world = None;
             self.px_world = None;
             self.labels_hidden = 0;
+
+            // ¿Dónde estoy? Ruta archivo › celda › vista sobre el lienzo.
+            let crumbs = self.breadcrumb();
+            if !crumbs.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::XS;
+                    let last = crumbs.len() - 1;
+                    for (i, c) in crumbs.iter().enumerate() {
+                        let t = RichText::new(c);
+                        ui.label(if i == last { t.strong() } else { t.weak() });
+                        if i < last {
+                            ui.label(RichText::new("›").weak());
+                        }
+                    }
+                });
+                ui.add_space(space::XS);
+            }
 
             // Path neutro: escena cargada via ViewerBackend.
             if self.sch.is_none() {
                 if let Some(bs) = &mut self.backend_state {
                     let available = ui.available_size_before_wrap();
                     let response = ui.allocate_response(available, egui::Sense::drag());
+                    canvas_cursor(&ctx, &response);
                     let rect = response.rect;
                     let (w, h) = (rect.width() as f64, rect.height() as f64);
                     let animate = !self.reduce_motion;
@@ -968,6 +1133,7 @@ impl eframe::App for RikuGuiApp {
             if let Some(sch) = &mut self.sch {
                 let available = ui.available_size_before_wrap();
                 let response = ui.allocate_response(available, egui::Sense::drag());
+                canvas_cursor(&ctx, &response);
 
                 if response.dragged() {
                     let delta = response.drag_delta();
@@ -1013,13 +1179,16 @@ impl eframe::App for RikuGuiApp {
                     }
                 });
             } else {
-                ui.centered_and_justified(|ui| {
-                    if self.pending_load.is_some() {
-                        ui.label("Cargando…");
-                    } else {
-                        ui.label("Elige un archivo .sch o .gds en el panel Proyecto.");
-                    }
-                });
+                if self.pending_load.is_some() {
+                    ui.centered_and_justified(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Cargando…");
+                        });
+                    });
+                } else if let Some(path) = self.empty_state(ui) {
+                    self.open_path(&path);
+                }
             }
         });
 
@@ -1032,15 +1201,43 @@ impl eframe::App for RikuGuiApp {
                 file: c.file.clone(),
             }) {
                 if let Err(e) = self.load_diff(&ctx.repo, &ctx.commit_a, &ctx.commit_b, &ctx.file) {
-                    self.error = Some(e);
+                    self.fail("No se pudo recargar el diff", e);
                 }
             } else if let Some(path) = self.selected_path.clone() {
                 if let Err(e) = self.load_sch(&path) {
-                    self.error = Some(e);
+                    self.fail("No se pudo recargar", e);
                 }
             }
         }
+
+        // Archivo arrastrado sobre la ventana: indicar que se puede soltar.
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            drop_hint(&ctx);
+        }
+        let area = self.canvas_rect.unwrap_or_else(|| ctx.content_rect());
+        self.toasts.show(&ctx, area);
     }
+}
+
+/// Velo sobre toda la ventana mientras se arrastra un archivo encima.
+fn drop_hint(ctx: &egui::Context) {
+    let screen = ctx.content_rect();
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_hint")));
+    let v = ctx.global_style().visuals.clone();
+    painter.rect_filled(screen, 0.0, v.window_fill.gamma_multiply(0.85));
+    painter.rect_stroke(
+        screen.shrink(space::L),
+        12.0,
+        egui::Stroke::new(2.0_f32, v.selection.stroke.color),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        screen.center(),
+        egui::Align2::CENTER_CENTER,
+        "Suelta para abrir (.sch, .sym, .gds)",
+        egui::FontId::proportional(20.0),
+        v.strong_text_color(),
+    );
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1095,14 +1292,37 @@ fn render_entry_picker(ui: &mut egui::Ui, bs: &mut BackendState) -> Option<Strin
 
 // ─── Lista de cambios de una escena de diff ─────────────────────────────────
 
+/// Sección plegable de un panel: título con peso, contador tenue y estado
+/// abierto/cerrado que egui recuerda. Agrupa lo relacionado y deja plegar lo
+/// que no se usa (una lista de 40 capas no debe esconder el resumen).
+fn section(
+    ui: &mut egui::Ui,
+    id: &str,
+    title: &str,
+    count: Option<usize>,
+    default_open: bool,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    let mut job = egui::text::LayoutJob::default();
+    let strong = ui.visuals().strong_text_color();
+    let weak = ui.visuals().weak_text_color();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    job.append(title, 0.0, egui::TextFormat::simple(font.clone(), strong));
+    if let Some(n) = count {
+        job.append(&n.to_string(), space::S, egui::TextFormat::simple(font, weak));
+    }
+    egui::CollapsingHeader::new(job)
+        .id_salt(id)
+        .default_open(default_open)
+        .show(ui, |ui| {
+            add_contents(ui);
+            ui.add_space(space::XS);
+        });
+}
+
 /// Lista de cambios (relevantes primero; los cosméticos en gris). Un clic en
 /// un cambio con ubicación retorna su bbox para encuadrarlo.
 fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -> Option<BoundingBox> {
-    if changes.is_empty() {
-        return None;
-    }
-    ui.separator();
-    ui.label(RichText::new(format!("Cambios ({})", changes.len())).strong());
     let mut picked = None;
     egui::ScrollArea::vertical()
         .id_salt("change_list")
@@ -1122,13 +1342,16 @@ fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -
                         .truncate()
                         .sense(if c.bbox.is_some() { egui::Sense::click() } else { egui::Sense::hover() }),
                 );
+                if c.bbox.is_some() {
+                    resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                }
                 if !c.detail.is_empty() {
-                    ui.label(RichText::new(&c.detail).small().color(dim(egui::Color32::from_gray(150))));
+                    ui.label(RichText::new(&c.detail).small().color(dim(ui.visuals().weak_text_color())));
                 }
                 let hover = match (c.cosmetic, c.bbox.is_some()) {
-                    (true, _) => "cosmético (bajo el umbral de relevancia)",
-                    (false, true) => "clic para ir al cambio",
-                    (false, false) => "sin ubicación en esta celda",
+                    (true, _) => "Cosmético: bajo el umbral de relevancia",
+                    (false, true) => "Clic para ir al cambio",
+                    (false, false) => "Sin ubicación en esta celda",
                 };
                 if resp.on_hover_text(hover).clicked() {
                     picked = c.bbox;
@@ -1140,79 +1363,91 @@ fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -
 
 // ─── Detalles de una escena cargada via backend ─────────────────────────────
 
-/// Resumen de la escena (metadatos del backend) + lista de capas con su color
-/// y un checkbox de visibilidad. Las capas salen en el orden que da la escena
-/// (para GDS: de abajo hacia arriba en el apilado del PDK).
+/// Detalles en secciones: resumen (metadatos del backend), cambios (en diff)
+/// y capas con color y visibilidad. Las capas salen en el orden que da la
+/// escena (para GDS: de abajo hacia arriba en el apilado del PDK).
 fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
     let scene = bs.scene.clone();
 
     let meta = scene.metadata();
     if !meta.is_empty() {
-        ui.separator();
-        egui::Grid::new("scene_meta").num_columns(2).striped(true).show(ui, |ui| {
-            for (k, v) in meta {
-                ui.label(RichText::new(k).color(egui::Color32::from_gray(150)));
-                // Truncado: un nombre de celda largo no debe ensanchar el panel
-                // (y achicar el lienzo); el valor completo queda en el tooltip.
-                ui.add(egui::Label::new(v).truncate()).on_hover_text(v);
-                ui.end_row();
-            }
+        section(ui, "summary", "Resumen", None, true, |ui| {
+            egui::Grid::new("scene_meta").num_columns(2).spacing([space::M, space::XS]).show(ui, |ui| {
+                for (k, v) in meta {
+                    ui.label(RichText::new(k).weak());
+                    // Truncado: un nombre de celda largo no debe ensanchar el
+                    // panel (y achicar el lienzo); completo en el tooltip.
+                    ui.add(egui::Label::new(v).truncate()).on_hover_text(v);
+                    ui.end_row();
+                }
+            });
         });
     }
 
-    if let Some(target) = render_change_items(ui, scene.changes()) {
-        bs.focus = Some(target);
+    let changes = scene.changes();
+    if !changes.is_empty() {
+        let mut picked = None;
+        section(ui, "changes", "Cambios", Some(changes.len()), true, |ui| {
+            picked = render_change_items(ui, changes);
+        });
+        if let Some(target) = picked {
+            bs.focus = Some(target);
+        }
     }
 
     let layers = scene.layer_list();
     if layers.is_empty() {
         return;
     }
-    ui.separator();
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Capas").strong());
-        if ui.small_button("Todas").clicked() {
-            bs.hidden_layers.clear();
-        }
-        if ui.small_button("Ninguna").clicked() {
-            bs.hidden_layers.extend(layers.iter().map(|(_, p)| p.name.clone()));
-        }
-    });
-    egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
-        for (_, paint) in &layers {
-            ui.horizontal(|ui| {
-                let mut visible = !bs.hidden_layers.contains(&paint.name);
-                if ui.checkbox(&mut visible, "").changed() {
-                    if visible {
-                        bs.hidden_layers.remove(&paint.name);
-                    } else {
-                        bs.hidden_layers.insert(paint.name.clone());
+    let shown = layers.iter().filter(|(_, p)| !bs.hidden_layers.contains(&p.name)).count();
+    let title_count = if shown == layers.len() { layers.len() } else { shown };
+    section(ui, "layers", "Capas", Some(title_count), true, |ui| {
+        ui.horizontal(|ui| {
+            if ui.small_button("Mostrar todas").clicked() {
+                bs.hidden_layers.clear();
+            }
+            if ui.small_button("Ocultar todas").clicked() {
+                bs.hidden_layers.extend(layers.iter().map(|(_, p)| p.name.clone()));
+            }
+            if shown < layers.len() {
+                ui.label(RichText::new(format!("{} ocultas", layers.len() - shown)).small().weak());
+            }
+        });
+        egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
+            let theme = CanvasTheme::from_visuals(ui.visuals());
+            for (_, paint) in &layers {
+                ui.horizontal(|ui| {
+                    let mut visible = !bs.hidden_layers.contains(&paint.name);
+                    if ui.checkbox(&mut visible, "").changed() {
+                        if visible {
+                            bs.hidden_layers.remove(&paint.name);
+                        } else {
+                            bs.hidden_layers.insert(paint.name.clone());
+                        }
                     }
-                }
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                // Muestra fill y contorno tal como se pintan en el lienzo.
-                // Mismos colores que en el lienzo, adaptados al tema.
-                let (fill, stroke) = CanvasTheme::from_visuals(ui.visuals())
-                    .layer_colors(to_color32(paint.fill), to_color32(paint.stroke));
-                ui.painter().rect(rect, 2.0, fill, egui::Stroke::new(1.5_f32, stroke), egui::StrokeKind::Inside);
-                ui.label(&paint.name);
-            });
-        }
+                    // Muestra con los mismos colores que el lienzo (según el tema).
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                    let (fill, stroke) = theme.layer_colors(to_color32(paint.fill), to_color32(paint.stroke));
+                    ui.painter().rect(rect, 3.0, fill, egui::Stroke::new(1.5_f32, stroke), egui::StrokeKind::Inside);
+                    let name = RichText::new(&paint.name);
+                    ui.label(if visible { name } else { name.weak() });
+                });
+            }
+        });
     });
 }
 
 // ─── Selector de vistas (modo diff) ──────────────────────────────────────────
 
+/// Opción de vista del diff (Diff / Before / After) con su descripción: el
+/// radio estándar se adapta al tema y se reconoce de inmediato.
 fn view_selector(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label: &str) {
-    let selected = *current == this;
-    let text = if selected {
-        RichText::new(format!("● {label}")).strong().color(egui::Color32::from_rgb(0, 190, 255))
-    } else {
-        RichText::new(format!("○ {label}")).color(egui::Color32::from_gray(180))
+    let hint = match this {
+        DiffTab::Diff => "Después, con lo añadido en verde y lo eliminado en rojo",
+        DiffTab::Before => "Versión anterior (commit A)",
+        DiffTab::After => "Versión nueva (commit B)",
     };
-    if ui.add(egui::Label::new(text).sense(egui::Sense::click())).clicked() {
-        *current = this;
-    }
+    ui.radio_value(current, this, label).on_hover_text(hint);
 }
 
 /// Selector de tema (claro / oscuro / según el sistema). Se dibuja de
@@ -1350,5 +1585,60 @@ fn show_entry_tree<F>(
                 on_select(path);
             }
         }
+    }
+}
+
+/// Nombre visible de cada vista del diff.
+fn tab_label(tab: DiffTab) -> &'static str {
+    match tab {
+        DiffTab::Diff => "Diff",
+        DiffTab::Before => "Before",
+        DiffTab::After => "After",
+    }
+}
+
+/// Cursor sobre el lienzo: mano abierta (se puede mover) y cerrada al arrastrar.
+fn canvas_cursor(ctx: &egui::Context, response: &egui::Response) {
+    if response.dragged() {
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if response.hovered() {
+        ctx.set_cursor_icon(egui::CursorIcon::Grab);
+    }
+}
+
+/// Error de carga en lenguaje claro. Conserva el mensaje técnico al final
+/// (entre paréntesis) para quien necesite diagnosticar.
+fn friendly_error(e: &str) -> String {
+    let plain = if e.contains("GDSII") || e.contains("input file read error") {
+        Some("no es un GDSII válido o está dañado")
+    } else if e.contains("no existe") || e.contains("No such file") {
+        Some("el archivo ya no existe")
+    } else {
+        None
+    };
+    match plain {
+        Some(p) => format!("{p} ({e})"),
+        None => e.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn friendly_error_explains_corrupt_gds_and_keeps_details() {
+        let e = "parse error: GDSII parse: gdstk error: input file read error";
+        let f = friendly_error(e);
+        assert!(f.starts_with("no es un GDSII válido"), "{f}");
+        assert!(f.contains(e), "conserva el detalle técnico");
+        assert_eq!(friendly_error("otra cosa"), "otra cosa");
+    }
+
+    #[test]
+    fn fmt_len_uses_three_significant_digits() {
+        assert_eq!(fmt_len(0.005678), "0.00568");
+        assert_eq!(fmt_len(1.25), "1.25");
+        assert_eq!(fmt_len(310.4), "310");
     }
 }
