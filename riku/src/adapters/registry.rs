@@ -45,3 +45,34 @@ pub fn get_driver_for_with_config(
         .into_iter()
         .find(|driver| driver.can_handle(filename))
 }
+
+/// Formato de un contenido según su firma: se le pregunta a cada driver
+/// (el núcleo no conoce las firmas). `Unknown` si ninguno lo reconoce.
+pub fn detect_format(content: &[u8]) -> crate::core::domain::models::FileFormat {
+    get_drivers()
+        .iter()
+        .find(|d| d.detect(content))
+        .map_or(crate::core::domain::models::FileFormat::Unknown, |d| d.format())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::domain::models::FileFormat;
+
+    #[test]
+    fn each_driver_recognizes_its_own_signature() {
+        assert_eq!(detect_format(b"v {xschem version=3.4.5 file_version=1.2}\n"), FileFormat::Xschem);
+        assert_eq!(detect_format(&[0x00, 0x06, 0x00, 0x02, 0x02, 0x58]), FileFormat::Gds);
+        assert_eq!(detect_format(b"%SEMI-OASIS\r\n\x01"), FileFormat::Gds);
+        assert_eq!(detect_format(b"<svg/>"), FileFormat::Unknown);
+        assert_eq!(detect_format(&[]), FileFormat::Unknown);
+    }
+
+    #[test]
+    fn the_driver_is_chosen_by_extension() {
+        assert_eq!(get_driver_for("a/b/amp.sch").map(|d| d.format()), Some(FileFormat::Xschem));
+        assert_eq!(get_driver_for("chip.OAS").map(|d| d.format()), Some(FileFormat::Gds));
+        assert!(get_driver_for("notas.txt").is_none());
+    }
+}

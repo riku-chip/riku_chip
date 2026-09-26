@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::adapters::registry::get_drivers;
 use crate::core::domain::driver::DriverInfo;
-use crate::core::pdk::{pdk_status, PdkStatus};
+use crate::adapters::xschem_pdk::{pdk_status, PdkStatus};
 
 // ─── Modelo ──────────────────────────────────────────────────────────────────
 

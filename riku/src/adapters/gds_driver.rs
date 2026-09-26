@@ -138,15 +138,19 @@ impl RikuDriver for GdsDriver {
         report
     }
 
-    fn normalize(&self, content: &[u8], _path_hint: &str) -> Vec<u8> {
-        content.to_vec()
+    fn format(&self) -> FileFormat {
+        FileFormat::Gds
+    }
+
+    fn detect(&self, content: &[u8]) -> bool {
+        gds_renderer::is_layout(content)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::format::detect_format;
+    use crate::adapters::registry::detect_format;
 
     fn proof_lib_bytes() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

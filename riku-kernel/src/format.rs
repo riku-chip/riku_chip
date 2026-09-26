@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum FileFormat {
     Xschem,
-    Qucs,
-    #[serde(rename = "kicad_legacy")]
-    KicadLegacy,
     /// Layouts: GDSII y OASIS.
     Gds,
     #[default]
@@ -20,8 +17,6 @@ impl fmt::Display for FileFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Xschem => "xschem",
-            Self::Qucs => "qucs",
-            Self::KicadLegacy => "kicad_legacy",
             Self::Gds => "gds",
             Self::Unknown => "unknown",
         })

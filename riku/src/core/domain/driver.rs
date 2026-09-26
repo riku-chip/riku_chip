@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::domain::models::{DriverKind, FileChange};
+use crate::core::domain::models::{DriverKind, FileChange, FileFormat};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DriverInfo {
@@ -22,14 +22,12 @@ pub trait RikuDriver: Send + Sync {
 
     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> FileChange;
 
-    fn normalize(&self, content: &[u8], path_hint: &str) -> Vec<u8>;
+    /// Formato que maneja el driver.
+    fn format(&self) -> FileFormat;
 
-    /// Renderiza el contenido a un SVG en memoria. Default `None` para drivers
-    /// que no soportan render visual.
-    fn render(&self, content: &[u8], path_hint: &str) -> Option<String> {
-        let _ = (content, path_hint);
-        None
-    }
+    /// `true` si el contenido es de este formato, por su firma (sin mirar la
+    /// extensión). El núcleo no conoce las firmas: pregunta a cada driver.
+    fn detect(&self, content: &[u8]) -> bool;
 
     fn can_handle(&self, filename: &str) -> bool {
         let suffix = Path::new(filename)

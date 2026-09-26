@@ -1,4 +1,4 @@
-//! Detección del PDK desde variables de entorno.
+//! PDK para el módulo Xschem: dónde están los símbolos del PDK.
 //!
 //! Fuente única de verdad para resolver `$PDK_ROOT/$PDK/libs.tech/xschem`.
 //! Consumido por `cli::doctor` (diagnóstico) y `adapters::xschem_driver`

@@ -4,8 +4,7 @@ use xschem_viewer::semantic::{ChangeKind as XsKind, ComponentDiff, SemanticSchem
 
 use crate::core::domain::driver::{DriverInfo, RikuDriver};
 use crate::core::domain::models::{Change, ChangeKind, DriverKind, Element, FileChange, FileFormat, Value};
-use crate::core::format::detect_format;
-use crate::core::pdk;
+use crate::adapters::xschem_pdk as pdk;
 
 const MOVE_ALL_NOTE: &str = "reorganizacion cosmetica (Move All)";
 
@@ -33,7 +32,7 @@ fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result
     let text = std::str::from_utf8(content).map_err(|_| {
         format!("{path_hint} ({side}): contenido no es UTF-8 valido, se omite el diff semantico.")
     })?;
-    if detect_format(content) != FileFormat::Xschem {
+    if !is_xschem(content) {
         return Err(format!(
             "{path_hint} ({side}): no es formato Xschem, se omite el diff semantico."
         ));
@@ -140,17 +139,18 @@ impl RikuDriver for XschemDriver {
         report
     }
 
-    fn normalize(&self, content: &[u8], _path_hint: &str) -> Vec<u8> {
-        content.to_vec()
+    fn format(&self) -> FileFormat {
+        FileFormat::Xschem
     }
 
-    fn render(&self, content: &[u8], _path_hint: &str) -> Option<String> {
-        let text = std::str::from_utf8(content).ok()?;
-        xschem_viewer::Renderer::new(render_options())
-            .render(text)
-            .ok()
-            .map(|r| r.svg)
+    fn detect(&self, content: &[u8]) -> bool {
+        is_xschem(content)
     }
+}
+
+/// Firma de Xschem: la cabecera `v {xschem version=…}` en las primeras líneas.
+pub fn is_xschem(content: &[u8]) -> bool {
+    String::from_utf8_lossy(&content[..content.len().min(240)]).contains("xschem version=")
 }
 
 /// Traduce un cambio del motor de Xschem al vocabulario del núcleo. Es el

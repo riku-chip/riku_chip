@@ -16,7 +16,7 @@ use git2::{Repository, Signature};
 use riku::adapters::xschem_driver::parse;
 use riku::core::domain::models::FileFormat;
 use riku::core::domain::ports::GitRepository;
-use riku::core::format::detect_format;
+use riku::adapters::registry::detect_format;
 use riku::core::git::git_service::GitService;
 use xschem_viewer::semantic::diff as semantic_diff_inner;
 

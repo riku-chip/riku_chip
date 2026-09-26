@@ -706,13 +706,9 @@ impl RikuGuiApp {
     }
 
     fn load_diff(&mut self, repo: &Path, commit_a: &str, commit_b: &str, file: &Path) -> Result<(), String> {
-        use crate::adapters::xschem_driver::XschemDriver;
-        use crate::core::analysis::diff_view::DiffView;
-        use crate::adapters::xschem_driver::parse;
-
         let file_str = file.to_string_lossy();
-        let driver = XschemDriver::new();
-        let view = DiffView::from_commits(repo, commit_a, commit_b, &file_str, &driver, |b| parse(b))
+        // El diff lo da el driver del registro, igual que en la CLI.
+        let report = crate::core::analysis::commit_diff::analyze_diff(repo, commit_a, commit_b, &file_str)
             .map_err(|e| e.to_string())?;
 
         let opts = sch_render_opts();
@@ -728,7 +724,7 @@ impl RikuGuiApp {
         let viewport = SchViewport::default();
 
         self.selected_path = Some(file.to_path_buf());
-        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(view.report), needs_fit: true, tab: DiffTab::Diff });
+        self.sch = Some(SchState { scene, scene_a: Some(scene_a), viewport, diff: Some(report), needs_fit: true, tab: DiffTab::Diff });
         Ok(())
     }
 }

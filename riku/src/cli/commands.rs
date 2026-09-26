@@ -8,9 +8,9 @@
 use std::path::PathBuf;
 
 use crate::adapters::registry::DriverConfig;
-use crate::adapters::xschem_driver::XschemDriver;
-use crate::core::analysis::diff_view::DiffView;
+use crate::core::analysis::commit_diff::analyze_diff_with_config;
 use crate::core::domain::models::FileChange;
+use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
 use crate::core::analysis::status::{self, StatusOptions};
 use crate::core::analysis::summary::DetailLevel;
@@ -21,6 +21,9 @@ use super::gui;
 
 // ─── Diff ────────────────────────────────────────────────────────────────────
 
+/// `riku diff`: el mismo camino para todos los formatos. El driver se elige
+/// en el registro (por extensión) y devuelve un `FileChange`; la CLI no sabe
+/// qué formato es.
 pub(super) fn run_diff(
     repo: PathBuf,
     commit_a: &str,
@@ -30,29 +33,17 @@ pub(super) fn run_diff(
     cosmetic_threshold_um2: f64,
     use_cache: bool,
 ) -> Result<(), String> {
-    // Ruta de layouts: diff geométrico con el umbral cosmético configurable.
-    if is_gds_path(file_path) {
-        return run_diff_gds(
-            &repo,
-            commit_a,
-            commit_b,
-            file_path,
-            format,
-            cosmetic_threshold_um2,
-            use_cache,
-        );
+    if matches!(format, OutputFormat::Visual) {
+        return present_visual(&repo, commit_a, commit_b, file_path);
     }
-
-    let driver = XschemDriver::new();
-    let view = DiffView::from_commits(&repo, commit_a, commit_b, file_path, &driver, |b| {
-        crate::adapters::xschem_driver::parse(b)
-    })
-    .map_err(|e| e.to_string())?;
-
-    match format {
-        OutputFormat::Visual => present_visual(&repo, commit_a, commit_b, file_path),
-        other => print_diff(&view.report, &view.warnings, file_path, other),
-    }
+    // Mismo flujo que log/status; el umbral cosmético y la cache los usa el
+    // driver de layouts, los demás los ignoran.
+    let cfg = DriverConfig { cosmetic_threshold_um2, use_cache };
+    let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
+    let mut report =
+        analyze_diff_with_config(&svc, commit_a, commit_b, file_path, &cfg).map_err(|e| e.to_string())?;
+    let warnings = std::mem::take(&mut report.warnings);
+    print_diff(&report, &warnings, file_path, format)
 }
 
 /// Imprime un diff en el formato pedido (texto, JSON v2 o JSON v1).
@@ -66,44 +57,6 @@ fn print_diff(report: &FileChange, warnings: &[String], file_path: &str, format:
         OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path),
         OutputFormat::Visual => unreachable!("el visor se abre antes de imprimir"),
     }
-}
-
-/// Layouts (GDSII u OASIS): diff geometrico en lugar del semantico.
-fn is_gds_path(path: &str) -> bool {
-    let p = path.to_ascii_lowercase();
-    p.ends_with(".gds") || p.ends_with(".oas")
-}
-
-/// Variante de `run_diff` para archivos `.gds`. La GUI sigue usando el flujo
-/// `present_visual` (que delega a riku-gui via args); aqui solo cubrimos las
-/// salidas de texto y JSON, directamente desde el `FileChange` del driver.
-fn run_diff_gds(
-    repo: &PathBuf,
-    commit_a: &str,
-    commit_b: &str,
-    file_path: &str,
-    format: OutputFormat,
-    cosmetic_threshold_um2: f64,
-    use_cache: bool,
-) -> Result<(), String> {
-    if matches!(format, OutputFormat::Visual) {
-        return present_visual(repo, commit_a, commit_b, file_path);
-    }
-
-    // Reusa analyze_diff_with_config (mismo flujo que log/status), inyectando
-    // el threshold via DriverConfig. Asi GdsDriver clasifica `cosmetic` con
-    // el valor del flag en vez del default 0.01.
-    use crate::core::analysis::commit_diff::analyze_diff_with_config;
-    use crate::core::git::git_service::GitService;
-    let cfg = DriverConfig {
-        cosmetic_threshold_um2,
-        use_cache,
-    };
-    let svc = GitService::open(repo).map_err(|e| e.to_string())?;
-    let mut report = analyze_diff_with_config(&svc, commit_a, commit_b, file_path, &cfg)
-        .map_err(|e| e.to_string())?;
-    let warnings = std::mem::take(&mut report.warnings);
-    print_diff(&report, &warnings, file_path, format)
 }
 
 fn present_visual(

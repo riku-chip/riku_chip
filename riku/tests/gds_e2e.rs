@@ -17,7 +17,7 @@ use serde_json::Value;
 use riku::adapters::registry::get_driver_for;
 use riku::core::domain::models::{ChangeKind, FileFormat};
 use riku::core::domain::ports::GitRepository;
-use riku::core::format::detect_format;
+use riku::adapters::registry::detect_format;
 use riku::core::git::git_service::GitService;
 
 fn fixture(name: &str) -> Vec<u8> {
