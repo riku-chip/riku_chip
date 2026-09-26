@@ -1,3 +1,5 @@
 # Layouts binarios: nunca convertir fin de línea.
 *.gds binary
 *.oas binary
+# Scripts que corren en Linux (contenedor iic-osic-tools): siempre LF.
+*.sh text eol=lf
