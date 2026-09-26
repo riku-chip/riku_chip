@@ -9,7 +9,7 @@ use crate::hier_walk::{origin_of_polygon, Origin, OriginPath};
 
 /// Identificador de capa GDS (par layer/datatype). Tipo propio para no
 /// filtrar `gdstk_rs::GdsTag` por la API publica de gds-renderer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct LayerKey {
     pub layer: u32,
     pub datatype: u32,
@@ -34,7 +34,7 @@ impl From<LayerKey> for GdsTag {
 }
 
 /// Bounding box en micrometros (µm). Coords en espacio fisico, listo para UI.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BBoxUm {
     pub min_x: f64,
     pub min_y: f64,
@@ -42,7 +42,7 @@ pub struct BBoxUm {
     pub max_y: f64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GdsGeomDiff {
     pub cell: String,
     /// Cadena de cells desde la raiz hasta la sub-cell que aporto el
@@ -73,7 +73,7 @@ pub struct GdsGeomDiff {
     pub instances: usize,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GdsDiffReport {
     pub cells_added: Vec<String>,
     pub cells_removed: Vec<String>,
@@ -179,6 +179,18 @@ fn union_bbox_um(
     bbox
 }
 
+/// Como [`diff_gds_with_config`], guardando el reporte en `cache` (layouts
+/// grandes: ver [`crate::DiffCache`]). Los errores no se guardan.
+pub fn diff_gds_cached(
+    a: &[u8],
+    b: &[u8],
+    cfg: &DiffConfig,
+    cache: &crate::DiffCache,
+) -> Result<GdsDiffReport, GdsError> {
+    let params = format!("cosmetic={}", cfg.cosmetic_threshold_um2);
+    cache.get_or_compute("report", &[a, b], &params, || diff_gds_with_config(a, b, cfg)).map(|(r, _)| r)
+}
+
 /// Diff de dos GDSII con configuracion por defecto.
 pub fn diff_gds(a: &[u8], b: &[u8]) -> Result<GdsDiffReport, GdsError> {
     diff_gds_with_config(a, b, &DiffConfig::default())
@@ -235,6 +247,10 @@ pub fn diff_gds_with_config(
         let (Some(ca), Some(cb)) = (lib_a.find_cell(name), lib_b.find_cell(name)) else {
             continue;
         };
+        // Geometria aplanada identica: el XOR daria vacio, no hace falta.
+        if geometry_fingerprint(&ca) == geometry_fingerprint(&cb) {
+            continue;
+        }
         let cell = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg);
         report.geometry.extend(group_instances(cell.geometry, cfg));
     }
@@ -418,7 +434,7 @@ fn group_instances(items: Vec<GdsGeomDiff>, cfg: &DiffConfig) -> Vec<GdsGeomDiff
 }
 
 /// Como cambio una cell entre dos libraries.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CellChange {
     Added,
     Removed,

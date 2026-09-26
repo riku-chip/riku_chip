@@ -28,6 +28,7 @@ impl Commands {
                 repo,
                 format,
                 cosmetic_threshold_um2,
+                no_cache,
             } => commands::run_diff(
                 repo,
                 &commit_a,
@@ -35,6 +36,7 @@ impl Commands {
                 &file_path,
                 format,
                 cosmetic_threshold_um2,
+                !no_cache,
             )
             .map(|_| Outcome::Ok),
 

@@ -52,6 +52,10 @@ pub(crate) enum Commands {
         /// PDKs como sky130/gf180). Ignorado por drivers no-GDS.
         #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
         cosmetic_threshold_um2: f64,
+        /// No usar ni guardar la cache de diffs de layouts grandes
+        /// (también: RIKU_NO_CACHE=1).
+        #[arg(long = "no-cache")]
+        no_cache: bool,
     },
     /// Lista commits con resumen semantico por archivo.
     Log {

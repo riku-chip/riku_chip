@@ -1,4 +1,5 @@
 mod compat;
+mod diff_cache;
 mod composition;
 mod gds_diff;
 mod hier_walk;
@@ -15,11 +16,12 @@ mod viewport;
 
 pub use compat::{render_cell, render_cell_with_highlights, scene_from_cell, scene_from_cell_in};
 pub use labels::{flatten_labels, FlatLabel};
-pub use gds_diff::{is_layout, 
-    changed_cells, diff_cell, diff_cell_as, diff_gds, diff_gds_with_config, BBoxUm, CellChange, CellDiff, DiffConfig,
+pub use gds_diff::{
+    changed_cells, diff_cell, diff_cell_as, diff_gds, diff_gds_cached, diff_gds_with_config, BBoxUm, CellChange, CellDiff, DiffConfig,
     GdsDiffReport, GdsError, GdsGeomDiff, LayerPolygons,
-    LayerKey, DEFAULT_COSMETIC_THRESHOLD_UM2,
+    is_layout, LayerKey, DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
+pub use diff_cache::DiffCache;
 pub use output::RenderOutput;
 pub use renderer::{render_scene, render_scene_with_highlights};
 pub use scene::{DrawCommand, HighlightSet, OwnedPolygon, RenderPlane, RenderScene};

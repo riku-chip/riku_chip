@@ -1062,7 +1062,10 @@ name = "gds-renderer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "dirs",
  "gdstk-rs",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "viewer-core",

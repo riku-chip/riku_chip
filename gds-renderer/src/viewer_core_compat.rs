@@ -25,16 +25,25 @@ use viewer_core::{
     CancellationToken,
 };
 
+use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
 use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
 use crate::palette::{detect_pdk, layer_spec, LayerRole};
 use crate::scene::DrawCommand;
 use crate::style::{Pdk, RenderConfig};
 
-pub struct GdsBackend;
+pub struct GdsBackend {
+    /// Cache del diff (celdas cambiadas y XOR) para layouts grandes.
+    cache: DiffCache,
+}
 
 impl GdsBackend {
     pub fn new() -> Self {
-        Self
+        Self { cache: DiffCache::from_env() }
+    }
+
+    /// Backend con una cache concreta (tests, o `DiffCache::disabled()`).
+    pub fn with_cache(cache: DiffCache) -> Self {
+        Self { cache }
     }
 }
 
@@ -350,6 +359,7 @@ impl ViewerBackend for GdsBackend {
         if token.is_cancelled() {
             return Err(ViewerError::Cancelled);
         }
+        let cache = self.cache.clone();
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
             let parse = |bytes: &[u8], side: &str| -> VcResult<Option<Library>> {
                 if bytes.is_empty() {
@@ -364,7 +374,8 @@ impl ViewerBackend for GdsBackend {
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
             }
-            build_diff_scene(lib_a.as_ref(), lib_b.as_ref(), entry.as_deref(), path_hint.as_deref())
+            let diff = CachedDiff { cache: &cache, before: &before, after: &after };
+            build_diff_scene(lib_a.as_ref(), lib_b.as_ref(), entry.as_deref(), path_hint.as_deref(), &diff)
         })
         .await??;
 
@@ -377,6 +388,31 @@ impl ViewerBackend for GdsBackend {
 const DIFF_ADDED: (Rgba, Rgba) = (Rgba::new(40, 220, 90, 150), Rgba::new(90, 255, 130, 255));
 const DIFF_REMOVED: (Rgba, Rgba) = (Rgba::new(240, 60, 60, 150), Rgba::new(255, 100, 100, 255));
 
+/// Bytes crudos de cada lado y la cache donde guardar lo que cuesta calcular
+/// (celdas cambiadas y XOR de la celda mostrada).
+struct CachedDiff<'a> {
+    cache: &'a DiffCache,
+    before: &'a [u8],
+    after: &'a [u8],
+}
+
+impl CachedDiff<'_> {
+    fn get<T: serde::Serialize + serde::de::DeserializeOwned>(
+        &self,
+        kind: &str,
+        params: &str,
+        compute: impl FnOnce() -> T,
+    ) -> T {
+        let r = self.cache.get_or_compute(kind, &[self.before, self.after], params, || {
+            Ok::<_, std::convert::Infallible>(compute())
+        });
+        match r {
+            Ok((v, _)) => v,
+            Err(never) => match never {},
+        }
+    }
+}
+
 /// Arma la escena de diff de una celda. `None` = el archivo no existia de
 /// ese lado. Sincrona para poder testearla sin runtime.
 fn build_diff_scene(
@@ -384,6 +420,7 @@ fn build_diff_scene(
     lib_b: Option<&Library>,
     entry: Option<&str>,
     path_hint: Option<&str>,
+    cached: &CachedDiff<'_>,
 ) -> VcResult<VcScene> {
     let Some(base_lib) = lib_b.or(lib_a) else {
         return Err(ViewerError::Parse("diff sin contenido en ninguno de los dos lados".into()));
@@ -398,7 +435,7 @@ fn build_diff_scene(
 
     // Marcar que celdas cambiaron: en una libreria de cientos es lo que
     // permite encontrar el cambio.
-    let changed = changed_cells(lib_a, lib_b);
+    let changed: ChangedCells = cached.get("changed", "", || changed_cells(lib_a, lib_b));
     for e in &mut entries {
         e.change = changed.get(&e.id).map(|c| match c {
             CellChange::Added => ChangeKind::Added,
@@ -449,7 +486,10 @@ fn build_diff_scene(
         Some(CellChange::Renamed { from }) => from.as_str(),
         _ => name.as_str(),
     };
-    let diff = diff_cell_as(lib_a, name_a, lib_b, &name, &cfg);
+    let params = format!("{name_a}\n{name}\n{}", cfg.cosmetic_threshold_um2);
+    let diff: CellDiff = cached
+        .get("cell", &params, || CellDiffDto::from(&diff_cell_as(lib_a, name_a, lib_b, &name, &cfg)))
+        .into();
     let unit_factor = base_lib.unit() / 1e-6;
 
     // Capas del overlay, al final de la lista (y por encima al pintar).
@@ -846,6 +886,30 @@ mod tests {
         assert!(h.changes().is_empty());
         assert_eq!(overlay_count(&h, "Δ añadido"), 0);
         assert_eq!(meta(&h, "Diff"), "sin cambios geométricos");
+    }
+
+    #[tokio::test]
+    async fn diff_scene_read_from_cache_is_identical() {
+        let dir = std::env::temp_dir().join(format!("riku-backend-cache-{}", std::process::id()));
+        let b = GdsBackend::with_cache(DiffCache::at(&dir));
+        let load = || {
+            b.load_diff(
+                fixture("multi_inst_a.gds"),
+                fixture("multi_inst_b.gds"),
+                None,
+                Some("ARR".into()),
+                CancellationToken::new(),
+            )
+        };
+        let first = load().await.expect("primera carga");
+        let entries = std::fs::read_dir(&dir).expect("cache escrita").count();
+        assert_eq!(entries, 2, "celdas cambiadas + XOR de ARR");
+        let second = load().await.expect("desde la cache");
+        assert_eq!(first.changes(), second.changes());
+        assert_eq!(overlay_count(&first, "Δ añadido"), 6);
+        assert_eq!(overlay_count(&second, "Δ añadido"), 6);
+        assert_eq!(first.entries(), second.entries());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

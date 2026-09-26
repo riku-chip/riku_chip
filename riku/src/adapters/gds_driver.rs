@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use gds_renderer::{
-    diff_gds_with_config, DiffConfig, GdsError, GdsGeomDiff,
+    diff_gds_cached, DiffCache, DiffConfig, GdsError, GdsGeomDiff,
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
 
@@ -95,6 +95,8 @@ fn translate_error(e: GdsError, path_hint: &str) -> String {
 pub struct GdsDriver {
     cached_info: std::sync::OnceLock<DriverInfo>,
     cosmetic_threshold_um2: f64,
+    /// Cache en disco del reporte (solo layouts grandes; ver `DiffCache`).
+    cache: DiffCache,
 }
 
 impl GdsDriver {
@@ -102,12 +104,18 @@ impl GdsDriver {
         Self::with_threshold(DEFAULT_COSMETIC_THRESHOLD_UM2)
     }
 
-    /// Constructor con umbral cosmetico custom (µm²). Reservado para tests
-    /// y futura wiring de flag CLI `--cosmetic-threshold-um2`.
+    /// Constructor con umbral cosmetico custom (µm²) (flag
+    /// `--cosmetic-threshold-um2`). Usa la cache segun el entorno.
     pub fn with_threshold(cosmetic_threshold_um2: f64) -> Self {
+        Self::with_config(cosmetic_threshold_um2, true)
+    }
+
+    /// `use_cache = false` (flag `--no-cache`) desactiva la cache de diffs.
+    pub fn with_config(cosmetic_threshold_um2: f64, use_cache: bool) -> Self {
         Self {
             cached_info: std::sync::OnceLock::new(),
             cosmetic_threshold_um2,
+            cache: if use_cache { DiffCache::from_env() } else { DiffCache::disabled() },
         }
     }
 }
@@ -142,7 +150,7 @@ impl RikuDriver for GdsDriver {
         let cfg = DiffConfig {
             cosmetic_threshold_um2: self.cosmetic_threshold_um2,
         };
-        let r = match diff_gds_with_config(content_a, content_b, &cfg) {
+        let r = match diff_gds_cached(content_a, content_b, &cfg, &self.cache) {
             Ok(r) => r,
             Err(e) => {
                 report.warnings.push(translate_error(e, path_hint));

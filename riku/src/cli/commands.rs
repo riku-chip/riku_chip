@@ -27,6 +27,7 @@ pub(super) fn run_diff(
     file_path: &str,
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
+    use_cache: bool,
 ) -> Result<(), String> {
     // Ruta GDS: usa el registry con el threshold configurable. Construye un
     // DiffView "minimo" sin svg/sch porque los printers de text/json solo
@@ -39,6 +40,7 @@ pub(super) fn run_diff(
             file_path,
             format,
             cosmetic_threshold_um2,
+            use_cache,
         );
     }
 
@@ -77,6 +79,7 @@ fn run_diff_gds(
     file_path: &str,
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
+    use_cache: bool,
 ) -> Result<(), String> {
     if matches!(format, OutputFormat::Visual) {
         return present_visual(repo, commit_a, commit_b, file_path);
@@ -89,6 +92,7 @@ fn run_diff_gds(
     use crate::core::git::git_service::GitService;
     let cfg = DriverConfig {
         cosmetic_threshold_um2,
+        use_cache,
     };
     let svc = GitService::open(repo).map_err(|e| e.to_string())?;
     let mut driver_report = analyze_diff_with_config(&svc, commit_a, commit_b, file_path, &cfg)

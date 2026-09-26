@@ -9,12 +9,15 @@ pub struct DriverConfig {
     /// Umbral en µm² para clasificar un cambio GDS como cosmetico (sub-DRC).
     /// Solo afecta a `GdsDriver`. Ver `gds_renderer::DEFAULT_COSMETIC_THRESHOLD_UM2`.
     pub cosmetic_threshold_um2: f64,
+    /// Cache en disco de diffs de layouts grandes (`--no-cache` la apaga).
+    pub use_cache: bool,
 }
 
 impl Default for DriverConfig {
     fn default() -> Self {
         Self {
             cosmetic_threshold_um2: gds_renderer::DEFAULT_COSMETIC_THRESHOLD_UM2,
+            use_cache: true,
         }
     }
 }
@@ -30,7 +33,7 @@ pub fn get_driver_for(filename: &str) -> Option<Box<dyn RikuDriver>> {
 pub fn get_drivers_with_config(cfg: &DriverConfig) -> Vec<Box<dyn RikuDriver>> {
     vec![
         Box::new(XschemDriver::new()),
-        Box::new(GdsDriver::with_threshold(cfg.cosmetic_threshold_um2)),
+        Box::new(GdsDriver::with_config(cfg.cosmetic_threshold_um2, cfg.use_cache)),
     ]
 }
 
