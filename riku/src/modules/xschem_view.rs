@@ -481,6 +481,6 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
             return; // en un entorno con res.sym resuelto no hay nada que marcar
         }
         assert!(s.elements.iter().any(|e| e.layer() == MISSING_LAYER));
-        assert!(s.notices.iter().any(|n| n.contains("Símbolos sin resolver")));
+        assert!(s.notices.iter().any(|n| n.contains("Faltan") && n.contains("riku doctor")), "{:?}", s.notices);
     }
 }
