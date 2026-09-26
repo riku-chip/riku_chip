@@ -3,11 +3,15 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::core::analysis::blob_io;
-use crate::core::domain::driver::{is_layout_element, is_net_element, net_name, RikuDriver};
+use crate::core::domain::driver::RikuDriver;
 use crate::core::domain::git_types::GitError;
-use crate::core::domain::models::{ChangeKind, ComponentDiff, DiffReport, Schematic};
+use crate::core::domain::models::FileChange;
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
+
+// Esquemático parseado de Xschem: DiffView todavía es propia de ese formato
+// (pasa al módulo de Xschem en la fase 2 de la migración).
+use xschem_viewer::semantic::SemanticSchematic as Schematic;
 
 // ─── Error ───────────────────────────────────────────────────────────────────
 
@@ -34,8 +38,8 @@ pub struct DiffView {
     pub sch_a: Option<Schematic>,
     /// Schematic parseado del estado posterior.
     pub sch_b: Schematic,
-    /// Reporte de diferencias semánticas.
-    pub report: DiffReport,
+    /// Cambios entre las dos versiones.
+    pub report: FileChange,
     /// Advertencias generadas durante el análisis.
     pub warnings: Vec<String>,
 }
@@ -90,9 +94,8 @@ impl DiffView {
         };
 
         // ── Diff semántico ────────────────────────────────────────────────
-        let driver_report = driver.diff(content_a.as_deref().unwrap_or(&[]), &content_b, file_path);
-        warnings.extend(driver_report.warnings);
-        let report = driver_report_to_diff_report(&driver_report.changes);
+        let mut report = driver.diff(content_a.as_deref().unwrap_or(&[]), &content_b, file_path);
+        warnings.append(&mut report.warnings);
 
         Ok(Self {
             svg_a,
@@ -105,100 +108,3 @@ impl DiffView {
     }
 }
 
-// ─── Conversión de tipos ──────────────────────────────────────────────────────
-
-/// Convierte las entradas del driver a `DiffReport` de dominio.
-/// Separa componentes, nets y el flag is_move_all en una sola pasada.
-pub fn driver_report_to_diff_report(
-    changes: &[crate::core::domain::driver::DiffEntry],
-) -> DiffReport {
-    let mut components = Vec::new();
-    let mut nets_added = Vec::new();
-    let mut nets_removed = Vec::new();
-    let mut is_move_all = false;
-
-    for c in changes {
-        if is_layout_element(&c.element) {
-            if c.cosmetic {
-                is_move_all = true;
-            }
-            continue;
-        }
-        if is_net_element(&c.element) {
-            match c.kind {
-                ChangeKind::Added => nets_added.push(net_name(&c.element).to_string()),
-                ChangeKind::Removed => nets_removed.push(net_name(&c.element).to_string()),
-                ChangeKind::Modified => {}
-            }
-            continue;
-        }
-        components.push(ComponentDiff {
-            name: c.element.clone(),
-            kind: c.kind.clone(),
-            cosmetic: c.cosmetic,
-            position_changed: c.position_changed,
-            before: c.before.clone(),
-            after: c.after.clone(),
-        });
-    }
-
-    DiffReport {
-        components,
-        nets_added,
-        nets_removed,
-        is_move_all,
-    }
-}
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::domain::driver::{DiffEntry, DriverDiffReport};
-    use crate::core::domain::models::FileFormat;
-
-    fn make_report(changes: Vec<DiffEntry>) -> DriverDiffReport {
-        DriverDiffReport {
-            file_type: FileFormat::Xschem,
-            changes,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn convierte_componentes_y_nets() {
-        let report = make_report(vec![
-            DiffEntry {
-                kind: ChangeKind::Added,
-                element: "R1".to_string(),
-                before: None,
-                after: Some([("value".to_string(), "10k".to_string())].into()),
-                cosmetic: false,
-                position_changed: false,
-            },
-            DiffEntry {
-                kind: ChangeKind::Added,
-                element: "net:Vdd".to_string(),
-                before: None,
-                after: None,
-                cosmetic: false,
-                position_changed: false,
-            },
-            DiffEntry {
-                kind: ChangeKind::Modified,
-                element: "layout".to_string(),
-                before: None,
-                after: None,
-                cosmetic: true,
-                position_changed: false,
-            },
-        ]);
-
-        let diff = driver_report_to_diff_report(&report.changes);
-        assert_eq!(diff.components.len(), 1);
-        assert_eq!(diff.components[0].name, "R1");
-        assert_eq!(diff.nets_added, vec!["Vdd"]);
-        assert!(diff.is_move_all);
-    }
-}

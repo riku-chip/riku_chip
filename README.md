@@ -175,27 +175,36 @@ Cambios : 3
       value: 1p → 2p
 ```
 
-### Diff semántico — salida JSON (para CI)
+### Diff — salida JSON (para CI)
 
 ```bash
-riku diff <commit_a> <commit_b> archivo.sch --format json
+riku diff <commit_a> <commit_b> archivo.sch --format json      # riku-diff/v2
+riku diff <commit_a> <commit_b> archivo.sch --format json-v1   # forma anterior (transición)
 ```
+
+Cada cambio dice qué le pasó (`kind`), a qué elemento (`element`, con su `type`) y cómo eran sus propiedades antes y después (`details`, con números reales, no texto):
 
 ```json
 {
+  "schema": "riku-diff/v2",
   "file": "design/op_amp.sch",
+  "format": "xschem",
   "warnings": [],
-  "components": [
-    { "kind": "added",    "name": "M5", "cosmetic": false },
-    { "kind": "removed",  "name": "R2", "cosmetic": false },
-    { "kind": "modified", "name": "C1", "cosmetic": false,
-      "before": {"value": "1p"}, "after": {"value": "2p"} }
-  ],
-  "nets_added": [],
-  "nets_removed": [],
-  "is_move_all": false
+  "changes": [
+    { "kind": "added",   "element": { "type": "component", "name": "M5" }, "cosmetic": false },
+    { "kind": "renamed", "element": { "type": "component", "name": "vin_diff" }, "renamed_from": "vin", "cosmetic": false },
+    { "kind": "modified", "element": { "type": "component", "name": "C1" }, "cosmetic": false,
+      "details": [ { "key": "value", "before": "1p", "after": "2p" } ] },
+    { "kind": "added",   "element": { "type": "net", "name": "vbias" }, "cosmetic": false },
+    { "kind": "added",   "element": { "type": "geometry", "cell": "TOP", "layer": 68, "datatype": 20,
+                                      "via": { "path": ["INV"], "instances": 2 } },
+      "cosmetic": false, "location": { "min_x": 12.0, "min_y": 10.0, "max_x": 13.0, "max_y": 11.0 },
+      "details": [ { "key": "added_area_um2", "after": 0.25 } ] }
+  ]
 }
 ```
+
+Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell` y `geometry` (layouts). `--format json-v1` produce exactamente la salida anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`) y se mantiene durante una versión. `status` y `log` siguen en `riku-status/v1` y `riku-log/v1`.
 
 ### Diff visual
 

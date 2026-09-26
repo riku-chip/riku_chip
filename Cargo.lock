@@ -2412,6 +2412,7 @@ dependencies = [
  "git2",
  "glob",
  "poll-promise",
+ "riku-kernel",
  "rustyline",
  "serde",
  "serde_json",
@@ -2420,6 +2421,14 @@ dependencies = [
  "tokio",
  "viewer-core",
  "xschem-viewer",
+]
+
+[[package]]
+name = "riku-kernel"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

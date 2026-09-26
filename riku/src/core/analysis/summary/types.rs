@@ -7,15 +7,14 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::domain::driver::DriverDiffReport;
-use crate::core::domain::models::FileFormat;
+use crate::core::domain::models::{FileChange, FileFormat};
 
 /// Cuánta información incluir en el `FileSummary`.
 ///
 /// - `Resumen`: solo `counts` (lo que ya hacíamos en Fase 1).
 /// - `Detalle`: además, `details` con entradas legibles (qué componente cambió,
 ///   qué parámetro pasó de X a Y).
-/// - `Completo`: además, `full_report` con el `DriverDiffReport` íntegro.
+/// - `Completo`: además, `full_report` con el `FileChange` íntegro.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DetailLevel {
     #[default]
@@ -121,8 +120,9 @@ pub struct FileSummary {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub details: Vec<DetailEntry>,
     /// Reporte completo del driver. Solo presente en nivel completo.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub full_report: Option<DriverDiffReport>,
+    /// En el JSON sale con la forma v1 (schemas riku-status/v1 y riku-log/v1).
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "full_report_v1", skip_deserializing, default)]
+    pub full_report: Option<FileChange>,
     /// Mensajes de error si `category == Error`. Vacío en otros casos.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub errors: Vec<String>,
@@ -151,5 +151,12 @@ impl FileSummary {
             full_report: None,
             errors: vec![message.into()],
         }
+    }
+}
+
+fn full_report_v1<S: serde::Serializer>(report: &Option<FileChange>, s: S) -> Result<S::Ok, S::Error> {
+    match report {
+        Some(r) => serde::Serialize::serialize(&riku_kernel::legacy::driver_report(r), s),
+        None => s.serialize_none(),
     }
 }

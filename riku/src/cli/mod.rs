@@ -25,7 +25,10 @@ mod shell_complete;
 #[derive(Clone, Debug, ValueEnum)]
 pub enum OutputFormat {
     Text,
+    /// JSON con cambios tipados (schema riku-diff/v2).
     Json,
+    /// JSON anterior (componentes con strings); se mantiene una versión.
+    JsonV1,
     Visual,
 }
 

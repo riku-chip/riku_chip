@@ -238,3 +238,12 @@ Cada fase deja `main` verde y con los mismos tests o más. El orden va de lo que
 - **Plugins dinámicos (`.so` cargados en runtime):** Rust no tiene ABI estable; habría que pasar por C o `abi_stable`, perder tipos ricos como `Scene`, y distribuir varios archivos. Contradice el ejecutable único. Los módulos como features de Cargo dan el mismo desacople sin ese costo.
 - **Un solo crate con módulos internos:** compila más lento (todo o nada) y no impide que el kernel importe un módulo por descuido. Los crates separados hacen que la regla de dependencia la verifique Cargo.
 - **Dejar la GUI con dos caminos:** es la fuente del pendiente #1 y del `self.sch` en 25 sitios. Cada mejora de la GUI hay que hacerla dos veces.
+
+---
+
+## Avance
+
+| Fase | Estado | Notas |
+|---|---|---|
+| 0 | Hecha (2026-09-26) | Ejecutable único `riku` (visor en `riku/src/gui`), workspace, git2 sin OpenSSL, `GDSTK_STATIC`, `release.yml` (`.tar.gz` 5,6 MB y `.deb` 4,1 MB, probados en Ubuntu 22.04 limpio) |
+| 1 | Hecha (2026-09-26) | Crate `riku-kernel` con `FileChange`/`Change`/`Element`/`ChangeKind` (con `Renamed`)/`Detail`/`Value`. Los drivers traducen a esos tipos (Xschem: `component_change`; layouts: `geom_change`); el núcleo ya no re-exporta `xschem_viewer::semantic`. `riku diff -f json` sale en `riku-diff/v2`; `-f json-v1` y el `full_report` de `status`/`log` se generan con `riku_kernel::legacy` y son **idénticos byte a byte** a la salida anterior (verificado contra el binario de la fase 0 en `.sch` con renombre, valor cambiado, traslado y net nueva, y en `.gds` con renombre e instancias). Se borró `core/rendering` (anotador SVG sin uso). Mejora colateral: el visor encuentra el componente renombrado para anotarlo. Diferencias con el plan: `cosmetic` sigue siendo `bool` (no hizo falta `Severity`), y `git`/`analysis` siguen en `riku` hasta la fase 2 |

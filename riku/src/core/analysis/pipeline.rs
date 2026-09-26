@@ -1,7 +1,7 @@
 //! Helper de pipeline "dos blobs → FileSummary".
 //!
 //! Centraliza la cola del flujo que comparten `status` y `log`: dado un
-//! driver ya resuelto y los dos contenidos, computa el `DriverDiffReport`
+//! driver ya resuelto y los dos contenidos, computa el `FileChange`
 //! y lo agrega como `FileSummary`. Los callers deciden cómo obtener los
 //! bytes y qué hacer si el formato no tiene driver — la pre-resolución
 //! del driver se mantiene fuera para no leer blobs innecesarios.

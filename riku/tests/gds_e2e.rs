@@ -75,9 +75,14 @@ fn layout_repo(ext: &str) -> GdsRepo {
     GdsRepo { path: dir.path().to_path_buf(), _dir: dir, file, empty, a, b }
 }
 
+/// `riku diff -f json-v1`: la forma anterior, que se mantiene una versión.
 fn riku_json(repo: &GdsRepo, from: &str, to: &str) -> Value {
+    riku_json_as(repo, from, to, "json-v1")
+}
+
+fn riku_json_as(repo: &GdsRepo, from: &str, to: &str, format: &str) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_riku"))
-        .args(["diff", from, to, repo.file, "-f", "json", "--repo"])
+        .args(["diff", from, to, repo.file, "-f", format, "--repo"])
         .arg(&repo.path)
         .output()
         .expect("ejecutar riku");
@@ -108,10 +113,10 @@ fn git_blob_to_driver_detects_hierarchical_change() {
     let report = driver.diff(&before, &after, "layout.gds");
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
 
-    let names: Vec<&str> = report.changes.iter().map(|c| c.element.as_str()).collect();
+    let names: Vec<String> = report.changes.iter().map(|c| c.element.name()).collect();
     // INV cambia directamente; TOP lo ve a traves de la reference (origen INV).
-    assert!(names.contains(&"INV:L1/0"), "{names:?}");
-    assert!(names.contains(&"TOP:L1/0:INV"), "{names:?}");
+    assert!(names.iter().any(|n| n == "INV:L1/0"), "{names:?}");
+    assert!(names.iter().any(|n| n == "TOP:L1/0:INV"), "{names:?}");
     assert!(report.changes.iter().all(|c| c.kind == ChangeKind::Added && !c.cosmetic));
 }
 
@@ -163,4 +168,25 @@ fn cli_oasis_diff_matches_gds_diff() {
     assert!(jo["warnings"].as_array().unwrap().is_empty(), "{jo}");
     assert_eq!(jg["components"], jo["components"]);
     assert_eq!(component(&jo, "TOP:L1/0:INV")["after"]["bbox_um"], "12.000,10.000,13.000,11.000");
+}
+
+#[test]
+fn cli_json_v2_has_typed_changes() {
+    let r = gds_repo();
+    let json = riku_json_as(&r, &r.a, &r.b, "json");
+    assert_eq!(json["schema"], "riku-diff/v2");
+    assert_eq!(json["format"], "gds");
+    let changes = json["changes"].as_array().expect("changes");
+    let top = changes
+        .iter()
+        .find(|c| c["element"]["cell"] == "TOP")
+        .unwrap_or_else(|| panic!("sin TOP: {json}"));
+    assert_eq!(top["kind"], "added");
+    assert_eq!(top["element"]["type"], "geometry");
+    assert_eq!((top["element"]["layer"].as_u64(), top["element"]["datatype"].as_u64()), (Some(1), Some(0)));
+    assert_eq!(top["element"]["via"]["path"], serde_json::json!(["INV"]));
+    // Números de verdad, no strings.
+    let area = top["details"].as_array().unwrap().iter().find(|d| d["key"] == "added_area_um2").unwrap();
+    assert_eq!(area["after"].as_f64(), Some(1.0));
+    assert_eq!(top["location"]["min_x"].as_f64(), Some(12.0));
 }

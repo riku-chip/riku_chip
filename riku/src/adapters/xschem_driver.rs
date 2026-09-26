@@ -1,7 +1,9 @@
-use crate::core::domain::driver::{
-    DiffEntry, DriverDiffReport, DriverInfo, LAYOUT_ELEMENT, NET_PREFIX, RikuDriver,
-};
-use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat, Schematic};
+use std::collections::{BTreeMap, BTreeSet};
+
+use xschem_viewer::semantic::{ChangeKind as XsKind, ComponentDiff, SemanticSchematic as Schematic};
+
+use crate::core::domain::driver::{DriverInfo, RikuDriver};
+use crate::core::domain::models::{Change, ChangeKind, DriverKind, Element, FileChange, FileFormat, Value};
 use crate::core::format::detect_format;
 use crate::core::pdk;
 
@@ -26,7 +28,7 @@ fn parse_text(text: &str) -> Schematic {
 /// Valida un blob como contenido Xschem decodificable y devuelve el `&str`
 /// listo para parsear. Usado por `diff` para chequear A y B simétricamente
 /// antes de llamar al parser; cualquier error se propaga como warning del
-/// `DriverDiffReport`.
+/// `FileChange`.
 fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result<&'a str, String> {
     let text = std::str::from_utf8(content).map_err(|_| {
         format!("{path_hint} ({side}): contenido no es UTF-8 valido, se omite el diff semantico.")
@@ -100,11 +102,8 @@ impl RikuDriver for XschemDriver {
         info
     }
 
-    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> DriverDiffReport {
-        let mut report = DriverDiffReport {
-            file_type: FileFormat::Xschem,
-            ..Default::default()
-        };
+    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> FileChange {
+        let mut report = FileChange::new(FileFormat::Xschem);
 
         let text_a = match validate_xschem(content_a, "A", path_hint) {
             Ok(t) => t,
@@ -124,54 +123,20 @@ impl RikuDriver for XschemDriver {
         let sch_a = parse_text(text_a);
         let sch_b = parse_text(text_b);
         let result = xschem_viewer::semantic::diff(&sch_a, &sch_b);
-        for component in result.components {
-            report.changes.push(DiffEntry {
-                kind: component.kind,
-                element: component.name,
-                before: component.before,
-                after: component.after,
-                cosmetic: component.cosmetic,
-                position_changed: component.position_changed,
-            });
-        }
-
+        report.changes.extend(result.components.iter().map(component_change));
         for net in result.nets_added {
-            report.changes.push(DiffEntry {
-                kind: ChangeKind::Added,
-                element: format!("{NET_PREFIX}{net}"),
-                before: None,
-                after: None,
-                cosmetic: false,
-                position_changed: false,
-            });
+            report.changes.push(Change::new(ChangeKind::Added, Element::Net { name: net }));
         }
-
         for net in result.nets_removed {
-            report.changes.push(DiffEntry {
-                kind: ChangeKind::Removed,
-                element: format!("{NET_PREFIX}{net}"),
-                before: None,
-                after: None,
-                cosmetic: false,
-                position_changed: false,
-            });
+            report.changes.push(Change::new(ChangeKind::Removed, Element::Net { name: net }));
         }
-
         if result.is_move_all {
-            report.changes.push(DiffEntry {
-                kind: ChangeKind::Modified,
-                element: LAYOUT_ELEMENT.to_string(),
-                before: None,
-                after: Some(
-                    [("note".to_string(), MOVE_ALL_NOTE.to_string())]
-                        .into_iter()
-                        .collect(),
-                ),
-                cosmetic: true,
-                position_changed: false,
-            });
+            report.changes.push(
+                Change::new(ChangeKind::Modified, Element::Whole)
+                    .cosmetic(true)
+                    .with_detail("note", None, Some(MOVE_ALL_NOTE.into())),
+            );
         }
-
         report
     }
 
@@ -186,6 +151,29 @@ impl RikuDriver for XschemDriver {
             .ok()
             .map(|r| r.svg)
     }
+}
+
+/// Traduce un cambio del motor de Xschem al vocabulario del núcleo. Es el
+/// único lugar que conoce `ComponentDiff`.
+fn component_change(c: &ComponentDiff) -> Change {
+    // El motor marca un renombre como `Modified` con nombre "viejo → nuevo".
+    let (kind, name, renamed_from) = match (&c.kind, c.name.split_once(" → ")) {
+        (XsKind::Modified, Some((from, to))) => (ChangeKind::Renamed, to.to_string(), Some(from.to_string())),
+        (XsKind::Added, _) => (ChangeKind::Added, c.name.clone(), None),
+        (XsKind::Removed, _) => (ChangeKind::Removed, c.name.clone(), None),
+        (XsKind::Modified, _) => (ChangeKind::Modified, c.name.clone(), None),
+    };
+    let empty = BTreeMap::new();
+    let (before, after) = (c.before.as_ref().unwrap_or(&empty), c.after.as_ref().unwrap_or(&empty));
+    let keys: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    let mut change = Change::new(kind, Element::Component { name }).cosmetic(c.cosmetic);
+    change.position_changed = c.position_changed;
+    change.renamed_from = renamed_from;
+    for k in keys {
+        let text = |m: &BTreeMap<String, String>| m.get(k).map(|v| Value::Text(v.clone()));
+        change = change.with_detail(k.clone(), text(before), text(after));
+    }
+    change
 }
 
 #[cfg(test)]

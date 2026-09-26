@@ -74,7 +74,7 @@ El historial de comandos persiste con ↑↓ durante la sesión. **Tab** complet
 Compara dos commits de un archivo de diseño y reporta los cambios semánticos.
 
 ```bash
-riku diff <commit_a> <commit_b> <archivo.sch> [--format text|json|visual]
+riku diff <commit_a> <commit_b> <archivo> [--format text|json|json-v1|visual]
 ```
 
 **Salida texto** (por defecto):
@@ -93,17 +93,21 @@ riku diff HEAD~1 HEAD archivo.sch --format json
 ```
 ```json
 {
-  "file_type": "xschem",
+  "schema": "riku-diff/v2",
+  "file": "archivo.sch",
+  "format": "xschem",
   "warnings": [],
   "changes": [
-    { "kind": "added",    "element": "M5",  "cosmetic": false },
-    { "kind": "removed",  "element": "R2",  "cosmetic": false },
-    { "kind": "modified", "element": "C1",  "cosmetic": true  }
+    { "kind": "added",    "element": { "type": "component", "name": "M5" }, "cosmetic": false },
+    { "kind": "removed",  "element": { "type": "component", "name": "R2" }, "cosmetic": false },
+    { "kind": "modified", "element": { "type": "component", "name": "C1" }, "cosmetic": true }
   ]
 }
 ```
 
-**Salida visual** — abre un HTML con dos paneles SVG lado a lado:
+Esquema completo en el README principal; `--format json-v1` da la salida anterior durante una versión.
+
+**Salida visual** — abre el visor (`riku gui`) con las vistas Diff, Before y After:
 ```bash
 riku diff HEAD~1 HEAD archivo.sch --format visual
 ```

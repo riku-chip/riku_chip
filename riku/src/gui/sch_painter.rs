@@ -2,7 +2,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
 
 use crate::gui::theme::CanvasTheme;
 use xschem_viewer::{ResolvedScene, Viewport};
-use crate::core::domain::models::{ChangeKind, DiffReport};
+use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
 
 /// Re-export local para que el resto del crate siga usando el nombre
 /// familiar (`SchViewport`) sin tocar cada llamada.
@@ -64,7 +64,7 @@ pub fn paint_sch(
     scene: &ResolvedScene,
     scene_a: Option<&ResolvedScene>,
     vp: &SchViewport,
-    diff: Option<&DiffReport>,
+    diff: Option<&FileChange>,
 ) {
     let available = ui.available_size_before_wrap();
     let (_, painter) = ui.allocate_painter(available, egui::Sense::hover());
@@ -255,19 +255,19 @@ fn paint_ghosts(
     vp: &SchViewport,
     rect: Rect,
     scene_a: &ResolvedScene,
-    report: &DiffReport,
+    report: &FileChange,
     dark: bool,
 ) {
     // Color fantasma: gris suficientemente claro sobre fondo oscuro, sin competir
     let ghost = ghost_color(dark);
 
-    for comp in &report.components {
+    for (comp, name) in components(report) {
         // Mostrar fantasma si la posición cambió o el componente fue eliminado
-        let show = comp.position_changed || matches!(comp.kind, crate::core::domain::models::ChangeKind::Removed);
+        let show = comp.position_changed || matches!(comp.kind, ChangeKind::Removed);
         if !show { continue; }
 
-        // Para renombrados, el nombre del lado A está antes del "→".
-        let lookup = comp.name.split_once(" → ").map(|(a, _)| a).unwrap_or(&comp.name);
+        // Para renombrados, en el lado A el componente tenía el nombre anterior.
+        let lookup = comp.renamed_from.as_deref().unwrap_or(name);
         for elem in scene_a.elements_of(lookup) {
             paint_element_tinted(painter, vp, rect, elem, ghost);
         }
@@ -359,12 +359,12 @@ fn paint_diff_annotations(
     vp: &SchViewport,
     rect: Rect,
     scene: &ResolvedScene,
-    report: &DiffReport,
+    report: &FileChange,
 ) {
     // ── Componentes ───────────────────────────────────────────────────────────
-    for comp in &report.components {
+    for (comp, name) in components(report) {
         let (fill, stroke) = annotation_colors(&comp.kind, comp.cosmetic, comp.position_changed);
-        let bbox = elements_bbox_for(scene, &comp.name);
+        let bbox = elements_bbox_for(scene, name);
         if let Some(b) = bbox {
             let min = world_to_screen(vp, rect, b.0, b.1);
             let max = world_to_screen(vp, rect, b.2, b.3);
@@ -372,14 +372,14 @@ fn paint_diff_annotations(
             painter.rect_filled(r, 2.0, fill);
             painter.rect_stroke(r, 2.0, Stroke::new(1.5_f32, stroke), StrokeKind::Outside);
             // Si es modificado + trasladado, añadir borde cian extra
-            if matches!(comp.kind, ChangeKind::Modified) && !comp.cosmetic && comp.position_changed {
+            if matches!(comp.kind, ChangeKind::Modified | ChangeKind::Renamed) && !comp.cosmetic && comp.position_changed {
                 let cyan = Color32::from_rgb(0, 190, 255);
                 painter.rect_stroke(r.expand(2.0), 2.0, Stroke::new(1.5_f32, cyan), StrokeKind::Outside);
             }
             painter.text(
                 r.left_top() + egui::vec2(2.0, -14.0),
                 egui::Align2::LEFT_BOTTOM,
-                &comp.name,
+                name,
                 egui::FontId::monospace(11.0),
                 stroke,
             );
@@ -387,10 +387,12 @@ fn paint_diff_annotations(
     }
 
     // ── Wires / nets ─────────────────────────────────────────────────────────
-    for (net_name, color) in report.nets_added.iter()
-        .map(|n| (n, Color32::from_rgb(0, 220, 0)))
-        .chain(report.nets_removed.iter().map(|n| (n, Color32::from_rgb(220, 0, 0))))
-    {
+    let nets = report.changes.iter().filter_map(|c| match (&c.element, c.kind) {
+        (Element::Net { name }, ChangeKind::Added) => Some((name, Color32::from_rgb(0, 220, 0))),
+        (Element::Net { name }, ChangeKind::Removed) => Some((name, Color32::from_rgb(220, 0, 0))),
+        _ => None,
+    });
+    for (net_name, color) in nets {
         let mut labeled = false;
         for (x1, y1, x2, y2, label) in &scene.wires {
             let matches = label.as_deref().map(|l| l == net_name).unwrap_or(false);
@@ -427,13 +429,13 @@ fn annotation_colors(kind: &ChangeKind, cosmetic: bool, position_changed: bool) 
         (ChangeKind::Removed, _, _) =>
             (Color32::from_rgba_unmultiplied(200, 0, 0, 50), Color32::from_rgb(200, 0, 0)),
         // Solo trasladado (cosmético + cambio de posición) → cian
-        (ChangeKind::Modified, true, true) =>
+        (ChangeKind::Modified | ChangeKind::Renamed, true, true) =>
             (Color32::from_rgba_unmultiplied(0, 190, 255, 40), Color32::from_rgb(0, 190, 255)),
         // Cosmético genérico (Move All sin position_changed individual) → gris
-        (ChangeKind::Modified, true, false) =>
+        (ChangeKind::Modified | ChangeKind::Renamed, true, false) =>
             (Color32::from_rgba_unmultiplied(120, 120, 120, 40), Color32::from_gray(160)),
         // Modificado semántico → amarillo
-        (ChangeKind::Modified, false, _) =>
+        (ChangeKind::Modified | ChangeKind::Renamed, false, _) =>
             (Color32::from_rgba_unmultiplied(255, 180, 0, 50), Color32::from_rgb(255, 180, 0)),
     }
 }
@@ -445,4 +447,12 @@ fn ghost_color(dark: bool) -> Color32 {
     } else {
         Color32::from_rgba_unmultiplied(170, 170, 180, 180)
     }
+}
+
+/// Componentes del reporte con su nombre actual.
+fn components(report: &FileChange) -> impl Iterator<Item = (&Change, &str)> {
+    report.changes.iter().filter_map(|c| match &c.element {
+        Element::Component { name } => Some((c, name.as_str())),
+        _ => None,
+    })
 }

@@ -1,0 +1,19 @@
+//! Núcleo de Riku.
+//!
+//! Define el vocabulario con el que los módulos de formato (Xschem, layouts
+//! GDS/OASIS, …) le cuentan al resto del programa qué cambió entre dos
+//! versiones de un archivo. No depende de ningún formato ni motor: los
+//! módulos traducen sus tipos a estos y la CLI, el visor, `log` y `status`
+//! solo conocen estos.
+//!
+//! - [`FileChange`]: todo lo que cambió en un archivo.
+//! - [`Change`]: un cambio, con su [`Element`] tipado (sin convenciones de
+//!   strings como `"net:X"` o `"TOP:L1/0:INV"`).
+//! - [`legacy`]: la forma anterior (JSON v1) para una versión de transición.
+
+mod change;
+mod format;
+pub mod legacy;
+
+pub use change::{Bounds, Change, ChangeKind, Detail, Element, FileChange, Value, Via};
+pub use format::FileFormat;

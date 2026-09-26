@@ -7,17 +7,13 @@
 use crate::core::analysis::summary::{DetailEntry, FileSummary, SummaryCategory, label_for};
 use crate::core::domain::models::ChangeKind;
 
-/// Marker de una sola letra para un `ChangeKind`. La heurística de rename
-/// (componente `Modified` cuyo nombre contiene ` → `) es propia del
-/// `ComponentDiff` y vive aquí porque no aplica fuera de la presentación.
-pub(super) fn marker_for_change(kind: &ChangeKind, name: &str) -> &'static str {
-    if *kind == ChangeKind::Modified && name.contains(" → ") {
-        return "r";
-    }
+/// Marker de una sola letra para un `ChangeKind` (`r` = renombre).
+pub(super) fn marker_for_change(kind: ChangeKind) -> &'static str {
     match kind {
         ChangeKind::Added => "+",
         ChangeKind::Removed => "-",
         ChangeKind::Modified => "~",
+        ChangeKind::Renamed => "r",
     }
 }
 
@@ -59,14 +55,14 @@ mod tests {
 
     #[test]
     fn marker_rename_se_detecta_por_flecha_en_nombre() {
-        assert_eq!(marker_for_change(&ChangeKind::Modified, "vin → vin_diff"), "r");
-        assert_eq!(marker_for_change(&ChangeKind::Modified, "M3"), "~");
+        assert_eq!(marker_for_change(ChangeKind::Renamed), "r");
+        assert_eq!(marker_for_change(ChangeKind::Modified), "~");
     }
 
     #[test]
     fn marker_added_y_removed_se_mapean_directo() {
-        assert_eq!(marker_for_change(&ChangeKind::Added, "x"), "+");
-        assert_eq!(marker_for_change(&ChangeKind::Removed, "x"), "-");
+        assert_eq!(marker_for_change(ChangeKind::Added), "+");
+        assert_eq!(marker_for_change(ChangeKind::Removed), "-");
     }
 
     #[test]

@@ -174,7 +174,7 @@ fn diff_detects_component_value_change() {
     let modified_components: Vec<_> = report
         .components
         .iter()
-        .filter(|c| c.kind == riku::core::domain::models::ChangeKind::Modified)
+        .filter(|c| c.kind == xschem_viewer::semantic::ChangeKind::Modified)
         .collect();
     assert!(
         !modified_components.is_empty(),

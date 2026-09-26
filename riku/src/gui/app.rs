@@ -37,7 +37,7 @@ struct SchState {
     /// Escena del commit A (estado anterior) — solo en modo diff
     scene_a: Option<xschem_viewer::ResolvedScene>,
     viewport: SchViewport,
-    diff: Option<crate::core::domain::models::DiffReport>,
+    diff: Option<crate::core::domain::models::FileChange>,
     /// Encuadrar en el próximo frame con el tamaño real del panel.
     needs_fit: bool,
     /// Tab activo (solo relevante en modo diff)
@@ -995,7 +995,7 @@ impl eframe::App for RikuGuiApp {
                     }
 
                     if let Some(diff) = &sch.diff {
-                        let n = diff.components.len() + diff.nets_added.len() + diff.nets_removed.len();
+                        let n = diff.changes.iter().filter(|c| !matches!(c.element, crate::core::domain::models::Element::Whole)).count();
                         section(ui, "sch_changes", "Cambios", Some(n), true, |ui| render_change_list(ui, diff));
                     }
                 }
@@ -1514,16 +1514,21 @@ const COLOR_REMOVED: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
 const COLOR_MODIFIED: egui::Color32 = egui::Color32::from_rgb(255, 180, 0);
 const COLOR_MOVED: egui::Color32 = egui::Color32::from_rgb(0, 190, 255);
 
-fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::DiffReport) {
-    use crate::core::domain::models::ChangeKind;
+fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::FileChange) {
+    use crate::core::domain::models::{ChangeKind, Element};
 
     let mut any_shown = false;
 
-    for c in &diff.components {
+    for c in &diff.changes {
+        let Element::Component { name } = &c.element else { continue };
+        let name = match (&c.renamed_from, c.kind) {
+            (Some(from), ChangeKind::Renamed) => format!("{from} → {name}"),
+            _ => name.clone(),
+        };
         // Solo-cosmético sin posición cambiada lo omitimos (es "Move All" global)
         if c.cosmetic && !c.position_changed { continue; }
 
-        let moved_only = matches!(c.kind, ChangeKind::Modified) && c.cosmetic && c.position_changed;
+        let moved_only = matches!(c.kind, ChangeKind::Modified | ChangeKind::Renamed) && c.cosmetic && c.position_changed;
 
         let (prefix, main_color, extra_color) = match c.kind {
             ChangeKind::Added   => ("+", COLOR_ADDED, None),
@@ -1534,6 +1539,8 @@ fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::Dif
                 ("~", COLOR_MODIFIED, Some(COLOR_MOVED)),
             ChangeKind::Modified =>
                 ("~", COLOR_MODIFIED, None),
+            ChangeKind::Renamed =>
+                ("r", COLOR_MODIFIED, c.position_changed.then_some(COLOR_MOVED)),
         };
 
         ui.horizontal(|ui| {
@@ -1548,17 +1555,17 @@ fn render_change_list(ui: &mut egui::Ui, diff: &crate::core::domain::models::Dif
                     egui::StrokeKind::Outside,
                 );
             }
-            ui.colored_label(main_color, format!("{prefix} {}", c.name));
+            ui.colored_label(main_color, format!("{prefix} {name}"));
         });
         any_shown = true;
     }
 
-    for net in &diff.nets_added {
-        ui.colored_label(COLOR_ADDED, format!("+ net:{net}"));
-        any_shown = true;
-    }
-    for net in &diff.nets_removed {
-        ui.colored_label(COLOR_REMOVED, format!("- net:{net}"));
+    for c in &diff.changes {
+        match (&c.element, c.kind) {
+            (Element::Net { name }, ChangeKind::Added) => ui.colored_label(COLOR_ADDED, format!("+ net:{name}")),
+            (Element::Net { name }, ChangeKind::Removed) => ui.colored_label(COLOR_REMOVED, format!("- net:{name}")),
+            _ => continue,
+        };
         any_shown = true;
     }
 

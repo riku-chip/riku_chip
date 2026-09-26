@@ -4,9 +4,8 @@ use thiserror::Error;
 
 use crate::adapters::registry::{get_driver_for_with_config, DriverConfig};
 use crate::core::analysis::blob_io;
-use crate::core::domain::driver::DriverDiffReport;
 use crate::core::domain::git_types::GitError;
-use crate::core::domain::models::FileFormat;
+use crate::core::domain::models::{FileChange, FileFormat};
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
 
@@ -21,7 +20,7 @@ pub fn analyze_diff(
     commit_a: &str,
     commit_b: &str,
     file_path: &str,
-) -> Result<DriverDiffReport, AnalyzeError> {
+) -> Result<FileChange, AnalyzeError> {
     let svc = GitService::open(repo_path)?;
     analyze_diff_with_repo(&svc, commit_a, commit_b, file_path)
 }
@@ -31,7 +30,7 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     commit_a: &str,
     commit_b: &str,
     file_path: &str,
-) -> Result<DriverDiffReport, AnalyzeError> {
+) -> Result<FileChange, AnalyzeError> {
     analyze_diff_with_config(repo, commit_a, commit_b, file_path, &DriverConfig::default())
 }
 
@@ -45,14 +44,11 @@ pub fn analyze_diff_with_config<R: GitRepository + ?Sized>(
     commit_b: &str,
     file_path: &str,
     cfg: &DriverConfig,
-) -> Result<DriverDiffReport, AnalyzeError> {
+) -> Result<FileChange, AnalyzeError> {
     let driver = match get_driver_for_with_config(file_path, cfg) {
         Some(driver) => driver,
         None => {
-            let mut report = DriverDiffReport {
-                file_type: FileFormat::Unknown,
-                ..Default::default()
-            };
+            let mut report = FileChange::new(FileFormat::Unknown);
             report.warnings.push(format!(
                 "{file_path}: no hay driver disponible para este formato."
             ));

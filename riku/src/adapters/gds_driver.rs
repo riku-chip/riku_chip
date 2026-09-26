@@ -2,83 +2,48 @@
 //! `gds_renderer::diff_gds`. Este crate ya no depende directamente de
 //! `gdstk_rs`; toda la lógica vive en `gds-renderer`.
 
-use std::collections::BTreeMap;
-
 use gds_renderer::{
     diff_gds_cached, DiffCache, DiffConfig, GdsError, GdsGeomDiff,
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
 
-use crate::core::domain::driver::{DiffEntry, DriverDiffReport, DriverInfo, RikuDriver};
-use crate::core::domain::models::{ChangeKind, DriverKind, FileFormat};
+use crate::core::domain::driver::{DriverInfo, RikuDriver};
+use crate::core::domain::models::{
+    Bounds, Change, ChangeKind, DriverKind, Element, FileChange, FileFormat, Via,
+};
 
-fn cell_entry(name: &str, kind: ChangeKind) -> DiffEntry {
-    DiffEntry {
-        kind,
-        element: format!("cell:{name}"),
-        before: None,
-        after: None,
-        cosmetic: false,
-        position_changed: false,
-    }
+fn cell_change(name: &str, kind: ChangeKind) -> Change {
+    Change::new(kind, Element::Cell { name: name.to_string() })
 }
 
-fn geom_entry(g: &GdsGeomDiff) -> DiffEntry {
+/// Traduce un cambio de geometría de gds-renderer al vocabulario del núcleo:
+/// áreas y conteos como números, sub-celda e instancia tipadas.
+fn geom_change(g: &GdsGeomDiff) -> Change {
     let kind = match (g.added_polygons, g.removed_polygons) {
         (a, 0) if a > 0 => ChangeKind::Added,
         (0, r) if r > 0 => ChangeKind::Removed,
         _ => ChangeKind::Modified,
     };
-    let mut after = BTreeMap::new();
-    after.insert("added_polygons".to_string(), g.added_polygons.to_string());
-    after.insert(
-        "removed_polygons".to_string(),
-        g.removed_polygons.to_string(),
-    );
-    after.insert(
-        "added_area_um2".to_string(),
-        format!("{:.3}", g.added_area_um2),
-    );
-    after.insert(
-        "removed_area_um2".to_string(),
-        format!("{:.3}", g.removed_area_um2),
-    );
-    if let Some(b) = g.bbox_um {
-        after.insert(
-            "bbox_um".to_string(),
-            format!(
-                "{:.3},{:.3},{:.3},{:.3}",
-                b.min_x, b.min_y, b.max_x, b.max_y
-            ),
-        );
-    }
-    after.insert("origin_path".to_string(), g.origin_path.join("/"));
-    after.insert("flattened".to_string(), g.flattened.to_string());
-    if g.instances > 0 {
-        after.insert("instances".to_string(), g.instances.to_string());
-    }
-    if let Some((x, y)) = g.instance_at_um {
-        after.insert("instance_at_um".to_string(), format!("{x:.3},{y:.3}"));
-    }
-
-    // Element extendido: si el cambio nace via reference, el origen
-    // se incrusta como sufijo. Asi el reporte text agrupa por (cell,
-    // origen) sin colisionar con entries directas de la cell raiz.
-    let element = if g.origin_path.len() > 1 {
-        let tail = g.origin_path[1..].join("/");
-        format!("{}:L{}/{}:{}", g.cell, g.layer.layer, g.layer.datatype, tail)
-    } else {
-        format!("{}:L{}/{}", g.cell, g.layer.layer, g.layer.datatype)
+    // origin_path = [cell] (geometría propia) o [cell, sub] (vía una instancia).
+    let via = (g.origin_path.len() > 1).then(|| Via {
+        path: g.origin_path[1..].to_vec(),
+        instances: g.instances,
+        at: g.instance_at_um.map(|(x, y)| [x, y]),
+    });
+    let element = Element::Geometry {
+        cell: g.cell.clone(),
+        layer: g.layer.layer,
+        datatype: g.layer.datatype,
+        via,
     };
-
-    DiffEntry {
-        kind,
-        element,
-        before: None,
-        after: Some(after),
-        cosmetic: g.cosmetic,
-        position_changed: false,
-    }
+    let mut c = Change::new(kind, element)
+        .cosmetic(g.cosmetic)
+        .with_detail("added_polygons", None, Some(g.added_polygons.into()))
+        .with_detail("removed_polygons", None, Some(g.removed_polygons.into()))
+        .with_detail("added_area_um2", None, Some(g.added_area_um2.into()))
+        .with_detail("removed_area_um2", None, Some(g.removed_area_um2.into()));
+    c.location = g.bbox_um.map(|b| Bounds { min_x: b.min_x, min_y: b.min_y, max_x: b.max_x, max_y: b.max_y });
+    c
 }
 
 fn translate_error(e: GdsError, path_hint: &str) -> String {
@@ -141,11 +106,8 @@ impl RikuDriver for GdsDriver {
         info
     }
 
-    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> DriverDiffReport {
-        let mut report = DriverDiffReport {
-            file_type: FileFormat::Gds,
-            ..Default::default()
-        };
+    fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str) -> FileChange {
+        let mut report = FileChange::new(FileFormat::Gds);
 
         let cfg = DiffConfig {
             cosmetic_threshold_um2: self.cosmetic_threshold_um2,
@@ -159,17 +121,18 @@ impl RikuDriver for GdsDriver {
         };
 
         for n in r.cells_removed {
-            report.changes.push(cell_entry(&n, ChangeKind::Removed));
+            report.changes.push(cell_change(&n, ChangeKind::Removed));
         }
         for n in r.cells_added {
-            report.changes.push(cell_entry(&n, ChangeKind::Added));
+            report.changes.push(cell_change(&n, ChangeKind::Added));
         }
-        // "A → B" con kind Modified: el formateador lo marca como renombre.
         for (from, to) in r.cells_renamed {
-            report.changes.push(cell_entry(&format!("{from} → {to}"), ChangeKind::Modified));
+            let mut c = cell_change(&to, ChangeKind::Renamed);
+            c.renamed_from = Some(from);
+            report.changes.push(c);
         }
         for g in &r.geometry {
-            report.changes.push(geom_entry(g));
+            report.changes.push(geom_change(g));
         }
         report.warnings.extend(r.warnings);
         report
@@ -260,10 +223,10 @@ mod tests {
         let b = fixture_bytes("datatype_b.gds");
         let driver = GdsDriver::with_threshold(200.0);
         let report = driver.diff(&a, &b, "datatype.gds");
-        let geom: Vec<&DiffEntry> = report
+        let geom: Vec<&Change> = report
             .changes
             .iter()
-            .filter(|c| c.element.contains(":L"))
+            .filter(|c| matches!(c.element, Element::Geometry { .. }))
             .collect();
         assert!(!geom.is_empty(), "deberia haber entries geom");
         assert!(
@@ -278,10 +241,10 @@ mod tests {
         let a = fixture_bytes("datatype_a.gds");
         let b = fixture_bytes("datatype_b.gds");
         let report = GdsDriver::new().diff(&a, &b, "datatype.gds");
-        let geom: Vec<&DiffEntry> = report
+        let geom: Vec<&Change> = report
             .changes
             .iter()
-            .filter(|c| c.element.contains(":L"))
+            .filter(|c| matches!(c.element, Element::Geometry { .. }))
             .collect();
         assert!(!geom.is_empty());
         assert!(
@@ -312,11 +275,12 @@ mod tests {
             &renderer_fixture("rename_b.gds"),
             "rename.gds",
         );
-        let rename: Vec<_> = r.changes.iter().filter(|c| c.element.contains(" → ")).collect();
+        let rename: Vec<&Change> = r.changes.iter().filter(|c| c.kind == ChangeKind::Renamed).collect();
         assert_eq!(rename.len(), 1);
-        assert_eq!(rename[0].element, "cell:INV → INV_X1");
-        assert_eq!(rename[0].kind, ChangeKind::Modified);
-        assert!(!r.changes.iter().any(|c| c.element == "cell:INV" || c.element == "cell:INV_X1"));
+        assert_eq!(rename[0].element, Element::Cell { name: "INV_X1".into() });
+        assert_eq!(rename[0].renamed_from.as_deref(), Some("INV"));
+        let is_cell = |c: &&Change, n: &str| c.element == Element::Cell { name: n.into() } && c.kind != ChangeKind::Renamed;
+        assert!(!r.changes.iter().any(|c| is_cell(&c, "INV") || is_cell(&c, "INV_X1")));
     }
 
     #[test]
@@ -326,9 +290,9 @@ mod tests {
             &renderer_fixture("multi_inst_b.gds"),
             "multi.gds",
         );
-        let top = r.changes.iter().find(|c| c.element == "TOP:L1/0:INV").expect("TOP");
-        let after = top.after.as_ref().unwrap();
-        assert_eq!(after.get("instances").map(String::as_str), Some("2"));
-        assert!(!after.contains_key("instance_at_um"));
+        let top = r.changes.iter().find(|c| c.element.name() == "TOP:L1/0:INV").expect("TOP");
+        let Element::Geometry { via: Some(via), .. } = &top.element else { panic!("sin via: {top:?}") };
+        assert_eq!((via.instances, via.at), (2, None));
+        assert_eq!(top.after("added_area_um2").and_then(|v| v.as_f64()), Some(2.0));
     }
 }

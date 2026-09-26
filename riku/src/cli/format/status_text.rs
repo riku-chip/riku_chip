@@ -3,13 +3,12 @@
 //! Soporta los tres niveles de detalle definidos en la spec:
 //! - `Resumen`: una línea por archivo con contadores agregados.
 //! - `Detalle`: añade entradas por componente/net cambiada.
-//! - `Completo`: imprime el `DriverDiffReport` íntegro tras el resumen.
+//! - `Completo`: imprime el `FileChange` íntegro tras el resumen.
 
 use super::common::{format_counts, print_detail};
 use crate::core::analysis::status::StatusReport;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
-use crate::core::domain::driver::DriverDiffReport;
-use crate::core::domain::models::ChangeKind;
+use crate::core::domain::models::FileChange;
 
 /// Imprime el reporte completo en stdout, los warnings en stderr.
 pub fn print(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
@@ -127,20 +126,21 @@ fn print_file_entry(f: &FileSummary, level: DetailLevel) {
     }
 }
 
-fn print_full_report(rep: &DriverDiffReport) {
+fn print_full_report(rep: &FileChange) {
     println!("      ── reporte completo ──");
     if rep.changes.is_empty() {
         println!("      (sin entradas)");
         return;
     }
-    for c in &rep.changes {
-        let marker = match c.kind {
-            ChangeKind::Added => "+",
-            ChangeKind::Removed => "-",
-            ChangeKind::Modified => "~",
+    // Misma notación que el JSON `full_report` (v1): `cell:INV`, `net:vdd`…
+    for e in riku_kernel::legacy::entries(rep) {
+        let marker = match e.kind {
+            "added" => "+",
+            "removed" => "-",
+            _ => "~",
         };
-        let cosmetic = if c.cosmetic { " [cosmetic]" } else { "" };
-        println!("      {marker} {}{cosmetic}", c.element);
+        let cosmetic = if e.cosmetic { " [cosmetic]" } else { "" };
+        println!("      {marker} {}{cosmetic}", e.element);
     }
     if !rep.warnings.is_empty() {
         println!("      avisos del driver:");

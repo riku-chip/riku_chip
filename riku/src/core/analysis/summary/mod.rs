@@ -1,7 +1,7 @@
-//! Vistas agregadas (`Summary`) sobre un `DriverDiffReport`.
+//! Vistas agregadas (`Summary`) sobre un `FileChange`.
 //!
 //! `riku status` y `riku log` necesitan presentar muchos archivos en una sola
-//! pantalla. El `DriverDiffReport` completo es demasiado verboso para eso —
+//! pantalla. El `FileChange` completo es demasiado verboso para eso —
 //! `FileSummary` es una agregación pensada para listas: pocas claves, fácil de
 //! formatear en una línea, y categorizada (semantic / cosmetic / unchanged).
 //!
