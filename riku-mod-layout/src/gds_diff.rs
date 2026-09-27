@@ -137,10 +137,67 @@ fn parse_side(content: &[u8], side: &'static str) -> Result<Library, GdsError> {
         let sources = crate::mag::collect(content, "layout.mag", None).map_err(|msg| GdsError::Parse { side, msg })?;
         return Ok(crate::mag::build(&sources).0);
     }
-    Library::from_bytes_any(content).map_err(|e| GdsError::Parse {
+    let lib = Library::from_bytes_any(content).map_err(|e| GdsError::Parse {
         side,
         msg: e.to_string(),
-    })
+    })?;
+    check_acyclic(&lib).map_err(|msg| GdsError::Parse { side, msg })?;
+    Ok(lib)
+}
+
+/// Un GDS corrupto puede tener un ciclo de celdas (A instancia a B y B a
+/// A). Aplanarlo recursa sin fin en gdstk y aborta el proceso por desborde
+/// de pila, así que se busca antes, una vez: DFS iterativo por el grafo de
+/// referencias, O(celdas + referencias). El error dice el ciclo.
+pub fn check_acyclic(lib: &Library) -> Result<(), String> {
+    let cells: Vec<_> = lib.cells().collect();
+    let index: HashMap<&str, usize> = cells.iter().enumerate().map(|(i, c)| (c.name(), i)).collect();
+    // Hijos de cada celda (solo los que están en el archivo).
+    let children: Vec<Vec<usize>> = cells
+        .iter()
+        .map(|c| c.references().filter_map(|r| index.get(r.cell_name()).copied()).collect())
+        .collect();
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        New,
+        Open,
+        Done,
+    }
+    let mut mark = vec![Mark::New; cells.len()];
+    for root in 0..cells.len() {
+        if mark[root] != Mark::New {
+            continue;
+        }
+        // Pila de (celda, próximo hijo a visitar); la pila es el camino.
+        let mut stack = vec![(root, 0usize)];
+        mark[root] = Mark::Open;
+        while let Some(top) = stack.last_mut() {
+            let (cell, next) = *top;
+            top.1 += 1;
+            match children[cell].get(next) {
+                Some(&child) => {
+                    match mark[child] {
+                        Mark::New => {
+                            mark[child] = Mark::Open;
+                            stack.push((child, 0));
+                        }
+                        Mark::Open => {
+                            let start = stack.iter().position(|&(c, _)| c == child).unwrap_or(0);
+                            let mut path: Vec<&str> = stack[start..].iter().map(|&(c, _)| cells[c].name()).collect();
+                            path.push(cells[child].name());
+                            return Err(format!("ciclo de celdas (el archivo está dañado): {}", path.join(" → ")));
+                        }
+                        Mark::Done => {}
+                    }
+                }
+                None => {
+                    mark[cell] = Mark::Done;
+                    stack.pop();
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Un lado de un diff: el contenido del archivo y los otros archivos de su
@@ -784,6 +841,15 @@ mod tests {
         assert!(diff_gds(&gds, &gds).unwrap().geometry.is_empty(), "contra sí mismo no cambia nada");
         assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
         assert!(r.warnings[0].starts_with("después:") && r.warnings[0].contains("IO_PAD"), "{:?}", r.warnings);
+    }
+
+    #[test]
+    fn a_cycle_of_cells_is_an_error_not_a_stack_overflow() {
+        // TOP → A → B → A. Antes: aplanar TOP recursaba sin fin.
+        let gds = fixture_bytes("cycle.gds");
+        let err = diff_gds(&gds, &gds).unwrap_err().to_string();
+        assert!(err.contains("A → B → A"), "{err}");
+        assert!(check_acyclic(&Library::from_bytes(&fixture_bytes("hier_inv_a.gds")).unwrap()).is_ok());
     }
 
     fn fixture_bytes(name: &str) -> Vec<u8> {

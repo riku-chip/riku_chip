@@ -131,3 +131,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 | B5 | Hecho | gdstk_rust: un aviso del lector (códigos 1-8) devuelve la `Library` y `read_warning()`; riku lo muestra como aviso (qué celdas faltan) en el diff y en el visor |
 | B6 | Hecho | `diff_set::token_files`: el visor contra `:worktree` lee las sub-celdas del disco |
 | B7 | Hecho | `cancel_pending()` al empezar toda carga (abrir, diff, `.raw`); el diff saca la vista de ondas; `diff_ctx` se limpia al abrir un archivo y se fija solo si la carga arrancó. Verificado compilando y con la suite (el visor no tiene tests de estado); el arreglo de raíz es el `enum Content` de 9.3 |
+| B8 | Hecho | `check_acyclic`: DFS iterativo por el grafo de referencias al leer un GDS/OASIS (diff y visor); con ciclo, error con el camino (`A → B → A`) en vez de desbordar la pila |
