@@ -311,6 +311,12 @@ pub(crate) mod tests {
     fn real_history_with_merges_follows_the_dag() {
         let Some(all) = gdstk_history() else { return };
         let merges = all.iter().filter(|(_, p)| p.len() > 1).count();
+        // La CI baja el submódulo con un solo commit (clon superficial): sin
+        // historia no hay nada que probar acá; los casos sintéticos siguen.
+        if merges == 0 {
+            eprintln!("historia de gdstk recortada ({} commits): se salta", all.len());
+            return;
+        }
         assert!(all.len() > 500 && merges > 20, "{} commits, {merges} merges", all.len());
         // Entera, cortada como con `-n 100`, y con un tercio de los commits
         // visibles (como con `--paths`).
