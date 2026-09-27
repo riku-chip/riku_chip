@@ -1,11 +1,13 @@
-//! Diff de alto nivel sobre GDSII. Encapsula gdstk_rs y devuelve un reporte
-//! de dominio Miku sin filtrar tipos del parser.
+//! Diff de alto nivel sobre layouts (GDSII, OASIS y Magic). Encapsula
+//! gdstk_rs y devuelve un reporte de riku sin filtrar tipos del parser.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use gdstk_rs::{sniff_format, Cell, GdsTag, Library, OwnedPolygon};
 use rayon::prelude::*;
 use viewer_core::FileSource;
+
+use crate::source::{self, Raw, ReadError};
 
 use crate::hier_walk::{Origin, OriginPath, Origins};
 use crate::prints::{layer_prints, pair_prints, tree_prints, xor_layer, LayerPrints, PairPrints};
@@ -127,29 +129,11 @@ pub fn is_layout(content: &[u8]) -> bool {
     sniff_format(content).is_some()
 }
 
-/// Lee un layout sin acceso a otros archivos: un `.mag` busca sus
-/// sub-celdas solo en el PDK (ver [`diff_layout_sides`] para el resto).
-fn parse_side(content: &[u8], side: &'static str) -> Result<Library, GdsError> {
-    if !is_layout(content) {
-        return Err(GdsError::NotGdsii { side });
-    }
-    if crate::mag::is_magic(content) {
-        let sources = crate::mag::collect(content, "layout.mag", None).map_err(|msg| GdsError::Parse { side, msg })?;
-        return Ok(crate::mag::build(&sources).0);
-    }
-    let lib = Library::from_bytes_any(content).map_err(|e| GdsError::Parse {
-        side,
-        msg: e.to_string(),
-    })?;
-    check_acyclic(&lib).map_err(|msg| GdsError::Parse { side, msg })?;
-    Ok(lib)
-}
-
 /// Un GDS corrupto puede tener un ciclo de celdas (A instancia a B y B a
 /// A). Aplanarlo recursa sin fin en gdstk y aborta el proceso por desborde
 /// de pila, así que se busca antes, una vez: DFS iterativo por el grafo de
 /// referencias, O(celdas + referencias). El error dice el ciclo.
-pub fn check_acyclic(lib: &Library) -> Result<(), String> {
+pub(crate) fn check_acyclic(lib: &Library) -> Result<(), String> {
     let cells: Vec<_> = lib.cells().collect();
     let index: HashMap<&str, usize> = cells.iter().enumerate().map(|(i, c)| (c.name(), i)).collect();
     // Hijos de cada celda (solo los que están en el archivo).
@@ -208,42 +192,15 @@ pub struct LayoutSide<'a> {
     pub files: Option<&'a dyn FileSource>,
 }
 
-/// Lo leído de un lado antes de armar la `Library`: los bytes de un
-/// GDSII/OASIS, o todos los archivos de una jerarquía Magic.
-enum Read<'a> {
-    Bytes(&'a [u8]),
-    Magic(gdstk_rs::magic::MagSources),
-}
-
-impl Read<'_> {
-    fn inputs(&self) -> Vec<&[u8]> {
-        match self {
-            Read::Bytes(b) => vec![b],
-            Read::Magic(s) => crate::mag::cache_inputs(s),
-        }
-    }
-
-    /// `Library`, avisos para el usuario y, si es Magic, lo que trae además
-    /// de la geometría (puertos).
-    fn library(&self, side: &'static str) -> Result<(Library, Vec<String>, Option<gdstk_rs::magic::MagInfo>), GdsError> {
-        match self {
-            Read::Bytes(b) => parse_side(b, side).map(|l| (l, Vec::new(), None)),
-            Read::Magic(s) => {
-                let (lib, info) = crate::mag::build(s);
-                let notes = crate::mag::notices(&info);
-                Ok((lib, notes, Some(info)))
-            }
-        }
-    }
-}
-
 /// Diff de un archivo de layout entre dos versiones, con acceso a los otros
 /// archivos de cada una: un `.mag` resuelve sus sub-celdas en su misma
 /// versión (ver `mag`). `path` es la ruta del archivo relativa a la raíz de
-/// `files`. Si ningún lado es Magic, es [`diff_gds_cached`].
+/// `files`. Un lado vacío (0 bytes: el archivo no existía en esa versión)
+/// cuenta como library vacía; bytes que no son un layout son error.
 ///
-/// La cache usa como clave todos los archivos leídos: editar una sub-celda
-/// cambia el resultado aunque el archivo principal sea el mismo.
+/// La cache usa como clave todos los archivos leídos (editar una sub-celda
+/// cambia el resultado aunque el archivo principal sea el mismo) y el lambda
+/// de Magic.
 pub fn diff_layout_sides(
     a: LayoutSide<'_>,
     b: LayoutSide<'_>,
@@ -251,45 +208,41 @@ pub fn diff_layout_sides(
     cfg: &DiffConfig,
     cache: &crate::DiffCache,
 ) -> Result<GdsDiffReport, GdsError> {
-    if !crate::mag::is_magic(a.bytes) && !crate::mag::is_magic(b.bytes) {
-        return diff_gds_cached(a.bytes, b.bytes, cfg, cache);
-    }
-    fn read<'a>(s: LayoutSide<'a>, path: &str, side: &'static str) -> Result<Option<Read<'a>>, GdsError> {
+    fn collect<'a>(s: LayoutSide<'a>, path: &str, side: &'static str) -> Result<Option<Raw<'a>>, GdsError> {
         if s.bytes.is_empty() {
-            Ok(None)
-        } else if crate::mag::is_magic(s.bytes) {
-            crate::mag::collect(s.bytes, path, s.files)
-                .map(|m| Some(Read::Magic(m)))
-                .map_err(|msg| GdsError::Parse { side, msg })
-        } else {
-            Ok(Some(Read::Bytes(s.bytes)))
+            return Ok(None);
         }
+        source::collect(s.bytes, Some(path), s.files).map(Some).map_err(|e| side_error(e, side))
     }
-    let (ra, rb) = rayon::join(|| read(a, path, "A"), || read(b, path, "B"));
+    let (ra, rb) = rayon::join(|| collect(a, path, "A"), || collect(b, path, "B"));
     let (ra, rb) = (ra?, rb?);
-    let mut inputs: Vec<&[u8]> = vec![b"A"];
-    inputs.extend(ra.iter().flat_map(Read::inputs));
-    inputs.push(b"B");
-    inputs.extend(rb.iter().flat_map(Read::inputs));
-    let params = format!("cosmetic={}", cfg.cosmetic_threshold_um2);
+    let (inputs, read_params) = source::pair_key(ra.as_ref(), rb.as_ref());
+    let params = format!("{read_params}cosmetic={}", cfg.cosmetic_threshold_um2);
     cache
         .get_or_compute("report", &inputs, &params, || {
-            let build = |r: &Option<Read<'_>>, side| r.as_ref().map(|r| r.library(side)).transpose();
-            let (la, lb) = rayon::join(|| build(&ra, "A"), || build(&rb, "B"));
+            let read = |r: &Option<Raw<'_>>, side| r.as_ref().map(|r| r.read(None).map_err(|e| side_error(e, side))).transpose();
+            let (la, lb) = rayon::join(|| read(&ra, "A"), || read(&rb, "B"));
             let (la, lb) = (la?, lb?);
-            let mut report = diff_libraries(la.as_ref().map(|l| &l.0), lb.as_ref().map(|l| &l.0), cfg);
+            let mut report = diff_libraries(la.as_ref().map(|s| &*s.lib), lb.as_ref().map(|s| &*s.lib), cfg);
             report.ports = crate::mag::port_changes(
-                la.as_ref().and_then(|l| l.2.as_ref()),
-                lb.as_ref().and_then(|l| l.2.as_ref()),
+                la.as_ref().and_then(|s| s.info.as_ref()),
+                lb.as_ref().and_then(|s| s.info.as_ref()),
             );
             for (label, side) in [("antes", &la), ("después", &lb)] {
-                if let Some((_, notes, _)) = side {
-                    report.warnings.extend(notes.iter().map(|n| format!("{label}: {n}")));
+                if let Some(s) = side {
+                    report.warnings.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
                 }
             }
             Ok(report)
         })
         .map(|(r, _)| r)
+}
+
+fn side_error(e: ReadError, side: &'static str) -> GdsError {
+    match e {
+        ReadError::NotLayout => GdsError::NotGdsii { side },
+        ReadError::Parse(msg) => GdsError::Parse { side, msg },
+    }
 }
 
 /// Area absoluta de un poligono via shoelace. Coords ya en espacio de usuario
@@ -343,50 +296,22 @@ fn union_bbox_um(
     bbox
 }
 
-/// Como [`diff_gds_with_config`], guardando el reporte en `cache` (layouts
-/// grandes: ver [`crate::DiffCache`]). Los errores no se guardan.
-pub fn diff_gds_cached(
-    a: &[u8],
-    b: &[u8],
-    cfg: &DiffConfig,
-    cache: &crate::DiffCache,
-) -> Result<GdsDiffReport, GdsError> {
-    let params = format!("cosmetic={}", cfg.cosmetic_threshold_um2);
-    cache.get_or_compute("report", &[a, b], &params, || diff_gds_with_config(a, b, cfg)).map(|(r, _)| r)
-}
-
-/// Diff de dos GDSII con configuracion por defecto.
-pub fn diff_gds(a: &[u8], b: &[u8]) -> Result<GdsDiffReport, GdsError> {
+/// Diff de dos layouts sueltos (un `.mag` solo ve el PDK).
+#[cfg(test)]
+pub(crate) fn diff_gds(a: &[u8], b: &[u8]) -> Result<GdsDiffReport, GdsError> {
     diff_gds_with_config(a, b, &DiffConfig::default())
 }
 
-/// Diff de dos GDSII: cells anadidas/removidas + XOR geometrico por
-/// (cell, layer, datatype) con metricas en µm² + bbox + flag cosmetico.
-///
-/// Un lado vacio (0 bytes: el archivo no existia en ese commit) cuenta como
-/// library vacia: todas las cells del otro lado son anadidas o removidas.
-/// Bytes no vacios que no son GDSII siguen siendo error.
-pub fn diff_gds_with_config(
-    a: &[u8],
-    b: &[u8],
-    cfg: &DiffConfig,
-) -> Result<GdsDiffReport, GdsError> {
-    let parse_opt = |bytes: &[u8], side| -> Result<Option<Library>, GdsError> {
-        if bytes.is_empty() { Ok(None) } else { parse_side(bytes, side).map(Some) }
-    };
-    let (lib_a, lib_b) = rayon::join(|| parse_opt(a, "A"), || parse_opt(b, "B"));
-    let (lib_a, lib_b) = (lib_a?, lib_b?);
-    let mut report = diff_libraries(lib_a.as_ref(), lib_b.as_ref(), cfg);
-    for (label, lib) in [("antes", &lib_a), ("después", &lib_b)] {
-        report.warnings.extend(lib.iter().flat_map(read_notes).map(|n| format!("{label}: {n}")));
-    }
-    Ok(report)
+#[cfg(test)]
+pub(crate) fn diff_gds_with_config(a: &[u8], b: &[u8], cfg: &DiffConfig) -> Result<GdsDiffReport, GdsError> {
+    let side = |bytes| LayoutSide { bytes, files: None };
+    diff_layout_sides(side(a), side(b), "layout.mag", cfg, &crate::DiffCache::disabled())
 }
 
 /// El aviso del lector de gdstk, si hubo (el archivo se leyó igual). Una
 /// referencia a una celda que no está (típico de un stream-out parcial o de
 /// celdas de otra biblioteca) dice cuáles: esas instancias no se comparan.
-pub fn read_notes(lib: &Library) -> Vec<String> {
+pub(crate) fn read_notes(lib: &Library) -> Vec<String> {
     let Some(code) = lib.read_warning() else { return Vec::new() };
     if code != gdstk_rs::ErrorCode::MissingReference {
         return vec![format!("el lector de GDS avisó: {}", code.as_str())];
@@ -402,9 +327,9 @@ pub fn read_notes(lib: &Library) -> Vec<String> {
 }
 
 /// Diff de dos librerías ya leídas (`None` = el archivo no existía de ese
-/// lado): el cuerpo de [`diff_gds_with_config`], para cualquier formato.
+/// lado), de cualquier formato.
 /// Los cambios llevan el nombre de su capa si el archivo lo da.
-pub fn diff_libraries(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
+pub(crate) fn diff_libraries(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
     let mut report = diff_libraries_unnamed(lib_a, lib_b, cfg);
     let names: HashMap<LayerKey, String> = lib_a
         .into_iter()
@@ -421,65 +346,86 @@ pub fn diff_libraries(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &Di
 }
 
 fn diff_libraries_unnamed(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
-    // unit es metros/unit. Para µm: factor = unit / 1e-6.
-    // Si A y B difieren en unit, usamos el de B (lado "after").
-    let unit_factor = lib_b.or(lib_a).map_or(1.0, |l| l.unit() / 1e-6);
-
-    let mut report = GdsDiffReport::default();
-
-    let names = |l: Option<&Library>| -> BTreeSet<String> {
-        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+    let cells = pair_cells(lib_a, lib_b);
+    let mut report = GdsDiffReport {
+        cells_added: cells.added,
+        cells_removed: cells.removed,
+        cells_renamed: cells.renamed,
+        ..Default::default()
     };
-    let (names_a, names_b) = (names(lib_a), names(lib_b));
-
-    report.cells_removed = names_a.difference(&names_b).cloned().collect();
-    report.cells_added = names_b.difference(&names_a).cloned().collect();
-
     let (Some(lib_a), Some(lib_b)) = (lib_a, lib_b) else {
         return report;
     };
-
-    let (only_a, only_b) = (names_a.difference(&names_b).cloned().collect(), names_b.difference(&names_a).cloned().collect());
-    for (from, to) in detect_renames(&lib_a, &lib_b, &only_a, &only_b) {
-        report.cells_removed.retain(|n| *n != from);
-        report.cells_added.retain(|n| *n != to);
-        report.cells_renamed.push((from, to));
-    }
-
-    let mut layers: BTreeSet<LayerKey> = BTreeSet::new();
-    for t in lib_a.layers().into_iter().chain(lib_b.layers()) {
-        layers.insert(t.into());
-    }
-
-    // Las cells comunes, en paralelo y en orden de nombre. Las de igual huella
-    // jerarquica tienen el mismo aplanado: ni se aplanan.
-    let common: Vec<&String> = names_a.intersection(&names_b).collect();
-    let (tree_a, tree_b) = rayon::join(|| tree_prints(&lib_a), || tree_prints(&lib_b));
-    let per_cell: Vec<(Vec<GdsGeomDiff>, Vec<String>)> = common
-        .par_iter()
-        .map(|name| {
-            if tree_a.same(&tree_b, name) {
-                return Default::default();
-            }
-            let (Some(ca), Some(cb)) = (lib_a.find_cell(name), lib_b.find_cell(name)) else {
-                return Default::default();
-            };
-            // Geometria aplanada identica: el XOR daria vacio, no hace falta.
-            let prints = pair_prints(&ca, &cb, Some((&tree_a, &tree_b)));
-            if prints.same() {
-                return Default::default();
-            }
-            let d = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg, Some(&prints));
-            let notes = d.failure_notes(name);
-            (d.geometry, notes)
-        })
-        .collect();
+    let per_cell = map_changed_cells(lib_a, lib_b, &cells.common, cfg, |name, d| {
+        let notes = d.failure_notes(name);
+        (d.geometry, notes)
+    });
     for (geometry, notes) in per_cell {
         report.geometry.extend(group_instances(geometry, cfg));
         report.warnings.extend(notes);
     }
-
     report
+}
+
+/// Las celdas de dos libraries: las que solo están en una, los renombres
+/// (misma geometría con otro nombre, ver [`detect_renames`]) y las comunes.
+/// Todo en orden de nombre.
+struct CellPairing {
+    added: Vec<String>,
+    removed: Vec<String>,
+    renamed: Vec<(String, String)>,
+    common: Vec<String>,
+}
+
+fn pair_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> CellPairing {
+    let names = |l: Option<&Library>| -> BTreeSet<String> {
+        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+    };
+    let (na, nb) = (names(lib_a), names(lib_b));
+    let only_a: BTreeSet<String> = na.difference(&nb).cloned().collect();
+    let only_b: BTreeSet<String> = nb.difference(&na).cloned().collect();
+    let renamed = match (lib_a, lib_b) {
+        (Some(la), Some(lb)) => detect_renames(la, lb, &only_a, &only_b),
+        _ => Vec::new(),
+    };
+    CellPairing {
+        removed: only_a.into_iter().filter(|n| !renamed.iter().any(|(from, _)| from == n)).collect(),
+        added: only_b.into_iter().filter(|n| !renamed.iter().any(|(_, to)| to == n)).collect(),
+        common: na.intersection(&nb).cloned().collect(),
+        renamed,
+    }
+}
+
+/// `f` sobre el diff de cada celda común cuya geometría aplanada cambió, en
+/// paralelo y en orden de nombre. Las de igual huella jerárquica tienen el
+/// mismo aplanado y ni se aplanan; las de igual huella aplanada no pasan
+/// por el XOR.
+fn map_changed_cells<T: Send>(
+    lib_a: &Library,
+    lib_b: &Library,
+    common: &[String],
+    cfg: &DiffConfig,
+    f: impl Fn(&str, CellDiff) -> T + Sync,
+) -> Vec<T> {
+    // unit es metros/unit. Para µm: factor = unit / 1e-6. Si A y B difieren
+    // en unit, manda B (el lado "after").
+    let unit_factor = lib_b.unit() / 1e-6;
+    let layers: BTreeSet<LayerKey> = lib_a.layers().into_iter().chain(lib_b.layers()).map(LayerKey::from).collect();
+    let (tree_a, tree_b) = rayon::join(|| tree_prints(lib_a), || tree_prints(lib_b));
+    common
+        .par_iter()
+        .filter_map(|name| {
+            if tree_a.same(&tree_b, name) {
+                return None;
+            }
+            let (ca, cb) = (lib_a.find_cell(name)?, lib_b.find_cell(name)?);
+            let prints = pair_prints(&ca, &cb, Some((&tree_a, &tree_b)));
+            if prints.same() {
+                return None;
+            }
+            Some(f(name, diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg, Some(&prints))))
+        })
+        .collect()
 }
 
 /// Poligonos del XOR de una capa, en coordenadas de la cell comparada
@@ -528,7 +474,7 @@ pub fn diff_cell(
 
 /// Como [`diff_cell`], con otro nombre de cada lado (celda renombrada:
 /// `name_a` en A, `name_b` en B).
-pub fn diff_cell_as(
+pub(crate) fn diff_cell_as(
     lib_a: Option<&Library>,
     name_a: &str,
     lib_b: Option<&Library>,
@@ -809,41 +755,18 @@ fn detect_renames(
 /// puede ser solo reordenamiento de poligonos, sin cambio real). Un lado
 /// `None` = archivo inexistente: todas sus cells cuentan como anadidas o
 /// removidas.
-pub fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> BTreeMap<String, CellChange> {
-    let names = |l: Option<&Library>| -> BTreeSet<String> {
-        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
-    };
-    let (na, nb) = (names(lib_a), names(lib_b));
+pub(crate) fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> BTreeMap<String, CellChange> {
+    let cells = pair_cells(lib_a, lib_b);
     let mut out: BTreeMap<String, CellChange> = BTreeMap::new();
-    out.extend(nb.difference(&na).map(|n| (n.clone(), CellChange::Added)));
-    out.extend(na.difference(&nb).map(|n| (n.clone(), CellChange::Removed)));
-
-    let (Some(la), Some(lb)) = (lib_a, lib_b) else { return out };
-    let only_a: BTreeSet<String> = na.difference(&nb).cloned().collect();
-    let only_b: BTreeSet<String> = nb.difference(&na).cloned().collect();
-    for (from, to) in detect_renames(la, lb, &only_a, &only_b) {
-        out.remove(&from);
-        out.insert(to, CellChange::Renamed { from });
+    out.extend(cells.added.into_iter().map(|n| (n, CellChange::Added)));
+    out.extend(cells.removed.into_iter().map(|n| (n, CellChange::Removed)));
+    out.extend(cells.renamed.into_iter().map(|(from, to)| (to, CellChange::Renamed { from })));
+    if let (Some(la), Some(lb)) = (lib_a, lib_b) {
+        let modified = map_changed_cells(la, lb, &cells.common, &DiffConfig::default(), |name, d| {
+            (!d.geometry.is_empty()).then(|| name.to_string())
+        });
+        out.extend(modified.into_iter().flatten().map(|n| (n, CellChange::Modified)));
     }
-    let cfg = DiffConfig::default();
-    let unit_factor = lb.unit() / 1e-6;
-    let layers: BTreeSet<LayerKey> = la.layers().into_iter().chain(lb.layers()).map(LayerKey::from).collect();
-    let common: Vec<&String> = na.intersection(&nb).collect();
-    let (tree_a, tree_b) = rayon::join(|| tree_prints(la), || tree_prints(lb));
-    let modified: Vec<&String> = common
-        .par_iter()
-        .filter(|name| {
-            if tree_a.same(&tree_b, name) {
-                return false;
-            }
-            let (Some(ca), Some(cb)) = (la.find_cell(name), lb.find_cell(name)) else { return false };
-            let prints = pair_prints(&ca, &cb, Some((&tree_a, &tree_b)));
-            !prints.same()
-                && !diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, &cfg, Some(&prints)).geometry.is_empty()
-        })
-        .copied()
-        .collect();
-    out.extend(modified.into_iter().map(|n| (n.clone(), CellChange::Modified)));
     out
 }
 

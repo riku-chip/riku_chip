@@ -68,13 +68,7 @@ pub fn pdk_status() -> PdkStatus {
     }
 }
 
-/// Carpeta con los PDKs instalados: `$PDK_ROOT`, o `/foss/pdks` (iic-osic-tools)
-/// si existe.
-pub fn pdk_root() -> Option<PathBuf> {
-    std::env::var_os("PDK_ROOT")
-        .map(PathBuf::from)
-        .or_else(|| Some(PathBuf::from("/foss/pdks")).filter(|p| p.is_dir()))
-}
+pub use viewer_core::files::pdk_root;
 
 /// PDKs instalados en `root` que tienen símbolos de Xschem, ordenados.
 pub fn installed_pdks(root: &Path) -> Vec<String> {

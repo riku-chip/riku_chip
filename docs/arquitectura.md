@@ -16,7 +16,7 @@ riku_chip/
 │   └── src/gui/          visor egui (feature `gui`)
 ├── riku-kernel/          tipos neutros (FileChange, Change, Element, ChangeKind, Detail…),
 │                         trait FormatModule, Registry; legacy.rs = JSON v1 exacto
-├── riku-mod-layout/      módulo GDS/OASIS/Magic: diff geométrico, cache, paletas, GdsBackend;
+├── riku-mod-layout/      módulo GDS/OASIS/Magic: diff geométrico, cache, estilo por PDK, GdsBackend;
 │                         mag.rs = de dónde salen las sub-celdas de un .mag (commit, PDK)
 ├── viewer-core/          contrato del visor: ViewerBackend, Scene, DrawElement, SceneIndex
 ├── external/gdstk/                 motor: gdstk-rs, binding de gdstk (C++) y lector de Magic (Rust)   [submódulo]

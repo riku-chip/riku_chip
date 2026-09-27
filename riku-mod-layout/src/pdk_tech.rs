@@ -9,9 +9,8 @@
 //!   cada tipo de Magic (`layer MET1 *metal1` + `calma 68 20`).
 //!
 //! Qué PDK corresponde a un layout lo deciden sus capas (el que más conoce;
-//! en empate, `$PDK`), no su nombre. Las tablas compiladas de `palette.rs`
-//! siguen mandando para SKY130, GF180 e IHP (rol y apilado curados a mano) y
-//! quedan de respaldo cuando no hay PDK instalado.
+//! en empate, `$PDK`), no su nombre. [`crate::process::Process`] lo junta
+//! con las tablas compiladas de `palette.rs`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -29,6 +28,14 @@ pub struct TechLayer {
     pub role: LayerRole,
 }
 
+/// Un tipo de capa de Magic: la capa GDS en que se escribe y si se dibuja
+/// solo con contorno (obstrucciones, bloqueos, comentarios).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MagicType {
+    pub tag: (u32, u32),
+    pub outline: bool,
+}
+
 /// Lo que riku sabe de un PDK instalado.
 #[derive(Debug, Default)]
 pub struct Tech {
@@ -37,14 +44,14 @@ pub struct Tech {
     /// Capas del `.lyp`, en su orden (que se usa como apilado).
     pub layers: Vec<TechLayer>,
     index: HashMap<(u32, u32), usize>,
-    /// Tipo de Magic (y sus alias) → capa GDS.
-    magic: HashMap<String, (u32, u32)>,
+    /// Tipo de Magic (y sus alias) → capa GDS y si va solo con contorno.
+    magic: HashMap<String, MagicType>,
     /// Lambda de Magic en µm.
     pub lambda_um: Option<f64>,
 }
 
 impl Tech {
-    pub(crate) fn new(name: String, layers: Vec<TechLayer>, magic: HashMap<String, (u32, u32)>, lambda_um: Option<f64>) -> Self {
+    pub(crate) fn new(name: String, layers: Vec<TechLayer>, magic: HashMap<String, MagicType>, lambda_um: Option<f64>) -> Self {
         let mut index = HashMap::new();
         for (i, l) in layers.iter().enumerate() {
             index.entry(l.tag).or_insert(i);
@@ -58,24 +65,21 @@ impl Tech {
     }
 
     /// Capa GDS en que Magic escribe el tipo `name`.
-    pub fn magic_tag(&self, name: &str) -> Option<(u32, u32)> {
+    pub fn magic_type(&self, name: &str) -> Option<MagicType> {
         self.magic.get(name).copied()
     }
-}
 
-/// Raíz de los PDK: `$PDK_ROOT`, o `/foss/pdks` si existe.
-pub(crate) fn pdk_root() -> Option<PathBuf> {
-    std::env::var_os("PDK_ROOT")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .or_else(|| Some(PathBuf::from("/foss/pdks")).filter(|p| p.is_dir()))
+    /// Todos los tipos de Magic que conoce.
+    pub fn magic_types(&self) -> impl Iterator<Item = (&str, MagicType)> {
+        self.magic.iter().map(|(n, t)| (n.as_str(), *t))
+    }
 }
 
 /// PDK instalados, `$PDK` primero. Se leen una vez por proceso.
 pub fn installed() -> &'static [Tech] {
     static ALL: OnceLock<Vec<Tech>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let mut dirs: Vec<PathBuf> = pdk_root()
+        let mut dirs: Vec<PathBuf> = viewer_core::files::pdk_root()
             .and_then(|r| std::fs::read_dir(r).ok())
             .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.join("libs.tech").is_dir()).collect())
             .unwrap_or_default();
@@ -98,22 +102,29 @@ pub fn by_name(name: &str) -> Option<&'static Tech> {
     installed().iter().find(|t| t.name == name)
 }
 
-/// El PDK instalado cuyo `.lyp` conoce más capas del layout. Hace falta
-/// que conozca al menos dos y un tercio de ellas.
-pub fn for_tags(tags: &[(u32, u32)]) -> Option<&'static Tech> {
-    best(installed(), |t| tags.iter().filter(|&&tag| t.layer(tag).is_some()).count(), |n| n >= 2 && n * 3 >= tags.len())
+/// El PDK instalado (entre los que acepta `fits`) cuyo `.lyp` conoce más
+/// capas del layout. Hace falta que conozca al menos dos y un tercio de ellas.
+pub fn for_tags(tags: &[(u32, u32)], fits: impl Fn(&Tech) -> bool) -> Option<&'static Tech> {
+    let hits = |t: &Tech| tags.iter().filter(|&&tag| t.layer(tag).is_some()).count();
+    best(installed(), fits, hits, |n| n >= 2 && n * 3 >= tags.len())
 }
 
-/// El PDK instalado cuyo `.tech` de Magic conoce más tipos del layout.
-pub fn for_magic<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<&'static Tech> {
-    let names: Vec<&str> = names.into_iter().collect();
-    best(installed(), |t| names.iter().filter(|n| t.magic.contains_key(**n)).count(), |n| n >= 1)
+/// El PDK instalado (entre los que acepta `fits`) cuyo `.tech` de Magic
+/// conoce más tipos del layout.
+pub fn for_magic(names: &[&str], fits: impl Fn(&Tech) -> bool) -> Option<&'static Tech> {
+    let hits = |t: &Tech| names.iter().filter(|n| t.magic.contains_key(**n)).count();
+    best(installed(), fits, hits, |n| n >= 1)
 }
 
 /// El de más aciertos; en empate, el primero (`$PDK` va primero).
-fn best<'t>(techs: &'t [Tech], hits: impl Fn(&Tech) -> usize, enough: impl Fn(usize) -> bool) -> Option<&'t Tech> {
+fn best<'t>(
+    techs: &'t [Tech],
+    fits: impl Fn(&Tech) -> bool,
+    hits: impl Fn(&Tech) -> usize,
+    enough: impl Fn(usize) -> bool,
+) -> Option<&'t Tech> {
     let mut found: Option<(usize, &Tech)> = None;
-    for t in techs {
+    for t in techs.iter().filter(|t| fits(t)) {
         let n = hits(t);
         if enough(n) && found.is_none_or(|(m, _)| n > m) {
             found = Some((n, t));
@@ -249,7 +260,7 @@ fn role_of(name: &str, hollow: bool) -> LayerRole {
 
 /// Tipo de Magic → capa GDS, y lambda (µm), de un `.tech`. Solo mira el
 /// primer estilo de `cifoutput`, el que escribe el GDS.
-pub fn parse_magic_tech(text: &str) -> (HashMap<String, (u32, u32)>, Option<f64>) {
+pub fn parse_magic_tech(text: &str) -> (HashMap<String, MagicType>, Option<f64>) {
     let sections = sections(text);
     let get = |s: &'static str| {
         sections.iter().filter(move |(n, _)| n == s).flat_map(|(_, l)| l.iter().map(String::as_str))
@@ -258,14 +269,16 @@ pub fn parse_magic_tech(text: &str) -> (HashMap<String, (u32, u32)>, Option<f64>
     // Tipo (o alias de `types`) → nombre canónico; y el grupo de nombres.
     let mut canonical: HashMap<&str, &str> = HashMap::new();
     let mut names_of: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut plane_of: HashMap<&str, &str> = HashMap::new();
     for line in get("types") {
         let mut parts = line.trim_start_matches('-').split_whitespace();
-        let (Some(_plane), Some(list)) = (parts.next(), parts.next()) else { continue };
+        let (Some(plane), Some(list)) = (parts.next(), parts.next()) else { continue };
         let names: Vec<&str> = list.split(',').filter(|n| !n.is_empty()).collect();
         if let Some(first) = names.first() {
             for n in &names {
                 canonical.insert(n, first);
             }
+            plane_of.insert(first, plane);
             names_of.insert(first, names);
         }
     }
@@ -322,8 +335,10 @@ pub fn parse_magic_tech(text: &str) -> (HashMap<String, (u32, u32)>, Option<f64>
 
     let mut map = HashMap::new();
     for (t, (tag, _)) in best {
+        let plane = plane_of.get(t).copied().unwrap_or("");
+        let outline = t.starts_with("obs") || matches!(plane, "block" | "comment");
         for n in names_of.get(t).cloned().unwrap_or_else(|| vec![t]) {
-            map.insert(n.to_string(), tag);
+            map.insert(n.to_string(), MagicType { tag, outline });
         }
     }
     (map, lambda)
@@ -469,11 +484,12 @@ end
     fn magic_tech_maps_types_to_gds_and_reads_lambda() {
         let (map, lambda) = parse_magic_tech(TECH);
         assert_eq!(lambda, Some(0.05));
-        assert_eq!(map.get("ndiff"), Some(&(22, 0)));
-        assert_eq!(map.get("ndf"), Some(&(22, 0)), "alias de types");
+        let tag = |n: &str| map.get(n).map(|t| t.tag);
+        assert_eq!(tag("ndiff"), Some((22, 0)));
+        assert_eq!(tag("ndf"), Some((22, 0)), "alias de types");
         // El contacto va a su capa explícita, no a la de `*ndiff`.
-        assert_eq!(map.get("ndiffc"), Some(&(33, 0)));
-        assert_eq!(map.get("m1"), Some(&(34, 0)), "solo el primer estilo");
+        assert_eq!(tag("ndiffc"), Some((33, 0)));
+        assert_eq!(tag("m1"), Some((34, 0)), "solo el primer estilo");
         assert!(!map.contains_key("obsm1"));
     }
 
@@ -488,16 +504,18 @@ end
     /// su `.lyp` y su `.tech`.
     #[test]
     fn unknown_pdk_is_styled_from_its_own_files() {
-        use crate::palette::{layer_spec_in, magic_layer_spec_in};
+        use crate::process::Process;
         use crate::style::Pdk;
         use gdstk_rs::GdsTag;
         let lyp = LYP.replace("68/20", "7/0");
         let tech_text = TECH.replace("calma 34 0", "calma 7 0");
         let (magic, lambda) = parse_magic_tech(&tech_text);
         let tech: &'static Tech = Box::leak(Box::new(Tech::new("acme".into(), parse_lyp(&lyp), magic, lambda)));
-        let gds = layer_spec_in(GdsTag { layer: 7, datatype: 0 }, Pdk::Generic, Some(tech));
+        let process: &'static Process = Box::leak(Box::new(Process::build(Pdk::Generic, Some(tech))));
+        assert_eq!(process.name, "acme");
+        let gds = process.layer_spec(GdsTag { layer: 7, datatype: 0 });
         assert_eq!((gds.name, gds.color, gds.role), (Some("met1.drawing"), Color::rgba(0x39, 0xbf, 0xff, 255), LayerRole::Device));
-        let mag = magic_layer_spec_in("m1", GdsTag { layer: 1 << 30, datatype: 0 }, Pdk::Generic, Some(tech));
+        let mag = process.magic_spec("m1", GdsTag { layer: 1 << 30, datatype: 0 });
         assert_eq!((mag.color, mag.rank), (gds.color, gds.rank));
     }
 
@@ -508,7 +526,7 @@ end
         for (name, lambda, gds) in [("sky130A", 0.01, (68, 20)), ("gf180mcuD", 0.05, (34, 0)), ("ihp-sg13g2", 0.01, (8, 0))] {
             let Some(t) = by_name(name) else { continue };
             assert_eq!(t.lambda_um, Some(lambda), "{name}");
-            assert_eq!(t.magic_tag("metal1"), Some(gds), "{name}");
+            assert_eq!(t.magic_type("metal1").map(|m| m.tag), Some(gds), "{name}");
             assert!(t.layer(gds).is_some(), "{name}: {gds:?} en el .lyp");
         }
     }

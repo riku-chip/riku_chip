@@ -130,7 +130,7 @@ Solo cortes que se pagan solos:
 2. **Inicio y carpeta:** `Content::Home`, selector de carpeta, carpetas recientes, cambio de repo en History.
 3. **Acciones desde el inicio:** cambios sin commitear, comparar, diagnóstico, exportar imagen. Usan el mismo núcleo que la CLI (`status`, `diff_set`, `doctor`, `render`), sin duplicar lógica.
 4. **Núcleo:** `diff_pair` (un solo flujo para `log`, `status`, `show`, `diff_set`) y quitar `commit_diff` muerto.
-5. **Layouts:** `source.rs` (CLI y visor comparten la cache; `RIKU_MAG_LAMBDA` en la clave), `diff_scene.rs`, API pública cerrada.
+5. **Layouts (hecho):** `source.rs` (una sola lectura para CLI y visor; la clave de cache marca cada lado y lleva el lambda de Magic), `diff_scene.rs` y `layer_style.rs` fuera del backend, `changed_cells` sobre el mismo recorrido que el diff (`pair_cells` + `map_changed_cells`), `scene.rs` muerto borrado, API pública cerrada a lo que usa `riku`. Además, `process.rs`: un solo modelo de estilo de capas (tablas compiladas + PDK instalado).
 6. **Microkernel y el resto:** `Registry::extensions()`, claves de Xschem fuera del núcleo, `shlex` en el shell, rutas relativas, utilidades compartidas CLI/visor.
 
 Cada paso con la verificación completa y, en los del visor, capturas en Xvfb.

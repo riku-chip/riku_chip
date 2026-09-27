@@ -91,6 +91,17 @@ pub fn join_relative(from_file: &str, rel: &str) -> String {
     if dir.is_empty() { normalize(rel) } else { normalize(&format!("{dir}/{rel}")) }
 }
 
+/// Carpeta con los PDK instalados: `$PDK_ROOT`, o `/foss/pdks`
+/// (iic-osic-tools) si existe. `None` si ninguna es una carpeta. La usan los
+/// módulos que buscan archivos del PDK (símbolos de Xschem, capas y celdas
+/// de layouts).
+pub fn pdk_root() -> Option<PathBuf> {
+    std::env::var_os("PDK_ROOT")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| Some(PathBuf::from("/foss/pdks")).filter(|p| p.is_dir()))
+}
+
 /// Quita `.` y resuelve `..` (sin salir por encima de la raíz).
 fn normalize(path: &str) -> String {
     let absolute = path.starts_with('/');

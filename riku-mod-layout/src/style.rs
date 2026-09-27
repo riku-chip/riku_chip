@@ -12,7 +12,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Pdk {
     Sky130,
     Gf180,

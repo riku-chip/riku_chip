@@ -2,37 +2,35 @@
 //!
 //! Expone `GdsBackend`, que implementa `ViewerBackend` para que `riku-gui`
 //! abra archivos `.gds`/`.oas`/`.mag` por la ruta neutra: `Library` (de los
-//! bytes, o de la jerarquía Magic con sus sub-celdas) → `draw_commands` →
-//! conversión `DrawCommand → DrawElement` → `Scene`.
+//! bytes, o de la jerarquía Magic con sus sub-celdas, ver [`crate::source`])
+//! → polígonos aplanados y etiquetas → `Scene`. El diff arma su escena en
+//! [`crate::diff_scene`]; el estilo de las capas sale de
+//! [`crate::layer_style`].
 //!
 //! La escena resultante es Y-up y trae un `LayerPaint` por cada
 //! (layer, datatype): el campo `layer` de cada `DrawElement` es la clave de
 //! ese estilo, no el numero de layer GDS crudo.
 
 use async_trait::async_trait;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use gdstk_rs::magic::MagSources;
 use gdstk_rs::{Anchor, GdsTag, Library};
 use viewer_core::{
     files::{DiffFiles, FileSource},
     backend::{BackendInfo, ViewerBackend},
     bbox::BoundingBox as VcBBox,
-    diff::{ChangeItem, ChangeKind},
     element::{DrawElement, HAlign, Layer, VAlign},
     error::{Result as VcResult, ViewerError},
-    paint::{LayerPaint, Rgba},
     scene::{Scene as VcScene, SceneHandle, ViewEntry},
     viewport::YAxis,
     CancellationToken,
 };
 
-use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
-use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
-use crate::palette::{detect_pdk, layer_spec_in, magic_layer_spec_in, magic_pdk, LayerRole, LayerSpec};
-use crate::pdk_tech::{self, Tech};
-use crate::style::Pdk;
+use crate::diff_cache::DiffCache;
+use crate::diff_scene::{build_diff_scene, port_item, CachedDiff};
+use crate::layer_style::{tag_tuple, layer_names, LayerKeys};
+use crate::source::{self, LibCache, Raw, ReadError};
 
 pub struct GdsBackend {
     /// Cache del diff (celdas cambiadas y XOR) para layouts grandes.
@@ -53,177 +51,9 @@ impl GdsBackend {
     }
 }
 
-/// Bibliotecas GDSII/OASIS ya leídas, por contenido (hash y largo), las
-/// [`LIB_CACHE`] más recientes: un par de diff. Leer el chip de 42 MB lleva
-/// 1–3 s y antes se repetía en cada clic de celda. Magic no entra: sus
-/// sub-celdas pueden cambiar sin que cambie el archivo principal.
-#[derive(Default)]
-struct LibCache(std::sync::Mutex<std::collections::VecDeque<(u64, usize, Arc<Library>, Vec<String>)>>);
-
-const LIB_CACHE: usize = 2;
-
-impl LibCache {
-    fn get_or_read(
-        &self,
-        bytes: &[u8],
-        read: impl FnOnce() -> VcResult<(Library, Vec<String>)>,
-    ) -> VcResult<(Arc<Library>, Vec<String>)> {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        bytes.hash(&mut h);
-        let key = (h.finish(), bytes.len());
-        {
-            let mut libs = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(i) = libs.iter().position(|(k, n, ..)| (*k, *n) == key) {
-                let hit = libs.remove(i).expect("índice válido");
-                let out = (hit.2.clone(), hit.3.clone());
-                libs.push_front(hit);
-                return Ok(out);
-            }
-        }
-        // Se lee sin el candado: otra carga puede seguir mientras tanto.
-        let (lib, notes) = read()?;
-        let lib = Arc::new(lib);
-        let mut libs = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        libs.push_front((key.0, key.1, lib.clone(), notes.clone()));
-        libs.truncate(LIB_CACHE);
-        Ok((lib, notes))
-    }
-}
-
 impl Default for GdsBackend {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Opacidad del relleno segun el rol de la capa. Dispositivo: se ve el color
-/// y tambien lo que queda debajo. Pozo: apenas un tinte (cubre media celda).
-/// Contorno: sin relleno (implantes, marcadores, pines, boundary).
-fn fill_alpha(role: LayerRole) -> u8 {
-    match role {
-        LayerRole::Device => 90,
-        LayerRole::Well => 28,
-        LayerRole::Outline => 0,
-    }
-}
-
-/// Asigna una clave `Layer` (u16) por cada (layer, datatype) distinto, en
-/// orden de apilado del PDK (y luego (layer, datatype) para desempatar), asi
-/// la lista de capas de la UI sale de abajo hacia arriba. `68/20` (met1) y
-/// `68/16` (met1.pin) tienen claves y estilos distintos.
-///
-/// Se indexa por tupla porque `GdsTag` (struct compartido de cxx) no es `Ord`.
-///
-/// Las capas con nombre de Magic (`names`) toman el estilo de su equivalente
-/// GDS en el PDK (`magic_layer_spec`) y se muestran con su nombre.
-struct LayerKeys {
-    keys: BTreeMap<(u32, u32), Layer>,
-    pdk: ScenePdk,
-    names: LayerNames,
-}
-
-/// PDK de una escena: el que riku trae compilado (`Generic` si no es uno de
-/// ellos) y el instalado que mejor conoce sus capas, leído del disco.
-#[derive(Clone, Copy)]
-struct ScenePdk {
-    pdk: Pdk,
-    tech: Option<&'static Tech>,
-}
-
-impl ScenePdk {
-    fn spec(self, tag: GdsTag) -> LayerSpec {
-        layer_spec_in(tag, self.pdk, self.tech)
-    }
-
-    fn name(self) -> String {
-        match (self.pdk, self.tech) {
-            (Pdk::Generic, Some(t)) => t.name.clone(),
-            (pdk, _) => pdk_name(pdk).to_string(),
-        }
-    }
-}
-
-/// Nombre de cada capa con nombre (Magic) de una `Library`.
-type LayerNames = HashMap<(u32, u32), String>;
-
-fn layer_names(lib: &Library) -> LayerNames {
-    lib.layer_names().into_iter().map(|(t, n)| (tag_tuple(t), n)).collect()
-}
-
-/// PDK de una escena: por los nombres de Magic si los hay, si no por la ruta
-/// y las capas.
-fn scene_pdk(names: &LayerNames, path_hint: Option<&str>, tags: &[GdsTag]) -> ScenePdk {
-    if names.is_empty() {
-        let tuples: Vec<(u32, u32)> = tags.iter().map(|&t| tag_tuple(t)).collect();
-        return ScenePdk { pdk: detect_pdk(path_hint, tags), tech: pdk_tech::for_tags(&tuples) };
-    }
-    let tech = pdk_tech::for_magic(names.values().map(String::as_str));
-    match magic_pdk(names.values().map(String::as_str)) {
-        Pdk::Generic => ScenePdk { pdk: detect_pdk(path_hint, tags), tech },
-        pdk => ScenePdk { pdk, tech },
-    }
-}
-
-impl LayerKeys {
-    fn new(tags: BTreeSet<(u32, u32)>, path_hint: Option<&str>, names: LayerNames) -> Self {
-        let as_gds: Vec<GdsTag> = tags.iter().map(|&t| gds_tag(t)).collect();
-        let pdk = scene_pdk(&names, path_hint, &as_gds);
-        let mut this = Self { keys: BTreeMap::new(), pdk, names };
-
-        let mut ordered: Vec<(u32, u32)> = tags.into_iter().collect();
-        ordered.sort_by_key(|&t| (this.spec(gds_tag(t)).rank, t));
-        this.keys = ordered
-            .into_iter()
-            .enumerate()
-            .map(|(i, t)| (t, i.min(u16::MAX as usize) as Layer))
-            .collect();
-        this
-    }
-
-    fn spec(&self, tag: GdsTag) -> LayerSpec {
-        match self.names.get(&tag_tuple(tag)) {
-            Some(name) => magic_layer_spec_in(name, tag, self.pdk.pdk, self.pdk.tech),
-            None => self.pdk.spec(tag),
-        }
-    }
-
-    fn key(&self, tag: GdsTag) -> Layer {
-        self.keys.get(&tag_tuple(tag)).copied().unwrap_or(u16::MAX)
-    }
-
-    fn paints(&self) -> BTreeMap<Layer, LayerPaint> {
-        self.keys
-            .iter()
-            .map(|(&t, key)| {
-                let tag = gds_tag(t);
-                (*key, layer_paint(tag, self.spec(tag), self.names.get(&t).map(String::as_str)))
-            })
-            .collect()
-    }
-}
-
-fn tag_tuple(tag: GdsTag) -> (u32, u32) {
-    (tag.layer, tag.datatype)
-}
-
-fn gds_tag((layer, datatype): (u32, u32)) -> GdsTag {
-    GdsTag { layer, datatype }
-}
-
-/// Estilo de una capa. `magic_name`: el nombre de una capa de Magic, que se
-/// muestra solo (sin número: el número es interno).
-fn layer_paint(tag: GdsTag, spec: LayerSpec, magic_name: Option<&str>) -> LayerPaint {
-    let c = spec.color;
-    let stroke = Rgba::new(c.r, c.g, c.b, 255);
-    LayerPaint { name: layer_label(tag, &spec, magic_name), fill: stroke.with_alpha(fill_alpha(spec.role)), stroke }
-}
-
-fn layer_label(tag: GdsTag, spec: &LayerSpec, magic_name: Option<&str>) -> String {
-    match (magic_name, spec.name) {
-        (Some(name), _) => name.to_string(),
-        (None, Some(name)) => format!("{name} {}/{}", tag.layer, tag.datatype),
-        (None, None) => format!("{}/{}", tag.layer, tag.datatype),
     }
 }
 
@@ -273,11 +103,12 @@ fn label_element(label: crate::labels::FlatLabel, layer: Layer, text_size: f64) 
     }
 }
 
-/// Escena de una cell y el PDK detectado (lo reusa el diff para nombrar capas).
+/// Escena de una cell y el estilo de sus capas (lo reusa el diff para
+/// nombrar capas).
 ///
 /// Los polígonos aplanados por gdstk pasan directo a elementos de la escena
 /// (sin una lista intermedia: en el chip de 42 MB eran ~330 MB de pico).
-fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, ScenePdk) {
+pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, LayerKeys) {
     let flat = cell.get_polygons().build();
     let labels = crate::labels::flatten_labels(lib, cell);
     let tags: BTreeSet<(u32, u32)> = flat
@@ -292,7 +123,7 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
     scene.y_axis = YAxis::Up;
     scene.world_unit = Some(unit_label(lib.unit()));
     scene.layers = keys.paints();
-    // Sembrar el bbox con el de la cell aunque algún DrawCommand no contribuya
+    // Sembrar el bbox con el de la cell aunque algún polígono no contribuya
     // (Scene::push lo expandirá igualmente con cada elemento).
     let cb = cell.bbox();
     if cb.min_x.is_finite()
@@ -336,7 +167,7 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
-        ("PDK".into(), keys.pdk.name()),
+        ("PDK".into(), keys.process.name.clone()),
         ("Polígonos".into(), polygons.to_string()),
         ("Etiquetas".into(), labels.to_string()),
         ("Capas".into(), scene.layers.len().to_string()),
@@ -345,13 +176,13 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
             format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height()),
         ),
     ];
-    (scene, keys.pdk)
+    (scene, keys)
 }
 
 /// Devuelve al sistema la memoria libre del heap. Armar una escena grande
 /// aplana en C++ y convierte a elementos: glibc se queda con lo liberado y
 /// el visor seguía ocupando el pico (chip de 42 MB: 2,25 → 1,22 GB).
-fn release_free_memory() {
+pub(crate) fn release_free_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         unsafe extern "C" {
@@ -378,13 +209,27 @@ fn unit_label(meters: f64) -> String {
     }
 }
 
-fn pdk_name(pdk: Pdk) -> &'static str {
-    match pdk {
-        Pdk::Sky130 => "SKY130",
-        Pdk::Gf180 => "GF180MCU",
-        Pdk::Ihp => "IHP SG13G2",
-        Pdk::Generic => "genérico",
+/// Los archivos de un lado de un diff; `None` si no existía (0 bytes).
+fn collect_side<'a>(
+    bytes: &'a [u8],
+    path: Option<&str>,
+    files: Option<&dyn FileSource>,
+    label: &'static str,
+) -> VcResult<Option<Raw<'a>>> {
+    if bytes.is_empty() {
+        return Ok(None);
     }
+    source::collect(bytes, path, files).map(Some).map_err(|e| read_error(e, label))
+}
+
+/// Error de lectura para el visor. `label`: el lado de un diff, si lo es.
+fn read_error(e: ReadError, label: &str) -> ViewerError {
+    let side = if label.is_empty() { String::new() } else { format!(" ({label})") };
+    let msg = match e {
+        ReadError::NotLayout => "no es un layout GDSII, OASIS ni Magic".to_string(),
+        ReadError::Parse(msg) => msg,
+    };
+    ViewerError::Parse(format!("layout{side}: {msg}"))
 }
 
 #[async_trait]
@@ -444,7 +289,8 @@ impl ViewerBackend for GdsBackend {
         }
         let libs = self.libs.clone();
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
-            let side = read_side(&content, path_hint.as_deref(), files.as_deref(), "", &libs)?;
+            let raw = source::collect(&content, path_hint.as_deref(), files.as_deref()).map_err(|e| read_error(e, ""))?;
+            let side = raw.read(Some(&libs)).map_err(|e| read_error(e, ""))?;
             let notices = side.notices;
             let lib = side.lib;
 
@@ -524,29 +370,25 @@ impl ViewerBackend for GdsBackend {
         let libs = self.libs.clone();
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
             let path = path_hint.as_deref();
-            let read = |bytes: &[u8], files: &Option<Arc<dyn FileSource>>, label: &'static str| {
-                if bytes.is_empty() { Ok(None) } else { read_side(bytes, path, files.as_deref(), label, &libs).map(Some) }
-            };
-            let (a, b) = rayon::join(|| read(&before, &files.before, "antes"), || read(&after, &files.after, "después"));
+            let (ra, rb) = rayon::join(
+                || collect_side(&before, path, files.before.as_deref(), "antes"),
+                || collect_side(&after, path, files.after.as_deref(), "después"),
+            );
+            let (ra, rb) = (ra?, rb?);
+            let read = |raw: &Option<Raw<'_>>, label| raw.as_ref().map(|r| r.read(Some(&libs)).map_err(|e| read_error(e, label))).transpose();
+            let (a, b) = rayon::join(|| read(&ra, "antes"), || read(&rb, "después"));
             let (a, b) = (a?, b?);
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
             }
-            let mut inputs: Vec<&[u8]> = Vec::new();
             let mut notices = Vec::new();
-            for (side, bytes, label) in [(&a, &before, "antes"), (&b, &after, "después")] {
-                match side.as_ref().and_then(|s| s.sources.as_ref()) {
-                    Some(sources) => {
-                        inputs.push(label.as_bytes());
-                        inputs.extend(crate::mag::cache_inputs(sources));
-                    }
-                    None => inputs.push(bytes),
-                }
+            for (side, label) in [(&a, "antes"), (&b, "después")] {
                 if let Some(s) = side {
                     notices.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
                 }
             }
-            let diff = CachedDiff { cache: &cache, inputs };
+            let (inputs, read_params) = source::pair_key(ra.as_ref(), rb.as_ref());
+            let diff = CachedDiff { cache: &cache, inputs, read_params };
             let lib_a = a.as_ref().map(|s| &*s.lib);
             let lib_b = b.as_ref().map(|s| &*s.lib);
             let ports = crate::mag::port_changes(
@@ -570,295 +412,10 @@ impl ViewerBackend for GdsBackend {
     }
 }
 
-/// Un puerto de Magic que cambió, para la lista del visor (coordenadas en
-/// µm, las de la escena de un `.mag`).
-fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
-    let (kind, label) = match (&p.before, &p.after) {
-        (None, Some(d)) => (ChangeKind::Added, format!("puerto {} ({})", p.name, d.class.as_deref().unwrap_or("—"))),
-        (Some(_), None) => (ChangeKind::Removed, format!("puerto {}", p.name)),
-        (Some(x), Some(y)) if x.class != y.class => (
-            ChangeKind::Modified,
-            format!("puerto {}: {} → {}", p.name, x.class.as_deref().unwrap_or("—"), y.class.as_deref().unwrap_or("—")),
-        ),
-        _ => (ChangeKind::Modified, format!("puerto {}", p.name)),
-    };
-    let detail = match p.after.as_ref().or(p.before.as_ref()) {
-        _ if p.cosmetic => "se movió".to_string(),
-        Some(d) => format!("{} {} · {}", d.index, d.usage.as_deref().unwrap_or(""), d.layers.join(",")),
-        None => String::new(),
-    };
-    let bbox = p.after.as_ref().or(p.before.as_ref()).and_then(|d| d.rects_um.first()).map(|r| VcBBox {
-        min_x: r[0],
-        min_y: r[1],
-        max_x: r[2],
-        max_y: r[3],
-    });
-    ChangeItem { kind, label, detail, bbox, cosmetic: p.cosmetic }
-}
-
-/// Un lado leído: la `Library`, los avisos para el usuario y, si es Magic,
-/// los archivos de su jerarquía (para la clave de la cache).
-struct ReadSide {
-    lib: Arc<Library>,
-    notices: Vec<String>,
-    sources: Option<MagSources>,
-    info: Option<gdstk_rs::magic::MagInfo>,
-}
-
-/// GDSII/OASIS de sus bytes; Magic con sus sub-celdas (`files`, el disco si
-/// la ruta es absoluta, y el PDK). `label` va en los mensajes de error.
-fn read_side(
-    bytes: &[u8],
-    path_hint: Option<&str>,
-    files: Option<&dyn FileSource>,
-    label: &str,
-    libs: &LibCache,
-) -> VcResult<ReadSide> {
-    let err = |e: String| {
-        let side = if label.is_empty() { String::new() } else { format!(" ({label})") };
-        ViewerError::Parse(format!("layout{side}: {e}"))
-    };
-    if crate::mag::is_magic(bytes) {
-        let path = path_hint.unwrap_or("layout.mag");
-        let sources = crate::mag::collect(bytes, path, files).map_err(err)?;
-        let (lib, info) = crate::mag::build(&sources);
-        let notices = crate::mag::notices(&info);
-        return Ok(ReadSide { lib: Arc::new(lib), notices, sources: Some(sources), info: Some(info) });
-    }
-    let (lib, notices) = libs.get_or_read(bytes, || {
-        let lib = Library::from_bytes_any(bytes).map_err(|e| err(e.to_string()))?;
-        crate::gds_diff::check_acyclic(&lib).map_err(err)?;
-        let notices = crate::gds_diff::read_notes(&lib);
-        Ok((lib, notices))
-    })?;
-    Ok(ReadSide { lib, notices, sources: None, info: None })
-}
-
-/// Colores del overlay de diff. Relleno semitransparente para ver la capa
-/// debajo, contorno opaco para ubicar cambios chicos.
-const DIFF_ADDED: (Rgba, Rgba) = (Rgba::new(40, 220, 90, 150), Rgba::new(90, 255, 130, 255));
-const DIFF_REMOVED: (Rgba, Rgba) = (Rgba::new(240, 60, 60, 150), Rgba::new(255, 100, 100, 255));
-
-/// Lo que se leyó de cada lado (bytes, o los archivos de una jerarquía
-/// Magic) y la cache donde guardar lo que cuesta calcular (celdas cambiadas
-/// y XOR de la celda mostrada).
-struct CachedDiff<'a> {
-    cache: &'a DiffCache,
-    inputs: Vec<&'a [u8]>,
-}
-
-impl CachedDiff<'_> {
-    fn get<T: serde::Serialize + serde::de::DeserializeOwned>(
-        &self,
-        kind: &str,
-        params: &str,
-        compute: impl FnOnce() -> T,
-    ) -> T {
-        let r = self.cache.get_or_compute(kind, &self.inputs, params, || {
-            Ok::<_, std::convert::Infallible>(compute())
-        });
-        match r {
-            Ok((v, _)) => v,
-            Err(never) => match never {},
-        }
-    }
-}
-
-/// Arma la escena de diff de una celda. `None` = el archivo no existia de
-/// ese lado. Sincrona para poder testearla sin runtime.
-fn build_diff_scene(
-    lib_a: Option<&Library>,
-    lib_b: Option<&Library>,
-    entry: Option<&str>,
-    path_hint: Option<&str>,
-    cached: &CachedDiff<'_>,
-) -> VcResult<VcScene> {
-    let Some(base_lib) = lib_b.or(lib_a) else {
-        return Err(ViewerError::Parse("diff sin contenido en ninguno de los dos lados".into()));
-    };
-
-    // Catalogo: celdas de "after" y, a continuacion, las que solo existian antes.
-    let mut entries = list_cells(base_lib);
-    if let (Some(a), Some(_)) = (lib_a, lib_b) {
-        let known: HashSet<String> = entries.iter().map(|e| e.id.clone()).collect();
-        entries.extend(list_cells(a).into_iter().filter(|e| !known.contains(&e.id)));
-    }
-
-    // Marcar que celdas cambiaron: en una libreria de cientos es lo que
-    // permite encontrar el cambio.
-    let changed: ChangedCells = cached.get("changed", "", || changed_cells(lib_a, lib_b));
-    for e in &mut entries {
-        e.change = changed.get(&e.id).map(|c| match c {
-            CellChange::Added => ChangeKind::Added,
-            CellChange::Removed => ChangeKind::Removed,
-            CellChange::Modified | CellChange::Renamed { .. } => ChangeKind::Modified,
-        });
-    }
-    // El nombre viejo de una celda renombrada ya no es una entrada propia.
-    let renamed_from: HashSet<&str> = changed
-        .values()
-        .filter_map(|c| match c {
-            CellChange::Renamed { from } => Some(from.as_str()),
-            _ => None,
-        })
-        .collect();
-    entries.retain(|e| !renamed_from.contains(e.id.as_str()));
-
-    // Por defecto, la primera celda con cambios (las top van primero en el
-    // catalogo); si no hay cambios, la top-cell determinista.
-    let name = match entry {
-        Some(n) => n.to_string(),
-        None => match entries.iter().find(|e| e.change.is_some()) {
-            Some(e) => e.id.clone(),
-            None => lib_b
-                .and_then(crate::select_top_cell)
-                .or_else(|| lib_a.and_then(crate::select_top_cell))
-                .map(|c| c.name().to_string())
-                .ok_or_else(|| ViewerError::Parse("library sin top cells".into()))?,
-        },
-    };
-
-    // Base visual: la celda en "after"; si ya no existe, la de "before".
-    let (lib, cell) = lib_b
-        .and_then(|l| l.find_cell(&name).map(|c| (l, c)))
-        .or_else(|| lib_a.and_then(|l| l.find_cell(&name).map(|c| (l, c))))
-        .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en ninguna versión")))?;
-    let (mut scene, pdk) = vc_scene_from_cell(lib, &cell, path_hint);
-
-    // Atenuar el layout para que resalten los cambios.
-    for paint in scene.layers.values_mut() {
-        paint.fill.a /= 3;
-        paint.stroke.a = 110;
-    }
-
-    let cfg = DiffConfig::default();
-    // Celda renombrada: comparar con su nombre anterior, no contra vacio.
-    let name_a = match changed.get(&name) {
-        Some(CellChange::Renamed { from }) => from.as_str(),
-        _ => name.as_str(),
-    };
-    let params = format!("{name_a}\n{name}\n{}", cfg.cosmetic_threshold_um2);
-    let diff: CellDiff = cached
-        .get("cell", &params, || CellDiffDto::from(&diff_cell_as(lib_a, name_a, lib_b, &name, &cfg)))
-        .into();
-    let unit_factor = base_lib.unit() / 1e-6;
-
-    // Capas del overlay, al final de la lista (y por encima al pintar).
-    let next = scene.layers.keys().next_back().map_or(0, |k| k.saturating_add(1));
-    let (k_removed, k_added) = (next, next.saturating_add(1));
-    scene.layers.insert(
-        k_removed,
-        LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1 },
-    );
-    scene.layers.insert(
-        k_added,
-        LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1 },
-    );
-    let polygon = |p: &gdstk_rs::OwnedPolygon, layer| DrawElement::Polygon {
-        points: p.points.iter().map(|q| (q.x, q.y)).collect(),
-        layer,
-        filled: true,
-    };
-    for lp in &diff.polygons {
-        for p in &lp.removed {
-            scene.push(polygon(p, k_removed));
-        }
-        for p in &lp.added {
-            scene.push(polygon(p, k_added));
-        }
-    }
-
-    let mut names = lib_a.map(layer_names).unwrap_or_default();
-    names.extend(lib_b.map(layer_names).unwrap_or_default());
-    scene.changes = change_items(&diff, pdk, unit_factor, &names);
-    scene.notices.extend(diff.failure_notes(&name));
-    scene.changes.extend(cell_presence_items(&changed));
-
-    let relevant = diff.geometry.iter().filter(|g| !g.cosmetic).count();
-    let cosmetic = diff.geometry.len() - relevant;
-    // fold desde +0.0: `sum()` de f64 vacio da -0.0 ("+-0.0000").
-    let area_add = diff.geometry.iter().fold(0.0, |acc, g| acc + g.added_area_um2);
-    let area_rem = diff.geometry.iter().fold(0.0, |acc, g| acc + g.removed_area_um2);
-    let summary = if diff.geometry.is_empty() {
-        "sin cambios geométricos".to_string()
-    } else {
-        format!("{relevant} relevantes · {cosmetic} cosméticos")
-    };
-    let mut head = vec![("Diff".to_string(), summary)];
-    if !diff.geometry.is_empty() {
-        head.push(("Área".to_string(), format!("+{area_add:.4} / −{area_rem:.4} µm²")));
-    }
-    head.push(("Cambiadas".to_string(), format!("{} de {} celdas", changed.len(), entries.len())));
-    scene.metadata.splice(0..0, head);
-    scene.current_entry = Some(name);
-    scene.entries = entries;
-    Ok(scene)
-}
-
-/// Un item por (capa, origen): relevantes primero y, dentro de cada grupo,
-/// los de mayor area.
-fn change_items(diff: &CellDiff, pdk: ScenePdk, unit_factor: f64, names: &LayerNames) -> Vec<ChangeItem> {
-    let mut geo: Vec<&crate::GdsGeomDiff> = diff.geometry.iter().collect();
-    geo.sort_by(|a, b| {
-        let area = |g: &crate::GdsGeomDiff| g.added_area_um2 + g.removed_area_um2;
-        a.cosmetic.cmp(&b.cosmetic).then(area(b).total_cmp(&area(a)))
-    });
-    geo.into_iter()
-        .map(|g| {
-            let tag = GdsTag { layer: g.layer.layer, datatype: g.layer.datatype };
-            let layer = layer_label(tag, &pdk.spec(tag), names.get(&tag_tuple(tag)).map(String::as_str));
-            // Un item por instancia: la posicion distingue las copias.
-            let label = match (g.origin_path.get(1), g.instance_at_um) {
-                (Some(sub), Some((x, y))) => format!("{layer} · en {sub} @ ({x:.2}, {y:.2})"),
-                (Some(sub), None) => format!("{layer} · en {sub}"),
-                (None, _) => layer,
-            };
-            let kind = match (g.added_polygons > 0, g.removed_polygons > 0) {
-                (true, false) => ChangeKind::Added,
-                (false, true) => ChangeKind::Removed,
-                _ => ChangeKind::Modified,
-            };
-            let detail = format!(
-                "+{} / −{} pol · +{:.4} / −{:.4} µm²",
-                g.added_polygons, g.removed_polygons, g.added_area_um2, g.removed_area_um2
-            );
-            // bbox_um esta en µm; la escena, en unidades de usuario.
-            let bbox = g.bbox_um.map(|b| VcBBox {
-                min_x: b.min_x / unit_factor,
-                min_y: b.min_y / unit_factor,
-                max_x: b.max_x / unit_factor,
-                max_y: b.max_y / unit_factor,
-            });
-            ChangeItem { kind, label, detail, bbox, cosmetic: g.cosmetic }
-        })
-        .collect()
-}
-
-/// Celdas que aparecen o desaparecen en la library (no tienen ubicacion en
-/// la celda mostrada).
-fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem> {
-    let item = |kind, what: &str, name: &String| ChangeItem {
-        kind,
-        label: format!("celda {what}: {name}"),
-        detail: String::new(),
-        bbox: None,
-        cosmetic: false,
-    };
-    changed
-        .iter()
-        .filter_map(|(name, c)| match c {
-            CellChange::Added => Some(item(ChangeKind::Added, "añadida", name)),
-            CellChange::Removed => Some(item(ChangeKind::Removed, "eliminada", name)),
-            CellChange::Renamed { from } => Some(item(ChangeKind::Modified, "renombrada", &format!("{from} → {name}"))),
-            CellChange::Modified => None,
-        })
-        .collect()
-}
-
 /// Todas las celdas de la library como `ViewEntry`: primero las top cells y
 /// luego el resto, cada grupo en orden alfabetico. El tamano sale del bbox
 /// (celdas sin geometria -> `None`).
-pub fn list_cells(lib: &Library) -> Vec<ViewEntry> {
+pub(crate) fn list_cells(lib: &Library) -> Vec<ViewEntry> {
     let tops = lib.top_level();
     let top_names: HashSet<String> = (0..tops.count()).map(|i| tops.cell(i).name().to_string()).collect();
 
@@ -882,6 +439,7 @@ pub fn list_cells(lib: &Library) -> Vec<ViewEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use viewer_core::diff::ChangeKind;
 
     fn proof_lib_bytes() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1301,7 +859,7 @@ port 1 nsew signal {class}
         let read = |bytes: &[u8]| {
             cache.get_or_read(bytes, || {
                 reads.set(reads.get() + 1);
-                Ok((Library::from_bytes(&fixture("hier_inv_a.gds")).unwrap(), Vec::new()))
+                Ok::<_, ViewerError>((Library::from_bytes(&fixture("hier_inv_a.gds")).unwrap(), Vec::new()))
             })
         };
         let first = read(b"A").unwrap().0;

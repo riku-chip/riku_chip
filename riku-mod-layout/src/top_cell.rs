@@ -6,7 +6,7 @@ use gdstk_rs::{Cell, Library};
 /// - 1 top cell -> esa.
 /// - N>1 top cells -> la primera por nombre lexicografico ascendente.
 ///   Reproducible entre corridas, no requiere recorrer geometria.
-pub fn select_top_cell<'a>(lib: &'a Library) -> Option<Cell<'a>> {
+pub(crate) fn select_top_cell<'a>(lib: &'a Library) -> Option<Cell<'a>> {
     let tops = lib.top_level();
     let count = tops.count();
     if count == 0 {

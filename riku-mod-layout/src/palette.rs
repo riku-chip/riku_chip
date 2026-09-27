@@ -1,19 +1,16 @@
-use crate::pdk_tech::Tech;
-use crate::style::{Color, Pdk};
+//! Lo que riku trae compilado de SKY130, GF180MCU e IHP SG13G2: capas
+//! curadas a mano (rol y apilado), las generadas de sus `.lyp` (respaldo
+//! sin PDK instalado), las capas de Magic de sus `.tech` y cómo reconocer
+//! cada PDK. [`crate::process::Process`] lo junta con lo leído del PDK
+//! instalado; este módulo no decide nada por sí solo.
+
 use gdstk_rs::GdsTag;
 
-pub fn color_for_tag(tag: GdsTag, pdk: Pdk) -> Color {
-    if let Some((_, color)) = named_layer(tag, pdk) {
-        return color;
-    }
-    let palette = match pdk {
-        Pdk::Sky130 => SKY130_PALETTE,
-        Pdk::Gf180 => GF180_PALETTE,
-        Pdk::Ihp => IHP_PALETTE,
-        Pdk::Generic => GENERIC_PALETTE,
-    };
-    let index = ((tag.layer as usize) * 31 + tag.datatype as usize) % palette.len();
-    palette[index]
+use crate::style::{Color, Pdk};
+
+/// Color de una capa que nadie conoce: de una paleta fija, por su número.
+pub(crate) fn generic_color(tag: GdsTag) -> Color {
+    GENERIC_PALETTE[((tag.layer as usize) * 31 + tag.datatype as usize) % GENERIC_PALETTE.len()]
 }
 
 const GENERIC_PALETTE: [Color; 12] = [
@@ -30,10 +27,6 @@ const GENERIC_PALETTE: [Color; 12] = [
     Color::rgba(96, 125, 139, 255),
     Color::rgba(233, 30, 99, 255),
 ];
-
-const SKY130_PALETTE: [Color; 12] = GENERIC_PALETTE;
-const GF180_PALETTE: [Color; 12] = GENERIC_PALETTE;
-const IHP_PALETTE: [Color; 12] = GENERIC_PALETTE;
 
 /// Como se pinta una capa, segun su funcion fisica.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,60 +53,19 @@ pub struct LayerSpec {
     pub rank: u32,
 }
 
-/// Nombre y color convencional de una capa conocida del PDK. `None` si la capa
-/// no esta en el mapa (el caller cae a la paleta generica por hash).
-pub fn named_layer(tag: GdsTag, pdk: Pdk) -> Option<(&'static str, Color)> {
-    find_layer(tag, pdk, None).map(|(_, name, color, _)| (name, color))
-}
-
-/// Estilo completo de una capa: nombre, color, rol y orden de apilado.
-///
-/// Capas fuera del mapa del PDK: el rol se infiere de la convencion de
-/// datatypes de cada PDK (pines, labels, marcadores → contorno) y se apilan
-/// encima de todo. En `Generic` todas son `Device` con el mismo rank, de modo
-/// que un sort estable conserva el orden del archivo.
-#[cfg(test)]
-pub fn layer_spec(tag: GdsTag, pdk: Pdk) -> LayerSpec {
-    layer_spec_in(tag, pdk, None)
-}
-
-/// Como [`layer_spec`], con el PDK instalado (`tech`) entre las tablas
-/// curadas y las generadas: una capa que las curadas no tienen toma nombre y
-/// color del `.lyp` del PDK. Con `Pdk::Generic` (un PDK que riku no trae
-/// compilado) todo sale de `tech`.
-pub fn layer_spec_in(tag: GdsTag, pdk: Pdk, tech: Option<&'static Tech>) -> LayerSpec {
-    if let Some((rank, name, color, role)) = find_layer(tag, pdk, tech) {
-        return LayerSpec { name: Some(name), color, role, rank: rank as u32 };
-    }
-    let color = color_for_tag(tag, pdk);
-    let outline = match pdk {
-        // SKY130: 16 pin, 5/59 label, 4 boundary/marcador.
-        Pdk::Sky130 => matches!(tag.datatype, 4 | 5 | 16 | 59),
-        // GF180: 0 drawing, 4 dummy fill; el resto son labels (10),
-        // marcadores (5, 17…) y slots (3).
-        Pdk::Gf180 => !matches!(tag.datatype, 0 | 4),
-        // IHP: 0 drawing, 20 mask, 22 filler; el resto son labels (1),
-        // pines (2), boundaries (4), textos (25)…
-        Pdk::Ihp => !matches!(tag.datatype, 0 | 20 | 22),
-        Pdk::Generic => false,
-    };
-    let role = if outline { LayerRole::Outline } else { LayerRole::Device };
-    let known = tech.map_or(0, |t| t.layers.len()).max(lyp_table(pdk).len());
-    let rank = (pdk_table(pdk).map_or(0, |t| t.len()) + known) as u32;
-    LayerSpec { name: None, color, role, rank }
-}
-
-fn pdk_table(pdk: Pdk) -> Option<&'static [PdkLayer]> {
+/// Capas curadas a mano de un PDK, en orden de apilado.
+pub(crate) fn curated(pdk: Pdk) -> &'static [PdkLayer] {
     match pdk {
-        Pdk::Sky130 => Some(SKY130_LAYERS),
-        Pdk::Gf180 => Some(GF180_LAYERS),
-        Pdk::Ihp => Some(IHP_LAYERS),
-        Pdk::Generic => None,
+        Pdk::Sky130 => SKY130_LAYERS,
+        Pdk::Gf180 => GF180_LAYERS,
+        Pdk::Ihp => IHP_LAYERS,
+        Pdk::Generic => &[],
     }
 }
 
-/// Tabla completa generada del `.lyp` oficial (ver `palette_generated.rs`).
-fn lyp_table(pdk: Pdk) -> &'static [PdkLayer] {
+/// Tabla completa generada del `.lyp` oficial (ver `palette_generated.rs`):
+/// el respaldo cuando el PDK no está instalado.
+pub(crate) fn generated(pdk: Pdk) -> &'static [PdkLayer] {
     match pdk {
         Pdk::Gf180 => crate::palette_generated::GF180_LYP,
         Pdk::Ihp => crate::palette_generated::IHP_LYP,
@@ -121,24 +73,21 @@ fn lyp_table(pdk: Pdk) -> &'static [PdkLayer] {
     }
 }
 
-/// Busca la capa en la tabla curada (manda: rol y apilado a mano); si no
-/// esta, en el `.lyp` del PDK instalado y, sin el, en la tabla generada; las
-/// dos apiladas encima de las curadas.
-fn find_layer(tag: GdsTag, pdk: Pdk, tech: Option<&'static Tech>) -> Option<(usize, &'static str, Color, LayerRole)> {
-    let curated = pdk_table(pdk).unwrap_or(&[]);
-    let key = (tag.layer, tag.datatype);
-    if let Some((i, l)) = curated.iter().enumerate().find(|(_, l)| l.tag == key) {
-        return Some((i, l.name, l.color, l.role));
+/// Si una capa que no está en ninguna tabla va solo con contorno, por la
+/// convención de datatypes del PDK (pines, labels, marcadores). En
+/// `Generic`, nunca.
+pub(crate) fn outline_datatype(pdk: Pdk, datatype: u32) -> bool {
+    match pdk {
+        // SKY130: 16 pin, 5/59 label, 4 boundary/marcador.
+        Pdk::Sky130 => matches!(datatype, 4 | 5 | 16 | 59),
+        // GF180: 0 drawing, 4 dummy fill; el resto son labels (10),
+        // marcadores (5, 17…) y slots (3).
+        Pdk::Gf180 => !matches!(datatype, 0 | 4),
+        // IHP: 0 drawing, 20 mask, 22 filler; el resto son labels (1),
+        // pines (2), boundaries (4), textos (25)…
+        Pdk::Ihp => !matches!(datatype, 0 | 20 | 22),
+        Pdk::Generic => false,
     }
-    let base = curated.len();
-    if let Some((i, l)) = tech.and_then(|t| t.layer(key)) {
-        return Some((base + i, l.name.as_str(), l.color, l.role));
-    }
-    lyp_table(pdk)
-        .iter()
-        .enumerate()
-        .find(|(_, l)| l.tag == key)
-        .map(|(i, l)| (base + i, l.name, l.color, l.role))
 }
 
 /// Infere el PDK de un layout. Primero por el path (los PDK de iic-osic-tools
@@ -184,14 +133,30 @@ pub fn detect_pdk(path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
 /// Plano de una capa de Magic y, si es un contacto, el plano de su residuo
 /// de arriba (tabla generada de los `.tech`, ver `magic_layers_generated.rs`).
 fn magic_row(pdk: Pdk, name: &str) -> Option<(&'static str, &'static str)> {
-    let table = match pdk {
+    let table = magic_rows(pdk);
+    let i = table.binary_search_by(|r| r.0.cmp(name)).ok()?;
+    Some((table[i].1, table[i].2))
+}
+
+fn magic_rows(pdk: Pdk) -> &'static [(&'static str, &'static str, &'static str)] {
+    match pdk {
         Pdk::Sky130 => crate::magic_layers_generated::SKY130_MAGIC,
         Pdk::Gf180 => crate::magic_layers_generated::GF180_MAGIC,
         Pdk::Ihp => crate::magic_layers_generated::IHP_MAGIC,
-        Pdk::Generic => return None,
-    };
-    let i = table.binary_search_by(|r| r.0.cmp(name)).ok()?;
-    Some((table[i].1, table[i].2))
+        Pdk::Generic => &[],
+    }
+}
+
+/// Capas de Magic que el PDK conoce, con la capa GDS curada que les da
+/// color y apilado (`metal1` → met1, `viali` → mcon, `ndiffc` → licon1) y
+/// si van solo con contorno (obstrucciones, bloqueos, comentarios).
+pub(crate) fn magic_to_gds(pdk: Pdk) -> impl Iterator<Item = (&'static str, (u32, u32), bool)> {
+    magic_rows(pdk).iter().filter_map(move |&(name, plane, upper)| {
+        let equivalent = magic_equivalent(pdk, name, plane, upper)?;
+        let layer = curated(pdk).iter().find(|l| l.name == equivalent)?;
+        let outline = name.starts_with("obs") || matches!(plane, "block" | "comment");
+        Some((name, layer.tag, outline))
+    })
 }
 
 /// PDK de un layout de Magic: el que conoce más nombres de sus capas.
@@ -288,58 +253,12 @@ fn magic_equivalent(pdk: Pdk, name: &str, plane: &str, upper: &str) -> Option<&'
     }
 }
 
-/// Estilo de una capa de Magic: color y apilado de su equivalente GDS en el
-/// PDK (`metal1` → met1, `viali` → mcon, `ndiffc` → licon1). Las
-/// obstrucciones (`obsm1`), bloqueos y comentarios van solo con contorno.
-/// Una capa que el PDK no conoce toma un color de la paleta genérica y va
-/// arriba de todo. `name` de la spec queda en `None`: el nombre que se
-/// muestra es el de Magic.
-#[cfg(test)]
-pub fn magic_layer_spec(name: &str, tag: GdsTag, pdk: Pdk) -> LayerSpec {
-    magic_layer_spec_in(name, tag, pdk, None)
-}
-
-/// Como [`magic_layer_spec`], con el PDK instalado: un tipo que las tablas
-/// compiladas no conocen toma el estilo de la capa GDS en que lo escribe el
-/// `.tech` de Magic del PDK (`cifoutput`).
-pub fn magic_layer_spec_in(name: &str, tag: GdsTag, pdk: Pdk, tech: Option<&'static Tech>) -> LayerSpec {
-    let found = magic_row(pdk, name).and_then(|(plane, upper)| {
-        let equivalent = magic_equivalent(pdk, name, plane, upper)?;
-        let (rank, l) = pdk_table(pdk)?.iter().enumerate().find(|(_, l)| l.name == equivalent)?;
-        Some((rank, l, plane))
-    });
-    match found {
-        Some((rank, l, plane)) => {
-            let outline = name.starts_with("obs") || matches!(plane, "block" | "comment");
-            let role = if outline { LayerRole::Outline } else { l.role };
-            LayerSpec { name: None, color: l.color, role, rank: rank as u32 }
-        }
-        None => match tech.and_then(|t| t.magic_tag(name)) {
-            Some((layer, datatype)) => {
-                let spec = layer_spec_in(GdsTag { layer, datatype }, pdk, tech);
-                let role = if name.starts_with("obs") { LayerRole::Outline } else { spec.role };
-                LayerSpec { name: None, role, ..spec }
-            }
-            None => magic_fallback(tag, pdk),
-        },
-    }
-}
-
-/// Tipo de Magic que nadie conoce: color de la paleta genérica, arriba de todo.
-fn magic_fallback(tag: GdsTag, pdk: Pdk) -> LayerSpec {
-    LayerSpec {
-        name: None,
-        color: color_for_tag(tag, Pdk::Generic),
-        role: LayerRole::Device,
-        rank: pdk_table(pdk).map_or(0, |t| t.len() as u32),
-    }
-}
-
+/// Una capa de las tablas compiladas.
 pub(crate) struct PdkLayer {
-    tag: (u32, u32),
-    name: &'static str,
-    color: Color,
-    role: LayerRole,
+    pub tag: (u32, u32),
+    pub name: &'static str,
+    pub color: Color,
+    pub role: LayerRole,
 }
 
 pub(crate) const fn pl(layer: u32, datatype: u32, name: &'static str, color: Color, role: LayerRole) -> PdkLayer {
@@ -482,6 +401,17 @@ const IHP_LAYERS: &[PdkLayer] = &[
     pl(63, 0, "TEXT", rgb(0xff, 0xff, 0xff), O),
 ];
 
+/// Estilos sin PDK instalado, para los tests de las tablas compiladas.
+#[cfg(test)]
+fn layer_spec(tag: GdsTag, pdk: Pdk) -> LayerSpec {
+    crate::process::Process::compiled(pdk).layer_spec(tag)
+}
+
+#[cfg(test)]
+fn magic_layer_spec(name: &str, tag: GdsTag, pdk: Pdk) -> LayerSpec {
+    crate::process::Process::compiled(pdk).magic_spec(name, tag)
+}
+
 #[cfg(test)]
 mod magic_tests {
     use super::*;
@@ -491,7 +421,7 @@ mod magic_tests {
     }
 
     fn color_of(pdk: Pdk, pdk_name: &str) -> Color {
-        pdk_table(pdk).unwrap().iter().find(|l| l.name == pdk_name).unwrap().color
+        curated(pdk).iter().find(|l| l.name == pdk_name).unwrap().color
     }
 
     #[test]
@@ -546,10 +476,9 @@ mod tests {
 
     #[test]
     fn sky130_named_layers_resolve() {
-        let (name, _) = named_layer(tag(68, 20), Pdk::Sky130).expect("met1");
-        assert_eq!(name, "met1");
-        assert!(named_layer(tag(68, 20), Pdk::Generic).is_none());
-        assert!(named_layer(tag(999, 0), Pdk::Sky130).is_none());
+        assert_eq!(layer_spec(tag(68, 20), Pdk::Sky130).name, Some("met1"));
+        assert!(layer_spec(tag(68, 20), Pdk::Generic).name.is_none());
+        assert!(layer_spec(tag(999, 0), Pdk::Sky130).name.is_none());
     }
 
     #[test]
@@ -609,7 +538,7 @@ mod tests {
 
     #[test]
     fn layers_only_in_the_lyp_get_name_and_color() {
-        let ihp_curated = pdk_table(Pdk::Ihp).unwrap().len() as u32;
+        let ihp_curated = curated(Pdk::Ihp).len() as u32;
         let s = layer_spec(tag(32, 21), Pdk::Ihp);
         assert_eq!(s.name, Some("nBuLay.block"));
         assert_eq!(s.color, rgb(0x26, 0x8c, 0x6b));

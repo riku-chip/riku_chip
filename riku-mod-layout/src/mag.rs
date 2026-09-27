@@ -48,7 +48,7 @@ pub fn lambda_um(tech: Option<&str>) -> (f64, Option<String>) {
     }
 }
 
-use crate::pdk_tech::pdk_root;
+use viewer_core::files::pdk_root;
 
 /// Tecnologías del PDK con librerías `.mag` (`libs.ref/*/mag`) y cuántas
 /// librerías tiene cada una, para `riku doctor`.
