@@ -92,8 +92,9 @@ para cada capa:
 - **Huella:** la misma de `geometry_fingerprint`: hash de cada polígono (capa, datatype, vértices cuantizados a 1e-6 unidades), vector ordenado. Comparar vectores completos, no un solo hash: una colisión exigiría que dos multiconjuntos de polígonos distintos den los mismos 64 bits en cada elemento.
 - **Correctitud:** huellas iguales ⇒ mismos polígonos ⇒ XOR vacío. Al revés no: la misma forma partida distinto da huellas distintas y se hace el XOR, que da el resultado exacto. Nunca se pierde un cambio.
 - **Dónde actúa:** `diff_one_cell` lo usan `diff_gds` (CLI, `log`, `status`, `show`) y `diff_cell_as` (diff del visor), así que el beneficio llega a todos.
-- **Estimado:** ~0,5 s leer + 4,2 s huellas de celdas + ~6 s aplanar y hashear las 35 capas + 0,8 s XOR de la 8/0 ≈ **12 s en un núcleo** (hoy ~22 min).
-- **Memoria:** igual que hoy (una capa por vez).
+- **Mejor todavía (revisión contra el código):** `geometry_fingerprint` ya aplana la celda **completa** (todas las capas) para la huella de celda. En esa misma pasada se puede agrupar el hash de cada polígono por capa y devolver `BTreeMap<LayerKey, Vec<u64>>`. Así las capas que no cambiaron se conocen sin volver a aplanar 35 veces; solo las que cambiaron se aplanan filtradas para el XOR. Estimado: 0,5 s leer + 4,2 s huellas (ya se pagan hoy) + 0,8 s XOR de la 8/0 ≈ **6 s en un núcleo** (hoy ~22 min). Se guardan solo los hashes, no los polígonos, para no duplicar los 2,5 GB del aplanado.
+- **El diff del visor** (`diff_cell_as`) no calcula huella de celda: llama a `diff_one_cell` directo. Recibe el mismo mapa por capa (calculado ahí, una vez por celda), así el visor también se beneficia.
+- **Memoria:** igual que hoy.
 - **Contrato:** ninguno cambia. Es interno a `gds_diff.rs`.
 
 ### 4.2 Visor: índice espacial, nivel de detalle y triangulación en cache (`viewer-core` + visor)
@@ -145,8 +146,8 @@ Revisión del C++ (lo que usa Riku):
 **Cambios:**
 1. **Normalizar al cargar.** En `read_gds_with_error`/`read_oas_with_error` (shim C++), recorrer los `FlexPath` de todas las celdas y llamar a `remove_overlapping_points()` una vez, en el hilo que lee. Desde ahí aplanar no escribe nada.
 2. **`unsafe impl Send for Library` y `unsafe impl Sync for Library`**, con un comentario `SAFETY:` que cite la tabla anterior. `Cell<'a>`, `Reference<'a>` y los demás toman prestada la librería (`&'a Library`) y heredan la seguridad sin tocarlos.
-3. **Test concurrente:** 12 hilos que aplanan y hacen XOR sobre la misma librería (con paths), comparando contra el resultado secuencial. En la CI de gdstk-rs, un job con ThreadSanitizer (`-Zsanitizer=thread`, nightly) que falla ante cualquier carrera.
-4. **Memoria que no baja** (2,5 GB tras liberar las huellas): medir si es una fuga (valgrind/heaptrack sobre `profile_diff`) o el allocator de glibc que retiene las arenas. Si es el allocator, `malloc_trim(0)` al terminar cada celda grande; si es una fuga, arreglarla en el shim.
+3. **Test concurrente:** 12 hilos que aplanan y hacen XOR sobre la misma librería (con paths), muchas rondas, comparando contra el resultado secuencial. Corre en la CI de gdstk-rs con el toolchain estable. ThreadSanitizer queda como job aparte y opcional: necesita nightly (`-Zsanitizer=thread`) **y** compilar el C++ de gdstk con `-fsanitize=thread`; el contenedor solo tiene el toolchain estable y no tiene valgrind, así que se hace en el runner de GitHub.
+4. **Memoria que no baja** (2,5 GB tras liberar las huellas): verificado en `shims.cpp` que `FlattenedPolygonsHandle` libera cada polígono al soltarse, así que no es una fuga evidente. Lo más probable es el allocator de glibc reteniendo arenas fragmentadas por millones de asignaciones chicas. Plan: `malloc_trim(0)` desde el shim al terminar un aplanado grande y medir con `profile_diff`; si no baja, probar `heaptrack` en el runner.
 
 ### 4.4 Paralelismo del diff (`riku-mod-layout`, con `rayon`)
 
@@ -165,9 +166,22 @@ Sobre 4.1 y 4.3:
 - **Cache (`diff_cache.rs`):** el archivo temporal se llama `tmp<pid>`, así que dos hilos que guardan la misma clave lo pisarían. Pasa a `tmp<pid>-<contador atómico>`.
 - **Estimado:** de ~12 s (4.1) a **~4–6 s**, con el piso en la huella de la celda top y en aplanar la capa 6/0.
 
-### 4.5 XOR por cuadrantes (`riku-mod-layout` + una función nueva en gdstk-rs)
+### 4.5 XOR de una capa que cambió: primero por huellas, cuadrantes como respaldo
 
-Para una capa que **sí cambió** y tiene muchos polígonos (umbral inicial: 100 mil).
+**Dato del código:** `xor_split_flat` no hace un XOR: hace **dos** booleanas `NOT` de Clipper (`B \ A` para lo añadido y `A \ B` para lo eliminado, `shims.cpp::polygons_xor_split`). Cada una barre toda la capa, así que la 19/0 paga 2 × ~180 s.
+
+#### 4.5.a Diferencia por huellas con recorte local (`riku-mod-layout`, exacto y sin cambios en gdstk-rs)
+
+Con los hashes por polígono de 4.1, cada lado se parte en los polígonos **idénticos en ambos** (`C`) y los **propios** de cada lado (`A'`, `B'`). Casi siempre `A'` y `B'` son diminutos (en el layout de prueba: 6 polígonos de 18 mil en la 8/0).
+
+- Identidad exacta: `XOR(A, B) = XOR(A', B') \ C`. Los polígonos comunes cancelan cualquier diferencia que caiga dentro de ellos.
+- `C` es enorme, pero solo importan los polígonos de `C` cuyo bbox toca el resultado de `XOR(A', B')`: `C_local`. Se filtran con los bboxes (ya calculados para el hash) y la resta se hace contra `C_local`, normalmente decenas de polígonos.
+- Costo: dos `NOT` sobre conjuntos chicos. La 8/0 pasa de 0,84 s a milisegundos; una 19/0 con un cambio chico pasaría de 358 s a milisegundos.
+- Correctitud: la geometría del resultado es idéntica a la del XOR completo. La **partición en polígonos** puede diferir (Clipper une lo que toca de otra forma), así que el conteo `+N polys` puede cambiar; las áreas, bbox e instancias no. Se documenta y se verifica contra KLayout por área.
+
+#### 4.5.b Cuadrantes, para cuando `A'` y `B'` son grandes (una capa regenerada entera)
+
+Umbral inicial: más de 100 mil polígonos propios en un lado.
 
 - **Identidad:** `XOR(A, B) ∩ T = XOR(A ∩ T, B ∩ T)` para cualquier rectángulo `T`. Partiendo el bbox de la capa en cuadrantes `T₁…Tₙ`, la unión de los resultados es el XOR completo.
 - **Por cuadrante:** tomar los polígonos cuyo bbox toca el cuadrante, recortarlos al cuadrante, XOR, y recortar el resultado al cuadrante (un polígono que cruza el borde aparece en los dos lados, cada uno con su parte).
@@ -176,6 +190,7 @@ Para una capa que **sí cambió** y tiene muchos polígonos (umbral inicial: 100
 - **Tamaño:** grilla adaptativa, hasta ~20 mil polígonos por cuadrante (se parte en 4 el que se pase).
 - **gdstk-rs:** función nueva `xor_split_flat_in(a, b, rect) -> XorSplit` que filtra por bbox, recorta y hace el XOR en C++ (Clipper ya soporta la intersección con un rectángulo).
 - **Efecto visible:** un polígono de diferencia que cruza un borde de cuadrante sale partido en dos. Las áreas, los bbox y las instancias no cambian. El conteo `+N polys` sí puede cambiar, solo en capas donde se usan cuadrantes. Se documenta; la comparación contra KLayout es por área y sigue igual.
+- **Cache:** la clave de `diff_cache.rs` incluye `CARGO_PKG_VERSION`. Como 4.5.a y 4.5.b pueden cambiar la partición de los polígonos, `riku-mod-layout` sube a `0.2.0` al activarlos, y los resultados viejos se recalculan solos.
 
 ### 4.6 `log`, `show` y `status` en paralelo (núcleo del ejecutable: `riku/src/core/analysis`)
 
@@ -204,10 +219,11 @@ Para una capa que **sí cambió** y tiene muchos polígonos (umbral inicial: 100
 | 6.2 | Índice espacial, LOD y triangulación en cache | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
 | 6.3 | gdstk-rs seguro entre hilos + memoria | `external/gdstk` | M | O5; la RAM baja al liberar |
 | 6.4 | `rayon` en el diff + presupuesto de memoria + cache | `riku-mod-layout` | M | O1 con 12 núcleos (< 10 s) y O2 |
-| 6.5 | XOR por cuadrantes | `riku-mod-layout`, `external/gdstk` | M | O4 y áreas iguales a KLayout |
+| 6.5.a | Diferencia por huellas con recorte local | `riku-mod-layout` | S | capa cambiada con pocos cambios: XOR en ms; áreas iguales a KLayout |
+| 6.5.b | XOR por cuadrantes (respaldo) | `riku-mod-layout`, `external/gdstk` | M | O4 y áreas iguales a KLayout |
 | 6.6 | `log`/`show`/`status` en paralelo | `riku/src/core/analysis` | S | salida idéntica; `log -n 200` < 1 s |
 
-- 6.1 va primero porque es chico, no toca otros repos y resuelve el pendiente #2 casi por completo.
+- 6.1 y 6.5.a van primero (juntos son un paso): son chicos, no tocan otros repos y resuelven el pendiente #2 casi por completo, en un solo núcleo.
 - 6.2 va segundo porque es el riesgo que ve el usuario: abrir un chip real se come la memoria.
 - 6.3 es requisito de 6.4 y 6.5.
 - Cada paso se mide con `profile_diff`/`profile_view` antes y después, y se anota en la tabla de avance.
@@ -223,3 +239,28 @@ Para una capa que **sí cambió** y tiene muchos polígonos (umbral inicial: 100
 | LOD esconde un detalle que el usuario busca | Solo resume lo menor a un píxel; al acercarse aparece todo. Opción en Ajustes para desactivarlo |
 | Cambia el conteo de polígonos con cuadrantes | Solo en capas pesadas que cambiaron; documentado; áreas verificadas contra KLayout |
 | El layout de prueba es de IHP; otro PDK podría tener otro peor caso | Repetir `profile_diff` con un wrapper de SKY130 (Caravel) antes de cerrar la fase |
+
+---
+
+## 8. Revisión contra el código (2026-09-26)
+
+Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer-core`, `riku/src/gui` y `riku/src/core`:
+
+| Supuesto del plan | ¿Se sostiene? | Detalle |
+|---|---|---|
+| gdstk no tiene estado global en lo que usa Riku | Sí | Booleanas con objetos locales (`clipper_tools.cpp`); los `static` son de SVG o están comentados |
+| `Library` no es `Send`/`Sync` | Sí | `cxx::UniquePtr` a tipo opaco, sin `impl Send` en el bridge |
+| `FlexPath::to_polygons` escribe | Sí | `remove_overlapping_points()` borra puntos; después de una pasada solo lee (compara distancias) |
+| `RobustPath::to_polygons` es `const` | Sí | |
+| `Cell<'a>` toma prestada la librería | Sí | `Cell { handle: &'a CellHandle }`: hereda la seguridad de `Library` |
+| Los aplanados se liberan | Sí | `FlattenedPolygonsHandle::Impl::~Impl` libera cada polígono → la RAM retenida es del allocator, no una fuga |
+| El XOR es una sola operación | **No** | Son dos `NOT` de Clipper (`B\A`, `A\B`): el costo por capa es doble. Motiva 4.5.a |
+| `geometry_fingerprint` aplana toda la celda | Sí | Se reaprovecha para los hashes por capa (4.1) |
+| `diff_cell_as` (visor) no usa la huella de celda | Sí | Recibe el mapa por capa (4.1) |
+| La cache se invalida por versión | Sí | `env!("CARGO_PKG_VERSION")` en la clave → subir a 0.2.0 con 4.5 |
+| `Scene::visit` es lineal y recalcula bboxes | Sí | `Polygon::bounding_box` recorre los vértices en cada cuadro |
+| earcut en cada cuadro | Sí | `polygon_fill::triangulate` desde `paint_filled_polygon` |
+| La carga del visor corre en `spawn_blocking` | Sí | `rayon::install` cabe adentro sin bloquear a tokio |
+| `rayon` ya está en el árbol | **No** | Dependencia nueva en `riku-mod-layout`, `viewer-core` (feature) y `riku`; el `Cargo.lock` cambia |
+| Hay nightly/valgrind en el contenedor | **No** | Solo `stable`; ThreadSanitizer va en el runner de GitHub (4.3) |
+| `log`/`status` abren el repo por ruta | Sí | `analyze_with_options_path` → `GitService::open`: se puede abrir uno por hilo |
