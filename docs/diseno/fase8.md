@@ -1,6 +1,6 @@
-# Fase 8: Magic (`.mag`) — ideas, antes del diseño
+# Fase 8: Magic (`.mag`)
 
-Estado (2026-09-27): **ideas acordadas y referencias estudiadas** (Magic y KLayout); falta el diseño detallado (`/sc:design`). Resumen en [`../roadmap.md`](../roadmap.md).
+Estado (2026-09-27): **hecha** (8.1–8.7). Cómo se usa: [`../layouts.md`](../layouts.md#magic-mag). Resumen en [`../roadmap.md`](../roadmap.md). Lo que sigue es el estudio previo, el plan y lo que se hizo.
 
 ## Qué es un `.mag` y en qué se diferencia de un GDS
 
@@ -111,9 +111,9 @@ Instancia en arreglo: elemento `(i, j)` = `transform ∘ trasladar(i·xsep, j·y
 - **Unidades:** coordenada en lambda = valor · n/d, exacta (racional). Los `.mag` del PDK mezclan escalas dentro de una misma librería (SRAM de gf180: 590 con `magscale 1 10`, 1 775 sin la línea): el lector lleva todo a una grilla común (MCM de los `d`) y convierte a µm con el lambda del PDK.
 - **Triángulos:** tabla de arriba; 153 000 `tri` en los PDK, las 4 orientaciones.
 - **Diff por regiones, no por listas de `rect`:** Magic reescribe la misma geometría como tiras horizontales distintas tras una edición. Comparar la lista de líneas daría cambios falsos; el diff geométrico por capa (el de GDS) es lo correcto.
-- **`mag/` contra `maglef/`:** Magic no los distingue (es una convención de open_pdks para las rutas de búsqueda). Riku busca en `mag/` (vista completa) y deja `maglef/` como opción.
+- **`mag/` contra `maglef/`:** Magic no los distingue (es una convención de open_pdks para las rutas de búsqueda). Riku busca en `mag/` (vista completa); `maglef/` queda como mejora posible.
 - **Celdas con `GDS_FILE` (9 149 de 9 281 en los PDK):** su máscara real está en el GDS; el `.mag` es una vista. Riku compara el `.mag` tal cual (lo que edita el diseñador); las celdas del PDK son iguales en los dos lados y la huella jerárquica las descarta.
-- **Queda para el diseño:** el contrato del kernel (lector de archivos hermanos) sin romper a Carlos.
+- **Contrato del kernel:** resuelto en 8.3 con métodos nuevos con valor por defecto (`diff_with`, `load_with`, `load_diff_with`); el crate de Carlos no cambia.
 
 ### Qué hay en los PDK (9 281 `.mag`)
 
@@ -127,23 +127,43 @@ Los casos de KLayout (`testdata/magic/`), con su resultado esperado: `MAG_TEST`,
 
 gdstk (C++) sigue con GDS/OASIS y la geometría (Clipper); no se reescribe. El lector `.mag` se escribe **en Rust** dentro de gdstk-rs: es parsear texto, sin puente al C++, seguro entre hilos (leer los archivos de una jerarquía en paralelo con rayon) y sin sumar otro C++ al build. Ni Magic ni KLayout sirven como librería para reusar su lector.
 
-## Pasos tentativos
+## Pasos y avance
 
-| Paso | Qué | Dónde |
+| Paso | Estado | Qué se hizo |
 |---|---|---|
-| 8.1 | Lector `.mag`: `rect`, triángulos, `use` + `transform` + `array`, `rlabel`/`flabel`/`port`, `magscale`, `properties`. Leer los ~9 300 `.mag` sin errores y comparar área por capa contra KLayout | gdstk_rust (`rust/`) |
-| 8.2 | `LibraryBuilder` (celdas, polígonos, referencias, nombres de capa) en el shim | gdstk_rust |
-| 8.3 | Jerarquía entre archivos: función que resuelve los `use` (commit y PDK); lectura en paralelo de los archivos de una jerarquía | gdstk_rust + riku |
-| 8.4 | `.mag` en `riku-mod-layout`; "lector de archivos hermanos" en el contrato del kernel | riku-kernel, riku-mod-layout, riku |
-| 8.5 | Visor: paleta por nombre de capa, coherente con la de GDS del mismo PDK | riku-mod-layout |
-| 8.6 | Extra semántico: **puertos** (`port 1 nsew signal input`) comparados como en Xschem: "se agregó el puerto `EN`", "`A` pasó de input a inout" | riku-mod-layout |
+| 8.1 | Hecho (2026-09-27) | `gdstk_rust` `a6a87a8`, `rust/src/magic/parse.rs`: la gramática de Magic 8.3 (tabla de arriba), tolerante con lo inofensivo (avisos con número de línea), `<< end >>` termina, `rect` sin área se descarta, solo los 8 transforms Manhattan. Tests unitarios, más dos ignorados: los 9 281 `.mag` de los PDK (se leen todos: 57 591 celdas en sus jerarquías, 18 s) y los casos de `testdata/magic` de KLayout |
+| 8.2 | Hecho (2026-09-27) | Mismo commit. `LibraryBuilder` en Rust + un solo shim C++ (`library_from_parts`: celdas, polígonos en un arreglo plano, referencias con repetición `Regular`, etiquetas, nombres de capa; termina en `finish_load`, así la `Library` sigue siendo `Send + Sync`). `magic::collect` (jerarquía nivel por nivel, cada nivel en paralelo) y `Library::from_mag` (grilla común, orientación = `atan2(d, a)` + espejo por el determinante, arreglos como `L·(xsep, 0)` / `L·(0, ysep)`, ciclos descartados, celdas faltantes vacías). `Library::layer_names()` (también LAYERNAME de OASIS). `sniff_format` reconoce Magic. Ejemplo `mag_area` y `tools/verify/mag/compare_mag.sh`: **8 jerarquías de SKY130 y GF180 idénticas a KLayout 0.30.12** en cantidad de polígonos y área por capa (hasta 701 celdas, `magscale` mezclados, triángulos), y los casos de KLayout también |
+| 8.3 | Hecho (2026-09-27) | `a03e387`. `viewer-core`: `FileSource`, `DiskFiles`, `DiffFiles`, `join_relative`; `ViewerBackend::load_with` / `load_diff_with`. `riku-kernel`: `FormatModule::diff_with`, `Element::Geometry.layer_name`, `Element::Port`. Todo con valor por defecto: el crate de Carlos compila sin cambios; el JSON de GDS y el v1 no cambian |
+| 8.4 | Hecho (2026-09-27) | `6fb87a6`. `riku-mod-layout/mag.rs` (dónde se busca cada `use`: su directorio, junto al archivo en la misma versión, `$RIKU_MAG_PATH` y el PDK; lambda por tecnología), `diff_layout_sides` (clave de cache con todos los archivos de la jerarquía), `diff_libraries`. Núcleo: `GitFiles` (conexión propia y perezosa) en `diff`, `show`, `log` y `status` (HEAD + disco). Visor con los archivos de cada commit. `.mag` en extensiones, ayuda y `riku doctor`. `riku/tests/mag_e2e.rs` |
+| 8.5 | Hecho (2026-09-27) | Mismo commit. `tools/palettes/gen_magic_layers.py` → `magic_layers_generated.rs` (plano de cada capa y, en los contactos, el plano que conectan; 326/291/280 nombres en SKY130/GF180/IHP). `magic_layer_spec`: color y apilado de la capa GDS equivalente del PDK; `magic_pdk`: el PDK que conoce más nombres. El visor lista `locali`, `viali`, `metal1`… |
+| 8.6 | Hecho (2026-09-27) | `fba8100`. `mag::port_changes`: por celda y nombre, agregados, quitados y cambios de clase, uso, índice, lados o capa; solo movido = cosmético. `Element::Port` en el JSON y el texto (`inv:port:A` · `class: input → inout`) y en la lista de cambios del visor |
+| 8.7 | Hecho (2026-09-27) | Documentación (`layouts.md`, `cli.md`, `gui.md`, `arquitectura.md`, READMEs, `desarrollo.md`) y medición (abajo) |
 
-## Riesgos a verificar en el diseño
+### Resultados
 
-Unidades, triángulos y `mag/` contra `maglef/`: resueltos en *Referencias estudiadas*. Queda el cambio en el contrato del kernel sin romper a `xschem-viewer-rust`.
+Jerarquía real: la librería `sky130_fd_io` completa (2 545 `.mag`) en un repo; `sky130_fd_io__top_gpio_ovtv2` como archivo comparado; release, sin cache, en el contenedor (`tools/verify/mag/mag_bench.sh`):
 
-## Otros pendientes anotados en esta sesión
+| Caso | Tiempo | Memoria | Resultado |
+|---|---|---|---|
+| Diff del top sin cambios | 1,21 s | 574 MB | 0 cambios |
+| Diff del top, rect nuevo solo en una sub-celda | 1,24 s | 585 MB | el cambio en la sub-celda y en el top, vía la instancia, con posición |
+| Diff del top, la misma geometría en otras tiras | 1,32 s | 588 MB | 0 cambios |
+| Diff de la sub-celda sola | 0,10 s | 23 MB | 1 cambio |
+| `riku log` | 0,14 s | 36 MB | |
+
+Además: regresión de la fase 1 (8 salidas idénticas), `compare.sh` de GDS contra KLayout (tres PDKs idénticos), la suite con `-D warnings`, las cuatro combinaciones de features y el crate de Carlos con `viewer-core-compat`.
+
+### Diferencias con el plan
+
+- **Numeración de capas:** un hash estable del nombre (bit 30 en adelante), no una tabla con números chicos: los dos lados de un diff coinciden sin compartir nada, y como en todos lados se muestra el nombre, el número es interno.
+- **`LibraryBuilder`** junta todo en Rust y cruza al C++ en una sola llamada, en vez de un handle mutable con un método por figura.
+- **Color de las capas:** por plano y tipo (del `.tech`), no por la conversión completa de `cifoutput` (demasiadas capas temporales y operaciones para reproducirla).
+- **KLayout como oráculo:** hace falta 0.30.12; la 0.30.2 y la 0.30.4 del contenedor ignoran `magscale`. Se compara sin unir polígonos (unir una jerarquía de 700 celdas tardaba minutos); es más estricto: misma cantidad y misma suma.
+- **Diferencias con KLayout que se mantienen** (se sigue a Magic): `array` invertido camina hacia atrás; `<< end >>` termina; las capas de DRC y del router no son geometría; los nombres con `.` no se cortan.
+
+## Pendiente
 
 - **TUI** (fase 7.4, `ratatui`): para después.
 - **Panel History:** decidir si, con un filtro de archivos, se ocultan los merges que no tocan esos archivos (hoy se muestran, como `riku log`).
 - Decisiones del usuario: licencia y primer release (tag); qué hacer con `.agents/` y `skills-lock.json`.
+- Magic, posibles mejoras: `.mag.gz`; `MASKHINTS_*` como geometría; opción para leer las vistas `maglef/`.

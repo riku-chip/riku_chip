@@ -183,7 +183,7 @@ impl Read<'_> {
 /// Diff de un archivo de layout entre dos versiones, con acceso a los otros
 /// archivos de cada una: un `.mag` resuelve sus sub-celdas en su misma
 /// versión (ver `mag`). `path` es la ruta del archivo relativa a la raíz de
-/// `files`. GDSII y OASIS van como [`diff_gds_cached`].
+/// `files`. Si ningún lado es Magic, es [`diff_gds_cached`].
 ///
 /// La cache usa como clave todos los archivos leídos: editar una sub-celda
 /// cambia el resultado aunque el archivo principal sea el mismo.

@@ -1,4 +1,4 @@
-//! Módulo de layouts (GDSII y OASIS): traduce el diff de `riku-mod-layout` al
+//! Módulo de layouts (GDSII, OASIS y Magic): traduce el diff de `riku-mod-layout` al
 //! vocabulario del núcleo y ofrece su backend del visor. Toda la lógica de
 //! geometría vive en `riku-mod-layout`; aquí no se usa `gdstk_rs`.
 

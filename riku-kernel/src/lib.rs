@@ -1,7 +1,7 @@
 //! Núcleo de Riku.
 //!
 //! Define el vocabulario con el que los módulos de formato (Xschem, layouts
-//! GDS/OASIS, …) le cuentan al resto del programa qué cambió entre dos
+//! GDS/OASIS/Magic, simulaciones, …) le cuentan al resto del programa qué cambió entre dos
 //! versiones de un archivo. No depende de ningún formato ni motor: los
 //! módulos traducen sus tipos a estos y la CLI, el visor, `log` y `status`
 //! solo conocen estos.

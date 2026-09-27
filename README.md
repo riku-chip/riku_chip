@@ -20,7 +20,7 @@ Revisa cambios en esquemáticos y layouts al nivel del circuito, no del texto.
 Un `git diff` sobre un esquemático de Xschem muestra coordenadas; sobre un GDS, nada legible. Riku lee el historial de Git y responde lo que importa:
 
 - **Esquemáticos:** qué componentes se añadieron, eliminaron, renombraron o cambiaron de valor; qué nets se conectaron o desconectaron; si fue solo un reordenamiento visual (Move All).
-- **Layouts GDS/OASIS:** qué área cambió, en qué capa y en qué celda; si viene de una sub-celda instanciada; qué celdas cambiaron en una librería; si es ruido por debajo de la grilla.
+- **Layouts GDS, OASIS y Magic:** qué área cambió, en qué capa y en qué celda; si viene de una sub-celda instanciada; qué celdas cambiaron en una librería; si es ruido por debajo de la grilla. En Magic, con las capas por nombre (`metal1`), las sub-celdas leídas del mismo commit y los puertos (`A: input → inout`).
 - **Simulaciones (ngspice `.raw`):** qué señales cambiaron, cuánto (error máximo, dónde, RMS) y si la diferencia es solo ruido numérico.
 
 Y lo muestra en un **visor** con las versiones antes/después y los cambios resaltados. Todo en Rust: no hace falta tener xschem, KLayout ni Magic instalados.
@@ -32,7 +32,7 @@ Y lo muestra en un **visor** con las versiones antes/después y los cambios resa
 | **Visor** | Esquemáticos y layouts por la misma ruta: diff visual, capas, tooltip, selector de celdas, paletas de SKY130/GF180/IHP; layouts de millones de polígonos fluidos |
 | **PDK automático** | Encuentra los símbolos por `.xschemrc`, `$PDK_ROOT`/`$PDK`, o detectando qué PDK instalado usa el esquemático |
 | **Verificado** | La lectura de layouts y el XOR dan lo mismo que KLayout en las librerías estándar de los tres PDKs |
-| **Modular** | Un núcleo que no conoce formatos y un módulo por formato; sumar uno (Magic, KiCad…) no toca el núcleo, la CLI ni el visor |
+| **Modular** | Un núcleo que no conoce formatos y un módulo por formato; sumar uno (Magic se sumó así; KiCad…) no toca la CLI ni el visor |
 
 | Formato | Extensión | Diff | Visor |
 |---|---|:-:|:-:|
@@ -40,7 +40,7 @@ Y lo muestra en un **visor** con las versiones antes/después y los cambios resa
 | GDSII | `.gds` | geométrico (XOR) | ✓ |
 | OASIS | `.oas` | geométrico (XOR) | ✓ |
 | ngspice | `.raw` | formas de onda (con tolerancia) | ✓ (curvas) |
-| Magic | `.mag` | planificado | planificado |
+| Magic | `.mag` | geométrico (XOR) y puertos, con la jerarquía del mismo commit | ✓ |
 
 ## Instalación
 
@@ -91,13 +91,13 @@ Cambios : 3
 |---|---|
 | [`docs/cli.md`](docs/cli.md) | Comandos, JSON y códigos de salida |
 | [`docs/gui.md`](docs/gui.md) | El visor |
-| [`docs/xschem.md`](docs/xschem.md) · [`docs/layouts.md`](docs/layouts.md) · [`docs/spice.md`](docs/spice.md) | Esquemáticos y PDK · layouts GDS/OASIS · simulaciones de ngspice |
+| [`docs/xschem.md`](docs/xschem.md) · [`docs/layouts.md`](docs/layouts.md) · [`docs/spice.md`](docs/spice.md) | Esquemáticos y PDK · layouts GDS/OASIS/Magic · simulaciones de ngspice |
 | [`docs/arquitectura.md`](docs/arquitectura.md) · [`docs/desarrollo.md`](docs/desarrollo.md) | Cómo está hecho · cómo compilar, probar y publicar |
 | [`docs/roadmap.md`](docs/roadmap.md) | Estado, fases y pendientes |
 
 ## Estado
 
-**Alpha.** Esquemáticos Xschem, layouts GDS/OASIS y simulaciones de ngspice funcionan de punta a punta: diff en la CLI, historial y visor. Los layouts grandes (millones de polígonos) se comparan en segundos y con menos de 1 GB. `log`, `show` y `status` usan todos los núcleos (`--jobs N` para limitarlos). Próximo: `log --graph` y el módulo Magic. Ver [`docs/roadmap.md`](docs/roadmap.md).
+**Alpha.** Esquemáticos Xschem, layouts GDS/OASIS/Magic y simulaciones de ngspice funcionan de punta a punta: diff en la CLI, historial (`log --graph`) y visor. Los layouts grandes (millones de polígonos) se comparan en segundos y con menos de 1 GB. `log`, `show` y `status` usan todos los núcleos (`--jobs N` para limitarlos). Ver [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contribuir
 

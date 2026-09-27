@@ -1,4 +1,4 @@
-# Layouts GDSII y OASIS
+# Layouts GDSII, OASIS y Magic
 
 Un esquemático se compara semánticamente (componentes, nets). Un layout es geometría: el diff útil es **qué área cambió, en qué capa y en qué celda**. Todo vive en el crate `riku-mod-layout`, sobre [`gdstk-rs`](https://github.com/Adriel2503/gdstk_rust) (binding de gdstk, submódulo `external/gdstk`). El resto de Riku no usa gdstk directamente.
 
@@ -9,9 +9,10 @@ Un esquemático se compara semánticamente (componentes, nets). Un layout es geo
 - **Instancias:** cada instancia (y cada repetición de un AREF) tiene su item y su recuadro en el visor (`met1 · en INV @ (10.00, 10.00)`); la CLI los agrupa (`en N instancias`) y el JSON trae `instances`.
 - **Renombres:** una celda que desaparece y otra con la misma geometría que aparece son un renombre (`r cell:INV → INV_X1`), no baja + alta. Solo renombres puros; si hay varias candidatas no se adivina.
 - **Librerías:** `changed_cells` dice qué celdas cambiaron, incluidos cambios heredados de sub-celdas. El visor las marca (`+` `−` `~`) y puede filtrar "solo con cambios".
-- **OASIS:** el lector se elige por la firma del archivo, así que A y B pueden ser de formatos distintos.
+- **OASIS:** el lector se elige por la firma del archivo, así que A y B pueden ser de formatos distintos. Si el OASIS nombra sus capas (LAYERNAME), los cambios llevan el nombre.
+- **Magic:** ver [abajo](#magic-mag).
 - **Archivo nuevo o borrado:** un lado vacío es una librería vacía.
-- **Cache:** en layouts de más de 1 MiB el resultado (reporte, celdas cambiadas, XOR de una celda) se guarda en `~/.cache/riku/diff` (tope 512 MiB). La clave incluye los bytes, los parámetros y la versión de `riku-mod-layout`. `--no-cache` o `RIKU_NO_CACHE=1` la desactivan.
+- **Cache:** en layouts de más de 1 MiB el resultado (reporte, celdas cambiadas, XOR de una celda) se guarda en `~/.cache/riku/diff` (tope 512 MiB). La clave incluye los bytes (en Magic, los de todos los archivos de la jerarquía), los parámetros y la versión de `riku-mod-layout`. `--no-cache` o `RIKU_NO_CACHE=1` la desactivan.
 
 ### Cómo evita el trabajo inútil
 
@@ -24,6 +25,21 @@ Un esquemático se compara semánticamente (componentes, nets). Un layout es geo
 Todo se aplana **por pedazos** (lo propio de la celda y cada instancia por separado): cada pedazo se usa y se suelta, así nunca está un chip entero aplanado en memoria. Los pedazos, las capas y las celdas se reparten entre los núcleos (`--jobs N` o `RIKU_JOBS`, por defecto todos; ver [`cli.md`](cli.md)).
 
 Un `user_project_wrapper` de 42 MB (IHP, 6,2 millones de polígonos) pasó de no terminar en 45 minutos a **1,4–2,3 s** (sin cambios reales, con cambios en la top o dentro de una sub-celda) y **4,7–7 s** si se mueve la instancia de un pad (74 mil polígonos corridos: el peor caso de Clipper; KLayout tarda 211 s), siempre con menos de 1 GB y áreas idénticas a KLayout. Diseño y mediciones en [`diseno/fase6.md`](diseno/fase6.md).
+
+## Magic (`.mag`)
+
+Magic guarda **una celda por archivo** (`inv.mag`) y la jerarquía entre archivos: `use inv  inv_0` apunta a `inv.mag`. Sus capas son **lógicas y con nombre** (`ndiff`, `poly`, `ndiffc`, `locali`, `metal1`), no las de máscara del GDS. Riku compara en esas capas, lo que edita el diseñador, sin reproducir la conversión a GDS del `.tech`.
+
+- **Mismo diff que GDS:** el lector (en Rust, dentro de `gdstk-rs`) arma la misma `Library`; la huella jerárquica, las gemelas, el XOR por cuadrantes, la cache y el visor funcionan igual.
+- **Sub-celdas de la misma versión:** cada `use` se busca en el directorio del `use` si lo da (relativo al archivo, o con `$PDK_ROOT`, `$PDKPATH`, `~`), después junto al archivo que la usa, **en el mismo commit** (o en el disco para `status`), y al final en las librerías del PDK (`$PDK_ROOT/<tech>/libs.ref/*/mag`, con `<tech>` de la línea `tech`) y en `$RIKU_MAG_PATH`. Así `riku diff A B top.mag` ve un cambio hecho solo en `inv.mag`: sale en `top` como cambio vía `inv`.
+- **Celda que falta:** queda vacía, con un aviso (`1 celda(s) de Magic sin archivo, comparadas vacías: ghost`); el resto se compara.
+- **Unidades:** un valor del archivo es `valor · n/d` lambda (`magscale n d`); lambda sale de la tecnología: 0,01 µm en SKY130 e IHP, 0,05 µm en GF180 (`RIKU_MAG_LAMBDA` la fuerza). Los archivos de una jerarquía pueden tener distinto `magscale`: todo va a una grilla común, sin redondeos.
+- **Mismas figuras, otras tiras:** Magic reescribe la geometría como tiras horizontales después de editar; como el diff es por área, la misma geometría partida distinto **no es un cambio**.
+- **Capas por nombre:** los reportes dicen `top:metal1:inv`, el JSON trae `layer_name` y el visor lista `metal1`, `viali`, `locali`… con el color y el orden de apilado de la capa GDS equivalente del PDK (`metal1` → met1, `viali` → mcon, `ndiffc` → licon1; tabla generada de los `.tech` con `tools/palettes/gen_magic_layers.py`). Las marcas de DRC y pistas del router (`checkpaint`, `error_*`, `magnet`…) no son geometría y quedan fuera.
+- **Puertos:** los `port` de cada celda se comparan como en un esquemático: agregados, quitados y cambios de clase, uso, índice, lados o capa (`inv:port:A` · `class: input → inout`). Un puerto que solo se movió es cosmético.
+- **`riku doctor`** dice qué librerías `.mag` del PDK encontró.
+
+Verificado contra KLayout 0.30.12 (`tools/verify/mag/compare_mag.sh`): la misma cantidad de polígonos y la misma área por capa en 8 jerarquías de SKY130 y GF180 (hasta 701 celdas, con `magscale` mezclados y triángulos) y en los casos de prueba de KLayout. Los 9 281 `.mag` de los PDK se leen sin errores. KLayout 0.30.4 y anteriores ignoran `magscale`.
 
 ## El visor
 
@@ -58,3 +74,4 @@ Visualmente (`tools/verify/klayout_snapshot.py`) la geometría coincide; cambia 
 - `profile_prints layout.gds [celda] [hilos]`: lo que decide la huella por pedazos (fase 6.4): reparto de las referencias de la top, igualdad con la huella entera, tiempo de aplanar/hashear/ordenar, memoria por polígono y escalado por hilos (`SKIP_WHOLE=1` para medir la memoria de los pedazos sola).
 - `profile_xor a.gds b.gds <celda instanciada o top> <layer> <datatype>`: el XOR de una capa entre dos versiones, entero y por k×k cuadrantes (tiempos, áreas, duplicados por los bordes); `SKIP_WHOLE=1` cuando el entero tarda minutos.
 - `verify_dump`: el volcado para comparar con KLayout.
+- `mag_area` (en `external/gdstk/rust/examples`): polígonos y área por capa de una jerarquía Magic, aplanada; lo usa `tools/verify/mag/compare_mag.sh`.

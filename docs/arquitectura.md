@@ -16,9 +16,10 @@ riku_chip/
 │   └── src/gui/          visor egui (feature `gui`)
 ├── riku-kernel/          tipos neutros (FileChange, Change, Element, ChangeKind, Detail…),
 │                         trait FormatModule, Registry; legacy.rs = JSON v1 exacto
-├── riku-mod-layout/      módulo GDS/OASIS: diff geométrico, cache, paletas, GdsBackend
+├── riku-mod-layout/      módulo GDS/OASIS/Magic: diff geométrico, cache, paletas, GdsBackend;
+│                         mag.rs = de dónde salen las sub-celdas de un .mag (commit, PDK)
 ├── viewer-core/          contrato del visor: ViewerBackend, Scene, DrawElement, SceneIndex
-├── external/gdstk/                 motor: gdstk-rs, binding de gdstk (C++)   [submódulo]
+├── external/gdstk/                 motor: gdstk-rs, binding de gdstk (C++) y lector de Magic (Rust)   [submódulo]
 └── external/xschem-viewer-rust/    motor: parser y semántica de Xschem      [submódulo]
 ```
 
@@ -27,10 +28,10 @@ riku_chip/
                  │ Registry: detectar, diff, visor
      ┌───────────┼──────────────────┬───────────────┐
      ▼           ▼                  ▼               ▼
- modules/xschem  riku-mod-layout   modules/spice   (futuro: Magic…)
-     │           │
+ modules/xschem  riku-mod-layout   modules/spice   (futuro: KiCad…)
+     │           │  (.gds .oas .mag)
      ▼           ▼
- xschem-viewer   gdstk-rs → gdstk C++
+ xschem-viewer   gdstk-rs → gdstk C++ · magic (Rust)
             │    │
             ▼    ▼
    riku-kernel · viewer-core   (no conocen ningún formato)
@@ -44,13 +45,23 @@ pub trait FormatModule: Send + Sync {
     fn info(&self) -> ModuleInfo;                         // nombre, versión, extensiones
     fn detect(&self, content: &[u8]) -> bool;              // por firma del archivo
     fn diff(&self, a: &[u8], b: &[u8], path: &str, opts: &DiffOptions) -> FileChange;
+    // Con los otros archivos de cada versión; por defecto llama a `diff`.
+    fn diff_with(&self, a: &[u8], b: &[u8], path: &str, opts: &DiffOptions, files: &DiffFiles) -> FileChange;
     fn viewer(&self) -> Option<Arc<dyn ViewerBackend>>;   // None = sin visor
 }
+
+// viewer-core
+pub trait FileSource: Send + Sync {                       // otros archivos de una versión
+    fn read(&self, path: &str) -> Option<Vec<u8>>;        // ruta relativa a la raíz del repo
+}
+pub struct DiffFiles { pub before: Option<Arc<dyn FileSource>>, pub after: Option<Arc<dyn FileSource>> }
 ```
 
-- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
+- **Formatos de varios archivos** (Magic: una celda por archivo): el núcleo le pasa al módulo un `FileSource` por versión. `diff`, `show` y `log` usan `GitFiles` (el mismo commit; abre su conexión a Git la primera vez que se le pide un archivo); `status`, HEAD antes y el disco después (`DiskFiles`). El módulo decide qué leer; el núcleo no sabe de `use` ni de celdas.
+
+- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry` con `layer_name` opcional, `Port`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
 - `Registry` resuelve el módulo por extensión o firma (`for_path`, `detect`). `log`, `status`, `show` y `diff` reciben el registro: el análisis no sabe qué formatos existen.
-- `ViewerBackend` (`viewer-core`): `load`, `load_entry` (una sub-vista, p. ej. una celda) y `load_diff`. Devuelven una `Scene` neutra: elementos, capas con su estilo, metadatos, entradas, cambios, fantasmas y anotaciones de diff, avisos, y un índice espacial opcional. El visor solo conoce esto: dibuja `.sch` y `.gds` por la misma ruta.
+- `ViewerBackend` (`viewer-core`): `load`, `load_entry` (una sub-vista, p. ej. una celda) y `load_diff`, y sus variantes con los archivos de cada versión (`load_with`, `load_diff_with`, que por defecto delegan). Devuelven una `Scene` neutra: elementos, capas con su estilo, metadatos, entradas, cambios, fantasmas y anotaciones de diff, avisos, y un índice espacial opcional. El visor solo conoce esto: dibuja `.sch` y `.gds` por la misma ruta.
 - Todo lo que se agregó a `viewer-core` después de la primera versión tiene valor por defecto, así que quien lo implementa por su cuenta (el crate de Carlos, con su feature `viewer-core-compat`) sigue compilando. La CI lo verifica.
 
 ## Reglas de dependencia

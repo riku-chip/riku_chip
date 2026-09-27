@@ -12,7 +12,7 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | `riku open [archivo]` / `riku gui [archivo]` | Visor (ver [`gui.md`](gui.md)) |
 | `riku doctor` | Diagnóstico del entorno |
 
-Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas` (layouts, diff geométrico) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
+Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas`/`.mag` (layouts, diff geométrico; Magic con sus sub-celdas del mismo commit: [`layouts.md`](layouts.md#magic-mag)) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
 
 ---
 
@@ -86,7 +86,7 @@ Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nom
 }
 ```
 
-Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell` y `geometry`. Los `details` llevan números reales, no texto. `-f json-v1` da la forma anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`), idéntica byte a byte, y se mantiene durante una versión.
+Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `-f json-v1` da la forma anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`), idéntica byte a byte, y se mantiene durante una versión.
 
 **Visual** (`-f visual`): abre el visor con las vistas **Diff**, **Before** y **After** (ver [`gui.md`](gui.md)).
 
@@ -208,7 +208,7 @@ Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error).
 
 ## `riku doctor`
 
-Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)) y los módulos de formato compilados.
+Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados.
 
 ## Variables de entorno
 
@@ -216,6 +216,8 @@ Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs ins
 |---|---|
 | `PDK_ROOT`, `PDK`, `TOOLS` | Símbolos de Xschem ([`xschem.md`](xschem.md)) |
 | `RIKU_NO_CACHE=1` | Sin cache de diffs de layouts |
+| `RIKU_MAG_PATH=dir1:dir2` | Directorios extra donde buscar las celdas `.mag` que usa un layout de Magic (antes que el PDK) |
+| `RIKU_MAG_LAMBDA=µm` | Lambda de Magic, si la tecnología del `.mag` no es SKY130, GF180 ni IHP |
 | `RIKU_JOBS=N` | Hilos para el trabajo pesado (igual que `--jobs N`, que vale en cualquier comando); por defecto, los núcleos disponibles. `RIKU_JOBS=1` deja todo en un hilo |
 | `RIKU_PROFILE=1` | El visor imprime el tiempo de cada cuadro ([`gui.md`](gui.md)); el diff de layouts, el tiempo de cada capa que difiere (polígonos propios, comunes cercanos y Clipper) |
 | `RIKU_LOD_PX` | Lado de los texels del nivel de detalle del visor, en píxeles (1 por defecto) |

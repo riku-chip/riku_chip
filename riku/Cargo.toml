@@ -68,7 +68,7 @@ tempfile = "3.27.0"
 name = "riku"
 section = "electronics"
 priority = "optional"
-extended-description = "Diff semántico de esquemáticos Xschem y diff geométrico de layouts GDS/OASIS entre commits de Git, con visor de escritorio (riku gui)."
+extended-description = "Diff semántico de esquemáticos Xschem, diff geométrico de layouts GDS/OASIS/Magic y de simulaciones de ngspice entre commits de Git, con visor de escritorio (riku gui)."
 depends = "$auto"
 assets = [
     ["target/release/riku", "usr/bin/", "755"],

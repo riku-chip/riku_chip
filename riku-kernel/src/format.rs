@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum FileFormat {
     Xschem,
-    /// Layouts: GDSII y OASIS.
+    /// Layouts: GDSII, OASIS y Magic.
     Gds,
     /// Resultados de simulación SPICE (`.raw` de ngspice): formas de onda.
     Waveform,

@@ -1,6 +1,6 @@
 # El visor (`riku gui`)
 
-Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`), layouts (`.gds`, `.oas`) y simulaciones de ngspice (`.raw`, con su propia vista de curvas: [`spice.md`](spice.md)), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
+Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`), layouts (`.gds`, `.oas`, `.mag` de Magic con su jerarquía) y simulaciones de ngspice (`.raw`, con su propia vista de curvas: [`spice.md`](spice.md)), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
 
 ## Uso
 
@@ -27,7 +27,7 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Dibujar cada polígono aunque sea diminuto | desmarcar **Ajustes → Simplificar al alejar** (se recuerda; más lento en layouts grandes) |
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
-| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo lo que se puede abrir: `.sch`, `.sym`, `.gds`, `.oas`, `.raw`) |
+| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo lo que se puede abrir: `.sch`, `.sym`, `.gds`, `.oas`, `.mag`, `.raw`) |
 | Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla inicial |
 | Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
 | Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
@@ -42,7 +42,7 @@ Un panel abajo, a todo el ancho, con el historial del repo del proyecto:
 
 - **Grafo de ramas y merges** con curvas y un color por rama (el mismo motor que `riku log --graph`); nodo hueco para un merge; chips de `HEAD` (relleno), ramas y tags. Pasar el mouse por un chip atenúa las demás ramas.
 - **Resumen por commit** a la derecha: formatos tocados y `+añadidos −eliminados ~modificados`. El grafo aparece al instante y los resúmenes se calculan en segundo plano (en paralelo), sin trabar el visor.
-- **Clic en un commit:** su mensaje, autor, fecha y archivos. **Clic en un archivo** (o doble clic en el commit, o **Enter**): su diff contra el primer padre en el lienzo, con **Diff / Before / After**, para `.sch`, `.gds`/`.oas` y `.raw`. La ruta sobre el lienzo empieza por `History`.
+- **Clic en un commit:** su mensaje, autor, fecha y archivos. **Clic en un archivo** (o doble clic en el commit, o **Enter**): su diff contra el primer padre en el lienzo, con **Diff / Before / After**, para `.sch`, `.gds`/`.oas`/`.mag` y `.raw` (un `.mag` lee sus sub-celdas del mismo commit). La ruta sobre el lienzo empieza por `History`.
 - **↑/↓** cambian de commit; **H** cierra. **Filtrar archivos** (un glob, `*.gds`) o **Only this file** con un archivo abierto: el grafo se simplifica como `riku log --paths`. Se cargan 200 commits; **Load more** trae más.
 - El panel entra y sale por abajo con un resorte interrumpible; su alto se recuerda. Con **Reduce motion** no se anima.
 

@@ -33,6 +33,19 @@ Variables: `PDK_ROOT` (por defecto `/foss/pdks`), `OUT` y `CARGO_TARGET_DIR`.
 
 Resultado de referencia (2026-09-26): idéntico en `sky130_fd_sc_hd` (437 celdas), `gf180mcu_fd_sc_mcu7t5v0` (230) y `sg13g2_stdcell` (78), en ~30 s.
 
+## Magic (`mag/`)
+
+`mag/compare_mag.sh` compara jerarquías `.mag` leídas por `gdstk-rs` (ejemplo `mag_area`) y por KLayout (`mag/klayout_mag_area.py`): aplanadas y sin unir, la **misma cantidad de polígonos** y la **misma suma de áreas** por capa (exacto y rápido aun en jerarquías de cientos de celdas).
+
+```bash
+tools/verify/mag/compare_mag.sh                         # 8 jerarquías de SKY130 y GF180
+tools/verify/mag/compare_mag.sh top.mag 0.01 DIR...     # una propia: lambda en µm y dónde buscar sub-celdas
+```
+
+`mag/mag_bench.sh` mide el diff de una jerarquía real (la librería `sky130_fd_io` en un repo en `/tmp`, con una sub-celda editada y otra re-escrita en tiras): tiempo, memoria y cantidad de cambios.
+
+Hace falta **KLayout 0.30.12 o más nuevo** (0.30.4 y anteriores ignoran `magscale`): `python3 -m venv /tmp/kl && /tmp/kl/bin/pip install klayout==0.30.12` y `KLAYOUT_PY=/tmp/kl/bin/python`. Las capas que Riku deja fuera a propósito (`checkpaint`, `error_*`…) no cuentan como diferencia.
+
 ## Comparación visual
 
 ```bash

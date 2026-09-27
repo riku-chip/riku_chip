@@ -18,6 +18,7 @@ src/
 tests/
   basic.rs    integración con repos git reales
   gds_e2e.rs  de punta a punta con layouts
+  mag_e2e.rs  de punta a punta con Magic (jerarquía en varios archivos del mismo commit)
   stress.rs   rendimiento y casos límite
 ```
 

@@ -20,12 +20,14 @@ Es un workspace: un `Cargo.lock` y un `target/` para `riku`, `riku-kernel`, `rik
 
 ```bash
 cargo test --workspace            # todo (la CI lo corre con RUSTFLAGS="-D warnings")
-cargo test -p riku                # CLI, análisis, visor, módulos; tests/basic.rs, gds_e2e.rs, stress.rs
+cargo test -p riku                # CLI, análisis, visor, módulos; tests/basic.rs, gds_e2e.rs, mag_e2e.rs, stress.rs
 cargo test -p riku-mod-layout     # diff de layouts, cache, paletas, escena
 cargo test -p viewer-core         # contrato del visor e índice espacial
 ```
 
-Los fixtures de layouts (`riku-mod-layout/tests/fixtures/*.gds`, `.oas`) se generan con los scripts Python de esa misma carpeta.
+Los fixtures de layouts (`riku-mod-layout/tests/fixtures/*.gds`, `.oas`) se generan con los scripts Python de esa misma carpeta; los de Magic (`.mag`) están escritos en los tests (texto).
+
+El lector de Magic vive en `external/gdstk/rust` (`cargo test --test magic`). Dos tests suyos están ignorados porque necesitan archivos de afuera: `pdk_corpus` (todos los `.mag` de una lista: `MAG_CORPUS=lista.txt MAG_LIBS=dir1:dir2 cargo test --release --test magic -- --ignored`) y `klayout_testdata` (`KLAYOUT_TESTDATA=.../klayout/testdata/magic`).
 
 ## CI (`.github/workflows/ci.yml`)
 
@@ -44,6 +46,8 @@ Con cada tag `v*`: compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estática
 |---|---|
 | `tools/verify/` | comparar la lectura de layouts y el XOR contra KLayout; capturas lado a lado; `gui/xt.py` maneja el visor con clics y teclas simulados (ver su [README](../tools/verify/README.md)) |
 | `tools/palettes/gen_palettes.py` | generar las tablas de capas de GF180 e IHP desde sus `.lyp` |
+| `tools/palettes/gen_magic_layers.py` | generar la tabla de capas de Magic (plano de cada una) desde los `.tech` de SKY130, GF180 e IHP |
+| `tools/verify/mag/compare_mag.sh` | comparar jerarquías `.mag` contra KLayout 0.30.12+ (polígonos y área por capa) |
 | `riku-mod-layout/examples/` | `profile_diff`, `profile_prints`, `profile_xor`, `profile_view`, `verify_dump` (ver [`layouts.md`](layouts.md)) |
 
 **Medir tiempos:** en el contenedor, `/foss/designs` es un montaje 9p desde Windows y cualquier cosa que toque muchos archivos tarda segundos (hasta `git status` nativo: 2,7 s). Para medir `log`, `status` o el visor, clonar o copiar el repo a `/tmp`; los ejecutables van en `CARGO_TARGET_DIR=/headless/riku-target/ws`.
