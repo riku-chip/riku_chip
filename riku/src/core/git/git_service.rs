@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use git2::Repository;
 
@@ -7,7 +8,7 @@ use crate::core::domain::git_types::{
     BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
     WorkingChange,
 };
-use crate::core::domain::ports::{GitRepository, RepoRoot};
+use crate::core::domain::ports::{GitRepository, RepoRoot, Reopener};
 use crate::core::git::{blob, branch, commit_log, diff, working_tree};
 
 pub struct GitService {
@@ -74,5 +75,16 @@ impl GitRepository for GitService {
 
     fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError> {
         diff::commit_changes(&self.repo, commit_ish)
+    }
+
+    fn blob_size(&self, commit_ish: &str, file_path: &str) -> Option<u64> {
+        blob::blob_size(&self.repo, commit_ish, file_path)
+    }
+
+    fn reopener(&self) -> Option<Reopener> {
+        let git_dir = self.repo.path().to_path_buf();
+        Some(Arc::new(move || -> Result<Box<dyn GitRepository + Send>, GitError> {
+            Ok(Box::new(GitService::open(&git_dir)?))
+        }))
     }
 }

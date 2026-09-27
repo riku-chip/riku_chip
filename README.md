@@ -97,7 +97,7 @@ Cambios : 3
 
 ## Estado
 
-**Alpha.** Esquemáticos Xschem, layouts GDS/OASIS y simulaciones de ngspice funcionan de punta a punta: diff en la CLI, historial y visor. Los layouts grandes (millones de polígonos) se comparan en segundos y con menos de 1 GB. Próximo: `log`, `show` y `status` en paralelo (fase 6.6); después, `log --graph` y el módulo Magic. Ver [`docs/roadmap.md`](docs/roadmap.md).
+**Alpha.** Esquemáticos Xschem, layouts GDS/OASIS y simulaciones de ngspice funcionan de punta a punta: diff en la CLI, historial y visor. Los layouts grandes (millones de polígonos) se comparan en segundos y con menos de 1 GB. `log`, `show` y `status` usan todos los núcleos (`--jobs N` para limitarlos). Próximo: `log --graph` y el módulo Magic. Ver [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contribuir
 

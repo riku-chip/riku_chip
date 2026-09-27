@@ -5,9 +5,9 @@ use std::path::Path;
 use riku_kernel::Registry;
 
 use crate::core::analysis::blob_io;
-use crate::core::analysis::pipeline;
-use crate::core::analysis::summary::{FileSummary, SummaryCategory};
-use crate::core::domain::git_types::{ChangeStatus, CommitWithParents, LogQuery};
+use crate::core::analysis::{parallel, pipeline};
+use crate::core::analysis::summary::SummaryCategory;
+use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitWithParents, LogQuery};
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
 use crate::core::path_matcher::PathMatcher;
@@ -42,10 +42,42 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     let raw = repo.get_commits_with_options(&query)?;
     let refs_map = repo.refs_by_oid().unwrap_or_default();
 
+    // Dos pasadas sobre los commits, cada una repartida entre los hilos con
+    // una conexión a Git por hilo (ver `parallel`): primero qué archivos
+    // cambió cada uno y cuánto pesan (barato: árboles de Git y cabeceras de
+    // blobs), después los diffs, en tandas que caben en memoria.
+    let free = vec![0; raw.len()];
+    let planned: Vec<(Planned, u64)> = parallel::map_in_waves(
+        repo.reopener(),
+        raw,
+        &free,
+        |c| plan(repo, c, opts, modules),
+        |r, c| plan(r, c, opts, modules),
+        |c, e| {
+            let warning = format!("commit {}: {e}", c.info.oid);
+            (Planned { raw: c, files: Vec::new(), warnings: vec![warning] }, 0)
+        },
+    );
+    let costs: Vec<u64> = planned.iter().map(|(_, cost)| *cost).collect();
+    let planned: Vec<Planned> = planned.into_iter().map(|(p, _)| p).collect();
+    let built: Vec<(LogCommit, Vec<String>)> = parallel::map_in_waves(
+        repo.reopener(),
+        planned,
+        &costs,
+        |p| build_log_commit(repo, p, &refs_map, opts, modules),
+        |r, p| build_log_commit(r, p, &refs_map, opts, modules),
+        |p, e| {
+            let warning = format!("commit {}: {e}", p.raw.info.oid);
+            let mut out = build_log_commit_without_files(p, &refs_map);
+            out.1.push(warning);
+            out
+        },
+    );
+
     let mut warnings = Vec::new();
-    let mut commits = Vec::with_capacity(raw.len());
-    for c in raw {
-        let log_commit = build_log_commit(repo, c, &refs_map, opts, modules, &mut warnings);
+    let mut commits = Vec::with_capacity(built.len());
+    for (log_commit, w) in built {
+        warnings.extend(w);
         // Si hay filtro de paths y este commit no tocó ninguno, lo omitimos.
         if !opts.paths.is_empty() && log_commit.files.is_empty() && !log_commit.is_merge {
             continue;
@@ -58,83 +90,103 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
 
 // ─── Construcción por commit ─────────────────────────────────────────────────
 
-fn build_log_commit<R: GitRepository + ?Sized>(
+/// Un commit con los archivos que hay que comparar (ya filtrados por
+/// `paths` y por módulo) y los avisos de la primera pasada.
+struct Planned {
+    raw: CommitWithParents,
+    files: Vec<ChangedFile>,
+    warnings: Vec<String>,
+}
+
+/// Primera pasada: qué archivos cambió el commit respecto a su primer padre
+/// y el costo estimado de compararlos (por el tamaño de sus blobs).
+fn plan<R: GitRepository + ?Sized>(
     repo: &R,
     raw: CommitWithParents,
+    opts: &LogOptions,
+    modules: &Registry,
+) -> (Planned, u64) {
+    let mut warnings = Vec::new();
+    // Root commit y merges: en v1 no se hace diff por archivo.
+    let files = match raw.parents.first() {
+        Some(parent) if raw.parents.len() == 1 => match repo.get_changed_files(parent, &raw.info.oid) {
+            Ok(list) => {
+                let matcher = PathMatcher::new(&opts.paths);
+                // Formatos sin módulo no se listan en log.
+                list.into_iter()
+                    .filter(|cf| matcher.matches(&cf.path) && modules.for_path(&cf.path).is_some())
+                    .collect()
+            }
+            Err(e) => {
+                warnings.push(format!("commit {}: {e}", raw.info.oid));
+                Vec::new()
+            }
+        },
+        _ => Vec::new(),
+    };
+    let cost = match raw.parents.first() {
+        Some(parent) => files
+            .iter()
+            .map(|cf: &ChangedFile| {
+                let before = (cf.status != ChangeStatus::Added).then(|| repo.blob_size(parent, &cf.path)).flatten();
+                let after = (cf.status != ChangeStatus::Removed).then(|| repo.blob_size(&raw.info.oid, &cf.path)).flatten();
+                parallel::diff_cost(before, after)
+            })
+            .sum(),
+        None => 0,
+    };
+    (Planned { raw, files, warnings }, cost)
+}
+
+/// Segunda pasada: el resumen semántico de cada archivo del commit.
+fn build_log_commit<R: GitRepository + ?Sized>(
+    repo: &R,
+    planned: Planned,
     refs_map: &std::collections::HashMap<String, Vec<String>>,
     opts: &LogOptions,
     modules: &Registry,
-    warnings: &mut Vec<String>,
-) -> LogCommit {
-    let oid = raw.info.oid.clone();
-    let refs = refs_map.get(&oid).cloned().unwrap_or_default();
-    let is_merge = raw.parents.len() > 1;
-
-    let files = if is_merge || raw.parents.is_empty() {
-        // Root commit y merges: en v1 no se hace diff por archivo.
-        Vec::new()
-    } else {
-        let parent = &raw.parents[0];
-        diff_against_parent(repo, parent, &oid, opts, modules, warnings)
-    };
-
-    LogCommit {
-        info: raw.info,
-        parents: raw.parents,
-        refs,
-        is_merge,
-        files,
+) -> (LogCommit, Vec<String>) {
+    let Planned { raw, files: changed, mut warnings } = planned;
+    let commit = raw.info.oid.clone();
+    let mut files = Vec::new();
+    if let Some(parent) = raw.parents.first().filter(|_| raw.parents.len() == 1) {
+        for cf in changed {
+            let Some(module) = modules.for_path(&cf.path) else { continue };
+            let content_before = if cf.status == ChangeStatus::Added {
+                Vec::new()
+            } else {
+                blob_io::read_blob_silent(repo, parent, &cf.path, &mut warnings)
+            };
+            let content_after = if cf.status == ChangeStatus::Removed {
+                Vec::new()
+            } else {
+                blob_io::read_blob_silent(repo, &commit, &cf.path, &mut warnings)
+            };
+            let summary = pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level);
+            // Saltamos archivos sin cambio semántico ni cosmético detectado,
+            // para no inflar el log con ruido de driver.
+            if matches!(summary.category, SummaryCategory::Unchanged) {
+                continue;
+            }
+            files.push(summary);
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
     }
+    let (mut out, _) = build_log_commit_without_files(Planned { raw, files: Vec::new(), warnings: Vec::new() }, refs_map);
+    out.files = files;
+    (out, warnings)
 }
 
-fn diff_against_parent<R: GitRepository + ?Sized>(
-    repo: &R,
-    parent: &str,
-    commit: &str,
-    opts: &LogOptions,
-    modules: &Registry,
-    warnings: &mut Vec<String>,
-) -> Vec<FileSummary> {
-    let changed = match repo.get_changed_files(parent, commit) {
-        Ok(list) => list,
-        Err(e) => {
-            warnings.push(format!("commit {commit}: {e}"));
-            return Vec::new();
-        }
-    };
-
-    let matcher = PathMatcher::new(&opts.paths);
-
-    let mut files = Vec::new();
-    for cf in changed {
-        if !matcher.matches(&cf.path) {
-            continue;
-        }
-        let Some(module) = modules.for_path(&cf.path) else {
-            continue; // formatos sin módulo no se listan en log
-        };
-
-        let content_before = if cf.status == ChangeStatus::Added {
-            Vec::new()
-        } else {
-            blob_io::read_blob_silent(repo, parent, &cf.path, warnings)
-        };
-        let content_after = if cf.status == ChangeStatus::Removed {
-            Vec::new()
-        } else {
-            blob_io::read_blob_silent(repo, commit, &cf.path, warnings)
-        };
-
-        let summary = pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level);
-        // Saltamos archivos sin cambio semántico ni cosmético detectado, para
-        // no inflar el log con ruido de driver.
-        if matches!(summary.category, SummaryCategory::Unchanged) {
-            continue;
-        }
-        files.push(summary);
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    files
+/// El `LogCommit` sin resumen por archivo (merges, commit inicial, o si no se
+/// pudo abrir una conexión a Git).
+fn build_log_commit_without_files(
+    planned: Planned,
+    refs_map: &std::collections::HashMap<String, Vec<String>>,
+) -> (LogCommit, Vec<String>) {
+    let Planned { raw, warnings, .. } = planned;
+    let refs = refs_map.get(&raw.info.oid).cloned().unwrap_or_default();
+    let is_merge = raw.parents.len() > 1;
+    (LogCommit { info: raw.info, parents: raw.parents, refs, is_merge, files: Vec::new() }, warnings)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

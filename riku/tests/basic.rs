@@ -327,3 +327,76 @@ fn show_compares_a_commit_against_its_parent() {
 
     assert!(analyze_show(&svc, "no-existe", None, &modules, &opts).is_err());
 }
+
+/// Commitea varios archivos binarios o de texto de una vez.
+fn commit_files(repo: &Repository, files: &[(&str, Vec<u8>)], message: &str) {
+    let workdir = repo.workdir().expect("workdir");
+    let mut index = repo.index().unwrap();
+    for (rel, bytes) in files {
+        fs::write(workdir.join(rel), bytes).unwrap();
+        index.add_path(Path::new(rel)).unwrap();
+    }
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = Signature::now("Riku", "riku@example.com").unwrap();
+    let parents: Vec<git2::Commit<'_>> = repo.head().ok().and_then(|h| h.target()).map(|t| repo.find_commit(t).unwrap()).into_iter().collect();
+    let parents: Vec<&git2::Commit<'_>> = parents.iter().collect();
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents).unwrap();
+}
+
+#[test]
+fn log_show_and_status_are_the_same_with_one_thread_and_with_several() {
+    use riku::core::analysis::log::{walk_with_summary, EnvelopedLogReport, LogOptions};
+    use riku::core::analysis::show::analyze_show;
+    use riku::core::analysis::status::{analyze_with_options, EnvelopedStatusReport, StatusOptions};
+
+    // Varios commits que tocan varios archivos a la vez (esquemáticos y, si
+    // el módulo de layouts está, GDS), y cambios sin commitear.
+    let temp = test_tempdir();
+    let repo = Repository::init(temp.path()).unwrap();
+    let sch = |name: &str, v: u32| {
+        format!("v {{xschem version=3.0.0 file_version=1.2}}\nC {{res.sym}} {v} 20 0 0 {{name={name} value={v}k}}\nN 0 0 {v} 0 {{lab=n{v}}}\n").into_bytes()
+    };
+    let fixture = |name: &str| -> Vec<u8> {
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../riku-mod-layout/tests/fixtures").join(name)).unwrap()
+    };
+    let with_layout = cfg!(feature = "layout");
+    for i in 0..8u32 {
+        let mut files: Vec<(&str, Vec<u8>)> = vec![("a.sch", sch("R1", i)), ("b.sch", sch("R2", i * 2)), ("c.sch", sch("R3", 7))];
+        if with_layout {
+            let (h, m) = if i % 2 == 0 { ("hier_inv_a.gds", "multi_inst_a.gds") } else { ("hier_inv_b.gds", "multi_inst_b.gds") };
+            files.push(("h.gds", fixture(h)));
+            files.push(("m.gds", fixture(m)));
+        }
+        commit_files(&repo, &files, &format!("c{i}"));
+    }
+    fs::write(temp.path().join("a.sch"), sch("R1", 99)).unwrap();
+    fs::write(temp.path().join("b.sch"), sch("R2", 98)).unwrap();
+    if with_layout {
+        fs::write(temp.path().join("h.gds"), fixture("hier_inv_b.gds")).unwrap();
+    }
+
+    let path = temp.path().to_path_buf();
+    let run = |threads: usize| -> (serde_json::Value, serde_json::Value, String) {
+        let path = path.clone();
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(move || {
+            let svc = GitService::open(&path).unwrap();
+            let modules = riku::modules::registry();
+            let log = walk_with_summary(&svc, &LogOptions::default(), &modules).unwrap();
+            let status = analyze_with_options(&svc, Some(&path), &StatusOptions::default(), &modules).unwrap();
+            let show = analyze_show(&svc, "HEAD~3", None, &modules, &riku_kernel::DiffOptions::default()).unwrap();
+            (
+                serde_json::to_value(EnvelopedLogReport::from(&log)).unwrap(),
+                serde_json::to_value(EnvelopedStatusReport::from(&status)).unwrap(),
+                format!("{:?}", show.files),
+            )
+        })
+    };
+    let (one, many) = (run(1), run(4));
+    assert_eq!(one.0["commits"].as_array().unwrap().len(), 8);
+    assert!(one.1["files"].as_array().unwrap().len() >= 2);
+    assert!(one.2.contains("a.sch"));
+    assert_eq!(one.0, many.0, "log");
+    assert_eq!(one.1, many.1, "status");
+    assert_eq!(one.2, many.2, "show");
+}

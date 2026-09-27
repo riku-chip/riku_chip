@@ -1,6 +1,6 @@
 # Fase 6: rendimiento con layouts grandes y multinúcleo
 
-Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-27): **6.1 a 6.5 hechos**; falta 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
+Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-27): **fase terminada** (6.1 a 6.6) (resumen en [`../roadmap.md`](../roadmap.md)).
 
 ---
 
@@ -350,6 +350,7 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 | 6.3 | Hecho (2026-09-26) | `gdstk_rust` `3ff9daf`. `finish_load` (shims.cpp), al leer GDS/OASIS: borra una vez los puntos repetidos de cada `FlexPath` (copia de `remove_overlapping_points`, que en gdstk es privada) y calcula las capas de `Library::layers()`. `unsafe impl Send + Sync` para los handles del bridge, con el porqué. Se borró `as_flexpath_mut`. `tests/concurrency.rs`: 12 hilos × 40 rondas aplanan, piden bbox, capas y XOR (jerarquía SREF/AREF y paths con puntos repetidos) y dan lo mismo que un hilo. CI de gdstk_rust: job no bloqueante con ThreadSanitizer. Regresión, `compare.sh` (tres PDKs) y `compare.sh --xor` idénticos |
 | 6.4 | Hecho (2026-09-27) | `prints.rs`: huella jerárquica (árbol de Merkle), instancias gemelas, aplanado por pedazos en paralelo y XOR por huellas; `hier_walk::Origins`; `--jobs`/`RIKU_JOBS` en `riku`; cache con archivo temporal por hilo. Resultado y diferencias con el diseño al final |
 | 6.5.b | Hecho (2026-09-27) | `prints.rs::tiled_xor`: con más de 2 000 polígonos en juego, quadtree por bbox (hojas de ≤ 1 000, hasta 8 niveles), XOR por hoja en paralelo y recorte Sutherland–Hodgman al rectángulo de la hoja. `riku-mod-layout` 0.3.0. Resultado al final |
+| 6.6 | Hecho (2026-09-27) | `core/analysis/parallel.rs`: `map_in_waves` (una conexión a Git por hilo con `GitRepository::reopener`, tandas planificadas por memoria con `blob_size`); `log` en dos pasadas (planificar cada commit, después los diffs), `show` y `status` por archivo. Resultado al final |
 
 **Diferencias con el plan (6.1 + 6.5.a):**
 - **Hizo falta tocar gdstk-rs** (el plan decía que no): no había una booleana sobre listas de polígonos. Se agregó `xor_split_owned` (`gdstk_rust` `3746c63`), con dos tests que la comparan contra `xor_split_flat`.
@@ -392,3 +393,18 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 - En la 19/0 de la top, Clipper pasa de 358 s a **0,28 s** (547 cuadrantes). El resto de los 3–6 s es encontrar los propios y atribuirlos a sus instancias en las otras celdas que usan la 19/0.
 - Los casos chicos no cambian: con menos de 2 000 polígonos en juego no se parte nada (la diferencia entre filas es ruido de medición).
 - **Diferencia con el diseño:** el recorte a la hoja se hace en Rust (Sutherland–Hodgman) y no hizo falta tocar gdstk-rs. Los restos de área cero sobre los bordes se descartan.
+
+**Resultado de 6.6** (2026-09-27, `--jobs 1` / `--jobs 12`, sin cache; salida idéntica en todos los casos, test nuevo `log_show_and_status_are_the_same_with_one_thread_and_with_several`):
+
+| Caso | 1 hilo | 12 hilos |
+|---|---|---|
+| `log` de 12 commits de la librería SKY130 (un diff de layout por commit) | 1,25 s · 49 MB | **0,31 s** · 0,43 GB |
+| `log` de 5 versiones del chip de 42 MB (4 diffs grandes) | 18,7 s · 0,6 GB | **8,4 s** · 1,9 GB |
+| `log` del repo de Riku (240 commits de `.sch`), disco local | 0,05 s | 0,02 s |
+| Montaje 9p desde Windows: `status` | 2,77 s | 1,78 s |
+| Montaje 9p: `log -n 200` | 1,24 s | 1,22 s |
+
+**Diferencias con el diseño (6.6):**
+- **Sin semáforo de memoria:** con `rayon` anidado (el diff de un layout reparte sus propias tareas), un hilo que espera cupo puede quedar trabado detrás de otro que lo tiene y que espera a ese mismo hilo. En su lugar, la memoria se **planifica antes**: `GitRepository::blob_size` lee solo la cabecera de cada blob, cada unidad estima su costo (`12 × (A + B)` bytes) y `parallel::waves` arma tandas consecutivas que caben en la mitad de `MemAvailable`. Cada tanda corre en paralelo; las tandas, en orden. Nunca se bloquea un hilo.
+- **`log` en dos pasadas sobre el grafo de commits:** la primera (qué archivos cambió cada commit y cuánto pesan) también va en paralelo: en un disco lento son sobre todo esperas de lectura.
+- **En el montaje 9p, `log` casi no cambia:** lo que domina es recorrer el historial (`revwalk`), que es secuencial. `status` baja un tercio: el recorrido del working tree sigue siendo una sola llamada.

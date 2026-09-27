@@ -6,7 +6,7 @@ use std::path::Path;
 use riku_kernel::Registry;
 
 use crate::core::analysis::blob_io;
-use crate::core::analysis::pipeline;
+use crate::core::analysis::{parallel, pipeline};
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
 use crate::core::domain::git_types::{ChangeStatus, WorkingChange};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
@@ -40,15 +40,35 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
 
     let matcher = PathMatcher::new(&opts.paths);
 
-    let mut files = Vec::new();
+    let changes: Vec<WorkingChange> = changes.into_iter().filter(|c| matcher.matches(&c.path)).collect();
+    // Cada archivo con su propia conexión a Git, en tandas que caben en
+    // memoria (ver `parallel`): "antes" por la cabecera del blob en HEAD,
+    // "después" por el tamaño en disco.
+    let costs: Vec<u64> = changes
+        .iter()
+        .map(|c| {
+            if modules.for_path(&c.path).is_none() {
+                return 0;
+            }
+            let before = (c.status != ChangeStatus::Added).then(|| repo.blob_size("HEAD", &c.path)).flatten();
+            let after = workdir.and_then(|w| std::fs::metadata(w.join(&c.path)).ok()).map(|m| m.len());
+            parallel::diff_cost(before, after)
+        })
+        .collect();
+    let level = opts.level;
+    let results: Vec<(FileSummary, Vec<String>)> = parallel::map_in_waves(
+        repo.reopener(),
+        changes,
+        &costs,
+        |c| summarize_owned(repo, workdir, &c, level, modules),
+        |r, c| summarize_owned(r, workdir, &c, level, modules),
+        |c, e| (FileSummary::error(&c.path, e.to_string()), Vec::new()),
+    );
+    let mut files = Vec::with_capacity(results.len());
     let mut warnings = Vec::new();
-
-    for change in changes {
-        if !matcher.matches(&change.path) {
-            continue;
-        }
-        let summary = summarize_change(repo, workdir, &change, opts.level, modules, &mut warnings);
+    for (summary, w) in results {
         files.push(summary);
+        warnings.extend(w);
     }
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -60,6 +80,19 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
 }
 
 // ─── Resumen por archivo ─────────────────────────────────────────────────────
+
+/// [`summarize_change`] con sus propios avisos (una tarea por archivo).
+fn summarize_owned<R: GitRepository + ?Sized>(
+    repo: &R,
+    workdir: Option<&Path>,
+    change: &WorkingChange,
+    level: DetailLevel,
+    modules: &Registry,
+) -> (FileSummary, Vec<String>) {
+    let mut warnings = Vec::new();
+    let summary = summarize_change(repo, workdir, change, level, modules, &mut warnings);
+    (summary, warnings)
+}
 
 fn summarize_change<R: GitRepository + ?Sized>(
     repo: &R,

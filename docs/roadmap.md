@@ -14,7 +14,7 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | 3 | Registro único de módulos (`FormatModule`, `modules/mod.rs`), features por módulo | hecha |
 | 4 | Una sola ruta del visor para `.sch` y `.gds` (fantasmas y anotaciones en la escena) | hecha |
 | 5 | `gds-renderer` → `riku-mod-layout` sin el render SVG; `riku show`; `--ci` | hecha |
-| 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | en curso |
+| 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | hecha |
 | 7 | `riku log --graph`: grafo ASCII de ramas y merges | pendiente (M) |
 | 8 | Módulo Magic (`.mag`) | pendiente (L) |
 | — | Módulo `spice`: diff de formas de onda de ngspice (`.raw`) en la CLI y vista de curvas en el visor ([`spice.md`](spice.md)) | hecho |
@@ -30,7 +30,7 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 | 6.3 | gdstk-rs seguro entre hilos (normalizar paths al cargar, `Send`/`Sync`, test concurrente) | hecho: además, las capas dibujadas solo con paths entran al diff |
 | 6.4 | Huella jerárquica, instancias gemelas, aplanado por pedazos y `rayon` en el diff (`--jobs`/`RIKU_JOBS`) | hecho: 42 MB sin cambios 5,5 s → 1,4 s; con cambios 14,6 s → 1,8–2,3 s; siempre < 1 GB |
 | 6.5.b | XOR por cuadrantes (quadtree) para capas enormes que cambiaron enteras | hecho: 19/0 regenerada, Clipper de 358 s a 0,28 s; instancia movida 7,2 → 5,6 s (3,1 s con 12 hilos) |
-| 6.6 | `log`, `show` y `status` en paralelo (una conexión a Git por hilo, commits y archivos en paralelo, presupuesto de memoria) — diseño en [`diseno/fase6.md`](diseno/fase6.md) §4.6 | pendiente (S) |
+| 6.6 | `log`, `show` y `status` en paralelo (una conexión a Git por hilo, tandas planificadas por memoria) | hecho: historial de 12 commits de layouts 1,25 s → 0,31 s; 4 diffs del chip de 42 MB 18,7 s → 8,4 s |
 
 ## Pendientes
 

@@ -75,7 +75,7 @@ Por defecto van las cuatro. `--no-default-features` da un `riku` solo de termina
 
 - **Diff de layouts:** huella jerárquica (árbol de Merkle sobre la jerarquía), instancias gemelas, huella por capa en forma canónica y XOR solo de lo que cambió, aplanando por pedazos ([`layouts.md`](layouts.md)).
 - **Visor:** cada backend arma un `SceneIndex` al cargar (grillas por tamaño, relleno triangulado una vez, pirámide de cobertura). Por cuadro se consulta solo lo visible; si pasa de 60 000 elementos, lo diminuto se pinta como una imagen por capa ([`gui.md`](gui.md)).
-- Hilos: un solo pool de `rayon` para el cálculo (un hilo del sistema por núcleo, o `--jobs N`/`RIKU_JOBS`; lo configura `riku` al arrancar), compartido por el diff y el índice del visor; `tokio` para la carga asíncrona del visor. `gdstk-rs` se lee desde varios hilos a la vez (`Library` es `Send + Sync`). Lo que falta paralelizar está en [`roadmap.md`](roadmap.md).
+- Hilos: un solo pool de `rayon` para el cálculo (un hilo del sistema por núcleo, o `--jobs N`/`RIKU_JOBS`; lo configura `riku` al arrancar), compartido por el diff y el índice del visor; `tokio` para la carga asíncrona del visor. `gdstk-rs` se lee desde varios hilos a la vez (`Library` es `Send + Sync`). `log`, `show` y `status` reparten commits y archivos (`core/analysis/parallel.rs`): una conexión a Git por hilo (`GitRepository::reopener`) y tandas planificadas por memoria, sin bloquear hilos.
 
 ## Por qué así
 

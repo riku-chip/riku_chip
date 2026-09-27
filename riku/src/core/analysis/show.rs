@@ -6,9 +6,9 @@
 
 use riku_kernel::{DiffOptions, Registry};
 
-use crate::core::analysis::blob_io;
+use crate::core::analysis::{blob_io, parallel};
 use crate::core::analysis::commit_diff::AnalyzeError;
-use crate::core::domain::git_types::{ChangeStatus, CommitWithParents};
+use crate::core::domain::git_types::{ChangeStatus, CommitWithParents, GitError};
 use crate::core::domain::models::FileChange;
 use crate::core::domain::ports::GitRepository;
 
@@ -65,26 +65,54 @@ pub fn analyze_show<R: GitRepository + ?Sized>(
 
     let oid = changes.commit.info.oid.clone();
     let parent = changes.commit.parents.first().cloned();
-    let mut files = Vec::with_capacity(entries.len());
-    for (path, status, old_path) in entries {
-        let change = match modules.for_path(&path) {
-            None => None,
-            Some(module) => {
-                let mut warnings = Vec::new();
-                let before_path = old_path.as_deref().unwrap_or(&path);
-                let before = match &parent {
-                    Some(p) => blob_io::read_blob_lenient(repo, p, before_path, &mut warnings)?.unwrap_or_default(),
-                    None => Vec::new(),
-                };
-                let after = blob_io::read_blob_lenient(repo, &oid, &path, &mut warnings)?.unwrap_or_default();
-                let mut report = module.diff(&before, &after, &path, opts);
-                report.warnings.extend(warnings);
-                Some(report)
-            }
-        };
-        // `old_path` solo interesa si de verdad cambió de nombre.
-        let old_path = old_path.filter(|o| *o != path);
-        files.push(ShowFile { path, status, old_path, change });
-    }
+    // Cada archivo, con su propia conexión a Git, en tandas que caben en
+    // memoria (ver `parallel`); el orden es el de `entries`.
+    let costs: Vec<u64> = entries
+        .iter()
+        .map(|(path, _, old_path)| {
+            let before = parent.as_deref().and_then(|p| repo.blob_size(p, old_path.as_deref().unwrap_or(path)));
+            parallel::diff_cost(before, repo.blob_size(&oid, path))
+        })
+        .collect();
+    let one = |r: &dyn GitRepository, entry| show_file(r, entry, &oid, parent.as_deref(), modules, opts);
+    let files = parallel::map_in_waves(
+        repo.reopener(),
+        entries,
+        &costs,
+        |entry| show_file(repo, entry, &oid, parent.as_deref(), modules, opts),
+        one,
+        |_, e| Err(AnalyzeError::Git(GitError::Git(git2::Error::from_str(&e.to_string())))),
+    )
+    .into_iter()
+    .collect::<Result<Vec<ShowFile>, AnalyzeError>>()?;
     Ok(ShowReport { commit: changes.commit, files })
+}
+
+/// El diff de un archivo del commit contra el primer padre.
+fn show_file<R: GitRepository + ?Sized>(
+    repo: &R,
+    (path, status, old_path): (String, Option<ChangeStatus>, Option<String>),
+    oid: &str,
+    parent: Option<&str>,
+    modules: &Registry,
+    opts: &DiffOptions,
+) -> Result<ShowFile, AnalyzeError> {
+    let change = match modules.for_path(&path) {
+        None => None,
+        Some(module) => {
+            let mut warnings = Vec::new();
+            let before_path = old_path.as_deref().unwrap_or(&path);
+            let before = match parent {
+                Some(p) => blob_io::read_blob_lenient(repo, p, before_path, &mut warnings)?.unwrap_or_default(),
+                None => Vec::new(),
+            };
+            let after = blob_io::read_blob_lenient(repo, oid, &path, &mut warnings)?.unwrap_or_default();
+            let mut report = module.diff(&before, &after, &path, opts);
+            report.warnings.extend(warnings);
+            Some(report)
+        }
+    };
+    // `old_path` solo interesa si de verdad cambió de nombre.
+    let old_path = old_path.filter(|o| *o != path);
+    Ok(ShowFile { path, status, old_path, change })
 }

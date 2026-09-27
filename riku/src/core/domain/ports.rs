@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::core::domain::git_types::{
     BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
     WorkingChange,
 };
+
+/// Abre otra conexión al mismo repositorio. `git2::Repository` se puede
+/// mover entre hilos pero no compartir: cada hilo que lee Git usa la suya.
+pub type Reopener = Arc<dyn Fn() -> Result<Box<dyn GitRepository + Send>, GitError> + Send + Sync>;
 
 pub trait GitRepository {
     fn get_blob(&self, commit_ish: &str, file_path: &str) -> Result<Vec<u8>, GitError>;
@@ -58,6 +63,19 @@ pub trait GitRepository {
     /// (`riku show`). Default: error, para no forzar a los mocks.
     fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError> {
         Err(GitError::CommitNotFound(commit_ish.to_string()))
+    }
+
+    /// Tamaño en bytes de un blob sin leerlo (para planificar la memoria de
+    /// los diffs en paralelo). `None` si no existe o no se sabe.
+    fn blob_size(&self, _commit_ish: &str, _file_path: &str) -> Option<u64> {
+        None
+    }
+
+    /// Cómo abrir otra conexión a este repositorio desde otro hilo. `None`
+    /// (el default, p. ej. en los mocks de los tests): todo se hace en
+    /// secuencia con esta.
+    fn reopener(&self) -> Option<Reopener> {
+        None
     }
 }
 

@@ -23,6 +23,14 @@ pub(super) fn get_blob(
     Ok(blob.content().to_vec())
 }
 
+/// Tamaño de un blob leyendo solo la cabecera del objeto.
+pub(super) fn blob_size(repo: &Repository, commit_ish: &str, file_path: &str) -> Option<u64> {
+    let commit = resolve_commit(repo, commit_ish).ok()?;
+    let id = tree_entry_id(repo, commit.tree().ok()?, file_path).ok()?;
+    let (size, _) = repo.odb().ok()?.read_header(id).ok()?;
+    Some(size as u64)
+}
+
 pub(super) fn tree_entry_id(
     repo: &Repository,
     tree: Tree<'_>,
