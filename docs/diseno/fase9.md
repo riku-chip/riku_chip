@@ -66,6 +66,18 @@ Menores (S): `shell_complete.rs:33` corta un string con `+1` después de un espa
 
 **Árboles y grafos:** no hace falta un R-tree ni un BVH: el índice del visor ya es un quadtree plano ("loose", grillas CSR por tamaño) y una consulta por ventana con presupuesto no ganaría. Donde sí rinde: el índice de instancias (P3), el índice nombre→celda (P4), y **el grafo de celdas en orden topológico calculado una vez** (detecta ciclos, B8; habilita piezas recursivas: hoy las piezas son de un nivel y un TOP→CORE aplana CORE entero, ~1,2 GB — M–L, `prints.rs:30-56`). No vale la pena una caché de parseos por OID entre commits consecutivos de `log` (choca con el presupuesto de memoria y con el paralelismo; medir antes).
 
+### Pendiente a futuro (evaluado al cerrar 9.2)
+
+Lo que quedó sin hacer, con el porqué, para retomarlo cuando haga falta:
+
+| Qué | Por qué no ahora | Cuándo retomarlo |
+|---|---|---|
+| **Pico de RAM del visor** (~2,6 GB con el chip de 42 MB) | Los 6,2 M elementos pesan ~2,1 GB: cada `DrawElement::Polygon` lleva su propio `Vec<(f64, f64)>`. Bajarlo pide guardar los puntos en un arreglo compartido (CSR) o en `f32`, y eso cambia `DrawElement`, el contrato de `viewer-core` que también implementa el crate de Carlos | Con un diseño que no entre en RAM, y acordado con Carlos |
+| **Piezas recursivas al aplanar** (TOP→CORE) | Las piezas son de un nivel: un TOP que instancia un CORE enorme aplana el CORE entero en el diff (~1,2 GB estimado en la revisión, **no medido**). Toca el núcleo del diff, así que conviene medir antes con un chip real con esa jerarquía | Cuando aparezca un diseño real con TOP→CORE que lo muestre |
+| **Caché de `.sym` de Xschem** | ≤1,6 ms por esquemático (medido, P8). El costo está en `xschem-viewer-rust` (releer los `.sym` en cada parseo): la caché va en `RenderOptions` y es de Carlos | Proponérselo a Carlos |
+| **Caché de la lista de ondas** | 5,6 ms por cuadro con 10 000 señales: entra de sobra en un cuadro (16 ms). Solo se notaría con 100 000+ señales | Si aparece una simulación de ese tamaño |
+| **Retener la malla en la GPU** (mover/zoom con una matriz en el shader) | Hoy un cuadro del chip encuadrado tarda ~8 ms en CPU; con zoom, <0,2 ms. Es un cambio grande (callback de wgpu/glow en egui) | Si un diseño más grande baja de 60 fps al moverse |
+
 ## 9.3 Estructura (SOLID sin sobreingeniería)
 
 Solo cortes que se pagan solos:
@@ -153,3 +165,4 @@ Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLay
 | Spice: emparejar señales | Hecho | `compare_plot` empareja A y B por un mapa de nombres (O(n)) en vez de buscar cada señal recorriendo el otro lado (O(n²)); mismo criterio (sin mayúsculas, gana la primera). Sin medición aparte |
 | Costo de un commit en `log` | Hecho | `max()` de los archivos en vez de `sum()`: se comparan de a uno, así que la suma sobreestimaba la memoria y armaba tandas más chicas. `RIKU_PROFILE` no se tocó: se lee una vez por capa, cuesta nanosegundos |
 | `group_instances` y cables de Xschem | Hecho | Los dos O(n²) que quedaban: agrupar cambios por (celda, capa, sub-cell) con un mapa, y buscar los cables de B por sus extremos en una grilla de celdas de la tolerancia `NEAR`. Mismo resultado (tests existentes + cables invertidos y dentro de la tolerancia) |
+| Diezmado de ondas por rango visible | Hecho | `Curve` guarda la serie completa y su versión reducida: entera o casi, la reducida; al acercarse, el tramo visible (búsqueda binaria) con dos puntos por píxel. Zoom al 1 % de una curva de 10⁶ puntos: de ~40 puntos en pantalla a ~1600, pico incluido. RAM: solo las curvas que se muestran guardan la serie (las demás se sueltan). Un barrido que va hacia atrás usa siempre la reducida |

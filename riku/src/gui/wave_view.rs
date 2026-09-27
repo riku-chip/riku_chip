@@ -59,7 +59,7 @@ pub struct WaveView {
     hide_internal: bool,
     show_error: bool,
     /// Curvas ya reducidas para dibujar: (lado B?, análisis, señal).
-    cache: HashMap<(bool, usize, String), Arc<Vec<[f64; 2]>>>,
+    cache: HashMap<(bool, usize, String), Arc<Curve>>,
     /// Pedido de la vista: otro `.raw` para comparar, o quitar la comparación.
     pub request: Option<Request>,
     /// Vista del diff (Diff / Before / After). Sin comparación no se usa.
@@ -360,7 +360,7 @@ impl WaveView {
     }
 
     /// Curva lista para dibujar (con la X en log10 si el análisis es en frecuencia).
-    fn curve(&mut self, side_b: bool, idx: usize, name: &str) -> Option<Arc<Vec<[f64; 2]>>> {
+    fn curve(&mut self, side_b: bool, idx: usize, name: &str) -> Option<Arc<Curve>> {
         let key = (side_b, idx, name.to_lowercase());
         if let Some(c) = self.cache.get(&key) {
             return Some(c.clone());
@@ -376,13 +376,13 @@ impl WaveView {
             .filter(|(_, v)| v.is_finite())
             .map(|(&xv, &yv)| (if log { xv.max(1e-300).log10() } else { xv }, yv))
             .unzip();
-        let pts = Arc::new(decimate(&xs, &ys, MAX_POINTS));
+        let pts = Arc::new(Curve::new(xs, ys));
         self.cache.insert(key, pts.clone());
         Some(pts)
     }
 
     /// B − A sobre la unión de las dos grillas.
-    fn error_curve(&mut self, idx: usize, name: &str) -> Option<Arc<Vec<[f64; 2]>>> {
+    fn error_curve(&mut self, idx: usize, name: &str) -> Option<Arc<Curve>> {
         let key = (false, usize::MAX - idx, name.to_lowercase());
         if let Some(c) = self.cache.get(&key) {
             return Some(c.clone());
@@ -403,10 +403,66 @@ impl WaveView {
             .map(|&x| (if log { x.max(1e-300).log10() } else { x }, interp(xb, yb, x) - interp(xa, ya, x)))
             .filter(|(_, e)| e.is_finite())
             .unzip();
-        let pts = Arc::new(decimate(&xs, &err, MAX_POINTS));
+        let pts = Arc::new(Curve::new(xs, err));
         self.cache.insert(key, pts.clone());
         Some(pts)
     }
+
+    /// Suelta las curvas que ya no se muestran: cada una guarda la serie
+    /// completa (para redibujar con detalle al acercarse).
+    fn keep_curves(&mut self, idx: usize, shown: &BTreeSet<String>) {
+        self.cache.retain(|(_, i, name), _| (*i == idx || *i == usize::MAX - idx) && shown.contains(name));
+    }
+}
+
+/// Una curva lista para dibujar: la serie completa (X creciente) y su
+/// versión reducida a [`MAX_POINTS`] para verla entera.
+pub struct Curve {
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+    full: Vec<[f64; 2]>,
+    /// X no decreciente: se puede recortar el tramo visible por búsqueda
+    /// binaria (un barrido DC puede ir hacia atrás).
+    sorted: bool,
+}
+
+impl Curve {
+    pub fn new(xs: Vec<f64>, ys: Vec<f64>) -> Self {
+        let full = decimate(&xs, &ys, MAX_POINTS);
+        let sorted = xs.windows(2).all(|w| w[0] <= w[1]);
+        Self { xs, ys, full, sorted }
+    }
+
+    /// Los puntos a dibujar para la ventana `[x0, x1]` con `px` píxeles de
+    /// ancho. Con la curva entera (o casi) a la vista, la versión reducida;
+    /// al acercarse, el tramo visible reducido a dos puntos (mínimo y
+    /// máximo) por píxel: con zoom ×100 la versión reducida dejaba ~40
+    /// puntos en pantalla y la forma salía mal.
+    pub fn points(&self, x0: f64, x1: f64, px: f32) -> Vec<[f64; 2]> {
+        let n = self.xs.len();
+        if n <= self.full.len() || !self.sorted || !(x1 > x0) {
+            return self.full.clone();
+        }
+        let (lo, hi) = (self.xs[0], self.xs[n - 1]);
+        if x1 - x0 >= 0.5 * (hi - lo) {
+            return self.full.clone();
+        }
+        // Un punto de cada lado de la ventana, para que la línea llegue al borde.
+        let a = self.xs.partition_point(|&x| x < x0).saturating_sub(1);
+        let b = (self.xs.partition_point(|&x| x <= x1) + 1).min(n);
+        let max = ((px.max(1.0) as usize) * 2).max(200);
+        decimate(&self.xs[a..b], &self.ys[a..b], max)
+    }
+}
+
+/// Una línea del gráfico; los puntos se eligen al dibujar, según la zona a
+/// la vista.
+struct Trace {
+    label: String,
+    curve: Arc<Curve>,
+    color: Color32,
+    width: f32,
+    dashed: bool,
 }
 
 /// Nodos internos de dispositivos y subcircuitos (`v(m.xm1.m…#body)`,
@@ -518,27 +574,29 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
     let link = egui::Id::new(("riku_wave_x", idx));
     let x_label = format!("{x_name} [{x_unit}]");
 
+    let keep: BTreeSet<String> = groups.iter().flat_map(|(_, s)| s.iter().map(|(_, n)| n.to_lowercase())).collect();
+    view.keep_curves(idx, &keep);
     let mut row = 0;
     for (unit, sigs) in &groups {
-        let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut lines: Vec<Trace> = Vec::new();
         // Extensión de A y B juntas: las tres vistas encuadran igual.
         let mut extent = Extent::default();
         for (i, name) in sigs {
             let color = color_for(*i);
             let (a, b) = (if diff { view.curve(false, idx, name) } else { None }, view.curve(true, idx, name));
             for c in [&a, &b].into_iter().flatten() {
-                extent.add(c);
+                extent.add(&c.full);
             }
             if let Some(b) = b.filter(|_| tab != DiffTab::Before) {
                 let label = if diff { format!("{name} · {}", view.label_b) } else { name.clone() };
-                lines.push(Line::new(label, PlotPoints::new(b.to_vec())).color(color).width(1.6_f32));
+                lines.push(Trace { label, curve: b, color, width: 1.6, dashed: false });
             }
             if let Some(a) = a.filter(|_| tab != DiffTab::After) {
-                let line = Line::new(format!("{name} · {}", view.label_a), PlotPoints::new(a.to_vec()));
+                let label = format!("{name} · {}", view.label_a);
                 // En Diff, A va detrás de B (punteada); en Before es la única.
                 lines.push(match tab {
-                    DiffTab::Diff => line.color(color.gamma_multiply(0.75)).style(LineStyle::dashed_loose()).width(1.2_f32),
-                    _ => line.color(color).width(1.6_f32),
+                    DiffTab::Diff => Trace { label, curve: a, color: color.gamma_multiply(0.75), width: 1.2, dashed: true },
+                    _ => Trace { label, curve: a, color, width: 1.6, dashed: false },
                 });
             }
         }
@@ -549,10 +607,10 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
         row += 1;
 
         if show_error {
-            let mut err: Vec<Line<'static>> = Vec::new();
+            let mut err: Vec<Trace> = Vec::new();
             for (i, name) in sigs {
                 if let Some(e) = view.error_curve(idx, name) {
-                    err.push(Line::new(format!("Δ {name}"), PlotPoints::new(e.to_vec())).color(color_for(*i)).width(1.4_f32));
+                    err.push(Trace { label: format!("Δ {name}"), curve: e, color: color_for(*i), width: 1.4, dashed: false });
                 }
             }
             ui.add_space(gap);
@@ -627,7 +685,7 @@ fn wave_plot(
     x_label: &str,
     y_label: &str,
     y_unit: &str,
-    lines: Vec<Line<'static>>,
+    lines: Vec<Trace>,
 ) {
     let (xu, yu) = (x_unit.to_string(), y_unit.to_string());
     let to_x = move |v: f64| if log_x { 10f64.powf(v) } else { v };
@@ -659,8 +717,14 @@ fn wave_plot(
         .link_axis(link, [true, false])
         .link_cursor(link, [true, false])
         .show(ui, |plot_ui| {
-            for l in lines {
-                plot_ui.line(l);
+            // La ventana del cuadro anterior (la de este se conoce al final):
+            // al acercarse, cada curva se redibuja con el detalle de la zona.
+            let b = plot_ui.plot_bounds();
+            let px = plot_ui.transform().frame().width();
+            for t in lines {
+                let pts = t.curve.points(b.min()[0], b.max()[0], px);
+                let line = Line::new(t.label, PlotPoints::new(pts)).color(t.color).width(t.width);
+                plot_ui.line(if t.dashed { line.style(LineStyle::dashed_loose()) } else { line });
             }
         });
 }
@@ -939,6 +1003,30 @@ mod tests {
         let d = decimate(&xs, &ys, 100);
         assert!(d.len() <= 100);
         assert!(d.iter().any(|p| p[1] == 7.0 && p[0] == 5_123.0));
+    }
+
+    #[test]
+    fn zooming_in_redraws_the_visible_part_with_detail() {
+        // Un millón de puntos: una senoidal y un pico angosto en x = 0,5.
+        let n = 1_000_000;
+        let xs: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
+        let ys: Vec<f64> = xs.iter().map(|&x| (x * 2000.0).sin() + if (x - 0.5).abs() < 1e-6 { 5.0 } else { 0.0 }).collect();
+        let c = Curve::new(xs, ys);
+        // Entera: la versión reducida.
+        assert_eq!(c.points(0.0, 1.0, 800.0).len(), c.full.len());
+        let in_range = |pts: &[[f64; 2]], x0: f64, x1: f64| pts.iter().filter(|p| p[0] >= x0 && p[0] <= x1).count();
+        // Zoom al 1 %: la reducida tenía ~40 puntos ahí; ahora, ~2 por píxel.
+        let (x0, x1) = (0.495, 0.505);
+        let zoomed = c.points(x0, x1, 800.0);
+        assert!(in_range(&c.full, x0, x1) < 60, "{}", in_range(&c.full, x0, x1));
+        assert!(in_range(&zoomed, x0, x1) >= 1500, "{}", in_range(&zoomed, x0, x1));
+        assert!(zoomed.len() <= 1600 + 4);
+        // El pico sigue ahí, y la línea llega a los bordes de la ventana.
+        assert!(zoomed.iter().any(|p| p[1] > 4.0));
+        assert!(zoomed.first().unwrap()[0] <= x0 && zoomed.last().unwrap()[0] >= x1);
+        // Un barrido que va hacia atrás no se recorta (usaría la búsqueda binaria mal).
+        let back = Curve::new((0..10_000).rev().map(f64::from).collect(), vec![0.0; 10_000]);
+        assert_eq!(back.points(10.0, 20.0, 800.0).len(), back.full.len());
     }
 
     #[test]
