@@ -60,7 +60,28 @@ jobs:
           mkdir /tmp/smoke && cd /tmp/smoke && git init -q
           cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_a.gds layout.gds && git add . && git commit -qm a
           cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_b.gds layout.gds && git add . && git commit -qm b
-          $B diff HEAD~1 HEAD layout.gds -f json | grep -q '"TOP:L1/0:INV"'
+          $B diff HEAD~1 HEAD layout.gds -f json-v1 | grep -q '"TOP:L1/0:INV"'
+          $B diff HEAD~1 HEAD layout.gds -f json | grep -q '"schema": "riku-diff/v2"'
+          # Magic: el cambio de la sub-celda se ve en el top del mismo commit.
+          printf 'magic
+tech sky130A
+use inv  i0
+transform 1 0 0 0 1 0
+box 0 0 1 1
+' > top.mag
+          printf 'magic
+tech sky130A
+<< metal1 >>
+rect 0 0 400 400
+' > inv.mag
+          git add . && git commit -qm c
+          printf 'magic
+tech sky130A
+<< metal1 >>
+rect 0 0 400 800
+' > inv.mag
+          git commit -qam d
+          $B diff HEAD~1 HEAD top.mag -f json | grep -q '"layer_name": "metal1"'
           if $B gui layout.gds 2>err.txt; then echo "::error::gui sin DISPLAY debía fallar"; exit 1; fi
           grep -q "escritorio gráfico" err.txt
 
