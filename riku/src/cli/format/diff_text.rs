@@ -57,6 +57,7 @@ fn print_change(c: &Change) {
     match &c.element {
         Element::Geometry { .. } => print_geometry(c),
         Element::Signal { .. } => print_signal(c),
+        Element::Port { .. } => print_port(c),
         Element::Component { .. } => match c.kind {
             ChangeKind::Modified | ChangeKind::Renamed => print_param_diff(c),
             ChangeKind::Added => {
@@ -85,6 +86,18 @@ fn print_geometry(c: &Change) {
     println!("      -{} polys / -{} µm²", count("removed_polygons"), area("removed_area_um2"));
     if let Some(b) = c.location {
         println!("      bbox: ({:.3}, {:.3}) → ({:.3}, {:.3}) µm", b.min_x, b.min_y, b.max_x, b.max_y);
+    }
+}
+
+/// Puerto de un layout: los atributos que cambiaron (`class: input → inout`).
+fn print_port(c: &Change) {
+    for d in &c.details {
+        let show = |v: &Option<Value>| v.as_ref().map_or_else(|| "—".to_string(), Value::to_string);
+        match c.kind {
+            ChangeKind::Modified => println!("      {}: {} → {}", d.key, show(&d.before), show(&d.after)),
+            ChangeKind::Removed => println!("      {}: {}", d.key, show(&d.before)),
+            _ => println!("      {}: {}", d.key, show(&d.after)),
+        }
     }
 }
 

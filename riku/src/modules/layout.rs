@@ -48,6 +48,38 @@ fn geom_change(g: &GdsGeomDiff) -> Change {
     c
 }
 
+/// Un puerto de Magic: sus atributos antes y después (`class`: input →
+/// inout). Si solo se movió, es cosmético.
+fn port_change(p: &riku_mod_layout::mag::PortChange) -> Change {
+    use riku_kernel::Value;
+    let kind = match (&p.before, &p.after) {
+        (None, _) => ChangeKind::Added,
+        (_, None) => ChangeKind::Removed,
+        _ => ChangeKind::Modified,
+    };
+    let mut c = Change::new(kind, Element::Port { cell: p.cell.clone(), name: p.name.clone() }).cosmetic(p.cosmetic);
+    type Field = fn(&riku_mod_layout::mag::PortDesc) -> Option<Value>;
+    let fields: [(&str, Field); 6] = [
+        ("class", |d| d.class.clone().map(Value::Text)),
+        ("use", |d| d.usage.clone().map(Value::Text)),
+        ("index", |d| Some(Value::Int(d.index))),
+        ("sides", |d| Some(Value::Text(d.sides.clone()))),
+        ("layer", |d| Some(Value::Text(d.layers.join(",")))),
+        ("position_um", |d| d.rects_um.first().map(|r| Value::Text(format!("{:.3},{:.3}", r[0], r[1])))),
+    ];
+    for (key, get) in fields {
+        let (before, after) = (p.before.as_ref().and_then(get), p.after.as_ref().and_then(get));
+        // En uno modificado, solo lo que cambió; en uno nuevo o quitado, todo.
+        if kind != ChangeKind::Modified || before != after {
+            c = c.with_detail(key, before, after);
+        }
+    }
+    if let Some(r) = p.after.as_ref().or(p.before.as_ref()).and_then(|d| d.rects_um.first()) {
+        c.location = Some(Bounds { min_x: r[0], min_y: r[1], max_x: r[2], max_y: r[3] });
+    }
+    c
+}
+
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
         GdsError::NotGdsii { side } => format!(
@@ -135,6 +167,9 @@ impl FormatModule for LayoutModule {
         }
         for g in &r.geometry {
             report.changes.push(geom_change(g));
+        }
+        for p in &r.ports {
+            report.changes.push(port_change(p));
         }
         report.warnings.extend(r.warnings);
         report

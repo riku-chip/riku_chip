@@ -251,6 +251,32 @@ fn log_and_status_read_sub_cells_from_their_own_version() {
 }
 
 #[test]
+fn port_changes_are_reported() {
+    let dir = tempfile::Builder::new().prefix("riku-mag-ports").tempdir_in(std::env::current_dir().unwrap()).unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    let a = commit(&repo, &[("inv.mag", INV)], "a");
+    let changed = INV.replace("port 1 nsew signal input", "port 1 nsew signal inout");
+    let b = commit(&repo, &[("inv.mag", &changed)], "b");
+    let r = MagRepo { dir, c: vec![a, b] };
+    let json = riku(&r, &["diff", &r.c[0], &r.c[1], "inv.mag", "-f", "json"]);
+    let port = changes(&json).iter().find(|c| c["element"]["type"] == "port").unwrap_or_else(|| panic!("{json}"));
+    assert_eq!((port["element"]["cell"].as_str(), port["element"]["name"].as_str()), (Some("inv"), Some("A")));
+    assert_eq!(port["kind"], "modified");
+    let class = port["details"].as_array().unwrap().iter().find(|d| d["key"] == "class").unwrap();
+    assert_eq!((class["before"].as_str(), class["after"].as_str()), (Some("input"), Some("inout")));
+    // Solo cambió el puerto: nada de geometría.
+    assert!(changes(&json).iter().all(|c| c["element"]["type"] != "geometry"), "{json}");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_riku"))
+        .args(["diff", &r.c[0], &r.c[1], "inv.mag", "--repo"])
+        .arg(r.dir.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("inv:port:A") && text.contains("class: input → inout"), "{text}");
+}
+
+#[test]
 fn pdk_cells_are_found_when_the_pdk_is_installed() {
     let root = std::env::var("PDK_ROOT").unwrap_or_else(|_| "/foss/pdks".into());
     let inv = Path::new(&root).join("sky130A/libs.ref/sky130_fd_sc_hd/mag/sky130_fd_sc_hd__inv_1.mag");

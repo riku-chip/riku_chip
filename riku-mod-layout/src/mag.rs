@@ -192,6 +192,97 @@ pub fn build(sources: &MagSources) -> (Library, MagInfo) {
     (lib, info)
 }
 
+/// Un puerto de una celda de Magic (`port 1 nsew signal input` bajo una
+/// etiqueta), con todas las etiquetas que lo forman.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PortDesc {
+    pub index: i64,
+    /// Lados por los que se conecta (`nsew`).
+    pub sides: String,
+    /// signal, analog, power, ground, clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<String>,
+    /// input, output, inout, tristate, feedthrough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
+    /// Capas de sus etiquetas, sin repetir.
+    pub layers: Vec<String>,
+    /// Rectángulos de sus etiquetas en µm, ordenados.
+    pub rects_um: Vec<[f64; 4]>,
+}
+
+impl PortDesc {
+    /// Lo que cambia la función del puerto (no su posición).
+    fn functional(&self) -> (i64, &str, &Option<String>, &Option<String>, &Option<String>, &[String]) {
+        (self.index, &self.sides, &self.usage, &self.class, &self.shape, &self.layers)
+    }
+}
+
+/// Un puerto que aparece, desaparece o cambia entre dos versiones.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PortChange {
+    pub cell: String,
+    pub name: String,
+    pub before: Option<PortDesc>,
+    pub after: Option<PortDesc>,
+    /// Solo se movió (misma función, otra posición).
+    pub cosmetic: bool,
+}
+
+/// Puertos de cada celda, por nombre.
+fn ports_by_cell(info: &MagInfo) -> std::collections::BTreeMap<&str, std::collections::BTreeMap<&str, PortDesc>> {
+    let mut cells = std::collections::BTreeMap::new();
+    for c in &info.cells {
+        let mut ports: std::collections::BTreeMap<&str, PortDesc> = std::collections::BTreeMap::new();
+        for p in &c.ports {
+            let round = |r: [f64; 4]| r.map(|v| (v * 1e6).round() / 1e6);
+            let d = ports.entry(p.name.as_str()).or_insert_with(|| PortDesc {
+                index: p.port.index,
+                sides: p.port.sides.clone(),
+                usage: p.port.usage.clone(),
+                class: p.port.class.clone(),
+                shape: p.port.shape.clone(),
+                layers: Vec::new(),
+                rects_um: Vec::new(),
+            });
+            d.layers.push(p.layer.clone());
+            d.rects_um.push(round(p.rect_um));
+        }
+        for d in ports.values_mut() {
+            d.layers.sort();
+            d.layers.dedup();
+            d.rects_um.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        cells.insert(c.name.as_str(), ports);
+    }
+    cells
+}
+
+/// Puertos que cambiaron en las celdas que existen en las dos versiones
+/// (una celda nueva o borrada ya se reporta como celda). Ordenados por celda
+/// y nombre.
+pub fn port_changes(a: Option<&MagInfo>, b: Option<&MagInfo>) -> Vec<PortChange> {
+    let (Some(a), Some(b)) = (a, b) else { return Vec::new() };
+    let (pa, pb) = (ports_by_cell(a), ports_by_cell(b));
+    let mut out = Vec::new();
+    for (cell, before) in &pa {
+        let Some(after) = pb.get(cell) else { continue };
+        let names: std::collections::BTreeSet<&&str> = before.keys().chain(after.keys()).collect();
+        for name in names {
+            let (x, y) = (before.get(*name), after.get(*name));
+            let cosmetic = match (x, y) {
+                (Some(x), Some(y)) if x == y => continue,
+                (Some(x), Some(y)) => x.functional() == y.functional(),
+                _ => false,
+            };
+            out.push(PortChange { cell: cell.to_string(), name: name.to_string(), before: x.cloned(), after: y.cloned(), cosmetic });
+        }
+    }
+    out
+}
+
 /// Avisos para el usuario de una jerarquía leída.
 pub fn notices(info: &MagInfo) -> Vec<String> {
     let mut out = Vec::new();
@@ -257,6 +348,29 @@ mod tests {
         let n = notices(&info);
         assert!(n[0].contains("ghost"), "{n:?}");
         assert!(n.iter().any(|w| w.contains("scmos")), "{n:?}");
+    }
+
+    #[test]
+    fn ports_that_change_function_or_only_move() {
+        let cell = |ports: &str| format!("magic\ntech sky130A\nmagscale 1 2\n<< labels >>\n{ports}<< end >>\n");
+        let read = |text: &str| build(&collect(text.as_bytes(), "inv.mag", None).unwrap()).1;
+        let a = read(&cell("rlabel locali s 0 0 10 10 0 A\nport 1 nsew signal input\nrlabel locali s 0 0 10 10 0 Y\nport 2 nsew signal output\nrlabel metal1 s 0 0 10 10 0 VGND\nport 3 nsew ground bidirectional\n"));
+        let b = read(&cell("rlabel locali s 0 0 10 10 0 A\nport 1 nsew signal inout\nrlabel locali s 50 0 60 10 0 Y\nport 2 nsew signal output\nrlabel locali s 0 0 10 10 0 EN\nport 4 nsew signal input\n"));
+        let changes = port_changes(Some(&a), Some(&b));
+        let by = |n: &str| changes.iter().find(|c| c.name == n).unwrap_or_else(|| panic!("{n}: {changes:#?}"));
+        // A: input → inout, funcional.
+        let c = by("A");
+        assert_eq!(c.before.as_ref().unwrap().class.as_deref(), Some("input"));
+        assert_eq!(c.after.as_ref().unwrap().class.as_deref(), Some("inout"));
+        assert!(!c.cosmetic);
+        // Y: solo se movió.
+        assert!(by("Y").cosmetic);
+        // EN nuevo, VGND quitado.
+        assert!(by("EN").before.is_none() && by("EN").after.is_some());
+        assert!(by("VGND").after.is_none());
+        assert_eq!(changes.len(), 4);
+        // Sin la versión anterior no hay comparación de puertos.
+        assert!(port_changes(None, Some(&b)).is_empty());
     }
 
     #[test]

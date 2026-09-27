@@ -86,6 +86,9 @@ pub struct GdsDiffReport {
     /// Pares `(nombre en A, nombre en B)` con la misma geometria.
     pub cells_renamed: Vec<(String, String)>,
     pub geometry: Vec<GdsGeomDiff>,
+    /// Puertos que cambiaron (Magic).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<crate::mag::PortChange>,
     pub warnings: Vec<String>,
 }
 
@@ -163,13 +166,15 @@ impl Read<'_> {
         }
     }
 
-    /// `Library` y avisos para el usuario.
-    fn library(&self, side: &'static str) -> Result<(Library, Vec<String>), GdsError> {
+    /// `Library`, avisos para el usuario y, si es Magic, lo que trae además
+    /// de la geometría (puertos).
+    fn library(&self, side: &'static str) -> Result<(Library, Vec<String>, Option<gdstk_rs::magic::MagInfo>), GdsError> {
         match self {
-            Read::Bytes(b) => parse_side(b, side).map(|l| (l, Vec::new())),
+            Read::Bytes(b) => parse_side(b, side).map(|l| (l, Vec::new(), None)),
             Read::Magic(s) => {
                 let (lib, info) = crate::mag::build(s);
-                Ok((lib, crate::mag::notices(&info)))
+                let notes = crate::mag::notices(&info);
+                Ok((lib, notes, Some(info)))
             }
         }
     }
@@ -216,8 +221,12 @@ pub fn diff_layout_sides(
             let (la, lb) = rayon::join(|| build(&ra, "A"), || build(&rb, "B"));
             let (la, lb) = (la?, lb?);
             let mut report = diff_libraries(la.as_ref().map(|l| &l.0), lb.as_ref().map(|l| &l.0), cfg);
+            report.ports = crate::mag::port_changes(
+                la.as_ref().and_then(|l| l.2.as_ref()),
+                lb.as_ref().and_then(|l| l.2.as_ref()),
+            );
             for (label, side) in [("antes", &la), ("después", &lb)] {
-                if let Some((_, notes)) = side {
+                if let Some((_, notes, _)) = side {
                     report.warnings.extend(notes.iter().map(|n| format!("{label}: {n}")));
                 }
             }

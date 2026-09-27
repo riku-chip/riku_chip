@@ -450,7 +450,13 @@ impl ViewerBackend for GdsBackend {
             let diff = CachedDiff { cache: &cache, inputs };
             let lib_a = a.as_ref().map(|s| &s.lib);
             let lib_b = b.as_ref().map(|s| &s.lib);
+            let ports = crate::mag::port_changes(
+                a.as_ref().and_then(|s| s.info.as_ref()),
+                b.as_ref().and_then(|s| s.info.as_ref()),
+            );
             build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff).map(|mut s| {
+                let cell = s.current_entry.clone();
+                s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
                 s.notices.extend(notices);
                 s.build_index();
                 s
@@ -462,12 +468,39 @@ impl ViewerBackend for GdsBackend {
     }
 }
 
+/// Un puerto de Magic que cambió, para la lista del visor (coordenadas en
+/// µm, las de la escena de un `.mag`).
+fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
+    let (kind, label) = match (&p.before, &p.after) {
+        (None, Some(d)) => (ChangeKind::Added, format!("puerto {} ({})", p.name, d.class.as_deref().unwrap_or("—"))),
+        (Some(_), None) => (ChangeKind::Removed, format!("puerto {}", p.name)),
+        (Some(x), Some(y)) if x.class != y.class => (
+            ChangeKind::Modified,
+            format!("puerto {}: {} → {}", p.name, x.class.as_deref().unwrap_or("—"), y.class.as_deref().unwrap_or("—")),
+        ),
+        _ => (ChangeKind::Modified, format!("puerto {}", p.name)),
+    };
+    let detail = match p.after.as_ref().or(p.before.as_ref()) {
+        _ if p.cosmetic => "se movió".to_string(),
+        Some(d) => format!("{} {} · {}", d.index, d.usage.as_deref().unwrap_or(""), d.layers.join(",")),
+        None => String::new(),
+    };
+    let bbox = p.after.as_ref().or(p.before.as_ref()).and_then(|d| d.rects_um.first()).map(|r| VcBBox {
+        min_x: r[0],
+        min_y: r[1],
+        max_x: r[2],
+        max_y: r[3],
+    });
+    ChangeItem { kind, label, detail, bbox, cosmetic: p.cosmetic }
+}
+
 /// Un lado leído: la `Library`, los avisos para el usuario y, si es Magic,
 /// los archivos de su jerarquía (para la clave de la cache).
 struct ReadSide {
     lib: Library,
     notices: Vec<String>,
     sources: Option<MagSources>,
+    info: Option<gdstk_rs::magic::MagInfo>,
 }
 
 /// GDSII/OASIS de sus bytes; Magic con sus sub-celdas (`files`, el disco si
@@ -481,10 +514,11 @@ fn read_side(bytes: &[u8], path_hint: Option<&str>, files: Option<&dyn FileSourc
         let path = path_hint.unwrap_or("layout.mag");
         let sources = crate::mag::collect(bytes, path, files).map_err(err)?;
         let (lib, info) = crate::mag::build(&sources);
-        return Ok(ReadSide { lib, notices: crate::mag::notices(&info), sources: Some(sources) });
+        let notices = crate::mag::notices(&info);
+        return Ok(ReadSide { lib, notices, sources: Some(sources), info: Some(info) });
     }
     let lib = Library::from_bytes_any(bytes).map_err(|e| err(e.to_string()))?;
-    Ok(ReadSide { lib, notices: Vec::new(), sources: None })
+    Ok(ReadSide { lib, notices: Vec::new(), sources: None, info: None })
 }
 
 /// Colores del overlay de diff. Relleno semitransparente para ver la capa
@@ -850,6 +884,23 @@ rect 5 2 10 8
             .expect("diff .mag");
         // El archivo de arriba es igual; el cambio viene de inv, en locali.
         assert!(h.changes().iter().any(|c| c.label.starts_with("locali")), "{:?}", h.changes());
+
+        // Un puerto que cambia de clase aparece en la lista de cambios.
+        let inv = |class: &str| format!("magic
+tech sky130A
+magscale 1 2
+<< locali >>
+rect 0 0 40 10
+<< labels >>
+rlabel locali s 0 0 40 10 0 A
+port 1 nsew signal {class}
+<< end >>
+");
+        let h = b
+            .load_diff(inv("input").into_bytes(), inv("inout").into_bytes(), Some("inv.mag".into()), None, CancellationToken::new())
+            .await
+            .expect("diff de puertos");
+        assert!(h.changes().iter().any(|c| c.label == "puerto A: input → inout"), "{:?}", h.changes());
     }
 
     #[tokio::test]
