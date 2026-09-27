@@ -12,7 +12,7 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | `riku open [archivo]` / `riku gui [archivo]` | Visor (ver [`gui.md`](gui.md)) |
 | `riku doctor` | Diagnóstico del entorno |
 
-Formatos: `.sch`/`.sym` (Xschem, diff semántico) y `.gds`/`.oas` (layouts, diff geométrico). Un archivo que ningún módulo reconoce se lista sin diff.
+Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas` (layouts, diff geométrico) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
 
 ---
 

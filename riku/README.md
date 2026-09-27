@@ -13,6 +13,7 @@ src/
   modules/    mod.rs::registry() — el único lugar que lista los módulos
     xschem.rs, xschem_view.rs, xschem_pdk.rs   esquemáticos (feature `xschem`)
     layout.rs                                  layouts, sobre riku-mod-layout (feature `layout`)
+    spice/                                     simulaciones de ngspice, .raw (feature `spice`)
   gui/        visor egui (feature `gui`)
 tests/
   basic.rs    integración con repos git reales

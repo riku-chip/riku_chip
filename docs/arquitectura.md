@@ -10,7 +10,8 @@ riku_chip/
 │   ├── src/core/         git (git2) y análisis: diff entre commits, show, log, status
 │   ├── src/modules/      módulos de formato; mod.rs::registry() es el ÚNICO lugar que los lista
 │   │   ├── xschem.rs, xschem_view.rs, xschem_pdk.rs   (feature `xschem`)
-│   │   └── layout.rs                                  (feature `layout`)
+│   │   ├── layout.rs                                  (feature `layout`)
+│   │   └── spice/        raw.rs, compare.rs           (feature `spice`)
 │   ├── src/cli/          comandos, shell, formatos de salida
 │   └── src/gui/          visor egui (feature `gui`)
 ├── riku-kernel/          tipos neutros (FileChange, Change, Element, ChangeKind, Detail…),
@@ -24,9 +25,9 @@ riku_chip/
 ```
             riku (cli · gui)
                  │ Registry: detectar, diff, visor
-     ┌───────────┼──────────────────┐
-     ▼           ▼                  ▼
- modules/xschem  riku-mod-layout   (futuro: Magic…)
+     ┌───────────┼──────────────────┬───────────────┐
+     ▼           ▼                  ▼               ▼
+ modules/xschem  riku-mod-layout   modules/spice   (futuro: Magic…)
      │           │
      ▼           ▼
  xschem-viewer   gdstk-rs → gdstk C++
@@ -47,7 +48,7 @@ pub trait FormatModule: Send + Sync {
 }
 ```
 
-- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
+- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
 - `Registry` resuelve el módulo por extensión o firma (`for_path`, `detect`). `log`, `status`, `show` y `diff` reciben el registro: el análisis no sabe qué formatos existen.
 - `ViewerBackend` (`viewer-core`): `load`, `load_entry` (una sub-vista, p. ej. una celda) y `load_diff`. Devuelven una `Scene` neutra: elementos, capas con su estilo, metadatos, entradas, cambios, fantasmas y anotaciones de diff, avisos, y un índice espacial opcional. El visor solo conoce esto: dibuja `.sch` y `.gds` por la misma ruta.
 - Todo lo que se agregó a `viewer-core` después de la primera versión tiene valor por defecto, así que quien lo implementa por su cuenta (el crate de Carlos, con su feature `viewer-core-compat`) sigue compilando. La CI lo verifica.
@@ -57,7 +58,7 @@ pub trait FormatModule: Send + Sync {
 1. `riku-kernel` no depende de ningún módulo ni motor (la CI lo verifica con `cargo tree`).
 2. Un módulo depende del kernel, de `viewer-core` y de su motor; nunca de otro módulo.
 3. Los motores no saben nada de Riku; el adaptador vive del lado del módulo.
-4. Agregar un formato es un módulo nuevo en `riku/src/modules/` (o un crate `riku-mod-*`) y una línea en `registry()`. El núcleo, la CLI y el visor no cambian.
+4. Agregar un formato es un módulo nuevo en `riku/src/modules/` (o un crate `riku-mod-*`) y una línea en `registry()`. El núcleo, la CLI y el visor no cambian. Excepción: las formas de onda (`spice`) no son planos y no pasan por `ViewerBackend`; el visor tiene una vista propia para ellas (`gui/wave_view.rs`).
 
 ## Features
 
@@ -65,9 +66,10 @@ pub trait FormatModule: Send + Sync {
 |---|---|
 | `xschem` | módulo de esquemáticos |
 | `layout` | módulo de layouts (`riku-mod-layout`) |
+| `spice` | módulo de simulaciones de ngspice (`.raw`); con `gui`, la vista de curvas (`egui_plot`) |
 | `gui` | visor egui; arma el índice de las escenas en paralelo (`viewer-core/parallel`) |
 
-Por defecto van las tres. `--no-default-features` da un `riku` solo de terminal; la CI compila cada combinación.
+Por defecto van las cuatro. `--no-default-features` da un `riku` solo de terminal; la CI compila cada combinación.
 
 ## Rendimiento
 

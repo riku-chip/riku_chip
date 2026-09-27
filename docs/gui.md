@@ -1,6 +1,6 @@
 # El visor (`riku gui`)
 
-Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`) y layouts (`.gds`, `.oas`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
+Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`), layouts (`.gds`, `.oas`) y simulaciones de ngspice (`.raw`, con su propia vista de curvas: [`spice.md`](spice.md)), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
 
 ## Uso
 
@@ -27,7 +27,7 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Dibujar cada polígono aunque sea diminuto | desmarcar **Ajustes → Simplificar al alejar** (se recuerda; más lento en layouts grandes) |
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
-| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo `.sch`, `.sym`, `.gds`) |
+| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo lo que se puede abrir: `.sch`, `.sym`, `.gds`, `.oas`, `.raw`) |
 | Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla inicial |
 | Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
 | Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |

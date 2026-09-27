@@ -2,7 +2,7 @@
 
 Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 
-**Última revisión:** 2026-09-26.
+**Última revisión:** 2026-09-27.
 
 ## Fases
 
@@ -16,7 +16,8 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | 5 | `gds-renderer` → `riku-mod-layout` sin el render SVG; `riku show`; `--ci` | hecha |
 | 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | en curso |
 | 7 | `riku log --graph`: grafo ASCII de ramas y merges | pendiente (M) |
-| 8 | Módulo Magic (`.mag`): primer formato nuevo sobre la arquitectura | pendiente (L) |
+| 8 | Módulo Magic (`.mag`) | pendiente (L) |
+| — | Módulo `spice`: diff de formas de onda de ngspice (`.raw`) en la CLI y vista de curvas en el visor ([`spice.md`](spice.md)) | hecho |
 
 Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migracion_microkernel.md).
 
@@ -53,7 +54,6 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 | `cargo fmt` en la CI | El formato no es uniforme; activarlo es un commit grande solo de formato | S |
 | Clippy en la CI | Primero como job no bloqueante | S |
 | Paleta SKY130 completa desde su `.lyp` | `gen_palettes.py` ya lo hace para GF180 e IHP; es sumar una entrada | S |
-| NGSpice (`.raw`) | Son formas de onda: necesita otro tipo de vista | L |
 
 ### Limitaciones conocidas
 

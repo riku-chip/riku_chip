@@ -21,6 +21,7 @@ Un `git diff` sobre un esquemático de Xschem muestra coordenadas; sobre un GDS,
 
 - **Esquemáticos:** qué componentes se añadieron, eliminaron, renombraron o cambiaron de valor; qué nets se conectaron o desconectaron; si fue solo un reordenamiento visual (Move All).
 - **Layouts GDS/OASIS:** qué área cambió, en qué capa y en qué celda; si viene de una sub-celda instanciada; qué celdas cambiaron en una librería; si es ruido por debajo de la grilla.
+- **Simulaciones (ngspice `.raw`):** qué señales cambiaron, cuánto (error máximo, dónde, RMS) y si la diferencia es solo ruido numérico.
 
 Y lo muestra en un **visor** con las versiones antes/después y los cambios resaltados. Todo en Rust: no hace falta tener xschem, KLayout ni Magic instalados.
 
@@ -38,6 +39,7 @@ Y lo muestra en un **visor** con las versiones antes/después y los cambios resa
 | Xschem | `.sch`, `.sym` | semántico | ✓ |
 | GDSII | `.gds` | geométrico (XOR) | ✓ |
 | OASIS | `.oas` | geométrico (XOR) | ✓ |
+| ngspice | `.raw` | formas de onda (con tolerancia) | ✓ (curvas) |
 | Magic | `.mag` | planificado | planificado |
 
 ## Instalación
@@ -89,13 +91,13 @@ Cambios : 3
 |---|---|
 | [`docs/cli.md`](docs/cli.md) | Comandos, JSON y códigos de salida |
 | [`docs/gui.md`](docs/gui.md) | El visor |
-| [`docs/xschem.md`](docs/xschem.md) · [`docs/layouts.md`](docs/layouts.md) | Esquemáticos y PDK · layouts GDS/OASIS |
+| [`docs/xschem.md`](docs/xschem.md) · [`docs/layouts.md`](docs/layouts.md) · [`docs/spice.md`](docs/spice.md) | Esquemáticos y PDK · layouts GDS/OASIS · simulaciones de ngspice |
 | [`docs/arquitectura.md`](docs/arquitectura.md) · [`docs/desarrollo.md`](docs/desarrollo.md) | Cómo está hecho · cómo compilar, probar y publicar |
 | [`docs/roadmap.md`](docs/roadmap.md) | Estado, fases y pendientes |
 
 ## Estado
 
-**Alpha.** Esquemáticos Xschem y layouts GDS/OASIS funcionan de punta a punta: diff en la CLI, historial y visor. En curso: aprovechar varios núcleos en el diff (fase 6); después, `log --graph` y el módulo Magic. Ver [`docs/roadmap.md`](docs/roadmap.md).
+**Alpha.** Esquemáticos Xschem, layouts GDS/OASIS y simulaciones de ngspice funcionan de punta a punta: diff en la CLI, historial y visor. Los layouts grandes (millones de polígonos) se comparan en segundos y con menos de 1 GB. Próximo: `log`, `show` y `status` en paralelo (fase 6.6); después, `log --graph` y el módulo Magic. Ver [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contribuir
 

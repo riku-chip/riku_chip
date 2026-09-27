@@ -6,6 +6,7 @@
 | [`gui.md`](gui.md) | usuarios | el visor: controles, diff visual, layouts grandes |
 | [`xschem.md`](xschem.md) | usuarios | esquemáticos: qué compara el diff, formato `.sch`, símbolos y PDK |
 | [`layouts.md`](layouts.md) | usuarios | GDS/OASIS: el diff geométrico, verificación contra KLayout, medición |
+| [`spice.md`](spice.md) | usuarios | simulaciones de ngspice (`.raw`): qué compara, tolerancia, la vista de formas de onda |
 | [`arquitectura.md`](arquitectura.md) | desarrolladores | crates, núcleo y módulos, contratos, reglas de dependencia |
 | [`desarrollo.md`](desarrollo.md) | desarrolladores | compilar, entorno, tests, CI, release, herramientas |
 | [`roadmap.md`](roadmap.md) | todos | fases, estado y pendientes |

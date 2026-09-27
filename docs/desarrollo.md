@@ -44,7 +44,7 @@ Con cada tag `v*`: compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estática
 |---|---|
 | `tools/verify/` | comparar la lectura de layouts y el XOR contra KLayout; capturas lado a lado; `gui/xt.py` maneja el visor con clics y teclas simulados (ver su [README](../tools/verify/README.md)) |
 | `tools/palettes/gen_palettes.py` | generar las tablas de capas de GF180 e IHP desde sus `.lyp` |
-| `riku-mod-layout/examples/` | `profile_diff`, `profile_view`, `verify_dump` (ver [`layouts.md`](layouts.md)) |
+| `riku-mod-layout/examples/` | `profile_diff`, `profile_prints`, `profile_xor`, `profile_view`, `verify_dump` (ver [`layouts.md`](layouts.md)) |
 
 **Capturas reproducibles del visor:** `xt.py` usa `$DISPLAY`, así que se puede correr sobre un X virtual (`Xvfb :99 &`, `DISPLAY=:99`) sin depender del escritorio. El zoom con la rueda es animado y depende del tiempo entre cuadros; para comparar capturas usar **+**/**−**, que siempre terminan en el mismo zoom. `RIKU_PROFILE=1` imprime el tiempo de cada cuadro.
 
