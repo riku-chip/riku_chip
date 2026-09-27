@@ -6,9 +6,8 @@
 
 use riku_kernel::{DiffOptions, Registry};
 
-use crate::core::analysis::blob_io::{self, Blob};
-use crate::core::analysis::{parallel, pipeline};
-use crate::core::analysis::commit_diff::AnalyzeError;
+use crate::core::analysis::diff_pair::{diff_pair, AnalyzeError, End, OnError, Version};
+use crate::core::analysis::parallel;
 use crate::core::domain::git_types::{ChangeStatus, CommitWithParents, GitError};
 use crate::core::domain::models::FileChange;
 use crate::core::domain::ports::GitRepository;
@@ -101,14 +100,10 @@ fn show_file<R: GitRepository + ?Sized>(
     let change = match modules.for_path(&path) {
         None => None,
         Some(module) => {
-            let before_path = old_path.as_deref().unwrap_or(&path);
-            let before = match parent {
-                Some(p) => blob_io::read_blob(repo, p, before_path)?,
-                None => Blob::Missing,
-            };
-            let after = blob_io::read_blob(repo, oid, &path)?;
-            let files = crate::core::git::files::between(repo, parent, Some(oid));
-            Some(pipeline::diff_blobs(module.as_ref(), &before, &after, &path, opts, &files))
+            // El commit inicial se compara contra nada.
+            let before = End::new(parent.map_or(Version::Absent, Version::Rev), old_path.as_deref().unwrap_or(&path));
+            let after = End::new(Version::Rev(oid), &path);
+            Some(diff_pair(repo, None, module.as_ref(), before, after, opts, OnError::Propagate)?)
         }
     };
     // `old_path` solo interesa si de verdad cambió de nombre.

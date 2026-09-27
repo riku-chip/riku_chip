@@ -1,12 +1,9 @@
-//! La cola que comparten `diff`, `show`, `status` y `log`: dos versiones de
-//! un archivo → `FileChange` (y, para las listas, `FileSummary`). Los
-//! callers deciden cómo leer cada versión y qué hacer si el formato no tiene
-//! módulo, para no leer blobs de más.
+//! El paso final de [`diff_pair`](super::diff_pair): dos versiones ya leídas
+//! de un archivo → `FileChange`.
 
 use riku_kernel::{DiffFiles, DiffOptions, FileChange, FormatModule};
 
 use crate::core::analysis::blob_io::Blob;
-use crate::core::analysis::summary::{DetailLevel, FileSummary};
 
 /// El diff del módulo. Si una versión existe pero no se pudo leer (muy
 /// grande, ilegible), el archivo queda con error sin llamar al módulo: como
@@ -28,26 +25,17 @@ pub fn diff_blobs(
     module.diff_with(before.bytes(), after.bytes(), path, opts, files)
 }
 
-/// [`diff_blobs`] resumido para `status` y `log`.
-pub fn summarize(
-    module: &dyn FormatModule,
-    before: &Blob,
-    after: &Blob,
-    path: &str,
-    level: DetailLevel,
-    files: &DiffFiles,
-    opts: &DiffOptions,
-) -> FileSummary {
-    let report = diff_blobs(module, before, after, path, opts, files);
-    FileSummary::from_report_with(&report, path, level)
-}
-
 #[cfg(test)]
 mod tests {
     use riku_kernel::{FileFormat, ModuleInfo};
 
     use super::*;
-    use crate::core::analysis::summary::SummaryCategory;
+    use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
+
+    fn summarize(before: &Blob, after: &Blob) -> FileSummary {
+        let r = diff_blobs(&Warns, before, after, "a.gds", &DiffOptions::default(), &DiffFiles::default());
+        FileSummary::from_report_with(&r, "a.gds", DetailLevel::Resumen)
+    }
 
     /// Un módulo que solo avisa (como Magic con una celda que falta).
     struct Warns;
@@ -73,14 +61,14 @@ mod tests {
         let r = diff_blobs(&Warns, &Blob::Missing, &big, "a.gds", &DiffOptions::default(), &DiffFiles::default());
         assert!(r.error.as_deref().is_some_and(|e| e.contains("80 MB")), "{r:?}");
         assert_eq!(r.format, FileFormat::Gds);
-        let s = summarize(&Warns, &big, &Blob::Bytes(b"x".to_vec()), "a.gds", DetailLevel::Resumen, &DiffFiles::default(), &DiffOptions::default());
+        let s = summarize(&big, &Blob::Bytes(b"x".to_vec()));
         assert_eq!(s.category, SummaryCategory::Error);
     }
 
     #[test]
     fn los_avisos_llegan_al_resumen() {
         let x = Blob::Bytes(b"x".to_vec());
-        let s = summarize(&Warns, &x, &x, "a.gds", DetailLevel::Resumen, &DiffFiles::default(), &DiffOptions::default());
+        let s = summarize(&x, &x);
         assert_eq!(s.category, SummaryCategory::Unchanged);
         assert_eq!(s.warnings, vec!["falta la celda inv".to_string()]);
     }

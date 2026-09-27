@@ -18,18 +18,15 @@ use std::sync::Arc;
 
 use riku_kernel::{DiffFiles, DiffOptions, FileSource, Registry};
 
-use crate::core::analysis::blob_io::{self, Blob};
-use crate::core::analysis::pipeline;
-use crate::core::analysis::commit_diff::AnalyzeError;
+use crate::core::analysis::blob_io::Blob;
+use crate::core::analysis::diff_pair::{self, diff_pair, AnalyzeError, End, OnError, Version};
+use crate::core::analysis::parallel;
 use crate::core::analysis::show::ShowFile;
-use crate::core::domain::git_types::ChangeStatus;
+use crate::core::domain::git_types::{ChangeStatus, GitError};
 use crate::core::domain::models::{FileChange, FileFormat};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
-use crate::core::git::files;
 
-/// Nombre que usa el visor (y la CLI al lanzarlo) para "el working tree"
-/// en lugar de un commit.
-pub const WORKTREE: &str = ":worktree";
+pub use crate::core::analysis::diff_pair::WORKTREE;
 
 /// Una de las dos versiones que se comparan.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +53,13 @@ impl Side {
             Side::WorkTree => WORKTREE,
         }
     }
+
+    pub fn version(&self) -> Version<'_> {
+        match self {
+            Side::Rev(r) => Version::Rev(r),
+            Side::WorkTree => Version::WorkTree,
+        }
+    }
 }
 
 /// Resultado de comparar todos los archivos que cambiaron.
@@ -79,29 +83,17 @@ pub(crate) fn read_side<R: GitRepository + ?Sized>(
     side: &Side,
     path: &str,
 ) -> Result<Blob, AnalyzeError> {
-    match side {
-        Side::Rev(r) => Ok(blob_io::read_blob(repo, r, path)?),
-        Side::WorkTree => Ok(blob_io::read_disk(workdir, path)),
-    }
+    diff_pair::read(repo, workdir, End::new(side.version(), path), OnError::Propagate)
 }
 
-/// Los otros archivos de una versión tal como la nombra el visor: `""` es
-/// ninguna (el commit inicial), [`WORKTREE`] el disco y lo demás un commit.
-/// Magic busca ahí las sub-celdas.
+/// Los otros archivos de una versión tal como la nombra el visor (ver
+/// [`Version::from_token`]). Magic busca ahí las sub-celdas.
 pub fn token_files<R: GitRepository + RepoRoot + ?Sized>(repo: &R, token: &str) -> Option<Arc<dyn FileSource>> {
-    match token {
-        "" => None,
-        WORKTREE => files::workdir_files(repo.root()),
-        rev => files::commit_files(repo, rev),
-    }
+    diff_pair::version_files(repo, repo.root(), Version::from_token(token))
 }
 
 pub(crate) fn sources<R: GitRepository + ?Sized>(repo: &R, workdir: Option<&Path>, from: &Side, to: &Side) -> DiffFiles {
-    let one = |s: &Side| match s {
-        Side::Rev(r) => files::commit_files(repo, r),
-        Side::WorkTree => files::workdir_files(workdir),
-    };
-    DiffFiles::new(one(from), one(to))
+    diff_pair::sources(repo, workdir, from.version(), to.version())
 }
 
 /// Un archivo entre dos lados. Un archivo sin módulo da un `FileChange`
@@ -115,37 +107,20 @@ pub fn analyze_file<R: GitRepository + ?Sized>(
     modules: &Registry,
     opts: &DiffOptions,
 ) -> Result<FileChange, AnalyzeError> {
-    analyze_renamed(repo, workdir, from, to, None, path, modules, opts)
-}
-
-/// Como [`analyze_file`], con la ruta que tenía en `from` si se renombró.
-#[allow(clippy::too_many_arguments)]
-fn analyze_renamed<R: GitRepository + ?Sized>(
-    repo: &R,
-    workdir: Option<&Path>,
-    from: &Side,
-    to: &Side,
-    old_path: Option<&str>,
-    path: &str,
-    modules: &Registry,
-    opts: &DiffOptions,
-) -> Result<FileChange, AnalyzeError> {
     let Some(module) = modules.for_path(path) else {
         let mut report = FileChange::new(FileFormat::Unknown);
         report.warnings.push(format!("{path}: no hay módulo de Riku para este formato."));
         return Ok(report);
     };
-    let before = read_side(repo, workdir, from, old_path.unwrap_or(path))?;
-    let after = read_side(repo, workdir, to, path)?;
-    let files = sources(repo, workdir, from, to);
-    let mut report = pipeline::diff_blobs(module.as_ref(), &before, &after, path, opts, &files);
-    if before.is_missing() && after.is_missing() {
-        report.warnings.push(format!("{path}: no existe en {} ni en {}", from.label(), to.label()));
-    }
-    Ok(report)
+    let (before, after) = (End::new(from.version(), path), End::new(to.version(), path));
+    diff_pair(repo, workdir, module.as_ref(), before, after, opts, OnError::Propagate)
 }
 
-/// Todos los archivos que cambiaron entre `from` y `to`.
+/// Un archivo que cambió, con qué le pasó y su ruta anterior.
+type Entry = (String, (ChangeStatus, Option<String>));
+
+/// Todos los archivos que cambiaron entre `from` y `to`, en paralelo como
+/// `show` (una conexión a Git por hilo, en tandas que caben en memoria).
 pub fn analyze_all<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
@@ -154,16 +129,50 @@ pub fn analyze_all<R: GitRepository + ?Sized>(
     modules: &Registry,
     opts: &DiffOptions,
 ) -> Result<DiffSetReport, AnalyzeError> {
-    let entries = changed_paths(repo, workdir, from, to)?;
-    let mut out = Vec::with_capacity(entries.len());
-    for (path, (status, old_path)) in entries {
-        let change = match modules.for_path(&path) {
-            Some(_) => Some(analyze_renamed(repo, workdir, from, to, old_path.as_deref(), &path, modules, opts)?),
-            None => None,
-        };
-        out.push(ShowFile { path, status: Some(status), old_path, change });
-    }
-    Ok(DiffSetReport { from: from.clone(), to: to.clone(), files: out })
+    let entries: Vec<Entry> = changed_paths(repo, workdir, from, to)?.into_iter().collect();
+    let size = |side: &Side, path: &str| match side {
+        Side::Rev(r) => repo.blob_size(r, path),
+        Side::WorkTree => workdir.and_then(|w| std::fs::metadata(w.join(path)).ok()).map(|m| m.len()),
+    };
+    let costs: Vec<u64> = entries
+        .iter()
+        .map(|(path, (_, old))| match modules.for_path(path) {
+            Some(_) => parallel::diff_cost(size(from, old.as_deref().unwrap_or(path)), size(to, path)),
+            None => 0,
+        })
+        .collect();
+    let files = parallel::map_in_waves(
+        repo.reopener(),
+        entries,
+        &costs,
+        |entry| diff_entry(repo, workdir, from, to, entry, modules, opts),
+        |r, entry| diff_entry(r, workdir, from, to, entry, modules, opts),
+        |_, e| Err(AnalyzeError::Git(GitError::Git(git2::Error::from_str(&e.to_string())))),
+    )
+    .into_iter()
+    .collect::<Result<Vec<ShowFile>, AnalyzeError>>()?;
+    Ok(DiffSetReport { from: from.clone(), to: to.clone(), files })
+}
+
+/// El diff de un archivo de [`analyze_all`]; `None` si ningún módulo lo reconoce.
+fn diff_entry<R: GitRepository + ?Sized>(
+    repo: &R,
+    workdir: Option<&Path>,
+    from: &Side,
+    to: &Side,
+    (path, (status, old_path)): Entry,
+    modules: &Registry,
+    opts: &DiffOptions,
+) -> Result<ShowFile, AnalyzeError> {
+    let change = match modules.for_path(&path) {
+        Some(module) => {
+            let before = End::new(from.version(), old_path.as_deref().unwrap_or(&path));
+            let after = End::new(to.version(), &path);
+            Some(diff_pair(repo, workdir, module.as_ref(), before, after, opts, OnError::Propagate)?)
+        }
+        None => None,
+    };
+    Ok(ShowFile { path, status: Some(status), old_path, change })
 }
 
 /// Rutas que cambiaron, con qué les pasó (ordenadas).

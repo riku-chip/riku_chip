@@ -86,14 +86,16 @@ impl RikuGuiApp {
         entry: Option<String>,
         from_history: bool,
     ) -> Result<(), String> {
-        use crate::core::domain::ports::GitRepository;
+        use crate::core::analysis::blob_io::Blob;
+        use crate::core::analysis::diff_pair::{self, End, OnError, Version};
+        use crate::core::domain::ports::{GitRepository, RepoRoot};
         use crate::core::git::git_service::GitService;
 
         self.loader.cancel();
         let svc = GitService::open(repo).map_err(|e| e.to_string())?;
         let file_str = file.to_string_lossy().to_string();
         // Si el archivo se renombró entre A y B, en A tiene la ruta vieja.
-        let worktree = crate::core::analysis::diff_set::WORKTREE;
+        let worktree = diff_pair::WORKTREE;
         let old_path = (!commit_a.is_empty() && commit_b != worktree)
             .then(|| svc.get_changed_files(commit_a, commit_b).ok())
             .flatten()
@@ -101,21 +103,16 @@ impl RikuGuiApp {
             .and_then(|c| c.old_path);
         // Si falta de un lado se compara contra vacío: todo cuenta como
         // añadido (archivo nuevo, o `commit_a` vacío: el commit inicial) o
-        // eliminado (borrado en `commit_b`).
-        let read = |commit: &str, file_str: &str| -> Result<Vec<u8>, String> {
-            if commit.is_empty() {
-                return Ok(Vec::new());
-            }
-            // `riku diff A archivo -f visual`: B es el archivo en disco.
-            if commit == worktree {
-                use crate::core::domain::ports::RepoRoot;
-                let path = svc.root().map(|w| w.join(file_str)).ok_or("repo sin working tree")?;
-                return Ok(std::fs::read(path).unwrap_or_default());
-            }
-            match svc.get_blob(commit, file_str) {
-                Ok(bytes) => Ok(bytes),
-                Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Ok(Vec::new()),
-                Err(e) => Err(format!("{commit}: {e}")),
+        // eliminado (borrado en `commit_b`). Con `:worktree` (`riku diff A
+        // archivo -f visual`), B es el disco. La misma lectura que la CLI.
+        let workdir = svc.root().map(Path::to_path_buf);
+        let read = |token: &str, path: &str| -> Result<Vec<u8>, String> {
+            let end = End::new(Version::from_token(token), path);
+            match diff_pair::read(&svc, workdir.as_deref(), end, OnError::Propagate) {
+                Ok(Blob::Bytes(b)) => Ok(b),
+                Ok(Blob::Missing) => Ok(Vec::new()),
+                Ok(Blob::Skipped(why)) => Err(why),
+                Err(e) => Err(format!("{token}: {e}")),
             }
         };
         let after = read(commit_b, &file_str)?;
@@ -156,8 +153,7 @@ impl RikuGuiApp {
         self.selected_path = Some(file.to_path_buf());
         // Otros archivos de cada commit, para los formatos que los necesitan.
         // Contra el disco, las sub-celdas también salen del disco.
-        use crate::core::analysis::diff_set::token_files;
-        let files = viewer_core::DiffFiles::new(token_files(&svc, commit_a), token_files(&svc, commit_b));
+        let files = diff_pair::sources(&svc, workdir.as_deref(), Version::from_token(commit_a), Version::from_token(commit_b));
         self.loader.start(LoadRequest {
             backend,
             source: Arc::new(after),

@@ -4,8 +4,8 @@ use std::path::Path;
 
 use riku_kernel::Registry;
 
-use crate::core::analysis::blob_io::{self, Blob};
-use crate::core::analysis::{parallel, pipeline};
+use crate::core::analysis::diff_pair::{diff_pair, End, OnError, Version};
+use crate::core::analysis::parallel;
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
 use crate::core::domain::git_types::{ChangeStatus, WorkingChange};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
@@ -106,25 +106,15 @@ fn summarize_change<R: GitRepository + ?Sized>(
     };
 
     // "Antes": HEAD si el archivo existía allí (con su ruta vieja si se
-    // renombró). "Después": el disco, con el mismo límite de tamaño.
-    let content_before = match change.status {
-        ChangeStatus::Added => Blob::Missing,
-        _ => match blob_io::read_blob(repo, "HEAD", change.before_path()) {
-            Ok(blob) => blob,
-            Err(e) => return FileSummary::error(&change.path, e.to_string()),
-        },
-    };
-    let content_after = match change.status {
-        ChangeStatus::Removed => Blob::Missing,
-        _ => blob_io::read_disk(workdir, &change.path),
-    };
-
-    // Las sub-celdas (Magic) salen de HEAD antes y del disco después.
-    let files = riku_kernel::DiffFiles::new(
-        crate::core::git::files::commit_files(repo, "HEAD"),
-        crate::core::git::files::workdir_files(workdir),
-    );
-    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level, &files, diff)
+    // renombró). "Después": el disco, con el mismo límite de tamaño. Las
+    // sub-celdas (Magic) salen de HEAD antes y del disco después.
+    let before = if change.status == ChangeStatus::Added { Version::Absent } else { Version::Rev("HEAD") };
+    let after = if change.status == ChangeStatus::Removed { Version::Absent } else { Version::WorkTree };
+    let (before, after) = (End::new(before, change.before_path()), End::new(after, &change.path));
+    match diff_pair(repo, workdir, module.as_ref(), before, after, diff, OnError::InFile) {
+        Ok(report) => FileSummary::from_report_with(&report, &change.path, level),
+        Err(e) => FileSummary::error(&change.path, e.to_string()),
+    }
 }
 
 

@@ -2,11 +2,11 @@
 
 use std::path::Path;
 
-use riku_kernel::Registry;
+use riku_kernel::{FileChange, Registry};
 
-use crate::core::analysis::blob_io::{self, Blob};
-use crate::core::analysis::{graph, parallel, pipeline};
-use crate::core::analysis::summary::SummaryCategory;
+use crate::core::analysis::diff_pair::{diff_pair, End, OnError, Version};
+use crate::core::analysis::{graph, parallel};
+use crate::core::analysis::summary::{FileSummary, SummaryCategory};
 use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitWithParents, LogQuery};
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
@@ -182,19 +182,14 @@ fn build_log_commit<R: GitRepository + ?Sized>(
     if let Some(parent) = raw.parents.first().filter(|_| raw.parents.len() == 1) {
         for cf in changed {
             let Some(module) = modules.for_path(&cf.path) else { continue };
-            let content_before = if cf.status == ChangeStatus::Added {
-                Blob::Missing
-            } else {
-                blob_io::read_blob_or_skip(repo, parent, cf.before_path())
-            };
-            let content_after = if cf.status == ChangeStatus::Removed {
-                Blob::Missing
-            } else {
-                blob_io::read_blob_or_skip(repo, &commit, &cf.path)
-            };
-            let sources = crate::core::git::files::between(repo, Some(parent), Some(&commit));
-            let summary =
-                pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level, &sources, &opts.diff);
+            let before = if cf.status == ChangeStatus::Added { Version::Absent } else { Version::Rev(parent) };
+            let after = if cf.status == ChangeStatus::Removed { Version::Absent } else { Version::Rev(&commit) };
+            let (before, after) = (End::new(before, cf.before_path()), End::new(after, &cf.path));
+            // `InFile`: un blob que no se lee queda como error del archivo,
+            // no tumba el historial.
+            let report = diff_pair(repo, None, module.as_ref(), before, after, &opts.diff, OnError::InFile)
+                .unwrap_or_else(|e| FileChange::failed(module.info().format, e.to_string()));
+            let summary = FileSummary::from_report_with(&report, &cf.path, opts.level);
             // Se saltan los archivos sin cambio semántico ni cosmético, para
             // no inflar el log; con avisos no, que el aviso es la noticia.
             if matches!(summary.category, SummaryCategory::Unchanged) && summary.warnings.is_empty() {

@@ -1,5 +1,5 @@
 pub(crate) mod blob_io;
-pub mod commit_diff;
+pub mod diff_pair;
 pub mod diff_set;
 pub mod envelope;
 pub mod graph;
