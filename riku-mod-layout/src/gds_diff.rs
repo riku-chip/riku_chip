@@ -3,7 +3,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gdstk_rs::{sniff_format, xor_split_flat, Cell, GdsTag, Library, OwnedPolygon};
+use gdstk_rs::{
+    sniff_format, xor_split_flat, xor_split_owned, Cell, FlattenedPolygons, GdsTag, Library, OwnedPolygon, Polygon,
+};
 
 use crate::hier_walk::{origin_of_polygon, Origin, OriginPath};
 
@@ -248,10 +250,11 @@ pub fn diff_gds_with_config(
             continue;
         };
         // Geometria aplanada identica: el XOR daria vacio, no hace falta.
-        if geometry_fingerprint(&ca) == geometry_fingerprint(&cb) {
+        let prints = (layer_prints(&ca), layer_prints(&cb));
+        if prints.0 == prints.1 {
             continue;
         }
-        let cell = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg);
+        let cell = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg, Some(&prints));
         report.geometry.extend(group_instances(cell.geometry, cfg));
     }
 
@@ -307,7 +310,7 @@ pub fn diff_cell_as(
         .collect();
     let ca = lib_a.and_then(|l| l.find_cell(name_a));
     let cb = lib_b.and_then(|l| l.find_cell(name_b));
-    diff_one_cell(name_b, ca.as_ref(), cb.as_ref(), &layers, unit_factor, cfg)
+    diff_one_cell(name_b, ca.as_ref(), cb.as_ref(), &layers, unit_factor, cfg, None)
 }
 
 /// Poligonos de `cell` en una capa, aplanando toda la jerarquia.
@@ -327,17 +330,34 @@ fn diff_one_cell(
     layers: &BTreeSet<LayerKey>,
     unit_factor: f64,
     cfg: &DiffConfig,
+    prints: Option<&(LayerPrints, LayerPrints)>,
 ) -> CellDiff {
+    // Huella por capa de cada lado: las capas identicas no se aplanan de
+    // nuevo ni pasan por el XOR (en layouts grandes es casi todo el tiempo).
+    // Quien ya la calculo (para descartar cells iguales) la pasa.
+    let own;
+    let prints = match (prints, ca.zip(cb)) {
+        (Some(p), _) => Some(p),
+        (None, Some((a, b))) => {
+            own = (layer_prints(a), layer_prints(b));
+            Some(&own)
+        }
+        (None, None) => None,
+    };
     let mut out = CellDiff::default();
     for key in layers {
+        if let Some((pa, pb)) = &prints {
+            if pa.get(key) == pb.get(key) {
+                continue;
+            }
+        }
         // Flatten con depth=-1 + filtro por (layer, dt): atravesamos
         // SREF/AREF y no perdemos cambios en sub-cells.
         let (added, removed) = match (ca, cb) {
             (Some(ca), Some(cb)) => {
                 let fp_a = ca.get_polygons().with_filter(key.layer, key.datatype).build();
                 let fp_b = cb.get_polygons().with_filter(key.layer, key.datatype).build();
-                let split = xor_split_flat(&fp_a, &fp_b);
-                (split.added, split.removed)
+                xor_layer(&fp_a, &fp_b, key)
             }
             (None, Some(cb)) => (flat_layer(cb, key), Vec::new()),
             (Some(ca), None) => (Vec::new(), flat_layer(ca, key)),
@@ -456,10 +476,10 @@ fn detect_renames(
     added: &BTreeSet<String>,
 ) -> Vec<(String, String)> {
     let by_fp = |lib: &Library, names: &BTreeSet<String>| {
-        let mut m: BTreeMap<Vec<u64>, Vec<String>> = BTreeMap::new();
+        let mut m: BTreeMap<LayerPrints, Vec<String>> = BTreeMap::new();
         for n in names {
             if let Some(c) = lib.find_cell(n) {
-                let fp = geometry_fingerprint(&c);
+                let fp = layer_prints(&c);
                 if !fp.is_empty() {
                     m.entry(fp).or_default().push(n.clone());
                 }
@@ -475,7 +495,7 @@ fn detect_renames(
         let Some(from) = fa.get(fp) else { continue };
         let ([from], [to]) = (from.as_slice(), to.as_slice()) else { continue };
         let (Some(ca), Some(cb)) = (la.find_cell(from), lb.find_cell(to)) else { continue };
-        if diff_one_cell(to, Some(&ca), Some(&cb), &layers, 1.0, &cfg).geometry.is_empty() {
+        if diff_one_cell(to, Some(&ca), Some(&cb), &layers, 1.0, &cfg, None).geometry.is_empty() {
             out.push((from.clone(), to.clone()));
         }
     }
@@ -507,38 +527,199 @@ pub fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> BTreeM
         out.insert(to, CellChange::Renamed { from });
     }
     let cfg = DiffConfig::default();
+    let unit_factor = lb.unit() / 1e-6;
+    let layers: BTreeSet<LayerKey> = la.layers().into_iter().chain(lb.layers()).map(LayerKey::from).collect();
     for name in na.intersection(&nb) {
         let (Some(ca), Some(cb)) = (la.find_cell(name), lb.find_cell(name)) else { continue };
-        if geometry_fingerprint(&ca) == geometry_fingerprint(&cb) {
+        let prints = (layer_prints(&ca), layer_prints(&cb));
+        if prints.0 == prints.1 {
             continue;
         }
-        if !diff_cell(Some(la), Some(lb), name, &cfg).geometry.is_empty() {
+        let diff = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, &cfg, Some(&prints));
+        if !diff.geometry.is_empty() {
             out.insert(name.clone(), CellChange::Modified);
         }
     }
     out
 }
 
-/// Huella de la geometria aplanada de una cell, independiente del orden de
-/// los poligonos: hash de cada (layer, datatype, puntos) y lista ordenada.
-fn geometry_fingerprint(cell: &Cell<'_>) -> Vec<u64> {
-    use std::hash::{Hash, Hasher};
+/// Huella de la geometria aplanada de una cell, por capa: hash de cada
+/// poligono (layer, datatype, puntos), ordenado. Independiente del orden de
+/// los poligonos. Dos cells con huellas iguales tienen la misma geometria;
+/// dos capas con la misma huella dan un XOR vacio, y se saltan.
+type LayerPrints = BTreeMap<LayerKey, Vec<u64>>;
+
+fn layer_prints(cell: &Cell<'_>) -> LayerPrints {
     let flat = cell.get_polygons().build();
-    let mut hashes: Vec<u64> = flat
-        .polygons()
-        .map(|p| {
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            (p.layer(), p.datatype()).hash(&mut h);
-            for q in p.points() {
-                // Cuantizado a 1e-6 unidades de usuario: muy por debajo de la
-                // grilla de cualquier PDK, estable ante ruido de punto flotante.
-                ((q.x * 1e6).round() as i64, (q.y * 1e6).round() as i64).hash(&mut h);
-            }
-            h.finish()
+    let mut out: LayerPrints = BTreeMap::new();
+    for p in flat.polygons() {
+        let key = LayerKey { layer: p.layer(), datatype: p.datatype() };
+        out.entry(key).or_default().push(polygon_hash(&p));
+    }
+    for v in out.values_mut() {
+        v.sort_unstable();
+    }
+    out
+}
+
+/// Vertice cuantizado a 1e-6 unidades de usuario: muy por debajo de la
+/// grilla de cualquier PDK, estable ante ruido de punto flotante.
+fn quantize(q: gdstk_rs::Point2D) -> (i64, i64) {
+    ((q.x * 1e6).round() as i64, (q.y * 1e6).round() as i64)
+}
+
+/// Vertices del poligono en forma canonica: cuantizados, sin puntos
+/// repetidos seguidos ni el de cierre, en sentido antihorario y empezando por
+/// el menor. Dos poligonos con la misma forma canonica cubren la misma
+/// region aunque el archivo los escriba distinto (otro vertice de inicio u
+/// otro sentido de giro, tipico al reexportar con otra herramienta); con la
+/// regla nonzero de gdstk, invertir el sentido no cambia lo que se rellena.
+fn canonical_points(p: &Polygon<'_>) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = p.points().map(quantize).collect();
+    v.dedup();
+    if v.len() > 1 && v.first() == v.last() {
+        v.pop();
+    }
+    let n = v.len();
+    let area2: i128 = (0..n)
+        .map(|i| {
+            let (a, b) = (v[i], v[(i + 1) % n]);
+            a.0 as i128 * b.1 as i128 - b.0 as i128 * a.1 as i128
         })
+        .sum();
+    if area2 < 0 {
+        v.reverse();
+    }
+    if let Some(k) = (0..n).min_by_key(|&i| v[i]) {
+        v.rotate_left(k);
+    }
+    v
+}
+
+fn polygon_hash(p: &Polygon<'_>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (p.layer(), p.datatype(), canonical_points(p)).hash(&mut h);
+    h.finish()
+}
+
+fn polygon_bbox(p: &Polygon<'_>) -> [f64; 4] {
+    p.points().fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, q| {
+        [b[0].min(q.x), b[1].min(q.y), b[2].max(q.x), b[3].max(q.y)]
+    })
+}
+
+fn to_owned_polygon(p: &Polygon<'_>) -> OwnedPolygon {
+    OwnedPolygon { layer: p.layer(), datatype: p.datatype(), points: p.points().collect() }
+}
+
+/// XOR de una capa (`added = B \ A`, `removed = A \ B`) sin pasarle a
+/// Clipper la capa entera cuando casi todo es igual.
+///
+/// Los poligonos identicos en A y B (misma forma canonica, ver
+/// [`canonical_points`], emparejados como multiconjunto) forman `C`; el resto son
+/// los propios de cada lado, `A'` y `B'`. Vale `XOR(A, B) = XOR(A', B') \ C`,
+/// y de `C` solo importan los poligonos que tocan la zona de `A' ∪ B'`
+/// (`Cl`): el resultado es `XOR(A' ∪ Cl, B' ∪ Cl)`. La geometria es la misma
+/// que la del XOR completo; Clipper solo ve lo que cambio y su entorno.
+fn xor_layer(fa: &FlattenedPolygons<'_>, fb: &FlattenedPolygons<'_>, key: &LayerKey) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>) {
+    let pa: Vec<Polygon<'_>> = fa.polygons().collect();
+    let pb: Vec<Polygon<'_>> = fb.polygons().collect();
+
+    // Emparejar B contra A por hash, confirmando con los vertices.
+    let mut by_hash: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::with_capacity(pa.len());
+    for (i, p) in pa.iter().enumerate() {
+        by_hash.entry(polygon_hash(p)).or_default().push(i);
+    }
+    let same = |a: &Polygon<'_>, b: &Polygon<'_>| canonical_points(a) == canonical_points(b);
+    let mut common = vec![false; pa.len()];
+    let mut own_b = Vec::new();
+    for (j, p) in pb.iter().enumerate() {
+        let hit = by_hash.get_mut(&polygon_hash(p)).and_then(|list| {
+            let pos = list.iter().position(|&i| same(&pa[i], p))?;
+            Some(list.swap_remove(pos))
+        });
+        match hit {
+            Some(i) => common[i] = true,
+            None => own_b.push(j),
+        }
+    }
+    let own_a: Vec<usize> = (0..pa.len()).filter(|&i| !common[i]).collect();
+    if own_a.is_empty() && own_b.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    // Si casi nada es comun, el recorte no ahorra: XOR de la capa entera.
+    let n_common = pa.len() - own_a.len();
+    if n_common == 0 || own_a.len() + own_b.len() > n_common {
+        let split = xor_split_flat(fa, fb);
+        return (split.added, split.removed);
+    }
+
+    let targets: Vec<[f64; 4]> = own_a.iter().map(|&i| polygon_bbox(&pa[i])).chain(own_b.iter().map(|&j| polygon_bbox(&pb[j]))).collect();
+    let grid = BoxGrid::new(&targets);
+    let local: Vec<OwnedPolygon> = (0..pa.len())
+        .filter(|&i| common[i] && grid.touches(polygon_bbox(&pa[i])))
+        .map(|i| to_owned_polygon(&pa[i]))
         .collect();
-    hashes.sort_unstable();
-    hashes
+
+    let side = |own: &[usize], polys: &[Polygon<'_>]| -> Vec<OwnedPolygon> {
+        own.iter().map(|&i| to_owned_polygon(&polys[i])).chain(local.iter().cloned()).collect()
+    };
+    let split = xor_split_owned(&side(&own_a, &pa), &side(&own_b, &pb), (*key).into());
+    (split.added, split.removed)
+}
+
+/// Grilla uniforme sobre un conjunto de bboxes para preguntar rapido si otro
+/// bbox toca alguno (bordes incluidos).
+struct BoxGrid {
+    bounds: [f64; 4],
+    n: usize,
+    cells: Vec<Vec<usize>>,
+    boxes: Vec<[f64; 4]>,
+}
+
+impl BoxGrid {
+    fn new(boxes: &[[f64; 4]]) -> Self {
+        let bounds = boxes.iter().fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, x| {
+            [b[0].min(x[0]), b[1].min(x[1]), b[2].max(x[2]), b[3].max(x[3])]
+        });
+        let n = ((boxes.len() as f64).sqrt().ceil() as usize).clamp(1, 1024);
+        let mut grid = Self { bounds, n, cells: vec![Vec::new(); n * n], boxes: boxes.to_vec() };
+        for (k, b) in boxes.iter().enumerate() {
+            let (x0, y0, x1, y1) = grid.span(b);
+            for gy in y0..=y1 {
+                for gx in x0..=x1 {
+                    grid.cells[gy * n + gx].push(k);
+                }
+            }
+        }
+        grid
+    }
+
+    /// Rango de celdas de la grilla que cubre `b` (recortado a la grilla).
+    fn span(&self, b: &[f64; 4]) -> (usize, usize, usize, usize) {
+        let [mx, my, xx, xy] = self.bounds;
+        let w = (xx - mx).max(f64::MIN_POSITIVE);
+        let h = (xy - my).max(f64::MIN_POSITIVE);
+        let cell = |v: f64, lo: f64, len: f64| (((v - lo) / len * self.n as f64).floor().max(0.0) as usize).min(self.n - 1);
+        (cell(b[0], mx, w), cell(b[1], my, h), cell(b[2], mx, w), cell(b[3], my, h))
+    }
+
+    fn touches(&self, b: [f64; 4]) -> bool {
+        let [mx, my, xx, xy] = self.bounds;
+        if b[2] < mx || b[0] > xx || b[3] < my || b[1] > xy {
+            return false;
+        }
+        let (x0, y0, x1, y1) = self.span(&b);
+        (y0..=y1).any(|gy| {
+            (x0..=x1).any(|gx| {
+                self.cells[gy * self.n + gx].iter().any(|&k| {
+                    let t = &self.boxes[k];
+                    b[0] <= t[2] && b[2] >= t[0] && b[1] <= t[3] && b[3] >= t[1]
+                })
+            })
+        })
+    }
 }
 
 #[cfg(test)]
@@ -797,5 +978,92 @@ mod tests {
         };
         let r = diff_gds_with_config(&a, &b, &cfg).expect("diff");
         assert!(r.geometry.iter().all(|g| g.cosmetic));
+    }
+
+    /// GDSII mínimo con una celda `TOP` y rectángulos/polígonos en la capa 1,
+    /// escritos con los vértices en el orden dado (unidades: 1 nm, 1000 = 1 µm).
+    fn gds_with(polys: &[&[(i32, i32)]]) -> Vec<u8> {
+        fn rec(out: &mut Vec<u8>, kind: u16, data: &[u8]) {
+            out.extend_from_slice(&((4 + data.len()) as u16).to_be_bytes());
+            out.extend_from_slice(&kind.to_be_bytes());
+            out.extend_from_slice(data);
+        }
+        let i2 = |v: &[i16]| v.iter().flat_map(|x| x.to_be_bytes()).collect::<Vec<u8>>();
+        let mut o = Vec::new();
+        rec(&mut o, 0x0002, &i2(&[600]));
+        rec(&mut o, 0x0102, &i2(&[0; 12]));
+        rec(&mut o, 0x0206, b"LIB\0");
+        // UNITS: 1e-3 unidades de usuario (µm) y 1e-9 m por unidad de base.
+        let units = [0x3E41_8937_4BC6_A7EFu64, 0x3944_B82F_A09B_5A51u64];
+        rec(&mut o, 0x0305, &units.iter().flat_map(|u| u.to_be_bytes()).collect::<Vec<u8>>());
+        rec(&mut o, 0x0502, &i2(&[0; 12]));
+        rec(&mut o, 0x0606, b"TOP\0");
+        for pts in polys {
+            rec(&mut o, 0x0800, &[]);
+            rec(&mut o, 0x0D02, &i2(&[1]));
+            rec(&mut o, 0x0E02, &i2(&[0]));
+            let xy: Vec<u8> =
+                pts.iter().chain(pts.first()).flat_map(|(x, y)| [x.to_be_bytes(), y.to_be_bytes()].concat()).collect();
+            rec(&mut o, 0x1003, &xy);
+            rec(&mut o, 0x1100, &[]);
+        }
+        rec(&mut o, 0x0700, &[]);
+        rec(&mut o, 0x0400, &[]);
+        o
+    }
+
+    /// Cuadrado de lado 1000 con esquina en (x, 0), antihorario desde (x, 0).
+    fn sq(x: i32) -> [(i32, i32); 4] {
+        [(x, 0), (x + 1000, 0), (x + 1000, 1000), (x, 1000)]
+    }
+
+    #[test]
+    fn reexported_polygons_are_not_a_change() {
+        // B escribe los mismos cuadrados empezando en otro vértice y en sentido
+        // horario: la misma geometría, sin cambios (y sin pasar por el XOR).
+        let a: Vec<[(i32, i32); 4]> = (0..20).map(|i| sq(i * 2000)).collect();
+        let b: Vec<[(i32, i32); 4]> = a.iter().map(|s| [s[2], s[1], s[0], s[3]]).collect();
+        let (ra, rb): (Vec<&[(i32, i32)]>, Vec<&[(i32, i32)]>) =
+            (a.iter().map(|s| &s[..]).collect(), b.iter().map(|s| &s[..]).collect());
+        let r = diff_gds(&gds_with(&ra), &gds_with(&rb)).expect("diff");
+        assert!(r.geometry.is_empty(), "{:?}", r.geometry);
+        assert!(changed_cells(
+            Some(&Library::from_bytes_any(&gds_with(&ra)).unwrap()),
+            Some(&Library::from_bytes_any(&gds_with(&rb)).unwrap())
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn local_xor_subtracts_the_common_polygons_it_touches() {
+        // 20 cuadrados comunes (reescritos en B) y uno que se mueve 0,5 µm a
+        // la derecha, pegado a un común que lo cubre en parte: el XOR solo ve
+        // lo que cambió y su entorno, y el común resta lo que tapa.
+        //   A: móvil en [100000, 101000], común en [100500, 101500]
+        //   B: móvil en [100500, 101500]  → unión A = [100000, 101500], unión B = [100500, 101500]
+        //   ⇒ eliminado 0,5 × 1 µm², añadido 0.
+        let common: Vec<[(i32, i32); 4]> = (0..20).map(|i| sq(i * 2000)).chain([sq(100_500)]).collect();
+        let moved_a = sq(100_000);
+        let moved_b = sq(100_500);
+        let mut a: Vec<&[(i32, i32)]> = common.iter().map(|s| &s[..]).collect();
+        a.push(&moved_a);
+        let reversed: Vec<[(i32, i32); 4]> = common.iter().map(|s| [s[3], s[2], s[1], s[0]]).collect();
+        let mut b: Vec<&[(i32, i32)]> = reversed.iter().map(|s| &s[..]).collect();
+        b.push(&moved_b);
+
+        let r = diff_gds(&gds_with(&a), &gds_with(&b)).expect("diff");
+        let added: f64 = r.geometry.iter().map(|g| g.added_area_um2).sum();
+        let removed: f64 = r.geometry.iter().map(|g| g.removed_area_um2).sum();
+        assert!(added.abs() < 1e-9, "añadido {added}");
+        assert!((removed - 0.5).abs() < 1e-9, "eliminado {removed}");
+
+        // Y da lo mismo que el XOR de la capa entera.
+        let (la, lb) = (Library::from_bytes_any(&gds_with(&a)).unwrap(), Library::from_bytes_any(&gds_with(&b)).unwrap());
+        let (ca, cb) = (la.find_cell("TOP").unwrap(), lb.find_cell("TOP").unwrap());
+        let (fa, fb) = (ca.get_polygons().with_filter(1, 0).build(), cb.get_polygons().with_filter(1, 0).build());
+        let full = xor_split_flat(&fa, &fb);
+        let (add, rem) = xor_layer(&fa, &fb, &LayerKey { layer: 1, datatype: 0 });
+        assert!((sum_area_um2(&add, 1.0) - sum_area_um2(&full.added, 1.0)).abs() < 1e-9);
+        assert!((sum_area_um2(&rem, 1.0) - sum_area_um2(&full.removed, 1.0)).abs() < 1e-9);
     }
 }

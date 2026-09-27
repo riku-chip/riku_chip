@@ -94,6 +94,61 @@ fn main() {
     let leaf_like = per_cell.iter().filter(|(s, ..)| *s < 0.001).count();
     println!("  celdas < 1 ms: {leaf_like}");
 
+    // ── Etapa 1b (PRINTS=1): por capa de la top, cuántos polígonos tienen
+    //    un gemelo exacto (mismos vértices, en el mismo orden) en el otro lado.
+    if std::env::var_os("PRINTS").is_some() {
+        if let (Some(top), true) = (tops.first(), true) {
+            let (ca, cb) = (la.find_cell(top).unwrap(), lb.find_cell(top).unwrap());
+            println!("\n== Gemelos exactos por capa en {top}");
+            // CANON=1: sentido antihorario y empezando por el vértice menor.
+            let canon = std::env::var_os("CANON").is_some();
+            let q = |p: &gdstk_rs::Polygon<'_>| -> Vec<(i64, i64)> {
+                let mut v: Vec<(i64, i64)> =
+                    p.points().map(|v| ((v.x * 1e6).round() as i64, (v.y * 1e6).round() as i64)).collect();
+                if canon {
+                    v.dedup();
+                    if v.len() > 1 && v.first() == v.last() {
+                        v.pop();
+                    }
+                    let n = v.len();
+                    let area2: i128 = (0..n)
+                        .map(|i| {
+                            let (a, b) = (v[i], v[(i + 1) % n]);
+                            a.0 as i128 * b.1 as i128 - b.0 as i128 * a.1 as i128
+                        })
+                        .sum();
+                    if area2 < 0 {
+                        v.reverse();
+                    }
+                    if let Some(k) = (0..n).min_by_key(|&i| v[i]) {
+                        v.rotate_left(k);
+                    }
+                }
+                v
+            };
+            for (l, d) in &layers {
+                let t = Instant::now();
+                let fa = ca.get_polygons().with_filter(*l, *d).build();
+                let fb = cb.get_polygons().with_filter(*l, *d).build();
+                let mut set: std::collections::HashMap<Vec<(i64, i64)>, usize> = std::collections::HashMap::new();
+                for p in fa.polygons() {
+                    *set.entry(q(&p)).or_default() += 1;
+                }
+                let mut twins = 0usize;
+                for p in fb.polygons() {
+                    if let Some(n) = set.get_mut(&q(&p)) {
+                        if *n > 0 {
+                            *n -= 1;
+                            twins += 1;
+                        }
+                    }
+                }
+                println!("    {l:>3}/{d:<3} A {:>9} · B {:>9} · gemelos {twins:>9} · {:.2}s", fa.count(), fb.count(), t.elapsed().as_secs_f64());
+            }
+        }
+        return;
+    }
+
     // ── Etapa 2: la celda top, capa por capa: aplanar filtrado + XOR ──
     let Some(top) = tops.first() else { return };
     let (ca, cb) = (la.find_cell(top), lb.find_cell(top));

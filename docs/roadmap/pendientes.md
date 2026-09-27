@@ -14,11 +14,11 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 - El visor dibuja `.sch` y `.gds` por la misma ruta (fase 4 de `diseno_arquitectura_final.md`): los esquemáticos ganaron tooltip, capas activables, animación, inercia, atajos `+`/`−`/`F` y la lista de cambios con "ir al cambio" y el detalle de parámetros. Fantasmas, recuadros por componente y nets resaltadas se conservan como overlays de la escena.
 - Un `.sch` nuevo o eliminado entre dos commits ahora lista todos sus componentes y nets como añadidos o eliminados (un lado vacío es un esquemático sin nada, como en los layouts).
 
-### 2. Diff de layouts muy grandes
+### 2. Diff de layouts muy grandes — hecho en lo principal (2026-09-26)
 - **Por qué:** en un `user_project_wrapper` de 42 MB (IHP SG13G2), el primer `riku diff` **no terminó en 45 minutos**. Medido por etapas (2026-09-26): leer 0,5 s, huellas de celda 4,2 s, aplanar por capa unos segundos, y **XOR ~22 min**, casi todo sobre capas idénticas en A y B; la capa 19/0 (124 mil rectángulos) sola tarda 358 s por el peor caso de Clipper. El visor con ese layout usa 11 GB y ~600 ms por cuadro.
 - **Dónde y cómo:** Fase 6, [`diseno_fase6_rendimiento.md`](diseno_fase6_rendimiento.md): huella por capa antes del XOR (~22 min → ~12 s en un núcleo), índice espacial y nivel de detalle en el visor, gdstk-rs seguro entre hilos, `rayon`, XOR por cuadrantes.
-- **Esfuerzo:** M.
-- **Listo cuando:** el primer diff de ese layout baja de un minuto y los tests contra KLayout (`tools/verify/compare.sh --xor`) siguen idénticos.
+- **Resultado (fase 6.1 + 6.5.a):** el primer diff de ese layout baja de ~22 min a **6,4 s** (1,7 GB de pico), con resultado igual a KLayout (área de diferencia 0; KLayout tarda 26 s). Con un cambio real en las capas 6/0 y 19/0: 16 s y áreas idénticas a KLayout. La causa real: B era una reexportación (los mismos polígonos escritos con otro vértice de inicio o sentido de giro), así que nada coincidía y todo pasaba por el XOR completo.
+- **Queda (resto de la fase 6):** el visor con ese layout (11 GB, ~600 ms por cuadro) y aprovechar varios núcleos.
 
 ### 3. Empaquetado e instalación — hecho (2026-09-26)
 - Un solo ejecutable `riku` (visor incluido). `.github/workflows/release.yml` compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estáticas (`GDSTK_STATIC`) y verifica que el binario solo dependa de glibc. Publica `.tar.gz` (5,6 MB, con `install.sh`, entrada de menú e icono), `.deb` (4,1 MB) y `SHA256SUMS` con cada tag `v*`. Probado en un Ubuntu 22.04 limpio (tar y deb) y con el visor abierto.

@@ -264,3 +264,16 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 | `rayon` ya está en el árbol | **No** | Dependencia nueva en `riku-mod-layout`, `viewer-core` (feature) y `riku`; el `Cargo.lock` cambia |
 | Hay nightly/valgrind en el contenedor | **No** | Solo `stable`; ThreadSanitizer va en el runner de GitHub (4.3) |
 | `log`/`status` abren el repo por ruta | Sí | `analyze_with_options_path` → `GitService::open`: se puede abrir uno por hilo |
+
+---
+
+## Avance
+
+| Paso | Estado | Notas |
+|---|---|---|
+| 6.1 + 6.5.a | Hecho (2026-09-26) | `gds_diff.rs`: la huella de celda pasa a ser **por capa** (`layer_prints`, una sola pasada de aplanado) y se reutiliza para saltar las capas iguales. Las capas que difieren van a `xor_layer`: empareja los polígonos idénticos de A y B (hash + vértices), y si lo común es mayoría hace el XOR solo de lo propio más los comunes que lo tocan (`XOR(A' ∪ Cl, B' ∪ Cl)`, grilla de bboxes); si no, el XOR de la capa entera como antes. Resultado en el layout de 42 MB: **~22 min → 6,4 s** (1,7 GB), igual a KLayout (área de diferencia 0; KLayout tarda 26 s). Con un cambio real en las capas 6/0 (4,8 millones de polígonos) y 19/0: **16 s**, áreas idénticas a KLayout. `riku-mod-layout` sube a 0.2.0 (invalida la cache). 54 tests; regresión y `compare.sh --xor` idénticos |
+
+**Diferencias con el plan:**
+- **Hizo falta tocar gdstk-rs** (el plan decía que no): no había una booleana sobre listas de polígonos. Se agregó `xor_split_owned` (`gdstk_rust` `3746c63`), con dos tests que la comparan contra `xor_split_flat`.
+- **La causa real del caso de 42 MB no era Clipper sino la huella.** B es una reexportación de A: los mismos polígonos escritos con otro vértice de inicio o sentido de giro. Con la huella por vértices literales, ninguna capa coincidía (0 gemelos en 4,8 millones en la 6/0). La huella usa ahora la **forma canónica** de cada polígono (`canonical_points`: cuantizado, sin puntos repetidos ni el de cierre, antihorario, empezando por el vértice menor). Con la regla nonzero de gdstk, esa normalización no cambia la región: dos polígonos con la misma forma canónica cubren exactamente lo mismo. Con ella, el 100 % de los polígonos tiene su gemelo y el diff ni siquiera llega al XOR.
+- Los "6 polígonos de diferencia" que el XOR completo reportaba en la capa 8/0 eran restos del redondeo de Clipper entre dos escrituras distintas de la misma geometría: KLayout mide área 0 y la forma canónica empareja los 9.252 polígonos.
