@@ -137,3 +137,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 
 Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLayout 0.30.12 (8 jerarquías idénticas), suite de riku con `-D warnings`, GDS contra KLayout en tres PDKs (idéntico) y regresión de la fase 1: JSON y `log` iguales; el texto de `diff` difiere solo en la alineación `Archivo  :` que agregó la traducción de la CLI (`f699a8c`).
 | P1 | Hecho | History: los hilos despiertan a la UI al terminar (sin sondeo a 60 fps), detalle con espera de 150 ms y de a uno, solo con el panel abierto; los resúmenes usan el filtro (tras B10). Recorrer 4 commits de `vr_big` sin cache: CPU 152 → 105 núcleo·s, RAM pico 3,46 → 2,43 GB (contra `v0.1.0`) |
+| P2 | Hecho | gdstk_rust: `repetition_offset_at` en O(1) por tipo (misma aritmética que `get_offsets`); las APIs de offsets quedan O(n) sin cambiar. AREF de 1000×1000: 10⁶ offsets en 0,1 s |
