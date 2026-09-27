@@ -31,7 +31,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 riku-kernel = { path = "../riku-kernel" }
 thiserror = "2.0.18"
-rustyline = "14.0"
+rustyline = "18.0"
 # Partir las líneas del shell como una shell POSIX (comillas, escapes).
 shlex = "2"
 # xschem-viewer-rust vive como submodule git en `external/`. Esto permite
