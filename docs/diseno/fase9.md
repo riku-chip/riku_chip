@@ -125,3 +125,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 |---|---|---|
 | Revisión | Hecha (2026-09-27) | cuatro revisiones en paralelo + verificación en el código de B1–B6, P2, P3, P7 |
 | B1 | Hecho | `FileChange.error`; `diff`/`show`/`status` con `--ci` salen con 2 si un archivo no se pudo comparar; en `status`/`log` es la categoría `error` |
+| B2 | Hecho | `before_path()`; log, status, diff de todos y el visor (History, `-f visual`) leen el lado "antes" con la ruta vieja. Además `status` listaba un renombre con la ruta vieja (`git2` da `entry.path()` = la vieja) |

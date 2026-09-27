@@ -400,3 +400,65 @@ fn log_show_and_status_are_the_same_with_one_thread_and_with_several() {
     assert_eq!(one.1, many.1, "status");
     assert_eq!(one.2, many.2, "show");
 }
+
+/// Un archivo renombrado y modificado se compara contra su versión con la
+/// ruta vieja: sale solo lo que cambió, no "todo añadido". Vale para `log`,
+/// `status` y `diff` de todos los archivos (`show` ya lo hacía).
+#[test]
+fn renamed_and_modified_files_are_compared_with_their_old_path() {
+    use riku::core::analysis::diff_set::{analyze_all, Side};
+    use riku::core::analysis::log::{walk_with_summary, LogOptions};
+    use riku::core::analysis::status::{analyze_with_options, StatusOptions};
+    use riku::core::analysis::summary::labels;
+
+    // Muchos componentes para que git vea el renombre (similitud > 50 %).
+    let sch = |extra: &str| {
+        let mut s = String::from("v {xschem version=3.0.0 file_version=1.2}\n");
+        for i in 0..20 {
+            s += &format!("C {{res.sym}} {} 20 0 0 {{name=R{i} value=1k}}\n", i * 40);
+        }
+        s + extra
+    };
+    let temp = test_tempdir();
+    let repo = Repository::init(temp.path()).unwrap();
+    commit_files(&repo, &[("old.sch", sch("").into_bytes())], "v1");
+    let v1 = repo.head().unwrap().target().unwrap().to_string();
+    let workdir = temp.path();
+    let rename_to = |from: &str, to: &str, content: String| {
+        let mut index = repo.index().unwrap();
+        fs::remove_file(workdir.join(from)).unwrap();
+        index.remove_path(Path::new(from)).unwrap();
+        fs::write(workdir.join(to), content).unwrap();
+        index.add_path(Path::new(to)).unwrap();
+        index.write().unwrap();
+    };
+    rename_to("old.sch", "new.sch", sch("C {res.sym} 900 20 0 0 {name=R99 value=1k}\n"));
+    let tree = repo.find_tree(repo.index().unwrap().write_tree().unwrap()).unwrap();
+    let sig = Signature::now("Riku", "riku@example.com").unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "renombre", &tree, &[&parent]).unwrap();
+
+    let svc = GitService::open(temp.path()).unwrap();
+    let modules = riku::modules::registry();
+    let one_added = |counts: &std::collections::BTreeMap<String, i64>, what: &str| {
+        assert_eq!(counts.get(labels::COMPONENTS_ADDED), Some(&1), "{what}: {counts:?}");
+        assert_eq!(counts.get(labels::COMPONENTS_REMOVED), None, "{what}: {counts:?}");
+    };
+
+    let log = walk_with_summary(&svc, &LogOptions::default(), &modules).unwrap();
+    let f = &log.commits[0].files[0];
+    assert_eq!(f.path, "new.sch");
+    one_added(&f.counts, "log");
+
+    let set = analyze_all(&svc, Some(workdir), &Side::Rev(v1), &Side::Rev("HEAD".into()), &modules, &Default::default()).unwrap();
+    assert_eq!(set.files.len(), 1, "{:?}", set.files);
+    assert_eq!(set.files[0].old_path.as_deref(), Some("old.sch"));
+    let added = set.files[0].change.as_ref().unwrap().functional().count();
+    assert_eq!(added, 1, "diff A B: {:?}", set.files[0].change);
+
+    // status: renombre en el índice (git mv) y otro cambio en disco.
+    rename_to("new.sch", "otro.sch", sch("C {res.sym} 900 20 0 0 {name=R99 value=1k}\nC {res.sym} 950 20 0 0 {name=R98 value=1k}\n"));
+    let status = analyze_with_options(&svc, Some(workdir), &StatusOptions::default(), &modules).unwrap();
+    let f = status.files.iter().find(|f| f.path == "otro.sch").unwrap_or_else(|| panic!("{:?}", status.files));
+    one_added(&f.counts, "status");
+}

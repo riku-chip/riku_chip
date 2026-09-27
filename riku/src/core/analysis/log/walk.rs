@@ -155,7 +155,7 @@ fn plan<R: GitRepository + ?Sized>(
         Some(parent) => files
             .iter()
             .map(|cf: &ChangedFile| {
-                let before = (cf.status != ChangeStatus::Added).then(|| repo.blob_size(parent, &cf.path)).flatten();
+                let before = (cf.status != ChangeStatus::Added).then(|| repo.blob_size(parent, cf.before_path())).flatten();
                 let after = (cf.status != ChangeStatus::Removed).then(|| repo.blob_size(&raw.info.oid, &cf.path)).flatten();
                 parallel::diff_cost(before, after)
             })
@@ -182,7 +182,7 @@ fn build_log_commit<R: GitRepository + ?Sized>(
             let content_before = if cf.status == ChangeStatus::Added {
                 Vec::new()
             } else {
-                blob_io::read_blob_silent(repo, parent, &cf.path, &mut warnings)
+                blob_io::read_blob_silent(repo, parent, cf.before_path(), &mut warnings)
             };
             let content_after = if cf.status == ChangeStatus::Removed {
                 Vec::new()

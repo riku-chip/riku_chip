@@ -106,10 +106,11 @@ fn summarize_change<R: GitRepository + ?Sized>(
         return FileSummary::unknown(&change.path);
     };
 
-    // Contenido "antes": HEAD si el archivo existía allí; vacío si nuevo.
+    // Contenido "antes": HEAD si el archivo existía allí (con su ruta vieja
+    // si se renombró); vacío si nuevo.
     let content_before = match change.status {
         ChangeStatus::Added => Vec::new(),
-        _ => match blob_io::read_blob_lenient(repo, "HEAD", change.path.as_str(), warnings) {
+        _ => match blob_io::read_blob_lenient(repo, "HEAD", change.before_path(), warnings) {
             Ok(bytes) => bytes.unwrap_or_default(),
             Err(e) => return FileSummary::error(&change.path, e.to_string()),
         },

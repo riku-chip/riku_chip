@@ -102,13 +102,28 @@ pub fn analyze_file<R: GitRepository + ?Sized>(
     modules: &Registry,
     opts: &DiffOptions,
 ) -> Result<FileChange, AnalyzeError> {
+    analyze_renamed(repo, workdir, from, to, None, path, modules, opts)
+}
+
+/// Como [`analyze_file`], con la ruta que tenía en `from` si se renombró.
+#[allow(clippy::too_many_arguments)]
+fn analyze_renamed<R: GitRepository + ?Sized>(
+    repo: &R,
+    workdir: Option<&Path>,
+    from: &Side,
+    to: &Side,
+    old_path: Option<&str>,
+    path: &str,
+    modules: &Registry,
+    opts: &DiffOptions,
+) -> Result<FileChange, AnalyzeError> {
     let Some(module) = modules.for_path(path) else {
         let mut report = FileChange::new(FileFormat::Unknown);
         report.warnings.push(format!("{path}: no hay módulo de Riku para este formato."));
         return Ok(report);
     };
     let mut warnings = Vec::new();
-    let before = read_side(repo, workdir, from, path, &mut warnings)?;
+    let before = read_side(repo, workdir, from, old_path.unwrap_or(path), &mut warnings)?;
     let after = read_side(repo, workdir, to, path, &mut warnings)?;
     if before.is_none() && after.is_none() {
         warnings.push(format!("{path}: no existe en {} ni en {}", from.label(), to.label()));
@@ -132,7 +147,7 @@ pub fn analyze_all<R: GitRepository + ?Sized>(
     let mut out = Vec::with_capacity(entries.len());
     for (path, (status, old_path)) in entries {
         let change = match modules.for_path(&path) {
-            Some(_) => Some(analyze_file(repo, workdir, from, to, &path, modules, opts)?),
+            Some(_) => Some(analyze_renamed(repo, workdir, from, to, old_path.as_deref(), &path, modules, opts)?),
             None => None,
         };
         out.push(ShowFile { path, status: Some(status), old_path, change });

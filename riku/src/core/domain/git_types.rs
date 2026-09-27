@@ -49,6 +49,13 @@ pub struct ChangedFile {
     pub old_path: Option<String>,
 }
 
+impl ChangedFile {
+    /// Ruta en la versión anterior: la vieja si se renombró.
+    pub fn before_path(&self) -> &str {
+        self.old_path.as_deref().unwrap_or(&self.path)
+    }
+}
+
 /// Un commit y los archivos que cambió respecto a su primer padre (o a un
 /// árbol vacío si es el commit inicial). Lo emite `commit_changes`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +78,13 @@ pub struct WorkingChange {
     pub path: String,
     pub status: ChangeStatus,
     pub old_path: Option<String>,
+}
+
+impl WorkingChange {
+    /// Ruta en `HEAD`: la vieja si se renombró.
+    pub fn before_path(&self) -> &str {
+        self.old_path.as_deref().unwrap_or(&self.path)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

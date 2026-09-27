@@ -22,12 +22,20 @@ pub(super) fn working_tree_changes(repo: &Repository) -> Result<Vec<WorkingChang
         if st.is_ignored() {
             continue;
         }
-        let path = match entry.path() {
-            Some(p) => p.to_string(),
-            None => continue,
-        };
         let (status, old_path) =
             classify_status(st, entry.head_to_index(), entry.index_to_workdir());
+        // En un renombre, `entry.path()` es la ruta vieja: la nueva está en
+        // el delta (el último que hay: índice → disco, o HEAD → índice).
+        let new_path = old_path.as_ref().and_then(|_| {
+            entry
+                .index_to_workdir()
+                .or(entry.head_to_index())
+                .and_then(|d| d.new_file().path().map(|p| p.to_string_lossy().to_string()))
+        });
+        let path = match new_path.or_else(|| entry.path().map(str::to_string)) {
+            Some(p) => p,
+            None => continue,
+        };
         results.push(WorkingChange {
             path,
             status,
