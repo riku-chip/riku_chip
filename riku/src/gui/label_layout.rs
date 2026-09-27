@@ -13,6 +13,8 @@
 //!
 //! Todo en coordenadas de pantalla y sin egui::Painter, para testearlo.
 
+use std::collections::HashMap;
+
 use eframe::egui::{Color32, Pos2, Rect, Vec2};
 
 /// Etiqueta a colocar, ya proyectada a pantalla.
@@ -40,6 +42,8 @@ const GAP: f32 = 5.0;
 const SAME_POINT: f32 = 2.0;
 /// Margen mínimo entre pastillas.
 const MARGIN: f32 = 2.0;
+/// Lado de las celdas de la grilla de pastillas colocadas (px).
+const GRID_PX: f32 = 64.0;
 
 /// Nombres de alimentación: van primero al fusionar y ganan el espacio.
 const POWER_NETS: &[&str] = &["VPWR", "VGND", "VDD", "VSS", "VCC", "VEE", "VDDIO", "VSSIO", "GND"];
@@ -55,16 +59,32 @@ pub fn label_rank(text: &str) -> u8 {
 /// Une etiquetas con el mismo anclaje sin repetir textos iguales. Dentro de
 /// cada grupo las partes van por prioridad (`VPWR · VPB`) y, a igual
 /// prioridad, en orden de llegada.
+///
+/// Los grupos se buscan en una grilla de celdas de `SAME_POINT`: con miles
+/// de etiquetas en pantalla, compararlas todas contra todas llevaba ~60 ms
+/// por cuadro. Gana el primer grupo creado, como al recorrerlos en orden.
 pub fn merge_coincident(cands: Vec<LabelCandidate>) -> Vec<LabelCandidate> {
     let mut groups: Vec<(LabelCandidate, Vec<String>)> = Vec::with_capacity(cands.len());
+    let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    let cell = |p: Pos2| ((p.x / SAME_POINT).floor() as i32, (p.y / SAME_POINT).floor() as i32);
     for c in cands {
-        match groups.iter_mut().find(|(g, _)| g.anchor.distance(c.anchor) <= SAME_POINT) {
-            Some((_, parts)) => {
+        let (cx, cy) = cell(c.anchor);
+        let near = (cx - 1..=cx + 1)
+            .flat_map(|x| (cy - 1..=cy + 1).map(move |y| (x, y)))
+            .filter_map(|k| grid.get(&k))
+            .flatten()
+            .copied()
+            .filter(|&g| groups[g].0.anchor.distance(c.anchor) <= SAME_POINT)
+            .min();
+        match near {
+            Some(g) => {
+                let parts = &mut groups[g].1;
                 if !parts.contains(&c.text) {
                     parts.push(c.text);
                 }
             }
             None => {
+                grid.entry((cx, cy)).or_default().push(groups.len());
                 let text = c.text.clone();
                 groups.push((c, vec![text]));
             }
@@ -101,6 +121,13 @@ pub fn place(
     clip: Rect,
 ) -> (Vec<PlacedLabel>, usize) {
     let mut placed: Vec<PlacedLabel> = Vec::new();
+    // Pastillas ya colocadas por celda de la grilla: una nueva solo se
+    // compara con las de su zona.
+    let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    let cells = |r: Rect| {
+        let c = |v: f32| (v / GRID_PX).floor() as i32;
+        (c(r.min.x)..=c(r.max.x)).flat_map(move |x| (c(r.min.y)..=c(r.max.y)).map(move |y| (x, y)))
+    };
     let mut hidden = 0;
     let mut merged = merge_coincident(cands);
     // Si falta espacio, que se omitan primero las que no son alimentación.
@@ -110,9 +137,16 @@ pub fn place(
             continue;
         }
         let size = measure(&c.text) + PILL_PADDING * 2.0;
-        let free = |r: &Rect| placed.iter().all(|p| !p.rect.expand(MARGIN).intersects(*r));
+        let free = |r: &Rect| {
+            cells(*r).filter_map(|k| grid.get(&k)).flatten().all(|&i| !placed[i].rect.expand(MARGIN).intersects(*r))
+        };
         match slots(c.anchor, size).into_iter().find(free) {
-            Some(rect) => placed.push(PlacedLabel { anchor: c.anchor, rect, text: c.text, color: c.color }),
+            Some(rect) => {
+                for k in cells(rect.expand(MARGIN)) {
+                    grid.entry(k).or_default().push(placed.len());
+                }
+                placed.push(PlacedLabel { anchor: c.anchor, rect, text: c.text, color: c.color });
+            }
             None => hidden += 1,
         }
     }
@@ -213,5 +247,67 @@ mod tests {
         let (p, hidden) = place(vec![cand(-50.0, 10.0, "X")], measure, screen());
         assert!(p.is_empty());
         assert_eq!(hidden, 0);
+    }
+
+    /// La versión anterior, todas contra todas: la de la grilla debe dar
+    /// exactamente lo mismo.
+    fn place_brute(cands: Vec<LabelCandidate>, clip: Rect) -> (Vec<PlacedLabel>, usize) {
+        let mut groups: Vec<(LabelCandidate, Vec<String>)> = Vec::new();
+        for c in cands {
+            match groups.iter_mut().find(|(g, _)| g.anchor.distance(c.anchor) <= SAME_POINT) {
+                Some((_, parts)) => {
+                    if !parts.contains(&c.text) {
+                        parts.push(c.text);
+                    }
+                }
+                None => {
+                    let text = c.text.clone();
+                    groups.push((c, vec![text]));
+                }
+            }
+        }
+        let mut merged: Vec<LabelCandidate> = groups
+            .into_iter()
+            .map(|(mut c, mut parts)| {
+                parts.sort_by_key(|t| label_rank(t));
+                c.text = parts.join(" · ");
+                c
+            })
+            .collect();
+        merged.sort_by_key(|c| label_rank(c.text.split(" · ").next().unwrap_or("")));
+        let (mut placed, mut hidden): (Vec<PlacedLabel>, usize) = (Vec::new(), 0);
+        for c in merged {
+            if !clip.contains(c.anchor) {
+                continue;
+            }
+            let size = measure(&c.text) + PILL_PADDING * 2.0;
+            let free = |r: &Rect| placed.iter().all(|p| !p.rect.expand(MARGIN).intersects(*r));
+            match slots(c.anchor, size).into_iter().find(free) {
+                Some(rect) => placed.push(PlacedLabel { anchor: c.anchor, rect, text: c.text, color: c.color }),
+                None => hidden += 1,
+            }
+        }
+        (placed, hidden)
+    }
+
+    #[test]
+    fn grid_placement_matches_the_all_pairs_one() {
+        let mut seed = 11u64;
+        let mut rnd = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as f32 / (1u64 << 31) as f32
+        };
+        let names = ["VPWR", "VGND", "A", "B", "Y", "clk", "out_long_name", "VDD"];
+        let cands: Vec<LabelCandidate> = (0..3000)
+            .map(|i| {
+                // Muchos anclajes repetidos o casi (fusión) y zonas densas.
+                let (x, y) = if i % 5 == 0 { (100.0 + (i % 7) as f32, 100.0) } else { (rnd() * 820.0 - 10.0, rnd() * 620.0 - 10.0) };
+                cand(x, y, names[i % names.len()])
+            })
+            .collect();
+        let got = place(cands.clone(), measure, screen());
+        let want = place_brute(cands, screen());
+        assert_eq!(got.1, want.1, "omitidas");
+        assert_eq!(got.0, want.0, "colocadas");
     }
 }

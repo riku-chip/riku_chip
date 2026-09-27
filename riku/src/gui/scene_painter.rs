@@ -848,4 +848,39 @@ mod tests {
         let (nf, _) = layer_colors(&scene, 7);
         assert_eq!(nf, neutral_layer_color(7));
     }
+
+    /// Tiempo de pintar un cuadro del chip grande (`$RIKU_BIG_A`) con egui
+    /// sin ventana: encuadrado, ×10 y ×100.
+    #[cfg(feature = "layout")]
+    #[test]
+    #[ignore = "necesita $RIKU_BIG_A"]
+    fn frame_time_on_a_big_layout() {
+        use viewer_core::ViewerBackend;
+        let Some(path) = std::env::var_os("RIKU_BIG_A") else { return };
+        let bytes = std::fs::read(path).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let scene = rt
+            .block_on(riku_mod_layout::GdsBackend::new().load_entry(bytes, Some("big.gds".into()), None, Default::default()))
+            .unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0));
+        let ctx = egui::Context::default();
+        for (name, zoom) in [("encuadrado", 1.0), ("x10", 10.0), ("x100", 100.0)] {
+            let mut vp = Viewport::default();
+            fit_scene(&mut vp, scene.as_ref(), rect);
+            zoom_at_screen(&mut vp, zoom, rect.center(), rect);
+            let opts = PaintOptions { theme: CanvasTheme::from_visuals(&egui::Visuals::dark()), labels: true, lod: true, block_px: viewer_core::index::BLOCK_PX };
+            let mut times = Vec::new();
+            let mut stats = PaintStats::default();
+            for _ in 0..12 {
+                let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+                let _ = ctx.run_ui(input, |ui| {
+                    let t = std::time::Instant::now();
+                    stats = paint_scene(ui, scene.as_ref(), &vp, &HashSet::new(), opts);
+                    times.push(t.elapsed());
+                });
+            }
+            times.sort();
+            eprintln!("[cuadro] {name:<10} mediana {:?} · {} elementos · nivel {:?}", times[times.len() / 2], stats.elements, stats.lod_level);
+        }
+    }
 }
