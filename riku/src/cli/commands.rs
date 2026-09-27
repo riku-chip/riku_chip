@@ -38,7 +38,9 @@ pub(super) fn run_diff(
     let modules = crate::modules::registry();
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let workdir = svc.root().map(|p| p.to_path_buf());
-    let (from, to, file) = resolve_targets(targets, &modules, workdir.as_deref())?;
+    let (from, to, file) = resolve_targets(targets, &modules, workdir.as_deref(), &repo)?;
+    // Como en Git: el archivo se nombra desde donde uno está.
+    let file = file.map(|f| repo_file(&repo, workdir.as_deref(), &f));
 
     if let Some(req) = image {
         let file = file.ok_or_else(|| tr!("err.image_needs_file"))?;
@@ -163,11 +165,22 @@ pub(super) fn run_render(
         Some(r) => {
             let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
             let workdir = svc.root().map(|p| p.to_path_buf());
-            export_one(&svc, workdir.as_deref(), &Side::Rev(r.to_string()), file, &req, &opts)?
+            let file = repo_file(&repo, workdir.as_deref(), file);
+            export_one(&svc, workdir.as_deref(), &Side::Rev(r.to_string()), &file, &req, &opts)?
         }
     };
     println!("{}", path.display());
     Ok(())
+}
+
+/// `file` como ruta del repo, nombrado desde `base` (ver
+/// [`to_repo_path`](crate::core::repo_path::to_repo_path)); tal cual fuera
+/// de un repo.
+fn repo_file(base: &std::path::Path, workdir: Option<&std::path::Path>, file: &str) -> String {
+    match workdir {
+        Some(w) => crate::core::repo_path::to_repo_path(base, w, file),
+        None => file.to_string(),
+    }
 }
 
 /// Versión corta para títulos y nombres de archivo (`a3f2b1c`, `HEAD~1`, `worktree`).
@@ -185,8 +198,11 @@ fn resolve_targets(
     targets: &[String],
     modules: &riku_kernel::Registry,
     workdir: Option<&std::path::Path>,
+    base: &std::path::Path,
 ) -> Result<(Side, Side, Option<String>), String> {
-    let is_file = |t: &str| modules.for_path(t).is_some() || workdir.is_some_and(|w| w.join(t).is_file());
+    let is_file = |t: &str| {
+        modules.for_path(t).is_some() || base.join(t).is_file() || workdir.is_some_and(|w| w.join(t).is_file())
+    };
     let rev = |t: &str| Side::Rev(t.to_string());
     Ok(match targets {
         [] => (rev("HEAD"), Side::WorkTree, None),
@@ -244,6 +260,8 @@ pub(super) fn run_show(
 ) -> Result<Changes, String> {
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let opts = config::options_for(&repo, overrides)?;
+    let file_path = file_path.map(|f| repo_file(&repo, svc.root(), f));
+    let file_path = file_path.as_deref();
     if let Some(req) = image {
         let file = file_path.ok_or_else(|| tr!("err.image_needs_file"))?;
         let changes = svc.commit_changes(commit).map_err(|e| e.to_string())?;
@@ -348,7 +366,8 @@ pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
     // con el comportamiento legado y atajo común).
     let mut paths = args.paths;
     if let Some(fp) = args.file_path {
-        paths.push(fp);
+        let workdir = git2::Repository::discover(&args.repo).ok().and_then(|r| r.workdir().map(|w| w.to_path_buf()));
+        paths.push(repo_file(&args.repo, workdir.as_deref(), &fp));
     }
 
     let opts = log::LogOptions {
@@ -415,7 +434,7 @@ mod tests {
 
     fn resolve(args: &[&str], workdir: Option<&std::path::Path>) -> (Side, Side, Option<String>) {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        resolve_targets(&args, &crate::modules::registry(), workdir).unwrap()
+        resolve_targets(&args, &crate::modules::registry(), workdir, std::path::Path::new(".")).unwrap()
     }
 
     fn rev(r: &str) -> Side {
@@ -444,6 +463,6 @@ mod tests {
     #[test]
     fn too_many_targets_is_an_error() {
         let args: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
-        assert!(resolve_targets(&args, &crate::modules::registry(), None).is_err());
+        assert!(resolve_targets(&args, &crate::modules::registry(), None, std::path::Path::new(".")).is_err());
     }
 }

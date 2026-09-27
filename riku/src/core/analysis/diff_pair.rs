@@ -19,6 +19,9 @@ use crate::core::git::files;
 pub enum AnalyzeError {
     #[error(transparent)]
     Git(#[from] GitError),
+    /// Un hilo no pudo abrir su propia conexión al repo (ver `parallel`).
+    #[error("no se pudo abrir otra conexión al repo: {0}")]
+    Connection(String),
 }
 
 /// Nombre que usa el visor (y la CLI al lanzarlo) para "el working tree"

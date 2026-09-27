@@ -97,8 +97,20 @@ impl Change {
     }
 
     pub fn with_detail(mut self, key: impl Into<String>, before: Option<Value>, after: Option<Value>) -> Self {
-        self.details.push(Detail { key: key.into(), before, after });
+        self.details.push(Detail::new(key, before, after));
         self
+    }
+
+    /// Como [`Self::with_detail`], para la ubicación del elemento (ver
+    /// [`Detail::placement`]).
+    pub fn with_placement(mut self, key: impl Into<String>, before: Option<Value>, after: Option<Value>) -> Self {
+        self.details.push(Detail { placement: true, ..Detail::new(key, before, after) });
+        self
+    }
+
+    /// Las propiedades que no son ubicación (los parámetros del elemento).
+    pub fn params(&self) -> impl Iterator<Item = &Detail> {
+        self.details.iter().filter(|d| !d.placement)
     }
 
     /// Valor de una propiedad en la versión posterior.
@@ -194,9 +206,19 @@ pub struct Detail {
     pub before: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Value>,
+    /// Es la ubicación del elemento en el dibujo (posición, giro, espejo),
+    /// no un parámetro: las listas de parámetros cambiados la omiten. La
+    /// marca el módulo; el núcleo no sabe qué claves son de ubicación en
+    /// cada formato.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub placement: bool,
 }
 
 impl Detail {
+    pub fn new(key: impl Into<String>, before: Option<Value>, after: Option<Value>) -> Self {
+        Self { key: key.into(), before, after, placement: false }
+    }
+
     /// `true` si la propiedad cambió (incluye aparecer o desaparecer).
     pub fn changed(&self) -> bool {
         self.before != self.after

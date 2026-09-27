@@ -137,7 +137,7 @@ pub(crate) enum Commands {
     },
     #[command(about = tr!("help.render"), after_help = tr!("help.examples_render"))]
     Render {
-        #[arg(help = tr!("help.render_file"))]
+        #[arg(help = tr!("help.render_file", exts = crate::modules::registry().openable_text()))]
         file: String,
         #[arg(long, value_name = "REV", help = tr!("help.render_rev"))]
         rev: Option<String>,
@@ -221,7 +221,7 @@ pub(crate) enum Commands {
         #[arg(help = tr!("help.shell"))]
         shell: clap_complete::Shell,
     },
-    #[command(about = tr!("help.open"))]
+    #[command(about = tr!("help.open", exts = crate::modules::registry().openable_text()))]
     Open { file: Option<PathBuf> },
     #[command(about = tr!("help.gui"), trailing_var_arg = true, allow_hyphen_values = true)]
     Gui {

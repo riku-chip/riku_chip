@@ -88,7 +88,7 @@ fn aggregate_changes(report: &FileChange, level: DetailLevel) -> Aggregated {
             let params = if matches!(change.element, Element::Signal { .. }) {
                 BTreeMap::new()
             } else {
-                extract_param_changes(&entry)
+                extract_param_changes(&entry, change)
             };
             details.push(DetailEntry { kind: detail_kind, element, params });
         }
@@ -135,17 +135,16 @@ fn classify(change: &Change) -> (&'static str, DetailKind) {
     }
 }
 
-/// Extrae cambios de parámetros (key: "before → after") ignorando posición y
-/// rotación, que son cosméticos y ya filtrados por el driver pero pueden
-/// aparecer en el mapa.
-fn extract_param_changes(entry: &LegacyEntry) -> BTreeMap<String, String> {
+/// Extrae cambios de parámetros (key: "before → after") sin la ubicación del
+/// elemento (los detalles que el módulo marcó como `placement`).
+fn extract_param_changes(entry: &LegacyEntry, change: &riku_kernel::Change) -> BTreeMap<String, String> {
     let (before, after) = match (&entry.before, &entry.after) {
         (Some(b), Some(a)) => (b, a),
         _ => return BTreeMap::new(),
     };
     let mut out = BTreeMap::new();
     for key in before.keys().chain(after.keys()) {
-        if matches!(key.as_str(), "x" | "y" | "rotation" | "mirror") {
+        if change.details.iter().any(|d| d.placement && d.key == *key) {
             continue;
         }
         let b = before.get(key);
@@ -280,7 +279,7 @@ mod tests {
         let e = entry(ChangeKind::Modified, "M3", false)
             .with_detail("W", t("4u"), t("8u"))
             .with_detail("L", t("180n"), t("180n"))
-            .with_detail("x", t("100"), t("200")); // debe ignorarse
+            .with_placement("x", t("100"), t("200")); // ubicación: no es un parámetro
         let r = report(vec![e]);
 
         let s = FileSummary::from_report_with(&r, "a.sch", DetailLevel::Detalle);

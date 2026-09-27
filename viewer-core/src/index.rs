@@ -675,7 +675,9 @@ impl SceneIndex {
         self.id
     }
 
-    /// Lado menor del bbox del elemento `i` (0 si no tiene): el ancho de un cable.
+    /// Ancho del elemento `i` (0 si no tiene): `2·área/perímetro` en polígonos
+    /// (el ancho de un cable aunque haga curvas), alto en los textos, lado menor
+    /// del bbox en el resto. Ver el campo `width`.
     pub fn min_size(&self, i: usize) -> f64 {
         self.width.get(i).map_or(0.0, |w| f64::from(*w))
     }

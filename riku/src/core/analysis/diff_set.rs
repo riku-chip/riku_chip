@@ -22,7 +22,7 @@ use crate::core::analysis::blob_io::Blob;
 use crate::core::analysis::diff_pair::{self, diff_pair, AnalyzeError, End, OnError, Version};
 use crate::core::analysis::parallel;
 use crate::core::analysis::show::ShowFile;
-use crate::core::domain::git_types::{ChangeStatus, GitError};
+use crate::core::domain::git_types::ChangeStatus;
 use crate::core::domain::models::{FileChange, FileFormat};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
 
@@ -147,7 +147,7 @@ pub fn analyze_all<R: GitRepository + ?Sized>(
         &costs,
         |entry| diff_entry(repo, workdir, from, to, entry, modules, opts),
         |r, entry| diff_entry(r, workdir, from, to, entry, modules, opts),
-        |_, e| Err(AnalyzeError::Git(GitError::Git(git2::Error::from_str(&e.to_string())))),
+        |_, e| Err(AnalyzeError::Connection(e.to_string())),
     )
     .into_iter()
     .collect::<Result<Vec<ShowFile>, AnalyzeError>>()?;

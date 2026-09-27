@@ -12,6 +12,12 @@ pub enum ViewerError {
     #[error("parse error: {0}")]
     Parse(String),
 
+    /// El archivo es del formato pero no se puede leer: dañado, incompleto
+    /// o inválido (un GDS truncado, una jerarquía con ciclos). El visor lo
+    /// explica en lenguaje claro sin buscar palabras en el mensaje.
+    #[error("damaged or invalid file: {0}")]
+    Corrupt(String),
+
     /// Error de I/O al leer o escribir un recurso.
     #[error("io error: {0}")]
     Io(String),

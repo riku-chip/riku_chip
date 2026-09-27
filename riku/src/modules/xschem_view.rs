@@ -437,9 +437,8 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
 /// `W: 1u → 2u · L: …` con los parámetros que cambiaron (sin posición).
 fn param_changes(c: &Change) -> String {
     let changed: BTreeMap<&str, String> = c
-        .details
-        .iter()
-        .filter(|d| d.changed() && !matches!(d.key.as_str(), "x" | "y" | "rotation" | "mirror"))
+        .params()
+        .filter(|d| d.changed())
         .map(|d| {
             let show = |v: &Option<riku_kernel::Value>| v.as_ref().map_or("—".to_string(), |v| v.to_string());
             (d.key.as_str(), format!("{} → {}", show(&d.before), show(&d.after)))

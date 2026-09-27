@@ -22,7 +22,9 @@ Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas`/`.mag` (layouts
 
 ## Shell interactivo
 
-`riku` sin argumentos abre un shell con el directorio y el repo actuales en el prompt. Acepta todos los comandos de arriba (sin escribir `riku`) y además `ls`, `cd`, `help` y `exit`. **Tab** completa comandos, flags, carpetas, ramas, tags, commits recientes y archivos de diseño; ↑↓ recorren el historial.
+`riku` sin argumentos abre un shell con el directorio y el repo actuales en el prompt. Acepta todos los comandos de arriba (sin escribir `riku`) y además `ls`, `cd`, `help` y `exit`. **Tab** completa comandos, flags, carpetas, ramas, tags, commits recientes y archivos de diseño; ↑↓ recorren el historial. Las líneas se parten como en una shell: comillas para rutas con espacios y expresiones (`diff v1 v2 tb.raw --expr "gain = v(out)/v(in)"`, `cd "mi carpeta"`).
+
+Los archivos se nombran **desde donde uno está**, como en Git: en `repo/sub`, `riku diff amp.sch` es `sub/amp.sch` (una ruta desde la raíz del repo también vale si existe). Igual en `show`, `log`, `render --rev` y el shell.
 
 ```text
 riku schematics (git)> log circ_RM.sch

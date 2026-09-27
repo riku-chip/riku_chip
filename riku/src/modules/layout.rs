@@ -111,6 +111,10 @@ impl Default for LayoutModule {
 }
 
 impl FormatModule for LayoutModule {
+    fn extensions(&self) -> &'static [&'static str] {
+        &["gds", "oas", "mag"]
+    }
+
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "layout".into(),

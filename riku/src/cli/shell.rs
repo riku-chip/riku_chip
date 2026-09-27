@@ -88,11 +88,13 @@ impl ShellContext {
                 found = true;
             }
         }
+        let known = crate::modules::registry().openable();
         for entry in &entries {
             let path = entry.path();
-            let openable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                ["sch", "sym", "gds", "oas", "mag", "raw"].iter().any(|o| e.eq_ignore_ascii_case(o))
-            });
+            let openable = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| known.iter().any(|o| e.eq_ignore_ascii_case(o)));
             if openable {
                 let in_git = self
                     .repo
@@ -142,16 +144,9 @@ impl ShellContext {
         }
     }
 
+    /// Un archivo escrito desde el cwd del shell, como ruta del repo.
     fn resolve_file(&self, f: &str) -> String {
-        let abs = if std::path::Path::new(f).is_absolute() {
-            PathBuf::from(f)
-        } else {
-            self.cwd.join(f)
-        };
-        let repo = self.repo_path();
-        abs.strip_prefix(&repo)
-            .map(|rel| rel.to_string_lossy().to_string())
-            .unwrap_or_else(|_| abs.to_string_lossy().to_string())
+        crate::core::repo_path::to_repo_path(&self.cwd, &self.repo_path(), f)
     }
 }
 
@@ -204,21 +199,26 @@ pub(super) fn run_shell() -> Result<(), String> {
         }
         let _ = rl.add_history_entry(&line);
 
-        let mut parts = line.splitn(2, ' ');
-        let cmd = parts.next().unwrap_or("");
-        let rest = parts.next().unwrap_or("").trim();
+        // Como una shell: comillas para rutas con espacios y expresiones
+        // (`--expr "gain = v(out)/v(in)"`).
+        let Some(words) = split_line(&line) else {
+            println!("  {}", tr!("shell.bad_quotes"));
+            continue;
+        };
+        let Some(cmd) = words.first() else { continue };
+        let arg = words.get(1).map(String::as_str);
 
-        match cmd {
+        match cmd.as_str() {
             "exit" | "quit" | "q" => break,
             "help" => print_shell_help(),
             "cd" => {
-                ctx.cd(if rest.is_empty() { "." } else { rest });
+                ctx.cd(arg.unwrap_or("."));
                 if let Some(h) = rl.helper_mut() {
                     h.cwd = ctx.cwd.clone();
                 }
             }
-            "ls" => ctx.ls(if rest.is_empty() { None } else { Some(rest) }),
-            _ => dispatch_shell_command(&mut ctx, &line),
+            "ls" => ctx.ls(arg),
+            _ => dispatch_shell_command(&mut ctx, words),
         }
     }
 
@@ -230,7 +230,7 @@ fn print_shell_help() {
     let row = |cmd: &str, key: &str| println!("    {cmd:<46}{}", tr!(key));
     println!();
     println!("  {}", tr!("shell.h_nav"));
-    row("ls [path]", "shell.h_ls");
+    println!("    {:<46}{}", "ls [path]", tr!("shell.h_ls", exts = crate::modules::registry().openable_text()));
     row("cd <path>", "shell.h_cd");
     println!();
     println!("  {}", tr!("shell.h_git"));
@@ -251,11 +251,16 @@ fn print_shell_help() {
     println!();
 }
 
-fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
-    let mut args = vec!["riku"];
-    args.extend(line.split_whitespace());
+/// Palabras de una línea con las reglas de una shell POSIX (comillas simples
+/// y dobles, `\` para escapar). `None` si una comilla quedó abierta.
+fn split_line(line: &str) -> Option<Vec<String>> {
+    shlex::split(line)
+}
 
-    match Cli::try_parse_from(&args) {
+fn dispatch_shell_command(ctx: &mut ShellContext, words: Vec<String>) {
+    let args = std::iter::once("riku".to_string()).chain(words);
+
+    match Cli::try_parse_from(args) {
         Ok(parsed) => {
             let Some(mut cmd) = parsed.command else {
                 println!("  {}", tr!("shell.already"));
@@ -278,6 +283,20 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                     .unwrap_or(&tr!("shell.unknown_cmd"))
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::split_line;
+
+    #[test]
+    fn comillas_como_una_shell() {
+        let w = split_line(r#"diff v1 v2 tb.raw --expr "gain = v(out)/v(in)""#).unwrap();
+        assert_eq!(w, ["diff", "v1", "v2", "tb.raw", "--expr", "gain = v(out)/v(in)"]);
+        assert_eq!(split_line("open 'mi diseño/amp.sch'").unwrap(), ["open", "mi diseño/amp.sch"]);
+        assert_eq!(split_line(r"cd mi\ carpeta").unwrap(), ["cd", "mi carpeta"]);
+        assert!(split_line(r#"diff "sin cerrar"#).is_none());
     }
 }
 

@@ -87,11 +87,23 @@ pub trait FormatModule: Send + Sync {
         None
     }
 
+    /// Extensiones del formato, sin punto (`sch`, `gds`). Es lo que se
+    /// consulta por cada ruta (`handles_path`): no arma [`Self::info`], que
+    /// puede costar (Xschem detecta el PDK). Vacío = las de `info()`.
+    fn extensions(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// `true` si la extensión de `path` es de este módulo.
     fn handles_path(&self, path: &str) -> bool {
         let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-        !ext.is_empty()
-            && self.info().extensions.iter().any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(ext))
+        if ext.is_empty() {
+            return false;
+        }
+        match self.extensions() {
+            [] => self.info().extensions.iter().any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(ext)),
+            fixed => fixed.iter().any(|e| e.eq_ignore_ascii_case(ext)),
+        }
     }
 }
 
@@ -139,13 +151,35 @@ impl Registry {
         self.modules.iter().filter_map(|m| m.viewer()).collect()
     }
 
-    /// Extensiones que Riku sabe abrir (sin punto, en minúsculas).
+    /// Extensiones que Riku sabe comparar (sin punto, en minúsculas).
     pub fn extensions(&self) -> Vec<String> {
         self.modules
             .iter()
-            .flat_map(|m| m.info().extensions)
+            .flat_map(|m| match m.extensions() {
+                [] => m.info().extensions,
+                fixed => fixed.iter().map(|e| e.to_string()).collect(),
+            })
             .map(|e| e.trim_start_matches('.').to_ascii_lowercase())
             .collect()
+    }
+
+    /// Lo que se puede abrir o listar: lo que se compara más lo que solo
+    /// muestra el visor de un módulo (los símbolos `.sym` de Xschem). Sin
+    /// repetidos, en el orden de los módulos. Es la lista del shell, del
+    /// autocompletado y del árbol del visor.
+    pub fn openable(&self) -> Vec<String> {
+        let mut out = self.extensions();
+        for v in self.viewers() {
+            out.extend(v.info().extensions.iter().map(|e| e.trim_start_matches('.').to_ascii_lowercase()));
+        }
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|e| seen.insert(e.clone()));
+        out
+    }
+
+    /// [`Self::openable`] para mostrar: `.sch, .sym, .gds…`.
+    pub fn openable_text(&self) -> String {
+        self.openable().iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
     }
 }
 

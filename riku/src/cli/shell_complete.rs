@@ -21,8 +21,6 @@ use super::Cli;
 
 /// Comandos propios del shell (además de los subcomandos de la CLI).
 const SHELL_COMMANDS: &[&str] = &["cd", "ls", "help", "exit"];
-/// Archivos que tiene sentido pasar a diff / log / open.
-const FILE_EXTENSIONS: &[&str] = &["sch", "sym", "gds", "oas", "mag"];
 /// Commits recientes ofrecidos como candidatos.
 const RECENT_COMMITS: usize = 20;
 
@@ -82,6 +80,8 @@ fn paths(cwd: &Path, word: &str, dirs_only: bool) -> Vec<String> {
     };
     let dir: PathBuf = if Path::new(dir_part).is_absolute() { PathBuf::from(dir_part) } else { cwd.join(dir_part) };
     let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    // Lo que saben abrir los módulos de este ejecutable.
+    let known = crate::modules::registry().openable();
     entries
         .filter_map(Result::ok)
         .filter_map(|e| {
@@ -94,7 +94,7 @@ fn paths(cwd: &Path, word: &str, dirs_only: bool) -> Vec<String> {
                 .path()
                 .extension()
                 .and_then(|x| x.to_str())
-                .is_some_and(|x| FILE_EXTENSIONS.iter().any(|o| x.eq_ignore_ascii_case(o)));
+                .is_some_and(|x| known.iter().any(|o| x.eq_ignore_ascii_case(o)));
             match (is_dir, dirs_only) {
                 (true, _) => Some(format!("{dir_part}{name}/")),
                 (false, false) if openable => Some(format!("{dir_part}{name}")),

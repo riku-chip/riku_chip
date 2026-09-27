@@ -30,7 +30,7 @@ impl RikuGuiApp {
             self.status = tr!("status.loading", file = path.display());
         } else if self.error.is_none() {
             self.status = tr!("status.unsupported", file = path.display());
-            self.notify(ToastKind::Warning, tr!("toast.unsupported", name = name));
+            self.notify(ToastKind::Warning, tr!("toast.unsupported", name = name, exts = self.openable_text()));
         }
     }
 

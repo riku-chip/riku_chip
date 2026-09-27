@@ -56,5 +56,12 @@ mod tests {
             ext.push("raw");
         }
         assert_eq!(r.extensions(), ext);
+        // Lo que se abre suma los símbolos del visor de Xschem.
+        let mut open = vec!["sch", "gds", "oas", "mag"];
+        if cfg!(feature = "spice") {
+            open.push("raw");
+        }
+        open.push("sym");
+        assert_eq!(r.openable(), open);
     }
 }

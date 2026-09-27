@@ -237,7 +237,7 @@ impl RikuGuiApp {
                     }
                     if ui
                         .checkbox(&mut self.show_all_files, tr!("panel.all_files"))
-                        .on_hover_text(tr!("panel.all_files_hint"))
+                        .on_hover_text(tr!("panel.all_files_hint", exts = self.openable_text()))
                         .changed()
                     {
                         self.refresh_tree();

@@ -751,7 +751,7 @@ fn relative_time(ts: i64, now: i64) -> String {
 }
 
 fn full_date(ts: i64) -> String {
-    crate::cli::format::log_text::format_timestamp(ts)
+    crate::text::format_timestamp(ts)
 }
 
 #[cfg(test)]

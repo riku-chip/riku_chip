@@ -6,7 +6,7 @@
 use std::fmt::Write;
 
 use super::svg::Style;
-use crate::cli::format::diff_text::eng;
+use crate::text::eng;
 use crate::modules::spice::compare::{compare_plot, interp, pair_plots, SignalDiff, Status, Tolerance};
 use crate::modules::spice::derived;
 use crate::modules::spice::expr::{self, Evaluated};

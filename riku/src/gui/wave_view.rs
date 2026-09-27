@@ -17,7 +17,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, RichText};
 use egui_plot::{GridMark, Legend, Line, LineStyle, Plot, PlotPoints};
 
-use crate::cli::format::diff_text::eng;
+use crate::text::eng;
 use crate::gui::content::DiffTab;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::space;

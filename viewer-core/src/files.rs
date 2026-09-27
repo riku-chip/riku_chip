@@ -102,7 +102,9 @@ pub fn pdk_root() -> Option<PathBuf> {
         .or_else(|| Some(PathBuf::from("/foss/pdks")).filter(|p| p.is_dir()))
 }
 
-/// Quita `.` y resuelve `..` (sin salir por encima de la raíz).
+/// Quita `.` y resuelve `..`. Una ruta absoluta no sube de `/`; en una
+/// relativa, los `..` que sobran quedan al principio (`../x` sigue siendo
+/// `../x`: quien la use decide si sale de su raíz).
 fn normalize(path: &str) -> String {
     let absolute = path.starts_with('/');
     let mut parts: Vec<&str> = Vec::new();

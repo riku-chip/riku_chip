@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use poll_promise::Promise;
 use tokio::runtime::Runtime;
-use viewer_core::{backend::ViewerBackend, scene::SceneHandle, CancellationToken};
+use viewer_core::{backend::ViewerBackend, error::ViewerError, scene::SceneHandle, CancellationToken};
 
 use crate::gui::content::{DiffContext, DiffTab, LoadKind};
 
@@ -39,13 +39,13 @@ pub(crate) struct LoadedScene {
 /// Una cancelada no se informa.
 pub(crate) enum Finished {
     Loaded(LoadedScene),
-    Failed { path: String, error: String },
+    Failed { path: String, error: ViewerError },
 }
 
 pub(crate) struct Loader {
     /// Runtime Tokio compartido. Se queda vivo mientras la app vive.
     runtime: Arc<Runtime>,
-    pending: Option<Promise<Result<LoadedScene, String>>>,
+    pending: Option<Promise<Result<LoadedScene, ViewerError>>>,
     token: Option<CancellationToken>,
     /// Archivo de la carga en vuelo (para nombrarlo si falla).
     path: Option<String>,
@@ -103,9 +103,7 @@ impl Loader {
                         .await
                 }
             };
-            result
-                .map(|scene| LoadedScene { scene, backend, source, path, kind, refit, diff })
-                .map_err(|e| e.to_string())
+            result.map(|scene| LoadedScene { scene, backend, source, path, kind, refit, diff })
         };
         self.pending = Some(Promise::spawn_async(fut));
     }
@@ -119,7 +117,7 @@ impl Loader {
         match result {
             Ok(loaded) => Some(Finished::Loaded(loaded)),
             // Una cancelada viene de nosotros mismos (se abrió otra cosa).
-            Err(e) if e.contains("cancelled") => None,
+            Err(ViewerError::Cancelled) => None,
             Err(error) => Some(Finished::Failed { path, error }),
         }
     }

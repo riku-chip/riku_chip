@@ -171,11 +171,7 @@ impl RikuGuiApp {
         // Los módulos del ejecutable deciden qué formatos se pueden abrir.
         let modules = crate::modules::registry();
         let backends: Vec<Arc<dyn ViewerBackend>> = modules.viewers();
-        #[allow(unused_mut)]
-        let mut openable: Vec<String> =
-            backends.iter().flat_map(|b| b.info().extensions.iter().map(|e| e.to_string())).collect();
-        #[cfg(feature = "spice")]
-        openable.push("raw".to_string());
+        let openable = modules.openable();
         let project_tree = ProjectEntry::build(&project_root, show_all_files, &openable);
         let history_h: f32 = cc.storage.and_then(|s| eframe::get_value(s, PREF_HISTORY_H)).unwrap_or(history::DEFAULT_HEIGHT);
         let history = HistoryPanel::new(&project_root, history_h);
@@ -184,7 +180,7 @@ impl RikuGuiApp {
             project_root,
             project_tree,
             selected_path,
-            status: tr!("status.ready"),
+            status: tr!("status.ready", exts = dotted(&openable)),
             error: None,
             content: Content::Home,
             diff: None,
@@ -242,6 +238,11 @@ impl RikuGuiApp {
         }
 
         app
+    }
+
+    /// Lo que se abre, para mostrar (`.sch, .sym, …`).
+    fn openable_text(&self) -> String {
+        dotted(&self.openable)
     }
 
     fn refresh_tree(&mut self) {
@@ -399,7 +400,7 @@ impl eframe::App for RikuGuiApp {
 
         // Archivo arrastrado sobre la ventana: indicar que se puede soltar.
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
-            drop_hint(&ctx);
+            drop_hint(&ctx, &self.openable_text());
         }
         self.show_dialogs(&ctx);
         if !self.native_frame {
@@ -422,8 +423,13 @@ impl eframe::App for RikuGuiApp {
     }
 }
 
+/// `["sch", "gds"]` → `.sch, .gds`.
+fn dotted(exts: &[String]) -> String {
+    exts.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
+}
+
 /// Velo sobre toda la ventana mientras se arrastra un archivo encima.
-fn drop_hint(ctx: &egui::Context) {
+fn drop_hint(ctx: &egui::Context, exts: &str) {
     let screen = ctx.content_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_hint")));
     let v = ctx.global_style().visuals.clone();
@@ -437,7 +443,7 @@ fn drop_hint(ctx: &egui::Context) {
     painter.text(
         screen.center(),
         egui::Align2::CENTER_CENTER,
-        tr!("drop.hint"),
+        tr!("drop.hint", exts = exts),
         egui::FontId::proportional(20.0),
         v.strong_text_color(),
     );
@@ -456,19 +462,13 @@ fn short_hash(s: &str) -> String {
     }
 }
 
-/// Error de carga en lenguaje claro. Conserva el mensaje técnico al final
-/// (entre paréntesis) para quien necesite diagnosticar.
-fn friendly_error(e: &str) -> String {
-    let plain = if e.contains("GDSII") || e.contains("input file read error") {
-        Some(tr!("error.bad_gds"))
-    } else if e.contains("no existe") || e.contains("No such file") {
-        Some(tr!("error.missing_file"))
-    } else {
-        None
-    };
-    match plain {
-        Some(p) => format!("{p} ({e})"),
-        None => e.to_string(),
+/// Error de carga en lenguaje claro, según su tipo (lo decide el backend).
+/// Conserva el mensaje técnico al final (entre paréntesis) para quien
+/// necesite diagnosticar.
+fn friendly_error(e: &viewer_core::error::ViewerError) -> String {
+    match e {
+        viewer_core::error::ViewerError::Corrupt(detail) => format!("{} ({detail})", tr!("error.bad_file")),
+        other => other.to_string(),
     }
 }
 
@@ -477,11 +477,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn friendly_error_explains_corrupt_gds_and_keeps_details() {
-        let e = "parse error: GDSII parse: gdstk error: input file read error";
-        let f = friendly_error(e);
-        assert!(f.starts_with("not a valid GDSII"), "{f}");
-        assert!(f.contains(e), "conserva el detalle técnico");
-        assert_eq!(friendly_error("otra cosa"), "otra cosa");
+    fn friendly_error_explains_a_damaged_file_and_keeps_details() {
+        use viewer_core::error::ViewerError;
+        let detail = "layout: gdstk error: input file read error";
+        let f = friendly_error(&ViewerError::Corrupt(detail.into()));
+        assert!(f.starts_with("the file is damaged or not valid"), "{f}");
+        assert!(f.contains(detail), "conserva el detalle técnico");
+        assert_eq!(friendly_error(&ViewerError::Parse("x".into())), "parse error: x");
     }
 }

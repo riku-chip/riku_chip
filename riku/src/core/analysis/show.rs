@@ -8,7 +8,7 @@ use riku_kernel::{DiffOptions, Registry};
 
 use crate::core::analysis::diff_pair::{diff_pair, AnalyzeError, End, OnError, Version};
 use crate::core::analysis::parallel;
-use crate::core::domain::git_types::{ChangeStatus, CommitWithParents, GitError};
+use crate::core::domain::git_types::{ChangeStatus, CommitWithParents};
 use crate::core::domain::models::FileChange;
 use crate::core::domain::ports::GitRepository;
 
@@ -81,7 +81,7 @@ pub fn analyze_show<R: GitRepository + ?Sized>(
         &costs,
         |entry| show_file(repo, entry, &oid, parent.as_deref(), modules, opts),
         one,
-        |_, e| Err(AnalyzeError::Git(GitError::Git(git2::Error::from_str(&e.to_string())))),
+        |_, e| Err(AnalyzeError::Connection(e.to_string())),
     )
     .into_iter()
     .collect::<Result<Vec<ShowFile>, AnalyzeError>>()?;

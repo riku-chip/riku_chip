@@ -6,6 +6,7 @@
 //! la geometría. Las nets añadidas y eliminadas se listan al final.
 
 use super::common::marker_for_change;
+pub(crate) use crate::text::eng;
 use crate::i18n::tr;
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, Value};
 
@@ -152,30 +153,11 @@ fn print_signal(c: &Change) {
     }
 }
 
-/// Número con prefijo de ingeniería: `0.0123 V` → `12.3 mV`. Los dB van tal cual.
-pub(crate) fn eng(v: f64, unit: &str) -> String {
-    if unit == "dB" || unit == "°" || v == 0.0 || !v.is_finite() {
-        return format!("{v:.3} {unit}").trim_end().to_string();
-    }
-    // Sin unidad (una ganancia V/V, una razón): el número tal cual se lee
-    // mejor que con prefijo ("0.06698" y no "66.98 m").
-    if unit.is_empty() && (1e-3..1e6).contains(&v.abs()) {
-        let digits = (3 - v.abs().log10().floor() as i32).clamp(0, 6) as usize;
-        return format!("{v:.digits$}");
-    }
-    const PREFIXES: [(f64, &str); 9] =
-        [(1e9, "G"), (1e6, "M"), (1e3, "k"), (1.0, ""), (1e-3, "m"), (1e-6, "µ"), (1e-9, "n"), (1e-12, "p"), (1e-15, "f")];
-    let (scale, p) = PREFIXES.iter().find(|(s, _)| v.abs() >= *s).copied().unwrap_or((1e-15, "f"));
-    format!("{:.3} {p}{unit}", v / scale).trim_end().to_string()
-}
 
 fn print_param_diff(c: &Change) {
-    let mut details: Vec<_> = c.details.iter().collect();
+    let mut details: Vec<_> = c.params().collect();
     details.sort_by(|a, b| a.key.cmp(&b.key));
     for d in details {
-        if matches!(d.key.as_str(), "x" | "y" | "rotation" | "mirror") {
-            continue;
-        }
         let key = &d.key;
         match (&d.before, &d.after) {
             (Some(a), Some(b)) if a != b => println!("      {key}: {a} → {b}"),

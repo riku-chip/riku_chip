@@ -42,6 +42,10 @@ fn read_side(content: &[u8], side: &str, path: &str) -> Result<raw::RawFile, Str
 }
 
 impl FormatModule for WaveformModule {
+    fn extensions(&self) -> &'static [&'static str] {
+        &["raw"]
+    }
+
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "spice".into(),
@@ -101,7 +105,7 @@ fn signal_change(s: &compare::SignalDiff) -> Change {
         Status::Compared | Status::Incomparable => ChangeKind::Modified,
     };
     let mut c = Change::new(kind, element).cosmetic(s.status == Status::Compared && s.within_tolerance);
-    let mut put = |k: &str, v: Value| c.details.push(Detail { key: k.into(), before: None, after: Some(v) });
+    let mut put = |k: &str, v: Value| c.details.push(Detail::new(k, None, Some(v)));
     put("plot", Value::Text(s.plot.clone()));
     put("unit", Value::Text(s.unit.to_string()));
     if let Some(text) = &s.expression {
@@ -109,9 +113,9 @@ fn signal_change(s: &compare::SignalDiff) -> Change {
     }
     // Escalar: el valor en cada versión (antes → después).
     if let Some((va, vb)) = s.scalar {
-        c.details.push(Detail { key: "value".into(), before: va.map(Value::Float), after: vb.map(Value::Float) });
+        c.details.push(Detail::new("value", va.map(Value::Float), vb.map(Value::Float)));
     }
-    let mut put = |k: &str, v: Value| c.details.push(Detail { key: k.into(), before: None, after: Some(v) });
+    let mut put = |k: &str, v: Value| c.details.push(Detail::new(k, None, Some(v)));
     if s.status == Status::Compared && s.scalar.is_none() {
         put("max_abs_diff", Value::Float(s.max_abs));
         put("at", Value::Float(s.at_x));

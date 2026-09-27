@@ -225,11 +225,11 @@ fn collect_side<'a>(
 /// Error de lectura para el visor. `label`: el lado de un diff, si lo es.
 fn read_error(e: ReadError, label: &str) -> ViewerError {
     let side = if label.is_empty() { String::new() } else { format!(" ({label})") };
-    let msg = match e {
-        ReadError::NotLayout => "no es un layout GDSII, OASIS ni Magic".to_string(),
-        ReadError::Parse(msg) => msg,
-    };
-    ViewerError::Parse(format!("layout{side}: {msg}"))
+    match e {
+        ReadError::NotLayout => ViewerError::Parse(format!("layout{side}: no es un layout GDSII, OASIS ni Magic")),
+        // Es un layout pero no se puede leer (truncado, con ciclos, un .mag mal formado).
+        ReadError::Parse(msg) => ViewerError::Corrupt(format!("layout{side}: {msg}")),
+    }
 }
 
 #[async_trait]
@@ -598,6 +598,16 @@ port 1 nsew signal {class}
             Err(e) => panic!("esperaba ViewerError::Parse, got {e:?}"),
             Ok(_) => panic!("esperaba error, got Ok"),
         }
+    }
+
+    /// Un GDS truncado es un layout que no se puede leer: `Corrupt`, para
+    /// que el visor lo explique sin buscar palabras en el mensaje.
+    #[tokio::test]
+    async fn load_truncated_gds_is_corrupt() {
+        let mut bytes = proof_lib_bytes();
+        bytes.truncate(bytes.len() / 2);
+        let res = GdsBackend::new().load(bytes, None, CancellationToken::new()).await;
+        assert!(matches!(res, Err(ViewerError::Corrupt(_))), "{:?}", res.err());
     }
 
     #[tokio::test]

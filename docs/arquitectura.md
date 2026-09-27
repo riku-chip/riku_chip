@@ -42,7 +42,8 @@ riku_chip/
 ```rust
 // riku-kernel
 pub trait FormatModule: Send + Sync {
-    fn info(&self) -> ModuleInfo;                         // nombre, versión, extensiones
+    fn info(&self) -> ModuleInfo;                         // nombre, versión, extensiones (para `doctor`)
+    fn extensions(&self) -> &'static [&'static str];       // `["gds", "oas"]`: lo que consulta `for_path`
     fn detect(&self, content: &[u8]) -> bool;              // por firma del archivo
     fn diff(&self, a: &[u8], b: &[u8], path: &str, opts: &DiffOptions) -> FileChange;
     // Con los otros archivos de cada versión; por defecto llama a `diff`.
@@ -60,7 +61,11 @@ pub struct DiffFiles { pub before: Option<Arc<dyn FileSource>>, pub after: Optio
 - **Formatos de varios archivos** (Magic: una celda por archivo): el núcleo le pasa al módulo un `FileSource` por versión. `diff`, `show` y `log` usan `GitFiles` (el mismo commit; abre su conexión a Git la primera vez que se le pide un archivo); `status`, HEAD antes y el disco después (`DiskFiles`). El módulo decide qué leer; el núcleo no sabe de `use` ni de celdas.
 
 - `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry` con `layer_name` opcional, `Port`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
-- `Registry` resuelve el módulo por extensión o firma (`for_path`, `detect`). `log`, `status`, `show` y `diff` reciben el registro: el análisis no sabe qué formatos existen.
+- Un `Detail` que es la **ubicación** del elemento en el dibujo (en Xschem: `x`, `y`, `rotation`, `mirror`) lo marca el módulo con `placement: true` (`Change::with_placement`); las listas de parámetros cambiados (`status`/`log --detail`, el texto de `diff`, el visor) usan `Change::params()`, que la omite. Así el núcleo no sabe qué claves son de ubicación en cada formato. En el JSON v2 el campo aparece solo cuando es `true`.
+- `Registry` resuelve el módulo por extensión o firma (`for_path`, `detect`). `log`, `status`, `show` y `diff` reciben el registro: el análisis no sabe qué formatos existen. `extensions()` es lo que se compara y `openable()` suma lo que solo muestra un visor (los `.sym` de Xschem): de ahí salen el `ls` y el autocompletado del shell, el árbol del visor y los textos que nombran los formatos.
+- Comparar un archivo entre dos versiones es **un solo flujo**, `core/analysis/diff_pair.rs`: cada lado es una `Version` (`Rev`, `WorkTree` o `Absent`) con su ruta, y `OnError` dice si un error de Git se propaga (`diff`, `show`) o queda en el archivo (`status`, `log`). `diff`, `show`, `status`, `log` y el visor pasan por ahí.
+- Las rutas que escribe el usuario se nombran desde donde está, como en Git (`core/repo_path.rs`, para la CLI y el shell).
+- Un archivo del formato que no se puede leer (truncado, con ciclos) es `ViewerError::Corrupt`: el visor lo explica en lenguaje claro por el tipo del error, sin buscar palabras en el mensaje. Una carga cancelada es `ViewerError::Cancelled`.
 - `ViewerBackend` (`viewer-core`): `load`, `load_entry` (una sub-vista, p. ej. una celda) y `load_diff`, y sus variantes con los archivos de cada versión (`load_with`, `load_diff_with`, que por defecto delegan). Devuelven una `Scene` neutra: elementos, capas con su estilo, metadatos, entradas, cambios, fantasmas y anotaciones de diff, avisos, y un índice espacial opcional. El visor solo conoce esto: dibuja `.sch` y `.gds` por la misma ruta.
 - Todo lo que se agregó a `viewer-core` después de la primera versión tiene valor por defecto, así que quien lo implementa por su cuenta (el crate de Carlos, con su feature `viewer-core-compat`) sigue compilando. La CI lo verifica.
 

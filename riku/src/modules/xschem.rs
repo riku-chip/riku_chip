@@ -74,6 +74,10 @@ impl Default for XschemModule {
 }
 
 impl FormatModule for XschemModule {
+    fn extensions(&self) -> &'static [&'static str] {
+        &["sch"]
+    }
+
     fn info(&self) -> ModuleInfo {
         if let Some(info) = self.cached_info.get() {
             return info.clone();
@@ -172,10 +176,18 @@ fn component_change(c: &ComponentDiff) -> Change {
     change.renamed_from = renamed_from;
     for k in keys {
         let text = |m: &BTreeMap<String, String>| m.get(k).map(|v| Value::Text(v.clone()));
-        change = change.with_detail(k.clone(), text(before), text(after));
+        change = if PLACEMENT_KEYS.contains(&k.as_str()) {
+            change.with_placement(k.clone(), text(before), text(after))
+        } else {
+            change.with_detail(k.clone(), text(before), text(after))
+        };
     }
     change
 }
+
+/// Claves del motor de Xschem que son la ubicación de un componente (no
+/// parámetros): se marcan como tales para que nadie más tenga que saberlas.
+const PLACEMENT_KEYS: &[&str] = &["x", "y", "rotation", "mirror"];
 
 #[cfg(test)]
 mod tests {
