@@ -20,6 +20,7 @@ use crate::gui::scene_painter::{
 };
 use crate::gui::theme::{space, CanvasTheme};
 use crate::gui::toast::{ToastKind, Toasts};
+use crate::gui::{i18n, tr};
 #[cfg(feature = "spice")]
 use crate::gui::wave_view::{self, WaveView};
 
@@ -183,6 +184,7 @@ const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 const PREF_SIMPLIFY: &str = "riku.simplify";
 const PREF_RECENT: &str = "riku.recent_files";
+const PREF_LANG: &str = "riku.lang";
 /// Cuántos archivos recientes se recuerdan.
 const MAX_RECENT: usize = 6;
 
@@ -230,6 +232,8 @@ impl RikuGuiApp {
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
         let simplify = pref(PREF_SIMPLIFY, true);
         let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
+        let saved_lang: Option<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_LANG));
+        i18n::set(i18n::initial(saved_lang.as_deref()));
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
         // scheduler principal. Dos workers son suficientes para una GUI.
@@ -255,7 +259,7 @@ impl RikuGuiApp {
             project_tree,
             selected_path,
             diff_ctx: None,
-            status: String::from("Listo — abre un .sch, .gds, .oas o .raw del panel Proyecto"),
+            status: tr!("status.ready"),
             error: None,
             runtime,
             backends,
@@ -298,14 +302,14 @@ impl RikuGuiApp {
             });
             match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone()) {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
-                Err(e) => app.fail("No se pudo calcular el diff", e),
+                Err(e) => app.fail(&tr!("error.diff"), e),
             }
         } else if let Some(path) = app.selected_path.clone() {
             app.remember_recent(&path);
             if app.load_via_backend(&path, launch.cell.clone()) {
-                app.status = format!("Cargando {} …", path.display());
+                app.status = tr!("status.loading", file = path.display());
             } else {
-                app.status = format!("{} — formato no soportado", path.display());
+                app.status = tr!("status.unsupported", file = path.display());
             }
         }
 
@@ -324,7 +328,7 @@ impl RikuGuiApp {
     /// Error: queda en la barra de estado y en un mensaje que no se va solo.
     fn fail(&mut self, what: &str, e: impl std::fmt::Display) {
         let msg = format!("{what}: {e}");
-        self.status = format!("{what} — error");
+        self.status = tr!("status.error", what = what);
         self.error = Some(msg.clone());
         self.toasts.push(ToastKind::Error, msg, self.now);
     }
@@ -346,10 +350,10 @@ impl RikuGuiApp {
 
         // Cualquier formato con un backend registrado (ruta neutra async).
         if self.load_via_backend(path, None) {
-            self.status = format!("Cargando {} …", path.display());
+            self.status = tr!("status.loading", file = path.display());
         } else if self.error.is_none() {
-            self.status = format!("{} — formato no soportado aún", path.display());
-            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym, .gds, .oas y .raw)"));
+            self.status = tr!("status.unsupported", file = path.display());
+            self.notify(ToastKind::Warning, tr!("toast.unsupported", name = name));
         }
     }
 
@@ -367,7 +371,7 @@ impl RikuGuiApp {
         let content = match std::fs::read(path) {
             Ok(c) => c,
             Err(e) => {
-                self.fail(&format!("No se pudo leer {}", path.display()), e);
+                self.fail(&tr!("error.read", file = path.display()), e);
                 return false;
             }
         };
@@ -425,7 +429,7 @@ impl RikuGuiApp {
         let backend = self.backends.iter()
             .find(|b| b.accepts(&after, Some(&file_str)))
             .cloned()
-            .ok_or_else(|| format!("{file_str}: formato sin visor"))?;
+            .ok_or_else(|| tr!("error.no_viewer", file = file_str))?;
 
         self.selected_path = Some(file.to_path_buf());
         let kind = LoadKind::Diff { before: Arc::new(before), tab: DiffTab::Diff };
@@ -439,7 +443,7 @@ impl RikuGuiApp {
         let Some(bs) = &self.backend_state else { return };
         let (backend, source, path, kind) = (bs.backend.clone(), bs.source.clone(), bs.path.clone(), bs.kind.clone());
         self.error = None;
-        self.status = format!("Cargando celda {id} …");
+        self.status = tr!("status.loading_cell", cell = id);
         self.spawn_backend_load(backend, source, path, Some(id.to_string()), kind, true);
     }
 
@@ -485,9 +489,9 @@ impl RikuGuiApp {
         let mut picked = None;
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() * 0.22).max(space::L));
-            ui.label(RichText::new("Abre un diseño").size(22.0).strong());
+            ui.label(RichText::new(tr!("empty.title")).size(22.0).strong());
             ui.add_space(space::XS);
-            ui.label(RichText::new("Elige un .sch, .gds, .oas o .raw en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
+            ui.label(RichText::new(tr!("empty.hint")).weak());
             ui.add_space(space::L);
 
             let recent: Vec<&String> = self.recent.iter().filter(|p| Path::new(p).is_file()).collect();
@@ -496,7 +500,7 @@ impl RikuGuiApp {
                     .inner_margin(egui::Margin::same(space::M as i8))
                     .show(ui, |ui| {
                         ui.set_max_width(420.0);
-                        ui.label(RichText::new("Recientes").strong());
+                        ui.label(RichText::new(tr!("empty.recent")).strong());
                         ui.add_space(space::XS);
                         for p in recent {
                             let path = Path::new(p);
@@ -515,7 +519,7 @@ impl RikuGuiApp {
                 ui.add_space(space::L);
             }
             ui.label(
-                RichText::new("F encuadrar  ·  L etiquetas  ·  rueda para zoom  ·  arrastrar para mover")
+                RichText::new(tr!("empty.shortcuts"))
                     .small()
                     .weak(),
             );
@@ -553,7 +557,7 @@ impl RikuGuiApp {
         if labels {
             self.show_labels = !self.show_labels;
             // Con el teclado no se ve el botón cambiar: confirmarlo.
-            let msg = if self.show_labels { "Etiquetas visibles" } else { "Etiquetas ocultas (L para mostrar)" };
+            let msg = if self.show_labels { tr!("toast.labels_on") } else { tr!("toast.labels_off") };
             self.notify(ToastKind::Info, msg);
         }
         if let Some(bs) = self.backend_state.as_mut() {
@@ -600,7 +604,7 @@ impl RikuGuiApp {
                 true
             }
             Err(e) => {
-                self.fail(&format!("No se pudo leer {}", path.display()), e);
+                self.fail(&tr!("error.read", file = path.display()), e);
                 false
             }
         }
@@ -620,7 +624,7 @@ impl RikuGuiApp {
                     self.status = view.summary();
                     self.wave = Some(view);
                 }
-                (Err(e), _) | (_, Err(e)) => self.fail("No se pudo comparar", e),
+                (Err(e), _) | (_, Err(e)) => self.fail(&tr!("error.compare"), e),
             },
             wave_view::Request::StopComparing => {
                 self.open_raw(&path);
@@ -633,7 +637,7 @@ impl RikuGuiApp {
     #[cfg(feature = "spice")]
     fn show_wave_tabs(&mut self, ui: &mut egui::Ui) -> bool {
         let Some(w) = self.wave.as_mut().filter(|w| w.is_diff()) else { return false };
-        ui.heading("Vistas");
+        ui.heading(tr!("panel.views"));
         if let Some(p) = &self.selected_path {
             ui.label(RichText::new(p.file_name().unwrap_or_default().to_string_lossy().as_ref())
                 .color(egui::Color32::from_gray(180)));
@@ -641,9 +645,9 @@ impl RikuGuiApp {
         ui.label(RichText::new(format!("{} → {}", w.label_a, w.label_b)).small().color(egui::Color32::from_gray(140)));
         ui.separator();
         for (tab, label, hint) in [
-            (DiffTab::Diff, "Diff", "B continua sobre A punteada, con el error B − A debajo"),
-            (DiffTab::Before, "Before", "Solo la versión anterior (A)"),
-            (DiffTab::After, "After", "Solo la versión nueva (B)"),
+            (DiffTab::Diff, "Diff", tr!("wave.tab_diff_hint")),
+            (DiffTab::Before, "Before", tr!("wave.tab_before_hint")),
+            (DiffTab::After, "After", tr!("wave.tab_after_hint")),
         ] {
             ui.radio_value(&mut w.tab, tab, label).on_hover_text(hint);
         }
@@ -666,7 +670,7 @@ impl RikuGuiApp {
         let entry = bs.scene.current_entry().map(str::to_string);
         self.error = None;
         if self.load_via_backend(&path, entry) {
-            self.status = format!("Recargando {} …", path.display());
+            self.status = tr!("status.reloading", file = path.display());
         }
     }
 
@@ -719,7 +723,7 @@ impl RikuGuiApp {
             Ok(loaded) => {
                 let name = loaded.backend.info().name;
                 let what = match &loaded.kind {
-                    LoadKind::Single => format!("Abierto ({name})"),
+                    LoadKind::Single => tr!("status.opened", name = name),
                     LoadKind::Diff { tab: DiffTab::Diff, .. } => "Diff".to_string(),
                     LoadKind::Diff { tab: DiffTab::Before, .. } => "Before".to_string(),
                     LoadKind::Diff { tab: DiffTab::After, .. } => "After".to_string(),
@@ -734,7 +738,7 @@ impl RikuGuiApp {
                     let shown = loaded.scene.current_entry().map(str::to_string).unwrap_or_else(|| {
                         Path::new(&loaded.path).file_name().unwrap_or_default().to_string_lossy().to_string()
                     });
-                    self.notify(ToastKind::Success, format!("{shown} cargado"));
+                    self.notify(ToastKind::Success, tr!("toast.loaded", what = shown));
                 }
                 // Mismo archivo (cambio de celda, de pestaña o recarga): se
                 // conservan capas ocultas, buscador y vista. Una celda nueva
@@ -778,7 +782,7 @@ impl RikuGuiApp {
                     let name = Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
                     // Un archivo que no abre no debe ofrecerse como reciente.
                     self.recent.retain(|r| *r != path);
-                    self.fail(&format!("No se pudo abrir {name}"), friendly_error(&e));
+                    self.fail(&tr!("error.open", file = name), friendly_error(&e));
                 }
             }
         }
@@ -795,6 +799,7 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
         eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
         eframe::set_value(storage, PREF_RECENT, &self.recent);
+        eframe::set_value(storage, PREF_LANG, &i18n::current());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -846,15 +851,15 @@ impl eframe::App for RikuGuiApp {
 
                 let has_view = self.backend_state.is_some();
                 if ui
-                    .add_enabled(has_view, egui::Button::new("Encuadrar"))
-                    .on_hover_text("Ajustar la vista para ver todo el diseño  (F)")
+                    .add_enabled(has_view, egui::Button::new(tr!("toolbar.fit")))
+                    .on_hover_text(tr!("toolbar.fit_hint"))
                     .clicked()
                 {
                     self.request_fit();
                 }
                 if ui
-                    .button("Recargar")
-                    .on_hover_text("Volver a leer el archivo y el árbol de proyecto desde el disco")
+                    .button(tr!("toolbar.reload"))
+                    .on_hover_text(tr!("toolbar.reload_hint"))
                     .clicked()
                 {
                     self.refresh_tree();
@@ -862,26 +867,34 @@ impl eframe::App for RikuGuiApp {
                     self.reload_backend();
                 }
                 ui.separator();
-                ui.toggle_value(&mut self.show_labels, "Etiquetas")
-                    .on_hover_text("Mostrar u ocultar los textos del layout (pines, nombres)  (L)");
+                ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels"))
+                    .on_hover_text(tr!("toolbar.labels_hint"));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Lo menos frecuente, un nivel más abajo.
-                    ui.menu_button("Ajustes", |ui| {
-                        ui.checkbox(&mut self.reduce_motion, "Reducir movimiento")
-                            .on_hover_text("Sin animaciones al encuadrar ni inercia al soltar un arrastre");
-                        ui.checkbox(&mut self.simplify, "Simplificar al alejar").on_hover_text(
-                            "En layouts grandes, lo que mide menos de un píxel se dibuja como bloques del color de su \
-                             capa. Al acercarse aparece todo. Desactivarlo dibuja cada polígono (más lento)",
-                        );
+                    ui.menu_button(tr!("settings.menu"), |ui| {
+                        ui.checkbox(&mut self.reduce_motion, tr!("settings.reduce_motion"))
+                            .on_hover_text(tr!("settings.reduce_motion_hint"));
+                        ui.checkbox(&mut self.simplify, tr!("settings.simplify"))
+                            .on_hover_text(tr!("settings.simplify_hint"));
                         ui.separator();
-                        ui.label(RichText::new("Atajos").strong());
+                        ui.label(RichText::new(tr!("settings.language")).strong());
+                        let current = i18n::current();
+                        ui.horizontal(|ui| {
+                            for (code, name) in i18n::LANGUAGES {
+                                if ui.selectable_label(current == code, name).clicked() {
+                                    i18n::set(code);
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.label(RichText::new(tr!("settings.shortcuts")).strong());
                         for (k, what) in [
-                            ("F", "Encuadrar"),
-                            ("L", "Etiquetas"),
-                            ("+ / −", "Acercar / alejar"),
-                            ("Rueda", "Zoom en el cursor"),
-                            ("Arrastrar", "Mover (suelta con impulso)"),
+                            ("F".to_string(), tr!("shortcut.fit")),
+                            ("L".to_string(), tr!("shortcut.labels")),
+                            ("+ / −".to_string(), tr!("shortcut.zoom_keys")),
+                            (tr!("shortcut.wheel"), tr!("shortcut.wheel_what")),
+                            (tr!("shortcut.drag"), tr!("shortcut.drag_what")),
                         ] {
                             ui.horizontal(|ui| {
                                 ui.monospace(format!("{k:>9}"));
@@ -918,7 +931,7 @@ impl eframe::App for RikuGuiApp {
                     }
                     if self.labels_hidden > 0 && self.show_labels {
                         ui.separator();
-                        ui.label(RichText::new(format!("{} etiquetas ocultas por solaparse — acerca el zoom", self.labels_hidden)).weak());
+                        ui.label(RichText::new(tr!("status.labels_hidden", count = self.labels_hidden)).weak());
                     }
                 });
             });
@@ -938,7 +951,7 @@ impl eframe::App for RikuGuiApp {
 
                 // Modo diff: selector de vistas (Diff/Before/After); cada una es otra carga.
                 if let (Some(ctx), Some(current)) = (self.diff_ctx.as_ref(), self.backend_diff_tab()) {
-                    ui.heading("Vistas");
+                    ui.heading(tr!("panel.views"));
                     ui.label(RichText::new(ctx.file.file_name()
                         .unwrap_or_default().to_string_lossy().as_ref())
                         .color(egui::Color32::from_gray(180)));
@@ -959,13 +972,13 @@ impl eframe::App for RikuGuiApp {
                         ui.separator();
                     }
                     // Modo archivo único: árbol de proyecto
-                    ui.heading("Proyecto");
+                    ui.heading(tr!("panel.project"));
                     let root = self.project_root.display().to_string();
                     ui.add(egui::Label::new(RichText::new(&root).small().weak()).truncate())
                         .on_hover_text(&root);
                     if ui
-                        .checkbox(&mut self.show_all_files, "Todos los archivos")
-                        .on_hover_text("Sin marcar: solo .sch, .sym, .gds, .oas y .raw (lo que se puede abrir)")
+                        .checkbox(&mut self.show_all_files, tr!("panel.all_files"))
+                        .on_hover_text(tr!("panel.all_files_hint"))
                         .changed()
                     {
                         self.refresh_tree();
@@ -994,7 +1007,7 @@ impl eframe::App for RikuGuiApp {
             .resizable(true)
             .default_size(220.0)
             .show_inside(ui, |ui| {
-                ui.heading("Detalles");
+                ui.heading(tr!("panel.details"));
                 if let Some(path) = &self.selected_path {
                     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
                     ui.add(egui::Label::new(RichText::new(&name).strong()).truncate())
@@ -1011,7 +1024,7 @@ impl eframe::App for RikuGuiApp {
                 if let Some(bs) = &mut self.backend_state {
                     render_backend_details(ui, bs);
                 } else {
-                    ui.label(RichText::new("Nada abierto todavía.").weak());
+                    ui.label(RichText::new(tr!("panel.nothing_open")).weak());
                 }
             });
 
@@ -1185,7 +1198,7 @@ impl eframe::App for RikuGuiApp {
                     ui.centered_and_justified(|ui| {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Cargando…");
+                            ui.label(tr!("canvas.loading"));
                         });
                     });
                 } else if let Some(path) = self.empty_state(ui) {
@@ -1258,7 +1271,7 @@ fn drop_hint(ctx: &egui::Context) {
     painter.text(
         screen.center(),
         egui::Align2::CENTER_CENTER,
-        "Suelta para abrir (.sch, .sym, .gds, .oas)",
+        tr!("drop.hint"),
         egui::FontId::proportional(20.0),
         v.strong_text_color(),
     );
@@ -1343,9 +1356,9 @@ fn render_change_items(ui: &mut egui::Ui, changes: &[viewer_core::ChangeItem]) -
                     ui.label(RichText::new(&c.detail).small().color(dim(ui.visuals().weak_text_color())));
                 }
                 let hover = match (c.cosmetic, c.bbox.is_some()) {
-                    (true, _) => "Cosmético: bajo el umbral de relevancia",
-                    (false, true) => "Clic para ir al cambio",
-                    (false, false) => "Sin ubicación en esta celda",
+                    (true, _) => tr!("change.cosmetic_hint"),
+                    (false, true) => tr!("change.go_hint"),
+                    (false, false) => tr!("change.no_location"),
                 };
                 if resp.on_hover_text(hover).clicked() {
                     picked = c.bbox;
@@ -1365,7 +1378,7 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
 
     let meta = scene.metadata();
     if !meta.is_empty() {
-        section(ui, "summary", "Resumen", None, true, |ui| {
+        section(ui, "summary", &tr!("details.summary"), None, true, |ui| {
             egui::Grid::new("scene_meta").num_columns(2).spacing([space::M, space::XS]).show(ui, |ui| {
                 for (k, v) in meta {
                     ui.label(RichText::new(k).weak());
@@ -1381,7 +1394,7 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
     // Avisos del backend (p. ej. símbolos sin resolver): arriba, visibles.
     let notices = scene.notices();
     if !notices.is_empty() {
-        section(ui, "notices", "Avisos", Some(notices.len()), true, |ui| {
+        section(ui, "notices", &tr!("details.notices"), Some(notices.len()), true, |ui| {
             for n in notices {
                 ui.label(RichText::new(n).small().color(ui.visuals().warn_fg_color));
             }
@@ -1391,7 +1404,7 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
     let changes = scene.changes();
     if !changes.is_empty() {
         let mut picked = None;
-        section(ui, "changes", "Cambios", Some(changes.len()), true, |ui| {
+        section(ui, "changes", &tr!("details.changes"), Some(changes.len()), true, |ui| {
             picked = render_change_items(ui, changes);
         });
         if let Some(target) = picked {
@@ -1405,16 +1418,16 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
     }
     let shown = layers.iter().filter(|(_, p)| !bs.hidden_layers.contains(&p.name)).count();
     let title_count = if shown == layers.len() { layers.len() } else { shown };
-    section(ui, "layers", "Capas", Some(title_count), true, |ui| {
+    section(ui, "layers", &tr!("details.layers"), Some(title_count), true, |ui| {
         ui.horizontal(|ui| {
-            if ui.small_button("Mostrar todas").clicked() {
+            if ui.small_button(tr!("details.show_all")).clicked() {
                 bs.hidden_layers.clear();
             }
-            if ui.small_button("Ocultar todas").clicked() {
+            if ui.small_button(tr!("details.hide_all")).clicked() {
                 bs.hidden_layers.extend(layers.iter().map(|(_, p)| p.name.clone()));
             }
             if shown < layers.len() {
-                ui.label(RichText::new(format!("{} ocultas", layers.len() - shown)).small().weak());
+                ui.label(RichText::new(tr!("details.hidden", count = layers.len() - shown)).small().weak());
             }
         });
         egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
@@ -1447,9 +1460,9 @@ fn render_backend_details(ui: &mut egui::Ui, bs: &mut BackendState) {
 /// radio estándar se adapta al tema y se reconoce de inmediato.
 fn view_selector(ui: &mut egui::Ui, current: &mut DiffTab, this: DiffTab, label: &str) {
     let hint = match this {
-        DiffTab::Diff => "Después, con lo añadido en verde y lo eliminado en rojo",
-        DiffTab::Before => "Versión anterior (commit A)",
-        DiffTab::After => "Versión nueva (commit B)",
+        DiffTab::Diff => tr!("tab.diff_hint"),
+        DiffTab::Before => tr!("tab.before_hint"),
+        DiffTab::After => tr!("tab.after_hint"),
     };
     ui.radio_value(current, this, label).on_hover_text(hint);
 }
@@ -1461,15 +1474,15 @@ fn theme_selector(ui: &mut egui::Ui) {
     let current = ui.ctx().options(|o| o.theme_preference);
     // Orden visual (izq→der): Claro · Oscuro · Sistema.
     for (pref, label, tip) in [
-        (T::System, "Sistema", "Seguir el tema del sistema operativo"),
-        (T::Dark, "Oscuro", "Fondo oscuro (como KLayout)"),
-        (T::Light, "Claro", "Fondo claro, para ambientes iluminados o para imprimir capturas"),
+        (T::System, tr!("theme.system"), tr!("theme.system_hint")),
+        (T::Dark, tr!("theme.dark"), tr!("theme.dark_hint")),
+        (T::Light, tr!("theme.light"), tr!("theme.light_hint")),
     ] {
         if ui.selectable_label(current == pref, label).on_hover_text(tip).clicked() {
             ui.ctx().set_theme(pref);
         }
     }
-    ui.label(RichText::new("Tema:").weak());
+    ui.label(RichText::new(tr!("theme.label")).weak());
 }
 
 /// Longitud con 3 cifras significativas (`0.0123`, `1.25`, `310`).
@@ -1533,9 +1546,9 @@ fn canvas_cursor(ctx: &egui::Context, response: &egui::Response) {
 /// (entre paréntesis) para quien necesite diagnosticar.
 fn friendly_error(e: &str) -> String {
     let plain = if e.contains("GDSII") || e.contains("input file read error") {
-        Some("no es un GDSII válido o está dañado")
+        Some(tr!("error.bad_gds"))
     } else if e.contains("no existe") || e.contains("No such file") {
-        Some("el archivo ya no existe")
+        Some(tr!("error.missing_file"))
     } else {
         None
     };
@@ -1553,7 +1566,7 @@ mod tests {
     fn friendly_error_explains_corrupt_gds_and_keeps_details() {
         let e = "parse error: GDSII parse: gdstk error: input file read error";
         let f = friendly_error(e);
-        assert!(f.starts_with("no es un GDSII válido"), "{f}");
+        assert!(f.starts_with("not a valid GDSII"), "{f}");
         assert!(f.contains(e), "conserva el detalle técnico");
         assert_eq!(friendly_error("otra cosa"), "otra cosa");
     }

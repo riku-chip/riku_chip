@@ -11,6 +11,7 @@
 use eframe::egui::{self, Align2, Color32, RichText, Stroke};
 
 use crate::gui::theme::{mix, space};
+use crate::gui::tr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToastKind {
@@ -112,7 +113,7 @@ impl Toasts {
                                 let (bar, _) = ui.allocate_exact_size(egui::vec2(3.0, 18.0), egui::Sense::hover());
                                 ui.painter().rect_filled(bar, 2.0, accent);
                                 ui.add(egui::Label::new(RichText::new(&t.text)).wrap());
-                                if t.kind == ToastKind::Error && ui.small_button("✕").on_hover_text("Cerrar").clicked() {
+                                if t.kind == ToastKind::Error && ui.small_button("✕").on_hover_text(tr!("toast.close")).clicked() {
                                     close = Some(i);
                                 }
                             });

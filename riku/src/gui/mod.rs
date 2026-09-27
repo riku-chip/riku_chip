@@ -9,6 +9,7 @@ use eframe::egui;
 
 mod app;
 mod entry_picker;
+pub(crate) mod i18n;
 mod label_layout;
 mod launch;
 mod motion;
@@ -19,6 +20,15 @@ mod theme;
 mod toast;
 #[cfg(feature = "spice")]
 mod wave_view;
+
+/// Texto traducido del visor (`riku/locales/gui.yml`) como `String`, con
+/// variables: `tr!("status.loading", file = name)`.
+macro_rules! tr {
+    ($($arg:tt)*) => {
+        rust_i18n::t!($($arg)*).into_owned()
+    };
+}
+pub(crate) use tr;
 
 /// `true` si hay un servidor gráfico al que conectarse (X11 o Wayland).
 pub fn has_display() -> bool {

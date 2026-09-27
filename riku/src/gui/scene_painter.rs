@@ -31,6 +31,7 @@ use viewer_core::{
 use crate::gui::label_layout::{place, LabelCandidate, PILL_PADDING};
 use crate::gui::polygon_fill::paint_filled_polygon;
 use crate::gui::theme::CanvasTheme;
+use crate::gui::tr;
 
 /// Paleta neutral mínima por layer. Se usa cuando la escena no provee su
 /// propio `LayerPaint` — suficiente para inspección genérica.
@@ -161,14 +162,14 @@ pub fn hover_info(
     let el = pick_at(scene, xf.to_world(pos), hidden)?;
     let layer = match scene.layer_paint(el.layer()) {
         Some(p) => p.name.clone(),
-        None => format!("capa {}", el.layer()),
+        None => tr!("canvas.layer", layer = el.layer()),
     };
     let unit = scene.world_unit().map(|u| format!(" {u}")).unwrap_or_default();
     let b = el.bounding_box();
     let mut text = format!("{layer}\n{:.3} × {:.3}{unit}", b.width(), b.height());
     if let Some(a) = el.area() {
         let sq = scene.world_unit().map(|u| format!(" {u}²")).unwrap_or_default();
-        text.push_str(&format!("\nárea {a:.4}{sq}"));
+        text.push_str(&format!("\n{} {a:.4}{sq}", tr!("canvas.area")));
     }
     Some(text)
 }
@@ -240,7 +241,7 @@ pub fn paint_scene(
         painter.text(
             rect.center(),
             Align2::CENTER_CENTER,
-            "Escena vacía.",
+            tr!("canvas.empty_scene"),
             FontId::proportional(16.0),
             theme.muted,
         );
@@ -808,7 +809,7 @@ mod tests {
         fit_scene(&mut vp, &scene, panel());
         let pos = ScreenXform::new(panel(), &vp, YAxis::Up).to_screen(1.0, 1.0);
         let text = hover_info(&scene, &vp, panel(), pos, &HashSet::new()).expect("hit");
-        assert_eq!(text, "met1 68/20\n4.000 × 2.000 µm\nárea 8.0000 µm²");
+        assert_eq!(text, "met1 68/20\n4.000 × 2.000 µm\narea 8.0000 µm²");
     }
 
     #[test]

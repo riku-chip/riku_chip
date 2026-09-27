@@ -1,0 +1,376 @@
+# Textos del visor (riku gui). Cada clave lleva `en` y `es`; el inglés es el
+# idioma por defecto y el de respaldo. Variables: %{nombre}.
+# El test `gui::i18n::tests::every_key_has_both_languages` verifica que
+# ninguna clave quede sin alguno de los dos idiomas.
+_version: 2
+
+# ─── Barra de herramientas y ajustes ────────────────────────────────────────
+toolbar.fit:
+  en: Fit
+  es: Encuadrar
+toolbar.fit_hint:
+  en: Fit the view to the whole design  (F)
+  es: Ajustar la vista para ver todo el diseño  (F)
+toolbar.reload:
+  en: Reload
+  es: Recargar
+toolbar.reload_hint:
+  en: Read the file and the project tree again from disk
+  es: Volver a leer el archivo y el árbol de proyecto desde el disco
+toolbar.labels:
+  en: Labels
+  es: Etiquetas
+toolbar.labels_hint:
+  en: Show or hide the layout texts (pins, names)  (L)
+  es: Mostrar u ocultar los textos del layout (pines, nombres)  (L)
+settings.menu:
+  en: Settings
+  es: Ajustes
+settings.reduce_motion:
+  en: Reduce motion
+  es: Reducir movimiento
+settings.reduce_motion_hint:
+  en: No animations when fitting and no inertia after a drag
+  es: Sin animaciones al encuadrar ni inercia al soltar un arrastre
+settings.simplify:
+  en: Simplify when zoomed out
+  es: Simplificar al alejar
+settings.simplify_hint:
+  en: In large layouts, whatever is smaller than a pixel is drawn as blocks in its layer color. Zooming in shows everything. Turning it off draws every polygon (slower)
+  es: En layouts grandes, lo que mide menos de un píxel se dibuja como bloques del color de su capa. Al acercarse aparece todo. Desactivarlo dibuja cada polígono (más lento)
+settings.language:
+  en: Language
+  es: Idioma
+settings.shortcuts:
+  en: Shortcuts
+  es: Atajos
+shortcut.fit:
+  en: Fit
+  es: Encuadrar
+shortcut.labels:
+  en: Labels
+  es: Etiquetas
+shortcut.zoom_keys:
+  en: Zoom in / out
+  es: Acercar / alejar
+shortcut.wheel:
+  en: Wheel
+  es: Rueda
+shortcut.wheel_what:
+  en: Zoom at the cursor
+  es: Zoom en el cursor
+shortcut.drag:
+  en: Drag
+  es: Arrastrar
+shortcut.drag_what:
+  en: Pan (releases with momentum)
+  es: Mover (suelta con impulso)
+theme.label:
+  en: "Theme:"
+  es: "Tema:"
+theme.system:
+  en: System
+  es: Sistema
+theme.system_hint:
+  en: Follow the operating system theme
+  es: Seguir el tema del sistema operativo
+theme.dark:
+  en: Dark
+  es: Oscuro
+theme.dark_hint:
+  en: Dark background (like KLayout)
+  es: Fondo oscuro (como KLayout)
+theme.light:
+  en: Light
+  es: Claro
+theme.light_hint:
+  en: Light background, for bright rooms or printing screenshots
+  es: Fondo claro, para ambientes iluminados o para imprimir capturas
+
+# ─── Barra de estado y mensajes ─────────────────────────────────────────────
+status.ready:
+  en: Ready — open a .sch, .gds, .oas or .raw from the Project panel
+  es: Listo — abre un .sch, .gds, .oas o .raw del panel Proyecto
+status.loading:
+  en: Loading %{file} …
+  es: Cargando %{file} …
+status.loading_cell:
+  en: Loading cell %{cell} …
+  es: Cargando celda %{cell} …
+status.reloading:
+  en: Reloading %{file} …
+  es: Recargando %{file} …
+status.unsupported:
+  en: "%{file} — unsupported format"
+  es: "%{file} — formato no soportado"
+status.error:
+  en: "%{what} — error"
+  es: "%{what} — error"
+status.opened:
+  en: Opened (%{name})
+  es: Abierto (%{name})
+status.labels_hidden:
+  en: "%{count} labels hidden because they overlap — zoom in"
+  es: "%{count} etiquetas ocultas por solaparse — acerca el zoom"
+toast.unsupported:
+  en: "%{name}: unsupported format (.sch, .sym, .gds, .oas and .raw can be opened)"
+  es: "%{name}: formato no soportado (se abren .sch, .sym, .gds, .oas y .raw)"
+toast.loaded:
+  en: "%{what} loaded"
+  es: "%{what} cargado"
+toast.labels_on:
+  en: Labels visible
+  es: Etiquetas visibles
+toast.labels_off:
+  en: Labels hidden (L to show)
+  es: Etiquetas ocultas (L para mostrar)
+toast.close:
+  en: Close
+  es: Cerrar
+
+# ─── Errores ────────────────────────────────────────────────────────────────
+error.diff:
+  en: Could not compute the diff
+  es: No se pudo calcular el diff
+error.read:
+  en: Could not read %{file}
+  es: No se pudo leer %{file}
+error.open:
+  en: Could not open %{file}
+  es: No se pudo abrir %{file}
+error.compare:
+  en: Could not compare
+  es: No se pudo comparar
+error.no_viewer:
+  en: "%{file}: format without a viewer"
+  es: "%{file}: formato sin visor"
+error.bad_gds:
+  en: not a valid GDSII or it is damaged
+  es: no es un GDSII válido o está dañado
+error.missing_file:
+  en: the file no longer exists
+  es: el archivo ya no existe
+
+# ─── Pantalla inicial y soltar archivos ─────────────────────────────────────
+empty.title:
+  en: Open a design
+  es: Abre un diseño
+empty.hint:
+  en: Pick a .sch, .gds, .oas or .raw in the Project panel, or drag a file onto the window.
+  es: Elige un .sch, .gds, .oas o .raw en el panel Proyecto, o arrastra un archivo a la ventana.
+empty.recent:
+  en: Recent
+  es: Recientes
+empty.shortcuts:
+  en: F fit  ·  L labels  ·  wheel to zoom  ·  drag to pan
+  es: F encuadrar  ·  L etiquetas  ·  rueda para zoom  ·  arrastrar para mover
+drop.hint:
+  en: Drop to open (.sch, .sym, .gds, .oas, .raw)
+  es: Suelta para abrir (.sch, .sym, .gds, .oas, .raw)
+canvas.loading:
+  en: Loading…
+  es: Cargando…
+canvas.empty_scene:
+  en: Empty scene.
+  es: Escena vacía.
+canvas.layer:
+  en: layer %{layer}
+  es: capa %{layer}
+canvas.area:
+  en: area
+  es: área
+
+# ─── Paneles ────────────────────────────────────────────────────────────────
+panel.views:
+  en: Views
+  es: Vistas
+panel.project:
+  en: Project
+  es: Proyecto
+panel.all_files:
+  en: All files
+  es: Todos los archivos
+panel.all_files_hint:
+  en: "Unchecked: only .sch, .sym, .gds, .oas and .raw (what can be opened)"
+  es: "Sin marcar: solo .sch, .sym, .gds, .oas y .raw (lo que se puede abrir)"
+panel.details:
+  en: Details
+  es: Detalles
+panel.nothing_open:
+  en: Nothing open yet.
+  es: Nada abierto todavía.
+tab.diff_hint:
+  en: After, with additions in green and removals in red
+  es: Después, con lo añadido en verde y lo eliminado en rojo
+tab.before_hint:
+  en: Previous version (commit A)
+  es: Versión anterior (commit A)
+tab.after_hint:
+  en: New version (commit B)
+  es: Versión nueva (commit B)
+details.summary:
+  en: Summary
+  es: Resumen
+details.notices:
+  en: Notices
+  es: Avisos
+details.changes:
+  en: Changes
+  es: Cambios
+details.layers:
+  en: Layers
+  es: Capas
+details.show_all:
+  en: Show all
+  es: Mostrar todas
+details.hide_all:
+  en: Hide all
+  es: Ocultar todas
+details.hidden:
+  en: "%{count} hidden"
+  es: "%{count} ocultas"
+change.cosmetic_hint:
+  en: "Cosmetic: below the relevance threshold"
+  es: "Cosmético: bajo el umbral de relevancia"
+change.go_hint:
+  en: Click to go to the change
+  es: Clic para ir al cambio
+change.no_location:
+  en: No location in this cell
+  es: Sin ubicación en esta celda
+
+# ─── Selector de celdas ─────────────────────────────────────────────────────
+cells.title:
+  en: Cells
+  es: Celdas
+cells.search:
+  en: search cell…
+  es: buscar celda…
+cells.only_top:
+  en: only top cells
+  es: solo top cells
+cells.only_changed:
+  en: only with changes (%{count})
+  es: solo con cambios (%{count})
+cells.no_match_hint:
+  en: 'no matches (changes may be in subcells: uncheck "only top cells")'
+  es: 'sin coincidencias (los cambios pueden estar en subceldas: desmarca "solo top cells")'
+cells.no_match:
+  en: no matches
+  es: sin coincidencias
+cells.top:
+  en: top cell
+  es: top cell
+cells.sub:
+  en: subcell
+  es: subcelda
+cells.added:
+  en: " · added"
+  es: " · añadida"
+cells.removed:
+  en: " · removed"
+  es: " · eliminada"
+cells.modified:
+  en: " · modified"
+  es: " · modificada"
+cells.no_geometry:
+  en: no geometry
+  es: sin geometría
+
+# ─── Formas de onda ─────────────────────────────────────────────────────────
+wave.summary_single:
+  en: "%{plots} analyses · %{signals} signals"
+  es: "%{plots} análisis · %{signals} señales"
+wave.summary_equal:
+  en: Waveforms match (within tolerance)
+  es: Formas de onda iguales (dentro de la tolerancia)
+wave.summary_changed:
+  en: "%{count} signals changed beyond tolerance"
+  es: "%{count} señales cambiaron fuera de la tolerancia"
+wave.no_analyses:
+  en: The file has no analyses.
+  es: El archivo no tiene análisis.
+wave.pick_signals:
+  en: Pick signals in the Details panel.
+  es: Elige señales en el panel Detalles.
+wave.signal:
+  en: Signal
+  es: Señal
+wave.value:
+  en: Value
+  es: Valor
+wave.new:
+  en: new
+  es: nueva
+wave.removed:
+  en: removed
+  es: eliminada
+wave.legend:
+  en: B solid · A dashed
+  es: B continua · A punteada
+wave.simulator_hint:
+  en: Simulator that produced the file
+  es: Simulador que generó el archivo
+wave.analysis:
+  en: Analysis
+  es: Análisis
+wave.compare_with:
+  en: Compare with
+  es: Comparar con
+wave.none:
+  en: (none)
+  es: (ninguno)
+wave.count_equal:
+  en: "%{total} signals, no changes beyond tolerance"
+  es: "%{total} señales, sin cambios fuera de tolerancia"
+wave.count_changed:
+  en: "%{count} of %{total} signals changed"
+  es: "%{count} de %{total} señales cambiaron"
+wave.only_changed:
+  en: Only the ones that changed
+  es: Solo las que cambiaron
+wave.show_error:
+  en: Show error (B − A)
+  es: Mostrar error (B − A)
+wave.hide_internal:
+  en: Hide internal nodes
+  es: Ocultar nodos internos
+wave.hide_internal_hint:
+  en: Device and subcircuit nodes (containing '.', '#' or '@')
+  es: Nodos de dispositivos y subcircuitos (con '.', '#' o '@')
+wave.filter:
+  en: Filter signals…
+  es: Filtrar señales…
+wave.select_none:
+  en: None
+  es: Ninguna
+wave.select_listed:
+  en: The listed ones
+  es: Las de la lista
+wave.select_listed_hint:
+  en: Show every filtered signal
+  es: Mostrar todas las señales filtradas
+wave.no_match:
+  en: No signal matches this filter.
+  es: Ninguna señal con este filtro.
+wave.diff_hint:
+  en: "Δmax %{max} at %{at}\nRMS %{rms}"
+  es: "Δmáx %{max} en %{at}\nRMS %{rms}"
+wave.only_in_b:
+  en: Only in B
+  es: Solo está en B
+wave.only_in_a:
+  en: Only in A
+  es: Solo está en A
+wave.no_common_axis:
+  en: No common axis to compare
+  es: Sin eje común para comparar
+wave.tab_diff_hint:
+  en: B solid over A dashed, with the B − A error below
+  es: B continua sobre A punteada, con el error B − A debajo
+wave.tab_before_hint:
+  en: Only the previous version (A)
+  es: Solo la versión anterior (A)
+wave.tab_after_hint:
+  en: Only the new version (B)
+  es: Solo la versión nueva (B)

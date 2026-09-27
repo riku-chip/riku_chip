@@ -20,6 +20,7 @@ use egui_plot::{GridMark, Legend, Line, LineStyle, Plot, PlotPoints};
 use crate::cli::format::diff_text::eng;
 use crate::gui::app::DiffTab;
 use crate::gui::theme::space;
+use crate::gui::tr;
 use crate::modules::spice::compare::{self, interp, PlotDiff, SignalDiff, Status, Tolerance};
 use crate::modules::spice::raw::{self, RawFile};
 
@@ -137,12 +138,12 @@ impl WaveView {
     pub fn summary(&self) -> String {
         if !self.is_diff() {
             let n: usize = self.after.plots.iter().map(|p| p.signals().len()).sum();
-            return format!("{} análisis · {n} señales", self.after.plots.len());
+            return tr!("wave.summary_single", plots = self.after.plots.len(), signals = n);
         }
         let changed: usize = (0..self.pairs.len()).map(|i| self.changed_count(i)).sum();
         match changed {
-            0 => "Formas de onda iguales (dentro de la tolerancia)".to_string(),
-            n => format!("{n} señales cambiaron fuera de la tolerancia"),
+            0 => tr!("wave.summary_equal"),
+            n => tr!("wave.summary_changed", count = n),
         }
     }
 
@@ -305,7 +306,7 @@ fn color_for(i: usize) -> Color32 {
 pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
     let idx = view.plot;
     let Some(pb) = view.plot_of(true, idx).or_else(|| view.plot_of(false, idx)) else {
-        ui.centered_and_justified(|ui| ui.label("El archivo no tiene análisis."));
+        ui.centered_and_justified(|ui| ui.label(tr!("wave.no_analyses")));
         return;
     };
     let complex = pb.complex;
@@ -324,7 +325,7 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
     let shown: Vec<(usize, String)> =
         names.iter().enumerate().filter(|(_, n)| selected.contains(&n.to_lowercase())).map(|(i, n)| (i, n.clone())).collect();
     if shown.is_empty() {
-        ui.centered_and_justified(|ui| ui.label(RichText::new("Elige señales en el panel Detalles.").weak()));
+        ui.centered_and_justified(|ui| ui.label(RichText::new(tr!("wave.pick_signals")).weak()));
         return;
     }
     // Un gráfico por unidad (V, A, dB…): mezclar voltios con microamperios
@@ -501,12 +502,12 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         let columns = 1 + [col_a, col_b, col_d].iter().filter(|c| **c).count();
         egui::Grid::new("riku_op").striped(true).num_columns(columns).show(ui, |ui| {
-            ui.label(RichText::new("Señal").strong());
+            ui.label(RichText::new(tr!("wave.signal")).strong());
             if col_a {
                 ui.label(RichText::new(&view.label_a).strong());
             }
             if col_b {
-                let head = if view.is_diff() { view.label_b.as_str() } else { "Valor" };
+                let head = if view.is_diff() { view.label_b.clone() } else { tr!("wave.value") };
                 ui.label(RichText::new(head).strong());
             }
             if col_d {
@@ -527,8 +528,8 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
                 if let Some(d) = d.filter(|_| col_d) {
                     let text = match d.status {
                         Status::Compared => eng(d.max_abs, d.unit),
-                        Status::Added => "nueva".into(),
-                        Status::Removed => "eliminada".into(),
+                        Status::Added => tr!("wave.new"),
+                        Status::Removed => tr!("wave.removed"),
                         Status::Incomparable => "—".into(),
                     };
                     ui.label(if changed { RichText::new(text).color(ui.visuals().warn_fg_color) } else { RichText::new(text).weak() });
@@ -548,17 +549,17 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
         ui.label(RichText::new(format!("A  {}", view.label_a)).small());
         ui.label(RichText::new(format!("B  {}", view.label_b)).small());
         if view.tab == DiffTab::Diff {
-            ui.label(RichText::new("B continua · A punteada").small().weak());
+            ui.label(RichText::new(tr!("wave.legend")).small().weak());
         }
     }
     if let Some(cmd) = view.after.plots.first().and_then(|p| p.command.as_deref()) {
-        ui.label(RichText::new(cmd).small().weak()).on_hover_text("Simulador que generó el archivo");
+        ui.label(RichText::new(cmd).small().weak()).on_hover_text(tr!("wave.simulator_hint"));
     }
     ui.add_space(space::XS);
 
     // Análisis.
     let current = view.pairs.get(view.plot).map(|p| p.0.clone()).unwrap_or_default();
-    egui::ComboBox::from_label("Análisis").selected_text(&current).show_ui(ui, |ui| {
+    egui::ComboBox::from_label(tr!("wave.analysis")).selected_text(&current).show_ui(ui, |ui| {
         for i in 0..view.pairs.len() {
             let mut label = view.pairs[i].0.clone();
             let n = view.changed_count(i);
@@ -575,8 +576,8 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     if let Some(path) = view.path.clone() {
         let others: Vec<&PathBuf> = candidates.iter().filter(|c| **c != path).collect();
         let label = if view.is_diff() { view.label_a.clone() } else { "—".into() };
-        egui::ComboBox::from_label("Comparar con").selected_text(label).show_ui(ui, |ui| {
-            if view.is_diff() && ui.selectable_label(false, "(ninguno)").clicked() {
+        egui::ComboBox::from_label(tr!("wave.compare_with")).selected_text(label).show_ui(ui, |ui| {
+            if view.is_diff() && ui.selectable_label(false, tr!("wave.none")).clicked() {
                 view.request = Some(Request::StopComparing);
             }
             for c in others {
@@ -592,16 +593,16 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     if view.is_diff() {
         let n = view.changed_count(idx);
         let total = view.signal_names(idx).len();
-        let text = if n == 0 { format!("{total} señales, sin cambios fuera de tolerancia") } else { format!("{n} de {total} señales cambiaron") };
+        let text = if n == 0 { tr!("wave.count_equal", total = total) } else { tr!("wave.count_changed", count = n, total = total) };
         ui.label(RichText::new(text).strong());
-        ui.checkbox(&mut view.only_changed, "Solo las que cambiaron");
+        ui.checkbox(&mut view.only_changed, tr!("wave.only_changed"));
         if view.tab == DiffTab::Diff {
-            ui.checkbox(&mut view.show_error, "Mostrar error (B − A)");
+            ui.checkbox(&mut view.show_error, tr!("wave.show_error"));
         }
     }
-    ui.checkbox(&mut view.hide_internal, "Ocultar nodos internos")
-        .on_hover_text("Nodos de dispositivos y subcircuitos (con '.', '#' o '@')");
-    ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text("Filtrar señales…"));
+    ui.checkbox(&mut view.hide_internal, tr!("wave.hide_internal"))
+        .on_hover_text(tr!("wave.hide_internal_hint"));
+    ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text(tr!("wave.filter")));
 
     let mut names = view.signal_names(idx);
     let filter = view.filter.to_lowercase();
@@ -617,10 +618,10 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     let all_names = view.signal_names(idx);
 
     ui.horizontal(|ui| {
-        if ui.small_button("Ninguna").clicked() {
+        if ui.small_button(tr!("wave.select_none")).clicked() {
             view.selection(idx).clear();
         }
-        if ui.small_button("Las de la lista").on_hover_text("Mostrar todas las señales filtradas").clicked() {
+        if ui.small_button(tr!("wave.select_listed")).on_hover_text(tr!("wave.select_listed_hint")).clicked() {
             let sel = view.selection(idx);
             sel.extend(names.iter().map(|n| n.to_lowercase()));
         }
@@ -629,7 +630,7 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
 
     egui::ScrollArea::vertical().id_salt("wave_signals").auto_shrink([false, false]).show(ui, |ui| {
         if names.is_empty() {
-            ui.label(RichText::new("Ninguna señal con este filtro.").weak());
+            ui.label(RichText::new(tr!("wave.no_match")).weak());
         }
         for n in &names {
             let key = n.to_lowercase();
@@ -651,11 +652,11 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
                     let (text, hover) = match d.status {
                         Status::Compared => (
                             format!("{:.2} %", d.rel() * 100.0),
-                            format!("Δmáx {} en {}\nRMS {}", eng(d.max_abs, d.unit), eng(d.at_x, d.x_unit), eng(d.rms, d.unit)),
+                            tr!("wave.diff_hint", max = eng(d.max_abs, d.unit), at = eng(d.at_x, d.x_unit), rms = eng(d.rms, d.unit)),
                         ),
-                        Status::Added => ("nueva".into(), "Solo está en B".into()),
-                        Status::Removed => ("eliminada".into(), "Solo está en A".into()),
-                        Status::Incomparable => ("?".into(), "Sin eje común para comparar".into()),
+                        Status::Added => (tr!("wave.new"), tr!("wave.only_in_b")),
+                        Status::Removed => (tr!("wave.removed"), tr!("wave.only_in_a")),
+                        Status::Incomparable => ("?".into(), tr!("wave.no_common_axis")),
                     };
                     let rt = RichText::new(text).small();
                     let rt = if WaveView::changed(d) { rt.color(ui.visuals().warn_fg_color) } else { rt.weak() };
