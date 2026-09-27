@@ -34,6 +34,17 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
 | Ir a un cambio (diff GDS) | clic en **Details → Cambios** |
 | Comparar versiones | vistas **Diff / Before / After** (la vista se conserva) |
+| Historial del repo | botón **History** o **H**: panel abajo con el grafo de ramas (ver abajo) |
+
+## Historial (**History**, tecla **H**)
+
+Un panel abajo, a todo el ancho, con el historial del repo del proyecto:
+
+- **Grafo de ramas y merges** con curvas y un color por rama (el mismo motor que `riku log --graph`); nodo hueco para un merge; chips de `HEAD` (relleno), ramas y tags. Pasar el mouse por un chip atenúa las demás ramas.
+- **Resumen por commit** a la derecha: formatos tocados y `+añadidos −eliminados ~modificados`. El grafo aparece al instante y los resúmenes se calculan en segundo plano (en paralelo), sin trabar el visor.
+- **Clic en un commit:** su mensaje, autor, fecha y archivos. **Clic en un archivo** (o doble clic en el commit, o **Enter**): su diff contra el primer padre en el lienzo, con **Diff / Before / After**, para `.sch`, `.gds`/`.oas` y `.raw`. La ruta sobre el lienzo empieza por `History`.
+- **↑/↓** cambian de commit; **H** cierra. **Filtrar archivos** (un glob, `*.gds`) o **Only this file** con un archivo abierto: el grafo se simplifica como `riku log --paths`. Se cargan 200 commits; **Load more** trae más.
+- El panel entra y sale por abajo con un resorte interrumpible; su alto se recuerda. Con **Reduce motion** no se anima.
 
 ## Arquitectura
 

@@ -79,4 +79,9 @@ pub struct LogOptions {
     pub start: Option<String>,
     /// Orden topológico y lugar de cada commit en el grafo (`--graph`).
     pub graph: bool,
+    /// Sin resumen por archivo: solo commits, refs y grafo (lo que es Git,
+    /// sin diffs). El visor lo usa para mostrar el historial al instante y
+    /// completa los resúmenes después. Con `paths` no tiene efecto (filtrar
+    /// exige saber qué tocó cada commit).
+    pub skip_summaries: bool,
 }

@@ -50,6 +50,19 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     // una conexión a Git por hilo (ver `parallel`): primero qué archivos
     // cambió cada uno y cuánto pesan (barato: árboles de Git y cabeceras de
     // blobs), después los diffs, en tandas que caben en memoria.
+    if opts.skip_summaries && opts.paths.is_empty() {
+        let mut commits: Vec<LogCommit> = raw
+            .into_iter()
+            .map(|c| build_log_commit_without_files(Planned { raw: c, files: Vec::new(), warnings: Vec::new() }, &refs_map).0)
+            .collect();
+        if opts.graph {
+            for (c, row) in commits.iter_mut().zip(graph::layout(&dag)) {
+                c.graph = Some(row);
+            }
+        }
+        return Ok(LogReport { commits, warnings: Vec::new() });
+    }
+
     let free = vec![0; raw.len()];
     let planned: Vec<(Planned, u64)> = parallel::map_in_waves(
         repo.reopener(),

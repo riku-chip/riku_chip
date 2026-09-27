@@ -9,6 +9,7 @@ use eframe::egui;
 
 mod app;
 mod entry_picker;
+mod history;
 pub(crate) mod i18n;
 mod label_layout;
 mod launch;

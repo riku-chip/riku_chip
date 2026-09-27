@@ -12,6 +12,7 @@ use viewer_core::{
 };
 
 use crate::gui::entry_picker;
+use crate::gui::history::{self, model::Request as HistoryRequest, HistoryPanel};
 use crate::gui::launch::LaunchArgs;
 use crate::gui::motion::{theme_fade_alpha, Inertia, ViewAnimation};
 use crate::gui::project::ProjectEntry;
@@ -37,9 +38,12 @@ pub(crate) enum DiffTab {
 
 /// Contexto persistente de un diff cargado — permite recargarlo sin perder estado.
 struct DiffContext {
+    /// Vacío: el commit inicial, que se compara contra nada.
     commit_a: String,
     commit_b: String,
     file: PathBuf,
+    /// Se abrió desde el panel History (la ruta sobre el lienzo lo dice).
+    from_history: bool,
 }
 
 /// Estado de una carga via `ViewerBackend`: todos los formatos (esquemáticos,
@@ -180,6 +184,8 @@ pub struct RikuGuiApp {
     last_dark: Option<bool>,
     /// Fundido en curso al cambiar de tema: (inicio, fondo del tema anterior).
     theme_fade: Option<(f64, egui::Color32)>,
+    /// Panel History: el historial con su grafo (abajo, H).
+    history: HistoryPanel,
 }
 
 /// Claves de persistencia (eframe storage).
@@ -189,6 +195,7 @@ const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 const PREF_SIMPLIFY: &str = "riku.simplify";
 const PREF_RECENT: &str = "riku.recent_files";
 const PREF_LANG: &str = "riku.lang";
+const PREF_HISTORY_H: &str = "riku.history_height";
 #[cfg(feature = "spice")]
 const PREF_WAVE_EXPRS: &str = "riku.wave_exprs";
 /// Cuántos archivos recientes se recuerdan.
@@ -259,6 +266,8 @@ impl RikuGuiApp {
         #[cfg(feature = "spice")]
         openable.push("raw".to_string());
         let project_tree = ProjectEntry::build(&project_root, show_all_files, &openable);
+        let history_h: f32 = cc.storage.and_then(|s| eframe::get_value(s, PREF_HISTORY_H)).unwrap_or(history::DEFAULT_HEIGHT);
+        let history = HistoryPanel::new(&project_root, history_h);
 
         let mut app = Self {
             project_root,
@@ -302,6 +311,7 @@ impl RikuGuiApp {
             loading_path: None,
             last_dark: None,
             theme_fade: None,
+            history,
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -311,6 +321,7 @@ impl RikuGuiApp {
                 commit_a: ca.clone(),
                 commit_b: cb.clone(),
                 file: file.clone(),
+                from_history: false,
             });
             match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone()) {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
@@ -407,13 +418,21 @@ impl RikuGuiApp {
 
         let svc = GitService::open(repo).map_err(|e| e.to_string())?;
         let file_str = file.to_string_lossy().to_string();
-        let after = svc.get_blob(commit_b, &file_str).map_err(|e| format!("{commit_b}: {e}"))?;
-        // Si falta en "antes" se compara contra vacío: todo cuenta como añadido.
-        let before = match svc.get_blob(commit_a, &file_str) {
-            Ok(bytes) => bytes,
-            Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Vec::new(),
-            Err(e) => return Err(format!("{commit_a}: {e}")),
+        // Si falta de un lado se compara contra vacío: todo cuenta como
+        // añadido (archivo nuevo, o `commit_a` vacío: el commit inicial) o
+        // eliminado (borrado en `commit_b`).
+        let read = |commit: &str| -> Result<Vec<u8>, String> {
+            if commit.is_empty() {
+                return Ok(Vec::new());
+            }
+            match svc.get_blob(commit, &file_str) {
+                Ok(bytes) => Ok(bytes),
+                Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Ok(Vec::new()),
+                Err(e) => Err(format!("{commit}: {e}")),
+            }
         };
+        let after = read(commit_b)?;
+        let before = read(commit_a)?;
 
         #[cfg(feature = "spice")]
         if is_raw(file) {
@@ -476,6 +495,9 @@ impl RikuGuiApp {
     fn breadcrumb(&self) -> Vec<String> {
         let mut parts = Vec::new();
         if let Some(ctx) = &self.diff_ctx {
+            if ctx.from_history {
+                parts.push(tr!("history.title"));
+            }
             parts.push(format!("{} → {}", short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)));
         }
         if let Some(p) = &self.selected_path {
@@ -540,6 +562,20 @@ impl RikuGuiApp {
         picked
     }
 
+    /// Abre en el lienzo lo que pidió el panel History.
+    fn handle_history_request(&mut self, req: HistoryRequest) {
+        let HistoryRequest::OpenDiff { parent, commit, path } = req;
+        let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
+        let parent = parent.unwrap_or_default();
+        let file = PathBuf::from(&path);
+        self.diff_ctx = Some(DiffContext { commit_a: parent.clone(), commit_b: commit.clone(), file: file.clone(), from_history: true });
+        self.selected_path = Some(repo.join(&path));
+        match self.load_backend_diff(&repo, &parent, &commit, &file, None) {
+            Ok(()) => self.status = format!("Diff {} → {} · {path}", short_hash(&parent), short_hash(&commit)),
+            Err(e) => self.fail(&tr!("error.diff"), e),
+        }
+    }
+
     /// Encuadrar todo, pedido por el usuario (se anima salvo movimiento reducido).
     fn request_fit(&mut self) {
         if let Some(bs) = self.backend_state.as_mut() {
@@ -553,6 +589,9 @@ impl RikuGuiApp {
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.egui_wants_keyboard_input() {
             return;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::H)) {
+            self.history.toggle();
         }
         let (fit, labels, zoom_in, zoom_out) = ctx.input(|i| {
             (
@@ -810,6 +849,7 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_LABELS, &self.show_labels);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
+        eframe::set_value(storage, PREF_HISTORY_H, &self.history.height);
         eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
         eframe::set_value(storage, PREF_RECENT, &self.recent);
         eframe::set_value(storage, PREF_LANG, &i18n::current());
@@ -884,6 +924,18 @@ impl eframe::App for RikuGuiApp {
                 ui.separator();
                 ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels"))
                     .on_hover_text(tr!("toolbar.labels_hint"));
+                let has_repo = self.history.repo().is_some();
+                let mut open = self.history.open;
+                let hint = if has_repo { tr!("toolbar.history_hint") } else { tr!("toolbar.history_no_repo") };
+                if ui
+                    .add_enabled(has_repo, egui::Button::selectable(open, tr!("history.title")))
+                    .on_hover_text(hint.clone())
+                    .on_disabled_hover_text(hint)
+                    .clicked()
+                {
+                    open = !open;
+                    self.history.open = open;
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Lo menos frecuente, un nivel más abajo.
@@ -907,6 +959,7 @@ impl eframe::App for RikuGuiApp {
                         for (k, what) in [
                             ("F".to_string(), tr!("shortcut.fit")),
                             ("L".to_string(), tr!("shortcut.labels")),
+                            ("H".to_string(), tr!("shortcut.history")),
                             ("+ / −".to_string(), tr!("shortcut.zoom_keys")),
                             (tr!("shortcut.wheel"), tr!("shortcut.wheel_what")),
                             (tr!("shortcut.drag"), tr!("shortcut.drag_what")),
@@ -951,6 +1004,18 @@ impl eframe::App for RikuGuiApp {
                 });
             });
         });
+
+        // ─── History: abajo, a todo el ancho, sobre la barra de estado ───────
+        let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05) as f64;
+        // Relativo al repo; un diff abierto entre commits ya guarda la ruta
+        // relativa.
+        let open_file = self.selected_path.as_ref().and_then(|p| {
+            let rel = if p.is_relative() { p.as_path() } else { p.strip_prefix(self.history.repo()?).ok()? };
+            Some(rel.to_string_lossy().replace('\\', "/"))
+        });
+        for req in self.history.show(ui, self.now, dt, self.reduce_motion, open_file) {
+            self.handle_history_request(req);
+        }
 
         egui::Panel::left("left_panel")
             .resizable(true)
@@ -1513,7 +1578,8 @@ fn fmt_len(v: f64) -> String {
 }
 
 fn short_hash(s: &str) -> String {
-    s.chars().take(7).collect()
+    // Vacío: el "antes" del commit inicial.
+    if s.is_empty() { "∅".to_string() } else { s.chars().take(7).collect() }
 }
 
 fn show_entry_tree<F>(

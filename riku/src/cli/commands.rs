@@ -175,6 +175,7 @@ pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
         limit: Some(args.limit),
         start: args.branch,
         graph: args.graph,
+        skip_summaries: false,
     };
     let report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 

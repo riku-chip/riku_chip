@@ -1,6 +1,6 @@
 # Fase 7: el grafo del historial
 
-Estado (2026-09-27): **7.1 y 7.2 hechos**; falta 7.3 (panel del visor). Resumen en [`../roadmap.md`](../roadmap.md).
+Estado (2026-09-27): **hecha** (7.1, 7.2 y 7.3; la TUI de 7.4 queda opcional). Resumen en [`../roadmap.md`](../roadmap.md).
 
 Un solo motor que ubica los commits en carriles y dos formas de dibujarlo: `riku log --graph` en la terminal y un panel **Historial** en el visor, como el Git Graph de VS Code pero con el resumen semántico de cada commit (qué componentes, capas o señales cambiaron) y el diff visual a un clic.
 
@@ -246,8 +246,14 @@ El visor ya los sigue (`gui/motion.rs`: resortes críticamente amortiguados que 
 |---|---|---|
 | 7.1 | Hecho (2026-09-27) | `core/analysis/graph.rs`: `layout` (carriles) y `simplify` (padres reescritos con `--paths`); `LogQuery::topological`; `LogCommit::graph`. Tests de propiedades: siguiendo los tramos desde cada nodo se llega exactamente a sus padres, nunca dos ramas en una columna. Casos sintéticos (lineal, merge, merge de merge, octopus, criss-cross, dos raíces, corte con `-n`) y la historia real de gdstk: 722 commits y 35 merges, entera, cortada a 100 y con un tercio visible. 1 000 commits: 0,08 s |
 | 7.2 | Hecho (2026-09-27) | `cli/format/log_graph.rs`: cada celda de transición se arma con las direcciones que conecta (arriba, abajo, izquierda, derecha) y de ahí sale el carácter (`├ ┴ ╯ ┼`…), así cualquier cruce se dibuja bien; ASCII con la misma tabla. `--graph`, `--ascii`, `graph` en el JSON. El `log` sin `--graph` queda igual (regresión) |
+| 7.3 | Hecho (2026-09-27) | `gui/history/`: `model.rs` (estado sin egui, con tests), `geometry.rs` (nodos, líneas y curvas Bézier; función pura con tests), `mod.rs` (panel inferior, lista virtual con `show_rows`, detalle, carga en hilos aparte). `LogOptions::skip_summaries` para el grafo al instante. `load_backend_diff` compara contra vacío el commit inicial y un archivo borrado. Textos en/es (`history.*`, `time.*`). Probado con un repo de demostración (ramas, merges, tag, `.sch`/`.gds`/`.raw`) y capturas en claro y oscuro sobre Xvfb |
 
 **Diferencias con el diseño:**
 - **Ancho por fila**, no global: con un ancho único, los tramos lineales heredaban el ancho de la zona más ramificada (8 columnas en gdstk) y el texto quedaba muy corrido. Igual que `git log --graph`.
 - **Sin dependencias nuevas:** los colores son códigos ANSI directos (detectando terminal con `IsTerminal`, `NO_COLOR` y `CLICOLOR_FORCE`), sin `anstream`. `--color` y el tope de 12 carriles quedaron afuera: no hicieron falta en las historias probadas.
 - **Un solo núcleo:** ubicar los carriles es secuencial (cada fila depende de la anterior) y lineal; lo que sí se reparte entre núcleos son los resúmenes de cada commit (6.6).
+
+**Diferencias con el diseño (7.3):**
+- **Tab** para pasar a la lista de archivos no se hizo: los archivos se abren con clic, **Enter** abre el primero con cambios.
+- Con un filtro, los merges se siguen mostrando aunque no toquen el archivo (así funciona `riku log`); se puede revisar si conviene ocultarlos en el panel.
+- Los resúmenes aparecen con un fundido; la marca de selección se desliza con el resorte de `motion.rs`; el alto del panel también.

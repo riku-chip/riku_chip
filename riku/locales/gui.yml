@@ -392,3 +392,98 @@ wave.expr_help:
 wave.measurements:
   en: Measurements
   es: Mediciones
+
+# ─── Panel History (historial con el grafo de ramas) ────────────────────────
+toolbar.history_hint:
+  en: Show the repository history with its branch graph  (H)
+  es: Mostrar el historial del repositorio con su grafo de ramas  (H)
+toolbar.history_no_repo:
+  en: The project is not inside a Git repository
+  es: El proyecto no está dentro de un repositorio Git
+shortcut.history:
+  en: History
+  es: Historial
+history.title:
+  en: History
+  es: Historial
+history.filter_hint:
+  en: "Filter files: *.gds"
+  es: "Filtrar archivos: *.gds"
+history.clear_filter:
+  en: Show all commits
+  es: Mostrar todos los commits
+history.only_this_file:
+  en: Only this file
+  es: Solo este archivo
+history.load_more:
+  en: Load more
+  es: Cargar más
+history.loading:
+  en: Loading…
+  es: Cargando…
+history.analyzing:
+  en: analyzing changes…
+  es: analizando cambios…
+history.commits:
+  en: "%{count} commits"
+  es: "%{count} commits"
+history.empty:
+  en: No commits
+  es: Sin commits
+history.select_hint:
+  en: Select a commit to see what it changed
+  es: Elige un commit para ver qué cambió
+history.merge_note:
+  en: Merge · compared with its first parent
+  es: Merge · comparado con su primer padre
+history.root_note:
+  en: First commit · compared with nothing
+  es: Primer commit · comparado contra vacío
+history.no_files:
+  en: No files changed
+  es: Sin archivos cambiados
+history.open_file_hint:
+  en: Open the diff against the parent commit
+  es: Abrir el diff contra el commit padre
+history.no_module:
+  en: Riku has no module for this format
+  es: Riku no tiene un módulo para este formato
+history.cosmetic:
+  en: cosmetic only
+  es: solo cosmético
+history.count.components_added:
+  en: added
+  es: añadidos
+history.count.components_removed:
+  en: removed
+  es: eliminados
+history.count.components_modified:
+  en: modified
+  es: modificados
+history.count.components_renamed:
+  en: renamed
+  es: renombrados
+history.count.nets_added:
+  en: nets added
+  es: nets añadidas
+history.count.nets_removed:
+  en: nets removed
+  es: nets eliminadas
+history.count.nets_modified:
+  en: nets modified
+  es: nets modificadas
+time.now:
+  en: now
+  es: ahora
+time.minutes:
+  en: "%{n} min"
+  es: "%{n} min"
+time.hours:
+  en: "%{n} h"
+  es: "%{n} h"
+time.yesterday:
+  en: yesterday
+  es: ayer
+time.days:
+  en: "%{n} d"
+  es: "%{n} d"

@@ -88,7 +88,7 @@ pub(super) fn format_refs(refs: &[String]) -> String {
 
 /// Timestamp UNIX → string legible. No depende de chrono para no añadir dep:
 /// formato `YYYY-MM-DD HH:MM` en UTC.
-pub(super) fn format_timestamp(ts: i64) -> String {
+pub(crate) fn format_timestamp(ts: i64) -> String {
     if ts <= 0 {
         return "desconocido".to_string();
     }
