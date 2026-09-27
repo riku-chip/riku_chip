@@ -1328,7 +1328,9 @@ port 1 nsew signal {class}
         let lib = Library::from_bytes(&std::fs::read(a).unwrap()).unwrap();
         show("Library");
         let top = crate::select_top_cell(&lib).unwrap();
+        let t = std::time::Instant::now();
         let (mut scene, _) = vc_scene_from_cell(&lib, &top, None);
+        eprintln!("[P6] armar la escena: {:?}", t.elapsed());
         show("escena (elementos)");
         scene.build_index();
         show("índice");
