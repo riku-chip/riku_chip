@@ -374,3 +374,21 @@ wave.tab_before_hint:
 wave.tab_after_hint:
   en: Only the new version (B)
   es: Solo la versión nueva (B)
+wave.expressions:
+  en: Expressions
+  es: Expresiones
+wave.expr_hint:
+  en: "gain = v(out)/v(in)"
+  es: "gain = v(out)/v(in)"
+wave.expr_add:
+  en: Add the expression (Enter)
+  es: Agregar la expresión (Enter)
+wave.expr_remove:
+  en: Remove
+  es: Quitar
+wave.expr_help:
+  en: "Computed signals with ngspice syntax, compared like the others. Examples: v(out)/v(in), db(v(out)), deriv(v(out)), integ(i(v1))[-1], max(v(out)), at(v(out), 1u). Prefix with an analysis to limit it (tran: …, ac: …) and name it with name = …"
+  es: "Señales calculadas con la sintaxis de ngspice, comparadas como las demás. Ejemplos: v(out)/v(in), db(v(out)), deriv(v(out)), integ(i(v1))[-1], max(v(out)), at(v(out), 1u). Un prefijo de análisis la limita (tran: …, ac: …) y nombre = … le pone nombre"
+wave.measurements:
+  en: Measurements
+  es: Mediciones

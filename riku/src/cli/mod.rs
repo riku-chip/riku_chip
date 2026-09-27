@@ -64,6 +64,12 @@ pub(crate) enum Commands {
         /// (también: RIKU_NO_CACHE=1).
         #[arg(long = "no-cache")]
         no_cache: bool,
+        /// Señal calculada a comparar además de las del archivo (puede
+        /// repetirse), con la sintaxis de ngspice: `--expr "v(out)/v(in)"`,
+        /// `--expr "gain = db(v(out))"`, `--expr "max(v(out))"`. Solo para
+        /// resultados de simulación (.raw); ver docs/spice.md.
+        #[arg(long = "expr", value_name = "EXPR")]
+        exprs: Vec<String>,
         /// Código de salida para CI: 0 sin cambios o solo cosméticos,
         /// 1 cambios funcionales, 2 error.
         #[arg(long)]
@@ -86,6 +92,12 @@ pub(crate) enum Commands {
         /// No usar ni guardar la cache de diffs de layouts grandes.
         #[arg(long = "no-cache")]
         no_cache: bool,
+        /// Señal calculada a comparar además de las del archivo (puede
+        /// repetirse), con la sintaxis de ngspice: `--expr "v(out)/v(in)"`,
+        /// `--expr "gain = db(v(out))"`, `--expr "max(v(out))"`. Solo para
+        /// resultados de simulación (.raw); ver docs/spice.md.
+        #[arg(long = "expr", value_name = "EXPR")]
+        exprs: Vec<String>,
         /// Código de salida para CI: 0 sin cambios o solo cosméticos,
         /// 1 cambios funcionales, 2 error.
         #[arg(long)]

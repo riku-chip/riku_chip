@@ -39,3 +39,39 @@ El cosmético (`v(in)`, la fuente, idéntica) no se lista en el texto. En JSON (
 - **Detalles:** análisis a mostrar, señales (al abrir, las tres primeras; **Solo las que cambiaron**, **Ocultar nodos internos** de dispositivos y subcircuitos), **Mostrar error (B − A)** y una tabla con el valor de cada señal en A y B y su Δ.
 - **Comparar con:** con un `.raw` abierto suelto, elegir otro `.raw` del proyecto para compararlos sin pasar por Git (por ejemplo, dos esquinas de simulación).
 - Cada curva se reduce a 4 000 puntos para dibujarla (se conservan el mínimo y el máximo de cada tramo); la comparación usa todos los puntos.
+
+## Expresiones
+
+Además de las señales del archivo se pueden comparar **señales calculadas**, con la sintaxis de ngspice. Cada expresión se evalúa en A y en B, en cada análisis que tenga sus señales, y se compara igual que una señal más (misma tolerancia). Si da un número en vez de una curva (`max(v(out))`, `v(out)[0]`), se compara ese número.
+
+```text
+$ riku diff HEAD~1 HEAD rc.raw --expr "gain = v(out)/v(in)" --expr "tran: vpk = max(v(out))" --expr "tran: slew = max(deriv(v(out)))"
+  ~ gain
+      = v(out)/v(in)
+      Δmáx 1.584 dB en 100.000 MHz · RMS 1.581 dB · 2.75 % del rango  (AC Analysis)
+  ~ vpk
+      = max(v(out))
+      1.788 V → 1.773 V · Δ 15.428 mV (0.86 %)  (Transient Analysis)
+  ~ slew
+      = max(deriv(v(out)))
+      1.799 M → 1.499 M · Δ 299685 (16.66 %)  (Transient Analysis)
+```
+
+| Qué | Sintaxis |
+|---|---|
+| Señales | `v(out)`, `v(a,b)` (= `v(a) − v(b)`), `i(v1)`, `@m1[id]`, `time`, `frequency`; un nodo a secas (`out`) es `v(out)` |
+| Números | `1.5`, `1e-9`, sufijos SPICE `f p n u m k meg g t` (`10u`, `2meg`, `100nF`), `pi`, `e` |
+| Operadores | `+ − * / ^` y paréntesis |
+| Por punto | `abs` (`mag`), `real`, `imag`, `ph` (grados), `db`, `sqrt`, `exp`, `ln`, `log` (= `log10`), `sin`, `cos`, `tan`, `atan`, `max(a, b)`, `min(a, b)` |
+| Cálculo | `deriv(v)`: derivada respecto del eje (tiempo o frecuencia); `integ(v)`: integral acumulada por trapecios |
+| Escalares | `max(v)`, `min(v)`, `pp(v)` (pico a pico), `mean(v)`, `rms(v)` (en el eje), `integral(v)` (total), `length(v)`, `at(v, x)` (valor interpolado en `x`) |
+| Índices | `v[0]`, `v[-1]` (el último), `v[10:20]` (tramo por índice; el resto no se compara), `window(v, x0, x1)` (tramo por valor del eje) |
+| Nombre | `gain = v(out)/v(in)`: el reporte y el visor usan `gain` |
+| Análisis | `tran: …`, `ac: …`, `op: …`, `dc: …`, `noise: …`: evaluar solo en ese análisis (sin prefijo, en todos donde existan las señales) |
+
+- **Complejos:** en `ac` se opera con los valores complejos (`v(out)/v(in)` divide complejos) y el resultado se muestra en dB; `ph()` da la fase en grados y `mag()` la magnitud lineal.
+- **Unidades:** se conservan cuando se pueden deducir (`2*v(out)` en V, `max(i(v1))` en A, `db()` en dB, `ph()` en °); el resto sale sin unidad.
+- **Donde no aplica:** una expresión se omite en un análisis que no tiene sus señales o donde no da ningún valor válido (`v(out)/v(in)` en un punto de operación con `v(in) = 0`). Solo se avisa si no se pudo aplicar en ninguno. Los puntos sin valor (división por cero, fuera de un tramo) no se comparan; el JSON lo informa en `skipped_points`.
+- **JSON:** una señal calculada lleva además `expression` (la fórmula); un escalar lleva `value` con antes y después.
+
+En el visor, el panel **Detalles** tiene un campo **Expresiones**: las que dan una curva aparecen en la lista de señales con `ƒ` y se grafican como las demás (con Diff / Before / After y el error B − A); las que dan un número aparecen en **Mediciones** con A, B y Δ. Las expresiones se recuerdan entre sesiones, y `riku diff … -f visual --expr …` las abre ya cargadas.

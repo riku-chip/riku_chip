@@ -93,6 +93,20 @@ fn print_signal(c: &Change) {
     let text = |k: &str| c.after(k).map(Value::to_string).unwrap_or_default();
     let num = |k: &str| c.after(k).and_then(Value::as_f64);
     let plot = text("plot");
+    let unit = text("unit");
+    // Señal calculada con nombre (`gain = v(out)/v(in)`): mostrar la fórmula.
+    if let (Some(expr), Element::Signal { name, .. }) = (c.after("expression"), &c.element) {
+        if expr.to_string() != *name {
+            println!("      = {expr}");
+        }
+    }
+    // Escalar (`max(v(out))`, `v(out)[0]`): el valor antes y después.
+    if c.before("value").is_some() || c.after("value").is_some() {
+        let v = |x: Option<&Value>| x.and_then(Value::as_f64).map_or_else(|| "—".to_string(), |f| eng(f, &unit));
+        let delta = num("max_abs_diff").map(|d| format!(" · Δ {} ({:.2} %)", eng(d, &unit), num("rel_diff").unwrap_or(0.0) * 100.0));
+        println!("      {} → {}{}  ({plot})", v(c.before("value")), v(c.after("value")), delta.unwrap_or_default());
+        return;
+    }
     match c.kind {
         ChangeKind::Added => println!("      nueva en {plot}"),
         ChangeKind::Removed => println!("      ya no está en {plot}"),
@@ -114,8 +128,14 @@ fn print_signal(c: &Change) {
 
 /// Número con prefijo de ingeniería: `0.0123 V` → `12.3 mV`. Los dB van tal cual.
 pub(crate) fn eng(v: f64, unit: &str) -> String {
-    if unit == "dB" || v == 0.0 || !v.is_finite() {
+    if unit == "dB" || unit == "°" || v == 0.0 || !v.is_finite() {
         return format!("{v:.3} {unit}").trim_end().to_string();
+    }
+    // Sin unidad (una ganancia V/V, una razón): el número tal cual se lee
+    // mejor que con prefijo ("0.06698" y no "66.98 m").
+    if unit.is_empty() && (1e-3..1e6).contains(&v.abs()) {
+        let digits = (3 - v.abs().log10().floor() as i32).clamp(0, 6) as usize;
+        return format!("{v:.digits$}");
     }
     const PREFIXES: [(f64, &str); 9] =
         [(1e9, "G"), (1e6, "M"), (1e3, "k"), (1.0, ""), (1e-3, "m"), (1e-6, "µ"), (1e-9, "n"), (1e-12, "p"), (1e-15, "f")];

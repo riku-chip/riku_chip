@@ -47,9 +47,17 @@ pub struct SignalDiff {
     /// Valor del eje X donde ocurre el máximo.
     pub at_x: f64,
     pub rms: f64,
-    /// Rango (máx − mín) de la señal, sobre las dos versiones.
+    /// Rango (máx − mín) de la señal, sobre las dos versiones (en un
+    /// escalar, su magnitud).
     pub range: f64,
     pub within_tolerance: bool,
+    /// Puntos que no se compararon: fuera de un tramo (`v[a:b]`,
+    /// `window`) o no calculables (división por cero).
+    pub skipped: usize,
+    /// Valores en A y B si es un escalar (`max(v(out))`, `v(out)[0]`).
+    pub scalar: Option<(Option<f64>, Option<f64>)>,
+    /// Texto de la expresión si la señal es calculada (`v(out)/v(in)`).
+    pub expression: Option<String>,
 }
 
 impl SignalDiff {
@@ -103,13 +111,34 @@ fn x_range(p: Option<&Plot>) -> Option<(f64, f64)> {
 
 pub fn compare_plot(a: Option<&Plot>, b: Option<&Plot>, tol: Tolerance) -> PlotDiff {
     let name = b.or(a).map(|p| p.name.clone()).unwrap_or_default();
-    let mut signals = Vec::new();
     let complex = b.or(a).is_some_and(|p| p.complex);
     let x_unit = b.or(a).and_then(Plot::x).map_or("", |x| x.unit(complex));
-    let blank = |v: &Variable, status| SignalDiff {
-        plot: name.clone(),
-        name: v.name.clone(),
-        unit: v.unit(complex),
+    // Sin eje (plot vacío) cuenta como presente pero incomparable.
+    fn series<'a>(p: &'a Plot, v: &'a Variable) -> (&'a [f64], &'a [f64]) {
+        (p.x().map_or(&[][..], |x| &x.values[..]), &v.values[..])
+    }
+    let mut signals = Vec::new();
+    if let Some(pb) = b {
+        for sb in pb.signals() {
+            let sa = a.and_then(|pa| pa.signal(&sb.name).map(|sa| series(pa, sa)));
+            signals.push(compare_series(&name, &sb.name, sb.unit(complex), x_unit, sa, Some(series(pb, sb)), tol));
+        }
+    }
+    if let Some(pa) = a {
+        for sa in pa.signals() {
+            if b.and_then(|pb| pb.signal(&sa.name)).is_none() {
+                signals.push(compare_series(&name, &sa.name, sa.unit(complex), x_unit, Some(series(pa, sa)), None, tol));
+            }
+        }
+    }
+    PlotDiff { name, x_range: (x_range(a), x_range(b)), signals }
+}
+
+fn blank(plot: &str, name: &str, unit: &'static str, x_unit: &'static str, status: Status) -> SignalDiff {
+    SignalDiff {
+        plot: plot.to_string(),
+        name: name.to_string(),
+        unit,
         x_unit,
         status,
         max_abs: 0.0,
@@ -117,36 +146,67 @@ pub fn compare_plot(a: Option<&Plot>, b: Option<&Plot>, tol: Tolerance) -> PlotD
         rms: 0.0,
         range: 0.0,
         within_tolerance: false,
+        skipped: 0,
+        scalar: None,
+        expression: None,
+    }
+}
+
+/// Compara una señal dada como `(eje, valores)` en cada versión (`None` =
+/// no está en esa versión). Sirve para las del archivo y las calculadas.
+pub fn compare_series(
+    plot: &str,
+    name: &str,
+    unit: &'static str,
+    x_unit: &'static str,
+    a: Option<(&[f64], &[f64])>,
+    b: Option<(&[f64], &[f64])>,
+    tol: Tolerance,
+) -> SignalDiff {
+    let status = match (a, b) {
+        (Some(_), Some(_)) => Status::Compared,
+        (None, _) => Status::Added,
+        (_, None) => Status::Removed,
     };
-    if let Some(pb) = b {
-        for sb in pb.signals() {
-            match a.and_then(|pa| pa.signal(&sb.name).map(|sa| (pa, sa))) {
-                Some((pa, sa)) => {
-                    let mut d = blank(sb, Status::Compared);
-                    match compare_signal(pa.x().map(|x| &x.values[..]), &sa.values, pb.x().map(|x| &x.values[..]), &sb.values) {
-                        Some(m) => {
-                            d.max_abs = m.max_abs;
-                            d.at_x = m.at_x;
-                            d.rms = m.rms;
-                            d.range = m.range;
-                            d.within_tolerance = m.max_abs <= (tol.rel * m.range).max(tol.abs);
-                        }
-                        None => d.status = Status::Incomparable,
-                    }
-                    signals.push(d);
-                }
-                None => signals.push(blank(sb, Status::Added)),
+    let mut d = blank(plot, name, unit, x_unit, status);
+    if let (Some((xa, ya)), Some((xb, yb))) = (a, b) {
+        match compare_signal(Some(xa), ya, Some(xb), yb) {
+            Some(m) => {
+                d.max_abs = m.max_abs;
+                d.at_x = m.at_x;
+                d.rms = m.rms;
+                d.range = m.range;
+                d.skipped = m.skipped;
+                d.within_tolerance = m.max_abs <= (tol.rel * m.range).max(tol.abs);
             }
+            None => d.status = Status::Incomparable,
         }
     }
-    if let Some(pa) = a {
-        for sa in pa.signals() {
-            if b.and_then(|pb| pb.signal(&sa.name)).is_none() {
-                signals.push(blank(sa, Status::Removed));
-            }
+    d
+}
+
+/// Compara un número (resultado escalar de una expresión) entre versiones.
+/// La escala de la tolerancia es su magnitud.
+pub fn compare_scalar(plot: &str, name: &str, unit: &'static str, a: Option<f64>, b: Option<f64>, tol: Tolerance) -> SignalDiff {
+    let status = match (a, b) {
+        (Some(_), Some(_)) => Status::Compared,
+        (None, _) => Status::Added,
+        (_, None) => Status::Removed,
+    };
+    let mut d = blank(plot, name, unit, "", status);
+    d.at_x = f64::NAN;
+    d.scalar = Some((a, b));
+    if let (Some(va), Some(vb)) = (a, b) {
+        if va.is_finite() && vb.is_finite() {
+            d.max_abs = (vb - va).abs();
+            d.rms = d.max_abs;
+            d.range = va.abs().max(vb.abs());
+            d.within_tolerance = d.max_abs <= (tol.rel * d.range).max(tol.abs);
+        } else {
+            d.status = Status::Incomparable;
         }
     }
-    PlotDiff { name, x_range: (x_range(a), x_range(b)), signals }
+    d
 }
 
 struct Metrics {
@@ -154,14 +214,16 @@ struct Metrics {
     at_x: f64,
     rms: f64,
     range: f64,
+    skipped: usize,
 }
 
 fn increasing(xs: &[f64]) -> bool {
     xs.windows(2).all(|w| w[1] >= w[0])
 }
 
+/// Mínimo y máximo, ignorando puntos NaN o infinitos.
 fn range_of(vals: &[f64]) -> (f64, f64) {
-    vals.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| (lo.min(v), hi.max(v)))
+    vals.iter().filter(|v| v.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| (lo.min(v), hi.max(v)))
 }
 
 /// Interpolación lineal de `(xs, ys)` en `x` (`xs` creciente, `x` dentro).
@@ -188,6 +250,7 @@ fn compare_signal(xa: Option<&[f64]>, ya: &[f64], xb: Option<&[f64]>, yb: &[f64]
     let (lo_a, hi_a) = range_of(ya);
     let (lo_b, hi_b) = range_of(yb);
     let range = hi_a.max(hi_b) - lo_a.min(lo_b);
+    let range = if range.is_finite() { range } else { 0.0 };
 
     // Punto de operación (un solo punto) o barridos con el mismo eje sin
     // orden creciente: comparar punto a punto.
@@ -195,16 +258,24 @@ fn compare_signal(xa: Option<&[f64]>, ya: &[f64], xb: Option<&[f64]>, yb: &[f64]
     if pointwise {
         // Un punto de operación no tiene "rango": la escala es su magnitud.
         let range = if ya.len() == 1 { ya[0].abs().max(yb[0].abs()) } else { range };
-        let (mut max_abs, mut at_x, mut sum) = (0.0f64, xb[0], 0.0);
+        let (mut max_abs, mut at_x, mut sum, mut used, mut skipped) = (0.0f64, xb[0], 0.0, 0usize, 0usize);
         for i in 0..ya.len() {
             let e = (yb[i] - ya[i]).abs();
+            if !e.is_finite() {
+                skipped += 1;
+                continue;
+            }
+            used += 1;
             sum += e * e;
             if e > max_abs {
                 max_abs = e;
                 at_x = xb[i];
             }
         }
-        return Some(Metrics { max_abs, at_x, rms: (sum / ya.len() as f64).sqrt(), range });
+        if used == 0 {
+            return None;
+        }
+        return Some(Metrics { max_abs, at_x, rms: (sum / used as f64).sqrt(), range, skipped });
     }
     if !(increasing(xa) && increasing(xb)) {
         return None;
@@ -221,11 +292,18 @@ fn compare_signal(xa: Option<&[f64]>, ya: &[f64], xb: Option<&[f64]>, yb: &[f64]
     if grid.is_empty() {
         return None;
     }
-    let (mut max_abs, mut at_x) = (0.0f64, grid[0]);
+    let (mut max_abs, mut at_x, mut skipped, mut used) = (0.0f64, grid[0], 0usize, 0usize);
     let mut prev: Option<(f64, f64)> = None;
     let (mut integral, mut span) = (0.0, 0.0);
     for &x in &grid {
         let e = interp(xb, yb, x) - interp(xa, ya, x);
+        // Fuera de un tramo o no calculable: no se compara ni se integra.
+        if !e.is_finite() {
+            skipped += 1;
+            prev = None;
+            continue;
+        }
+        used += 1;
         if e.abs() > max_abs {
             max_abs = e.abs();
             at_x = x;
@@ -238,8 +316,11 @@ fn compare_signal(xa: Option<&[f64]>, ya: &[f64], xb: Option<&[f64]>, yb: &[f64]
         }
         prev = Some((x, e));
     }
+    if used == 0 {
+        return None;
+    }
     let rms = if span > 0.0 { (integral / span).sqrt() } else { max_abs };
-    Some(Metrics { max_abs, at_x, rms, range })
+    Some(Metrics { max_abs, at_x, rms, range, skipped })
 }
 
 #[cfg(test)]
@@ -247,9 +328,9 @@ mod tests {
     use super::*;
 
     fn plot(name: &str, x: Vec<f64>, sigs: &[(&str, Vec<f64>)]) -> Plot {
-        let mut vars = vec![Variable { name: "time".into(), kind: "time".into(), values: x }];
+        let mut vars = vec![Variable { name: "time".into(), kind: "time".into(), values: x, complex: None }];
         for (n, v) in sigs {
-            vars.push(Variable { name: n.to_string(), kind: "voltage".into(), values: v.clone() });
+            vars.push(Variable { name: n.to_string(), kind: "voltage".into(), values: v.clone(), complex: None });
         }
         Plot { title: String::new(), name: name.into(), command: None, complex: false, vars }
     }
@@ -296,6 +377,26 @@ mod tests {
         let st: Vec<_> = d[0].signals.iter().map(|s| (s.name.as_str(), s.status)).collect();
         assert_eq!(st, vec![("v(b)", Status::Added), ("v(a)", Status::Removed)]);
         assert_eq!(d[1].signals[0].status, Status::Added);
+    }
+
+    #[test]
+    fn nan_points_are_skipped_not_compared() {
+        let nan = f64::NAN;
+        let a = plot("T", vec![0.0, 1.0, 2.0, 3.0], &[("v", vec![nan, 1.0, 1.0, nan])]);
+        let b = plot("T", vec![0.0, 1.0, 2.0, 3.0], &[("v", vec![nan, 1.0, 1.5, nan])]);
+        let s = &compare_plot(Some(&a), Some(&b), Tolerance::default()).signals[0];
+        assert_eq!(s.status, Status::Compared);
+        assert!((s.max_abs - 0.5).abs() < 1e-12 && s.at_x == 2.0, "{s:?}");
+        assert!(s.skipped > 0);
+    }
+
+    #[test]
+    fn scalars_compare_by_magnitude() {
+        let s = compare_scalar("T", "max(v)", "V", Some(1.0), Some(1.0005), Tolerance::default());
+        assert!(s.within_tolerance && s.scalar == Some((Some(1.0), Some(1.0005))));
+        let s = compare_scalar("T", "max(v)", "V", Some(1.0), Some(1.2), Tolerance::default());
+        assert!(!s.within_tolerance && (s.max_abs - 0.2).abs() < 1e-12);
+        assert_eq!(compare_scalar("T", "x", "", None, Some(1.0), Tolerance::default()).status, Status::Added);
     }
 
     #[test]

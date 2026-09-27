@@ -40,6 +40,7 @@ impl Commands {
                 format,
                 cosmetic_threshold_um2,
                 no_cache,
+                exprs,
                 ci: _,
             } => commands::run_diff(
                 repo,
@@ -49,6 +50,7 @@ impl Commands {
                 format,
                 cosmetic_threshold_um2,
                 !no_cache,
+                exprs,
             )
             .map(Outcome::from),
 
@@ -59,8 +61,9 @@ impl Commands {
                 format,
                 cosmetic_threshold_um2,
                 no_cache,
+                exprs,
                 ci: _,
-            } => commands::run_show(repo, &commit, file_path.as_deref(), format, cosmetic_threshold_um2, !no_cache)
+            } => commands::run_show(repo, &commit, file_path.as_deref(), format, cosmetic_threshold_um2, !no_cache, exprs)
                 .map(Outcome::from),
 
             Commands::Log {

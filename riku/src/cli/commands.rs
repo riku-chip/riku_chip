@@ -35,13 +35,14 @@ pub(super) fn run_diff(
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
     use_cache: bool,
+    expressions: Vec<String>,
 ) -> Result<Changes, String> {
     if matches!(format, OutputFormat::Visual) {
-        return present_visual(&repo, commit_a, commit_b, file_path).map(|_| Changes::Clean);
+        return present_visual(&repo, commit_a, commit_b, file_path, &expressions).map(|_| Changes::Clean);
     }
     // Mismo flujo que log/status; el umbral cosmético y la cache los usa el
     // módulo de layouts, los demás los ignoran.
-    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache };
+    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let mut report = analyze_diff_with_repo(&svc, commit_a, commit_b, file_path, &crate::modules::registry(), &opts)
         .map_err(|e| e.to_string())?;
@@ -76,6 +77,7 @@ pub(super) fn run_show(
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
     use_cache: bool,
+    expressions: Vec<String>,
 ) -> Result<Changes, String> {
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     if matches!(format, OutputFormat::Visual) {
@@ -88,13 +90,13 @@ pub(super) fn run_show(
                 "{commit} es el commit inicial: no hay versión anterior con la que comparar. Para verlo: riku open {file}"
             ));
         };
-        return present_visual(&repo, parent, &changes.commit.info.oid, file).map(|_| Changes::Clean);
+        return present_visual(&repo, parent, &changes.commit.info.oid, file, &expressions).map(|_| Changes::Clean);
     }
     if matches!(format, OutputFormat::JsonV1) {
         return Err("show no tiene salida json-v1; usa -f json (schema riku-show/v1)".into());
     }
 
-    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache };
+    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
     match format {
         OutputFormat::Json => format::show_json::print(&report, true)?,
@@ -121,9 +123,10 @@ fn present_visual(
     commit_a: &str,
     commit_b: &str,
     file_path: &str,
+    expressions: &[String],
 ) -> Result<(), String> {
     let repo_abs = repo.canonicalize().unwrap_or_else(|_| repo.clone());
-    let extra_args: Vec<std::ffi::OsString> = vec![
+    let mut extra_args: Vec<std::ffi::OsString> = vec![
         "--repo".into(),
         repo_abs.into_os_string(),
         "--commit-a".into(),
@@ -132,6 +135,10 @@ fn present_visual(
         commit_b.into(),
         file_path.into(),
     ];
+    for e in expressions {
+        extra_args.push("--expr".into());
+        extra_args.push(e.into());
+    }
 
     gui::run_with_args(extra_args)
 }

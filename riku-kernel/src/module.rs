@@ -36,11 +36,15 @@ pub struct DiffOptions {
     pub cosmetic_threshold: Option<f64>,
     /// Permite usar la cache en disco de diffs caros.
     pub use_cache: bool,
+    /// Señales calculadas a comparar además de las del archivo
+    /// (`v(out)/v(in)`, `gain = db(v(out))`). Las usan los módulos de
+    /// simulación; los demás las ignoran.
+    pub expressions: Vec<String>,
 }
 
 impl Default for DiffOptions {
     fn default() -> Self {
-        Self { cosmetic_threshold: None, use_cache: true }
+        Self { cosmetic_threshold: None, use_cache: true, expressions: Vec::new() }
     }
 }
 

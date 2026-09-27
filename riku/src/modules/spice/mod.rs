@@ -3,10 +3,14 @@
 //! El diff compara cada señal entre las dos versiones ([`compare`]) y
 //! reporta un [`Element::Signal`] por señal que cambió más que la
 //! tolerancia; los cambios dentro de la tolerancia quedan como cosméticos.
+//! Además compara señales calculadas ([`expr`]: `v(out)/v(in)`,
+//! `max(v(out))`) que llegan en `DiffOptions::expressions`.
 //! El visor no pasa por `ViewerBackend` (que dibuja planos: esquemáticos y
 //! layouts): la GUI grafica las curvas con su vista propia.
 
 pub mod compare;
+pub mod derived;
+pub mod expr;
 pub mod raw;
 
 use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
@@ -52,7 +56,7 @@ impl FormatModule for WaveformModule {
         raw::looks_like_raw(content)
     }
 
-    fn diff(&self, before: &[u8], after: &[u8], path_hint: &str, _opts: &DiffOptions) -> FileChange {
+    fn diff(&self, before: &[u8], after: &[u8], path_hint: &str, opts: &DiffOptions) -> FileChange {
         let mut report = FileChange::new(FileFormat::Waveform);
         let (a, b) = match (read_side(before, "A", path_hint), read_side(after, "B", path_hint)) {
             (Ok(a), Ok(b)) => (a, b),
@@ -74,6 +78,18 @@ impl FormatModule for WaveformModule {
                 report.changes.push(signal_change(s));
             }
         }
+        let mut exprs = Vec::new();
+        for text in &opts.expressions {
+            match expr::parse(text) {
+                Ok(e) => exprs.push(e),
+                Err(e) => report.warnings.push(format!("{text}: {e}")),
+            }
+        }
+        let (derived, warnings) = derived::evaluate(&exprs, &a, &b, Tolerance::default());
+        report.warnings.extend(warnings);
+        for d in &derived {
+            report.changes.push(signal_change(&d.diff));
+        }
         report
     }
 }
@@ -89,11 +105,26 @@ fn signal_change(s: &compare::SignalDiff) -> Change {
     let mut put = |k: &str, v: Value| c.details.push(Detail { key: k.into(), before: None, after: Some(v) });
     put("plot", Value::Text(s.plot.clone()));
     put("unit", Value::Text(s.unit.to_string()));
-    if s.status == Status::Compared {
+    if let Some(text) = &s.expression {
+        put("expression", Value::Text(text.clone()));
+    }
+    // Escalar: el valor en cada versión (antes → después).
+    if let Some((va, vb)) = s.scalar {
+        c.details.push(Detail { key: "value".into(), before: va.map(Value::Float), after: vb.map(Value::Float) });
+    }
+    let mut put = |k: &str, v: Value| c.details.push(Detail { key: k.into(), before: None, after: Some(v) });
+    if s.status == Status::Compared && s.scalar.is_none() {
         put("max_abs_diff", Value::Float(s.max_abs));
         put("at", Value::Float(s.at_x));
         put("x_unit", Value::Text(s.x_unit.to_string()));
         put("rms_diff", Value::Float(s.rms));
+        put("rel_diff", Value::Float(s.rel()));
+        if s.skipped > 0 {
+            put("skipped_points", Value::Int(s.skipped as i64));
+        }
+    }
+    if s.status == Status::Compared && s.scalar.is_some() {
+        put("max_abs_diff", Value::Float(s.max_abs));
         put("rel_diff", Value::Float(s.rel()));
     }
     if s.status == Status::Incomparable {
@@ -137,6 +168,25 @@ mod tests {
         let b = binary_raw("Transient Analysis", &[("time", "time"), ("v(a)", "voltage")], &[x.clone(), x]);
         let r = WaveformModule::new().diff(&[], &b, "tb.raw", &DiffOptions::default());
         assert_eq!(r.changes[0].kind, ChangeKind::Added);
+    }
+
+    #[test]
+    fn expressions_are_compared_too() {
+        let vars = [("time", "time"), ("v(in)", "voltage"), ("v(out)", "voltage")];
+        let x = vec![0.0, 1e-6, 2e-6];
+        let a = binary_raw("Transient Analysis", &vars, &[x.clone(), vec![1.0; 3], vec![0.5; 3]]);
+        let b = binary_raw("Transient Analysis", &vars, &[x, vec![1.0; 3], vec![0.5, 0.6, 0.5]]);
+        let opts = DiffOptions {
+            expressions: vec!["gain = v(out)/v(in)".into(), "max(v(out))".into(), "v(out) +".into()],
+            ..Default::default()
+        };
+        let r = WaveformModule::new().diff(&a, &b, "tb.raw", &opts);
+        let gain = r.changes.iter().find(|c| c.element.name() == "gain").expect("gain");
+        assert!(!gain.cosmetic);
+        assert_eq!(gain.after("expression"), Some(&Value::Text("v(out)/v(in)".into())));
+        let peak = r.changes.iter().find(|c| c.element.name() == "max(v(out))").expect("max");
+        assert_eq!((peak.before("value"), peak.after("value")), (Some(&Value::Float(0.5)), Some(&Value::Float(0.6))));
+        assert!(r.warnings.iter().any(|w| w.contains("v(out) +")), "{:?}", r.warnings);
     }
 
     #[test]

@@ -22,7 +22,9 @@ use crate::gui::app::DiffTab;
 use crate::gui::theme::space;
 use crate::gui::tr;
 use crate::modules::spice::compare::{self, interp, PlotDiff, SignalDiff, Status, Tolerance};
-use crate::modules::spice::raw::{self, RawFile};
+use crate::modules::spice::derived::{self, Derived};
+use crate::modules::spice::expr::{self, Evaluated};
+use crate::modules::spice::raw::{self, RawFile, Variable};
 
 /// Puntos por curva que se mandan a dibujar: con más, egui_plot se vuelve
 /// lento y en pantalla no se distinguen (se conserva el mín/máx por tramo).
@@ -62,6 +64,14 @@ pub struct WaveView {
     /// gráfico entre sesiones; sin esto, un archivo nuevo heredaría el zoom
     /// del anterior con el mismo análisis.
     reset_bounds: bool,
+    /// Expresiones del usuario (`gain = v(out)/v(in)`) y su resultado en cada
+    /// análisis: las señales se suman a la lista; los escalares, a Mediciones.
+    expr_texts: Vec<String>,
+    derived: Vec<Derived>,
+    expr_warnings: Vec<String>,
+    expr_input: String,
+    expr_error: Option<String>,
+    exprs_changed: bool,
 }
 
 pub enum Request {
@@ -71,17 +81,31 @@ pub enum Request {
 
 impl WaveView {
     /// Un archivo suelto.
-    pub fn single(file: RawFile, path: PathBuf) -> Self {
+    pub fn single(file: RawFile, path: PathBuf, exprs: &[String]) -> Self {
         let label = file_label(&path);
-        Self::build(None, file, String::new(), label, Some(path))
+        Self::build(None, file, String::new(), label, Some(path), exprs)
     }
 
     /// Dos versiones: `before` (A) y `after` (B).
-    pub fn compare(before: RawFile, after: RawFile, label_a: String, label_b: String, path: Option<PathBuf>) -> Self {
-        Self::build(Some(before), after, label_a, label_b, path)
+    pub fn compare(
+        before: RawFile,
+        after: RawFile,
+        label_a: String,
+        label_b: String,
+        path: Option<PathBuf>,
+        exprs: &[String],
+    ) -> Self {
+        Self::build(Some(before), after, label_a, label_b, path, exprs)
     }
 
-    fn build(before: Option<RawFile>, after: RawFile, label_a: String, label_b: String, path: Option<PathBuf>) -> Self {
+    fn build(
+        before: Option<RawFile>,
+        after: RawFile,
+        label_a: String,
+        label_b: String,
+        path: Option<PathBuf>,
+        exprs: &[String],
+    ) -> Self {
         let empty = RawFile { plots: Vec::new() };
         let pairs: Vec<_> = compare::pair_plots(before.as_ref().unwrap_or(&empty), &after)
             .into_iter()
@@ -124,7 +148,15 @@ impl WaveView {
             request: None,
             tab: DiffTab::Diff,
             reset_bounds: true,
+            expr_texts: Vec::new(),
+            derived: Vec::new(),
+            expr_warnings: Vec::new(),
+            expr_input: String::new(),
+            expr_error: None,
+            exprs_changed: false,
         };
+        view.set_expressions(exprs.to_vec());
+        view.exprs_changed = false;
         view.only_changed = view.is_diff() && view.changed_count(view.plot) > 0;
         view.show_error = view.only_changed;
         view
@@ -157,7 +189,105 @@ impl WaveView {
     }
 
     fn diff_of(&self, idx: usize, name: &str) -> Option<&SignalDiff> {
-        self.diffs.get(idx)?.signals.iter().find(|s| s.name.eq_ignore_ascii_case(name))
+        let file = self.diffs.get(idx).and_then(|d| d.signals.iter().find(|s| s.name.eq_ignore_ascii_case(name)));
+        file.or_else(|| {
+            let d = self.derived.iter().find(|d| d.pair == idx && d.diff.name.eq_ignore_ascii_case(name))?;
+            self.is_diff().then_some(&d.diff)
+        })
+    }
+
+    /// Señal por nombre en un lado: del archivo o calculada.
+    fn var(&self, side_b: bool, idx: usize, name: &str) -> Option<&Variable> {
+        if let Some(v) = self.plot_of(side_b, idx).and_then(|p| p.signal(name)) {
+            return Some(v);
+        }
+        self.derived.iter().filter(|d| d.pair == idx).find_map(|d| match if side_b { &d.b } else { &d.a } {
+            Some(Evaluated::Signal(v)) if v.name.eq_ignore_ascii_case(name) => Some(v),
+            _ => None,
+        })
+    }
+
+    /// `true` si la señal es una expresión del usuario.
+    fn is_derived(&self, idx: usize, name: &str) -> bool {
+        self.derived.iter().any(|d| d.pair == idx && d.diff.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Resultados escalares del análisis (Mediciones).
+    fn measures(&self, idx: usize) -> Vec<&Derived> {
+        self.derived.iter().filter(|d| d.pair == idx && d.diff.scalar.is_some()).collect()
+    }
+
+    pub fn expr_texts(&self) -> &[String] {
+        &self.expr_texts
+    }
+
+    /// `true` una vez después de que el usuario agregó o quitó una expresión.
+    pub fn take_exprs_changed(&mut self) -> bool {
+        std::mem::take(&mut self.exprs_changed)
+    }
+
+    /// Reemplaza las expresiones y las evalúa en A y B.
+    fn set_expressions(&mut self, texts: Vec<String>) {
+        let mut parsed = Vec::new();
+        self.expr_warnings.clear();
+        for t in &texts {
+            match expr::parse(t) {
+                Ok(e) => parsed.push(e),
+                Err(e) => self.expr_warnings.push(format!("{t}: {e}")),
+            }
+        }
+        let empty = RawFile { plots: Vec::new() };
+        let before = self.before.as_deref().unwrap_or(&empty);
+        let (derived, warnings) = derived::evaluate(&parsed, before, &self.after, Tolerance::default());
+        self.derived = derived;
+        self.expr_warnings.extend(warnings);
+        self.expr_texts = texts;
+        self.cache.clear();
+        self.exprs_changed = true;
+    }
+
+    /// Agrega una expresión escrita por el usuario y muestra sus señales.
+    fn add_expression(&mut self) {
+        let text = self.expr_input.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let parsed = match expr::parse(&text) {
+            Ok(e) => e,
+            Err(e) => {
+                self.expr_error = Some(e.to_string());
+                return;
+            }
+        };
+        self.expr_error = None;
+        self.expr_input.clear();
+        let mut texts = self.expr_texts.clone();
+        texts.retain(|t| t != &text);
+        texts.push(text);
+        self.set_expressions(texts);
+        let shown: Vec<(usize, String)> = self
+            .derived
+            .iter()
+            .filter(|d| d.diff.name == parsed.name && d.diff.scalar.is_none())
+            .map(|d| (d.pair, d.diff.name.to_lowercase()))
+            .collect();
+        for (pair, name) in shown {
+            self.selection(pair).insert(name);
+        }
+    }
+
+    fn remove_expression(&mut self, i: usize) {
+        let mut texts = self.expr_texts.clone();
+        if i < texts.len() {
+            let removed = texts.remove(i);
+            if let Ok(e) = expr::parse(&removed) {
+                let name = e.name.to_lowercase();
+                for sel in self.selected.values_mut() {
+                    sel.remove(&name);
+                }
+            }
+            self.set_expressions(texts);
+        }
     }
 
     fn changed(d: &SignalDiff) -> bool {
@@ -168,7 +298,14 @@ impl WaveView {
     }
 
     fn changed_count(&self, idx: usize) -> usize {
-        self.diffs.get(idx).map_or(0, |d| d.signals.iter().filter(|s| Self::changed(s)).count())
+        let file = self.diffs.get(idx).map_or(0, |d| d.signals.iter().filter(|s| Self::changed(s)).count());
+        let derived = if self.is_diff() {
+            // Solo señales: las mediciones (escalares) muestran su Δ aparte.
+            self.derived.iter().filter(|d| d.pair == idx && d.diff.scalar.is_none() && Self::changed(&d.diff)).count()
+        } else {
+            0
+        };
+        file + derived
     }
 
     /// Nombres de señales del análisis (unión de A y B), en orden de B.
@@ -183,6 +320,12 @@ impl WaveView {
                 }
             }
         }
+        // Las expresiones que dan una señal, al final.
+        for d in self.derived.iter().filter(|d| d.pair == idx && d.diff.scalar.is_none()) {
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&d.diff.name)) {
+                names.push(d.diff.name.clone());
+            }
+        }
         names
     }
 
@@ -191,7 +334,7 @@ impl WaveView {
     fn selection(&mut self, idx: usize) -> &mut BTreeSet<String> {
         if !self.selected.contains_key(&idx) {
             let mut names = self.signal_names(idx);
-            names.retain(|n| !is_internal(n));
+            names.retain(|n| !is_internal(n) || self.is_derived(idx, n));
             if self.is_diff() {
                 let key = |n: &String| self.diff_of(idx, n).map_or(0.0, |d| if Self::changed(d) { d.rel().max(1e-9) } else { 0.0 });
                 names.sort_by(|a, b| key(b).total_cmp(&key(a)));
@@ -212,10 +355,17 @@ impl WaveView {
             return Some(c.clone());
         }
         let p = self.plot_of(side_b, idx)?;
-        let (x, y) = (p.x()?, p.signal(name)?);
+        let (x, y) = (p.x()?, self.var(side_b, idx, name)?);
         let log = p.log_x();
-        let xs: Vec<f64> = x.values.iter().map(|&v| if log { v.max(1e-300).log10() } else { v }).collect();
-        let pts = Arc::new(decimate(&xs, &y.values, MAX_POINTS));
+        // Sin los puntos fuera de un tramo o no calculables (NaN).
+        let (xs, ys): (Vec<f64>, Vec<f64>) = x
+            .values
+            .iter()
+            .zip(&y.values)
+            .filter(|(_, v)| v.is_finite())
+            .map(|(&xv, &yv)| (if log { xv.max(1e-300).log10() } else { xv }, yv))
+            .unzip();
+        let pts = Arc::new(decimate(&xs, &ys, MAX_POINTS));
         self.cache.insert(key, pts.clone());
         Some(pts)
     }
@@ -228,7 +378,7 @@ impl WaveView {
         }
         let (pa, pb) = (self.plot_of(false, idx)?, self.plot_of(true, idx)?);
         let (xa, xb) = (&pa.x()?.values, &pb.x()?.values);
-        let (ya, yb) = (&pa.signal(name)?.values, &pb.signal(name)?.values);
+        let (ya, yb) = (&self.var(false, idx, name)?.values, &self.var(true, idx, name)?.values);
         if xa.len() < 2 || xb.len() < 2 {
             return None;
         }
@@ -237,8 +387,11 @@ impl WaveView {
         grid.sort_by(f64::total_cmp);
         grid.dedup();
         let log = pb.log_x();
-        let err: Vec<f64> = grid.iter().map(|&x| interp(xb, yb, x) - interp(xa, ya, x)).collect();
-        let xs: Vec<f64> = grid.iter().map(|&v| if log { v.max(1e-300).log10() } else { v }).collect();
+        let (xs, err): (Vec<f64>, Vec<f64>) = grid
+            .iter()
+            .map(|&x| (if log { x.max(1e-300).log10() } else { x }, interp(xb, yb, x) - interp(xa, ya, x)))
+            .filter(|(_, e)| e.is_finite())
+            .unzip();
         let pts = Arc::new(decimate(&xs, &err, MAX_POINTS));
         self.cache.insert(key, pts.clone());
         Some(pts)
@@ -331,9 +484,8 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
     // Un gráfico por unidad (V, A, dB…): mezclar voltios con microamperios
     // en el mismo eje aplana la curva chica.
     let unit_of = |view: &WaveView, n: &str| {
-        view.plot_of(true, idx)
-            .and_then(|p| p.signal(n))
-            .or_else(|| view.plot_of(false, idx).and_then(|p| p.signal(n)))
+        view.var(true, idx, n)
+            .or_else(|| view.var(false, idx, n))
             .map_or(String::new(), |s| s.unit(complex).to_string())
     };
     let mut groups: Vec<(String, Vec<(usize, String)>)> = Vec::new();
@@ -393,7 +545,7 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
                 }
             }
             ui.add_space(gap);
-            let y_label = format!("B − A [{unit}]");
+            let y_label = if unit.is_empty() { "B − A".to_string() } else { format!("B − A [{unit}]") };
             wave_plot(ui, ("riku_wave_err", idx, unit.as_str()), row_h, link, reset, Extent::default(), log_x, &x_unit, &x_label, &y_label, unit, err);
             row += 1;
         }
@@ -494,9 +646,7 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
     let idx = view.plot;
     let names = view.signal_names(idx);
     let complex = view.plot_of(true, idx).is_some_and(|p| p.complex);
-    let value = |side: bool, n: &str| {
-        view.plot_of(side, idx).and_then(|p| p.signal(n)).and_then(|s| s.values.first().map(|v| eng(*v, s.unit(complex))))
-    };
+    let value = |side: bool, n: &str| view.var(side, idx, n).and_then(|s| s.values.first().map(|v| eng(*v, s.unit(complex))));
     let tab = if view.is_diff() { view.tab } else { DiffTab::After };
     let (col_a, col_b, col_d) = (tab != DiffTab::After, tab != DiffTab::Before, tab == DiffTab::Diff);
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -514,7 +664,7 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
                 ui.label(RichText::new("Δ").strong());
             }
             ui.end_row();
-            for n in names.iter().filter(|n| !view.hide_internal || !is_internal(n)) {
+            for n in names.iter().filter(|n| !view.hide_internal || !is_internal(n) || view.is_derived(idx, n)) {
                 let d = view.diff_of(idx, n);
                 let changed = d.is_some_and(WaveView::changed);
                 let t = RichText::new(n);
@@ -541,6 +691,68 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
 }
 
 // ─── Panel de detalles ───────────────────────────────────────────────────────
+
+/// Expresiones del usuario y los resultados escalares del análisis actual.
+fn show_expressions(ui: &mut egui::Ui, view: &mut WaveView) {
+    ui.separator();
+    ui.label(RichText::new(tr!("wave.expressions")).strong()).on_hover_text(tr!("wave.expr_help"));
+    ui.horizontal(|ui| {
+        let resp = ui.add(
+            egui::TextEdit::singleline(&mut view.expr_input)
+                .hint_text(tr!("wave.expr_hint"))
+                .desired_width(ui.available_width() - 34.0),
+        );
+        let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if ui.button("+").on_hover_text(tr!("wave.expr_add")).clicked() || enter {
+            view.add_expression();
+        }
+    });
+    if let Some(err) = &view.expr_error {
+        ui.label(RichText::new(err).small().color(ui.visuals().error_fg_color));
+    }
+    let mut remove = None;
+    for (i, t) in view.expr_texts.iter().enumerate() {
+        ui.horizontal(|ui| {
+            if ui.small_button("✕").on_hover_text(tr!("wave.expr_remove")).clicked() {
+                remove = Some(i);
+            }
+            ui.add(egui::Label::new(RichText::new(format!("ƒ {t}")).monospace().small()).truncate());
+        });
+    }
+    if let Some(i) = remove {
+        view.remove_expression(i);
+    }
+    for w in &view.expr_warnings {
+        ui.label(RichText::new(w).small().color(ui.visuals().warn_fg_color));
+    }
+
+    // Mediciones: escalares del análisis actual.
+    let measures = view.measures(view.plot);
+    if measures.is_empty() {
+        return;
+    }
+    ui.add_space(space::XS);
+    ui.label(RichText::new(tr!("wave.measurements")).strong());
+    let diff = view.is_diff();
+    egui::Grid::new("riku_measures").striped(true).num_columns(if diff { 4 } else { 2 }).show(ui, |ui| {
+        for d in measures {
+            let (a, b) = d.diff.scalar.unwrap_or((None, None));
+            let fmt = |v: Option<f64>| v.map_or_else(|| "—".to_string(), |v| eng(v, d.diff.unit));
+            ui.label(RichText::new(&d.diff.name).monospace())
+                .on_hover_text(d.diff.expression.as_deref().map(|e| format!("= {e}")).unwrap_or_default());
+            if diff {
+                ui.label(fmt(a));
+                ui.label(fmt(b));
+                let delta = if d.diff.status == Status::Compared { eng(d.diff.max_abs, d.diff.unit) } else { "—".into() };
+                let t = RichText::new(delta).small();
+                ui.label(if WaveView::changed(&d.diff) { t.color(ui.visuals().warn_fg_color) } else { t.weak() });
+            } else {
+                ui.label(fmt(b));
+            }
+            ui.end_row();
+        }
+    });
+}
 
 /// Panel derecho: análisis, comparación y lista de señales. `candidates` son
 /// otros `.raw` del proyecto para "comparar con".
@@ -600,6 +812,9 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
             ui.checkbox(&mut view.show_error, tr!("wave.show_error"));
         }
     }
+    show_expressions(ui, view);
+    ui.add_space(space::XS);
+
     ui.checkbox(&mut view.hide_internal, tr!("wave.hide_internal"))
         .on_hover_text(tr!("wave.hide_internal_hint"));
     ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text(tr!("wave.filter")));
@@ -608,7 +823,7 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     let filter = view.filter.to_lowercase();
     names.retain(|n| {
         (filter.is_empty() || n.to_lowercase().contains(&filter))
-            && (!view.hide_internal || !is_internal(n))
+            && (!view.hide_internal || !is_internal(n) || view.is_derived(idx, n))
             && (!view.only_changed || view.diff_of(idx, n).is_some_and(WaveView::changed))
     });
     if view.is_diff() {
@@ -640,7 +855,12 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 2.0, if on { color } else { color.gamma_multiply(0.25) });
-                if ui.checkbox(&mut on, n).changed() {
+                let label = if view.is_derived(idx, n) { format!("ƒ {n}") } else { n.clone() };
+                let mut resp = ui.checkbox(&mut on, label);
+                if let Some(text) = view.derived.iter().find(|d| d.pair == idx && d.diff.name == *n).and_then(|d| d.diff.expression.as_ref()) {
+                    resp = resp.on_hover_text(format!("= {text}"));
+                }
+                if resp.changed() {
                     let sel = view.selection(idx);
                     if on {
                         sel.insert(key.clone());

@@ -23,7 +23,8 @@ pub struct Plot {
     pub name: String,
     /// `Command:` (`ngspice-46, Build …`).
     pub command: Option<String>,
-    /// `true` si los datos eran complejos (se guardó la magnitud en dB).
+    /// `true` si los datos eran complejos: `values` tiene la magnitud en dB
+    /// y `Variable::complex` los valores originales.
     pub complex: bool,
     /// La primera es la variable independiente.
     pub vars: Vec<Variable>,
@@ -34,7 +35,12 @@ pub struct Variable {
     pub name: String,
     /// Tipo según ngspice: `time`, `frequency`, `voltage`, `current`…
     pub kind: String,
+    /// Lo que se muestra y compara: el valor real, o la magnitud en dB si el
+    /// análisis es complejo (la variable independiente, parte real).
     pub values: Vec<f64>,
+    /// Valores complejos originales `(re, im)` de un análisis complejo. Las
+    /// expresiones (`v(out)/v(in)`) operan sobre ellos, no sobre los dB.
+    pub complex: Option<Vec<(f64, f64)>>,
 }
 
 impl Variable {
@@ -43,6 +49,10 @@ impl Variable {
         match self.kind.as_str() {
             "time" => "s",
             "frequency" => "Hz",
+            // Resultados de expresiones con unidad conocida o sin unidad.
+            "db" => "dB",
+            "phase" => "°",
+            "expression" => "",
             _ if complex => "dB",
             "voltage" => "V",
             "current" => "A",
@@ -196,7 +206,11 @@ fn parse_plot(content: &[u8], mut pos: usize) -> Result<(Plot, usize), RawError>
                 let vars = vars
                     .into_iter()
                     .zip(columns)
-                    .map(|((name, kind), values)| Variable { name, kind, values })
+                    .enumerate()
+                    .map(|(c, ((name, kind), pairs))| {
+                        let values = pairs.iter().map(|&(re, im)| if complex { complex_value(c, re, im) } else { re }).collect();
+                        Variable { name, kind, values, complex: complex.then_some(pairs) }
+                    })
                     .collect();
                 return Ok((Plot { title, name, command, complex, vars }, next));
             }
@@ -218,7 +232,7 @@ fn complex_value(col: usize, re: f64, im: f64) -> f64 {
 
 /// Datos binarios. Si el archivo se cortó (simulación interrumpida), se
 /// leen los puntos completos que haya.
-fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: bool) -> (Vec<Vec<f64>>, usize) {
+fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: bool) -> (Vec<Vec<(f64, f64)>>, usize) {
     let width = if complex { 16 } else { 8 };
     let row = n * width;
     let available = (content.len() - pos) / row;
@@ -229,7 +243,7 @@ fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: b
         let base = pos + p * row;
         for (c, col) in columns.iter_mut().enumerate() {
             let at = base + c * width;
-            col.push(if complex { complex_value(c, f(at), f(at + 8)) } else { f(at) });
+            col.push(if complex { (f(at), f(at + 8)) } else { (f(at), 0.0) });
         }
     }
     (columns, pos + points * row)
@@ -237,15 +251,15 @@ fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: b
 
 /// Datos en texto: por punto, `<idx>\t<v0>` y después una línea por variable.
 /// Complejos como `re,im`.
-fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex: bool) -> Result<(Vec<Vec<f64>>, usize), RawError> {
-    let mut columns: Vec<Vec<f64>> = vec![Vec::new(); n];
-    let parse_val = |c: usize, tok: &str| -> Result<f64, RawError> {
+fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex: bool) -> Result<(Vec<Vec<(f64, f64)>>, usize), RawError> {
+    let mut columns: Vec<Vec<(f64, f64)>> = vec![Vec::new(); n];
+    let parse_val = |_c: usize, tok: &str| -> Result<(f64, f64), RawError> {
         let bad = || RawError(format!("valor no numérico: {tok:?}"));
         if complex {
             let (re, im) = tok.split_once(',').ok_or_else(bad)?;
-            Ok(complex_value(c, re.trim().parse().map_err(|_| bad())?, im.trim().parse().map_err(|_| bad())?))
+            Ok((re.trim().parse().map_err(|_| bad())?, im.trim().parse().map_err(|_| bad())?))
         } else {
-            tok.parse().map_err(|_| bad())
+            Ok((tok.parse().map_err(|_| bad())?, 0.0))
         }
     };
     let mut points = 0;
@@ -343,6 +357,8 @@ Title: t\nDate: d\nPlotname: AC Analysis\nFlags: complex\nNo. Variables: 2\nNo. 
         let db = &ac.signal("v(out)").unwrap().values;
         assert!((db[0] - 0.0).abs() < 1e-12 && (db[1] + 20.0).abs() < 1e-9);
         assert_eq!(ac.signal("v(out)").unwrap().unit(true), "dB");
+        // Los complejos originales se conservan para las expresiones.
+        assert_eq!(ac.signal("v(out)").unwrap().complex.as_deref(), Some(&[(1.0, 0.0), (0.0, 0.1)][..]));
     }
 
     #[test]

@@ -137,6 +137,10 @@ pub struct RikuGuiApp {
     /// Formas de onda (`.raw`): no pasan por `ViewerBackend`, tienen su vista.
     #[cfg(feature = "spice")]
     wave: Option<WaveView>,
+    /// Expresiones de la vista de formas de onda (`--expr` o las de la sesión
+    /// anterior); se aplican a cada `.raw` que se abre.
+    #[cfg(feature = "spice")]
+    wave_exprs: Vec<String>,
 
     // ─── Preferencias (persisten entre sesiones) ────────────────────────────
     /// Dibujar etiquetas de texto en el lienzo.
@@ -185,6 +189,8 @@ const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 const PREF_SIMPLIFY: &str = "riku.simplify";
 const PREF_RECENT: &str = "riku.recent_files";
 const PREF_LANG: &str = "riku.lang";
+#[cfg(feature = "spice")]
+const PREF_WAVE_EXPRS: &str = "riku.wave_exprs";
 /// Cuántos archivos recientes se recuerdan.
 const MAX_RECENT: usize = 6;
 
@@ -269,6 +275,12 @@ impl RikuGuiApp {
             pending_token: None,
             #[cfg(feature = "spice")]
             wave: None,
+            #[cfg(feature = "spice")]
+            wave_exprs: if launch.exprs.is_empty() {
+                cc.storage.and_then(|s| eframe::get_value(s, PREF_WAVE_EXPRS)).unwrap_or_default()
+            } else {
+                launch.exprs.clone()
+            },
             show_labels,
             show_all_files,
             reduce_motion,
@@ -418,6 +430,7 @@ impl RikuGuiApp {
                 short_hash(commit_a),
                 short_hash(commit_b),
                 None,
+                &self.wave_exprs,
             );
             self.status = view.summary();
             self.selected_path = Some(file.to_path_buf());
@@ -597,7 +610,7 @@ impl RikuGuiApp {
     fn open_raw(&mut self, path: &Path) -> bool {
         match read_raw(path) {
             Ok(file) => {
-                let view = WaveView::single(file, path.to_path_buf());
+                let view = WaveView::single(file, path.to_path_buf(), &self.wave_exprs);
                 self.status = view.summary();
                 self.backend_state = None;
                 self.wave = Some(view);
@@ -620,7 +633,7 @@ impl RikuGuiApp {
             wave_view::Request::CompareWith(other) => match (read_raw(&other), read_raw(&path)) {
                 (Ok(a), Ok(b)) => {
                     let label = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    let view = WaveView::compare(a, b, label(&other), label(&path), Some(path.clone()));
+                    let view = WaveView::compare(a, b, label(&other), label(&path), Some(path.clone()), &self.wave_exprs);
                     self.status = view.summary();
                     self.wave = Some(view);
                 }
@@ -800,6 +813,8 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
         eframe::set_value(storage, PREF_RECENT, &self.recent);
         eframe::set_value(storage, PREF_LANG, &i18n::current());
+        #[cfg(feature = "spice")]
+        eframe::set_value(storage, PREF_WAVE_EXPRS, &self.wave_exprs);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -1019,6 +1034,9 @@ impl eframe::App for RikuGuiApp {
                 if let Some(view) = self.wave.as_mut() {
                     let candidates = raw_files(&self.project_tree);
                     wave_view::show_details(ui, view, &candidates);
+                    if view.take_exprs_changed() {
+                        self.wave_exprs = view.expr_texts().to_vec();
+                    }
                     return;
                 }
                 if let Some(bs) = &mut self.backend_state {

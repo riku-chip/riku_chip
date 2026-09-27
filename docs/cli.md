@@ -32,7 +32,7 @@ riku schematics (git)> cd ../layout
 
 ```bash
 riku diff <commit_a> <commit_b> <archivo> [-f text|json|json-v1|visual] [--ci]
-          [--cosmetic-threshold-um2 X] [--no-cache] [-r REPO]
+          [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
 ```
 
 **Esquemático, texto:**
@@ -94,6 +94,7 @@ Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move
 |---|---|
 | `--cosmetic-threshold-um2 X` | Umbral de área para marcar cosmético un cambio de layout |
 | `--no-cache` (o `RIKU_NO_CACHE=1`) | No usar ni guardar la cache de diffs de layouts grandes (`~/.cache/riku/diff`) |
+| `--expr EXPR` | Señal calculada a comparar en un `.raw` (repetible): `--expr "gain = v(out)/v(in)"`. Ver [`spice.md`](spice.md#expresiones) |
 | `--ci` | Códigos de salida de CI (abajo) |
 | `-r REPO` | Repositorio (por defecto, el directorio actual) |
 
