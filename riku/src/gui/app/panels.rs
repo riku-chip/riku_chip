@@ -2,16 +2,17 @@
 //! izquierdo (proyecto, vistas del diff, celdas), panel de detalles y el
 //! centro (lienzo, ondas o la pantalla inicial).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use eframe::egui::{self, RichText};
 
 use super::{short_hash, RikuGuiApp};
 use crate::gui::canvas::{self, CanvasOptions, Readout};
-use crate::gui::content::{DiffTab, SceneState};
+use crate::gui::content::{Content, DiffTab, SceneState};
 use crate::gui::details_panel;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::space;
+use crate::gui::window_frame;
 use crate::gui::{i18n, tr};
 #[cfg(feature = "spice")]
 use crate::gui::wave_view;
@@ -20,10 +21,33 @@ impl RikuGuiApp {
     /// Acciones, de izquierda a derecha por uso; ajustes y tema a la derecha.
     pub(super) fn top_bar(&mut self, ui: &mut egui::Ui) {
         // ─── Barra de herramientas: acciones, de izquierda a derecha por uso ──
-        egui::Panel::top("top_bar").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
+        // Sin el marco del sistema, la barra es el título de la ventana: más
+        // alta, sin margen a la derecha (los botones llegan a la esquina) y
+        // se arrastra para mover la ventana.
+        let own_frame = !self.native_frame;
+        let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(if own_frame {
+            egui::Margin { left: space::S as i8, right: 0, top: 0, bottom: 0 }
+        } else {
+            egui::Margin::symmetric(space::S as i8, 2)
+        });
+        egui::Panel::top("top_bar").frame(frame).show_inside(ui, |ui| {
+            let h = if own_frame { window_frame::BAR_H } else { ui.spacing().interact_size.y };
+            if own_frame {
+                let bar = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(ui.max_rect().width(), h));
+                window_frame::drag_area(ui, bar);
+            }
+            let row = egui::Layout::left_to_right(egui::Align::Center);
+            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), h), row, |ui| {
                 ui.label(RichText::new("Riku").strong().size(16.0));
                 ui.separator();
+                let at_home = matches!(self.content, Content::Home) && !self.loader.busy();
+                if ui
+                    .add_enabled(!at_home, egui::Button::new(tr!("toolbar.home")))
+                    .on_hover_text(tr!("toolbar.home_hint"))
+                    .clicked()
+                {
+                    self.go_home();
+                }
 
                 let has_view = self.content.scene().is_some();
                 if ui
@@ -58,13 +82,50 @@ impl RikuGuiApp {
                     self.history.open = open;
                 }
 
+                ui.separator();
+                let hint = if has_repo { tr!("toolbar.compare_hint") } else { tr!("toolbar.history_no_repo") };
+                if ui
+                    .add_enabled(has_repo, egui::Button::new(tr!("toolbar.compare")))
+                    .on_hover_text(hint.clone())
+                    .on_disabled_hover_text(hint)
+                    .clicked()
+                {
+                    self.open_compare();
+                }
+                let can_export = self.can_export() && self.export_job.is_none();
+                ui.add_enabled_ui(can_export, |ui| {
+                    ui.menu_button(tr!("toolbar.export"), |ui| {
+                        let ctx = ui.ctx().clone();
+                        if ui.button("PNG").on_hover_text(tr!("toolbar.export_png_hint")).clicked() {
+                            self.export_image(true, &ctx);
+                        }
+                        if ui.button("SVG").on_hover_text(tr!("toolbar.export_svg_hint")).clicked() {
+                            self.export_image(false, &ctx);
+                        }
+                    })
+                    .response
+                    .on_hover_text(tr!("toolbar.export_hint"))
+                    .on_disabled_hover_text(tr!("toolbar.export_disabled"));
+                });
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if own_frame {
+                        ui.scope(window_frame::controls);
+                        ui.separator();
+                    }
                     // Lo menos frecuente, un nivel más abajo.
                     ui.menu_button(tr!("settings.menu"), |ui| {
                         ui.checkbox(&mut self.reduce_motion, tr!("settings.reduce_motion"))
                             .on_hover_text(tr!("settings.reduce_motion_hint"));
                         ui.checkbox(&mut self.simplify, tr!("settings.simplify"))
                             .on_hover_text(tr!("settings.simplify_hint"));
+                        if ui
+                            .checkbox(&mut self.native_frame, tr!("settings.native_frame"))
+                            .on_hover_text(tr!("settings.native_frame_hint"))
+                            .changed()
+                        {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Decorations(self.native_frame));
+                        }
                         ui.separator();
                         ui.label(RichText::new(tr!("settings.language")).strong());
                         let current = i18n::current();
@@ -171,6 +232,9 @@ impl RikuGuiApp {
                     let root = self.project_root.display().to_string();
                     ui.add(egui::Label::new(RichText::new(&root).small().weak()).truncate())
                         .on_hover_text(&root);
+                    if ui.small_button(tr!("panel.open_folder")).on_hover_text(tr!("home.open_folder_hint")).clicked() {
+                        self.folder_picker = Some(crate::gui::folder_picker::FolderPicker::new(&self.project_root));
+                    }
                     if ui
                         .checkbox(&mut self.show_all_files, tr!("panel.all_files"))
                         .on_hover_text(tr!("panel.all_files_hint"))
@@ -281,8 +345,8 @@ impl RikuGuiApp {
                         ui.label(tr!("canvas.loading"));
                     });
                 });
-            } else if let Some(path) = self.empty_state(ui) {
-                self.open_path(&path);
+            } else {
+                self.show_home(ui);
             }
         });
     }
@@ -321,50 +385,6 @@ impl RikuGuiApp {
             ui.radio_value(&mut w.tab, tab, label).on_hover_text(hint);
         }
         true
-    }
-
-    /// Pantalla inicial: qué es esto, cómo empezar, archivos recientes y
-    /// atajos. Retorna el archivo reciente elegido, si hubo clic.
-    pub(super) fn empty_state(&self, ui: &mut egui::Ui) -> Option<PathBuf> {
-        let mut picked = None;
-        ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.22).max(space::L));
-            ui.label(RichText::new(tr!("empty.title")).size(22.0).strong());
-            ui.add_space(space::XS);
-            ui.label(RichText::new(tr!("empty.hint")).weak());
-            ui.add_space(space::L);
-
-            let recent: Vec<&String> = self.recent.iter().filter(|p| Path::new(p).is_file()).collect();
-            if !recent.is_empty() {
-                egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::same(space::M as i8))
-                    .show(ui, |ui| {
-                        ui.set_max_width(420.0);
-                        ui.label(RichText::new(tr!("empty.recent")).strong());
-                        ui.add_space(space::XS);
-                        for p in recent {
-                            let path = Path::new(p);
-                            let name = path.file_name().unwrap_or_default().to_string_lossy();
-                            let dir = path.parent().map(|d| d.display().to_string()).unwrap_or_default();
-                            let resp = ui
-                                .add(egui::Button::new(RichText::new(name.as_ref()).strong()).frame(false))
-                                .on_hover_text(p.as_str())
-                                .on_hover_cursor(egui::CursorIcon::PointingHand);
-                            ui.add(egui::Label::new(RichText::new(dir).small().weak()).truncate());
-                            if resp.clicked() {
-                                picked = Some(path.to_path_buf());
-                            }
-                        }
-                    });
-                ui.add_space(space::L);
-            }
-            ui.label(
-                RichText::new(tr!("empty.shortcuts"))
-                    .small()
-                    .weak(),
-            );
-        });
-        picked
     }
 
     /// Ruta de lo que se está viendo: archivo › celda › vista del diff.

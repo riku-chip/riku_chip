@@ -84,59 +84,106 @@ fn tools_status() -> ToolsStatus {
 
 // ─── Presentación ────────────────────────────────────────────────────────────
 
-fn print(report: &DoctorReport) {
-    println!("\n{}\n", tr!("doctor.title"));
+/// Cómo está un punto del diagnóstico.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mark {
+    Ok,
+    Warn,
+    /// No configurado (no es un error).
+    Absent,
+    /// Módulo no disponible.
+    Missing,
+}
 
-    println!("--- {} ---", tr!("doctor.repo"));
-    match &report.repo_workdir {
-        Some(p) => println!("  [ok]  {}", p.display()),
-        None => println!("  [!]  {}", tr!("doctor.no_repo")),
+impl Mark {
+    fn tag(self) -> &'static str {
+        match self {
+            Mark::Ok => "[ok]",
+            Mark::Warn => "[!]",
+            Mark::Absent => "[--]",
+            Mark::Missing => "[x]",
+        }
     }
-    match project_config(report) {
-        Some((path, Ok(()))) => println!("  [ok]  {}", tr!("doctor.config_ok", file = path.display())),
-        Some((path, Err(e))) => println!("  [!]  {}: {e}", path.display()),
-        None => println!("  [--]  {}", tr!("doctor.config_none", file = crate::core::config::FILE)),
-    }
+}
 
-    println!("\n--- PDK ---");
-    print_xschemrc(&report.xschemrc);
-    print_pdk(&report.pdk);
-    print_tools(&report.tools);
+/// Una sección del diagnóstico: título y sus puntos. La CLI la imprime y
+/// el visor la muestra (el mismo contenido).
+pub(crate) struct Section {
+    pub title: String,
+    pub items: Vec<(Mark, String)>,
+}
+
+/// El diagnóstico de `repo` en secciones.
+pub(crate) fn sections(repo: &Path) -> Vec<Section> {
+    let report = analyze(repo);
+    let mut out = Vec::new();
+
+    let mut items = vec![match &report.repo_workdir {
+        Some(p) => (Mark::Ok, p.display().to_string()),
+        None => (Mark::Warn, tr!("doctor.no_repo")),
+    }];
+    items.push(match project_config(&report) {
+        Some((path, Ok(()))) => (Mark::Ok, tr!("doctor.config_ok", file = path.display())),
+        Some((path, Err(e))) => (Mark::Warn, format!("{}: {e}", path.display())),
+        None => (Mark::Absent, tr!("doctor.config_none", file = crate::core::config::FILE)),
+    });
+    out.push(Section { title: tr!("doctor.repo"), items });
+
+    let mut items = vec![xschemrc_item(&report.xschemrc), pdk_item(&report.pdk), tools_item(&report.tools)];
     #[cfg(feature = "layout")]
-    print_magic();
+    items.push(magic_item());
     if !report.has_symbols {
-        println!("  [!]  {}", tr!("doctor.no_symbols"));
+        items.push((Mark::Warn, tr!("doctor.no_symbols")));
     }
+    out.push(Section { title: "PDK".to_string(), items });
 
-    println!("\n--- {} ---", tr!("doctor.modules"));
-    for info in &report.drivers {
-        let status = if info.available { "[ok]" } else { "[x]" };
-        println!("  {status}  {:10} {}", info.name, info.version);
-    }
-
-    println!("\n{}\n", tr!("doctor.ready"));
+    let items = report
+        .drivers
+        .iter()
+        .map(|info| {
+            let mark = if info.available { Mark::Ok } else { Mark::Missing };
+            (mark, format!("{:10} {}", info.name, info.version))
+        })
+        .collect();
+    out.push(Section { title: tr!("doctor.modules"), items });
+    out
 }
 
-fn print_xschemrc(xschemrc: &Option<PathBuf>) {
+fn print(sections: &[Section]) {
+    println!("
+{}
+", tr!("doctor.title"));
+    for (i, section) in sections.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        println!("--- {} ---", section.title);
+        for (mark, text) in &section.items {
+            println!("  {}  {text}", mark.tag());
+        }
+    }
+    println!("
+{}
+", tr!("doctor.ready"));
+}
+
+fn xschemrc_item(xschemrc: &Option<PathBuf>) -> (Mark, String) {
     match xschemrc {
-        Some(p) => println!("  [ok]  .xschemrc: {}", p.display()),
-        None => println!("  [--]  {}", tr!("doctor.xschemrc_missing")),
+        Some(p) => (Mark::Ok, format!(".xschemrc: {}", p.display())),
+        None => (Mark::Absent, tr!("doctor.xschemrc_missing")),
     }
 }
 
-fn print_pdk(pdk: &PdkStatus) {
+fn pdk_item(pdk: &PdkStatus) -> (Mark, String) {
     match pdk {
-        PdkStatus::Found(p) => println!("  [ok]  $PDK_ROOT/$PDK → {}", p.display()),
-        PdkStatus::Misconfigured(p) => println!("  [!]  {}", tr!("doctor.pdk_missing", path = p.display())),
+        PdkStatus::Found(p) => (Mark::Ok, format!("$PDK_ROOT/$PDK → {}", p.display())),
+        PdkStatus::Misconfigured(p) => (Mark::Warn, tr!("doctor.pdk_missing", path = p.display())),
         PdkStatus::NotConfigured => {
             let root = crate::modules::xschem_pdk::pdk_root();
             let installed = root.as_deref().map(crate::modules::xschem_pdk::installed_pdks).unwrap_or_default();
             match (root, installed.is_empty()) {
-                (Some(r), false) => println!(
-                    "  [ok]  {}",
-                    tr!("doctor.pdk_detected", root = r.display(), list = installed.join(", "))
-                ),
-                _ => println!("  [--]  {}", tr!("doctor.pdk_none")),
+                (Some(r), false) => (Mark::Ok, tr!("doctor.pdk_detected", root = r.display(), list = installed.join(", "))),
+                _ => (Mark::Absent, tr!("doctor.pdk_none")),
             }
         }
     }
@@ -145,32 +192,31 @@ fn print_pdk(pdk: &PdkStatus) {
 /// Librerías `.mag` de los PDK instalados: de ahí salen las celdas que un
 /// layout de Magic usa y no están en el repo.
 #[cfg(feature = "layout")]
-fn print_magic() {
+fn magic_item() -> (Mark, String) {
     let libs = riku_mod_layout::mag::pdk_libraries();
     if libs.is_empty() {
-        println!("  [--]  {}", tr!("doctor.magic_none"));
+        (Mark::Absent, tr!("doctor.magic_none"))
     } else {
         let list: Vec<String> = libs.iter().map(|(tech, n)| format!("{tech} ({n})")).collect();
-        println!("  [ok]  {}", tr!("doctor.magic_libs", list = list.join(", ")));
+        (Mark::Ok, tr!("doctor.magic_libs", list = list.join(", ")))
     }
 }
 
-fn print_tools(tools: &ToolsStatus) {
+fn tools_item(tools: &ToolsStatus) -> (Mark, String) {
     match tools {
-        ToolsStatus::Found(p) => println!("  [ok]  $TOOLS → {}", p.display()),
-        ToolsStatus::Misconfigured(p) => println!("  [!]  {}", tr!("doctor.tools_missing", path = p.display())),
-        ToolsStatus::NotConfigured => println!("  [--]  {}", tr!("doctor.tools_none")),
+        ToolsStatus::Found(p) => (Mark::Ok, format!("$TOOLS → {}", p.display())),
+        ToolsStatus::Misconfigured(p) => (Mark::Warn, tr!("doctor.tools_missing", path = p.display())),
+        ToolsStatus::NotConfigured => (Mark::Absent, tr!("doctor.tools_none")),
     }
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 pub(super) fn run(repo: PathBuf, json: bool) -> Result<(), String> {
-    let report = analyze(&repo);
     if json {
-        return print_json(&report);
+        return print_json(&analyze(&repo));
     }
-    print(&report);
+    print(&sections(&repo));
     Ok(())
 }
 

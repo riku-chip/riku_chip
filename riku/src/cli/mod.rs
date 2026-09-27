@@ -16,7 +16,7 @@ use crate::i18n::tr;
 
 mod commands;
 mod dispatch;
-mod doctor;
+pub(crate) mod doctor;
 pub(crate) mod format;
 mod gui;
 mod shell;

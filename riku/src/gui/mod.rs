@@ -11,8 +11,11 @@ mod app;
 mod canvas;
 mod content;
 mod details_panel;
+mod dialogs;
 mod entry_picker;
+mod folder_picker;
 mod history;
+mod home;
 pub(crate) use crate::i18n;
 mod label_layout;
 mod launch;
@@ -25,6 +28,7 @@ mod theme;
 mod toast;
 #[cfg(feature = "spice")]
 mod wave_view;
+mod window_frame;
 
 pub(crate) use crate::i18n::tr;
 
@@ -52,7 +56,10 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             // Primera vez maximizada (un layout necesita todo el espacio);
             // después persist_window restaura el tamaño que dejó el usuario.
             .with_maximized(true)
-            .with_min_inner_size([900.0, 600.0]),
+            .with_min_inner_size([900.0, 600.0])
+            // Marco propio (botones visibles, ver `window_frame`); el del
+            // sistema se puede volver a pedir en Ajustes.
+            .with_decorations(false),
         persist_window: true,
         ..Default::default()
     };

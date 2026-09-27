@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use riku_kernel::{DiffFiles, DiskFiles, FileSource};
+use riku_kernel::{DiskFiles, FileSource};
 
 use crate::core::domain::ports::{GitRepository, Reopener};
 
@@ -41,12 +41,6 @@ impl FileSource for GitFiles {
 /// abrir otra conexión (dobles de prueba).
 pub fn commit_files<R: GitRepository + ?Sized>(repo: &R, commit: &str) -> Option<Arc<dyn FileSource>> {
     repo.reopener().map(|r| Arc::new(GitFiles::new(r, commit)) as Arc<dyn FileSource>)
-}
-
-/// Fuentes de un diff entre dos commits. `None` en un lado = ese lado no
-/// existe (archivo nuevo o borrado) o no se puede leer.
-pub fn between<R: GitRepository + ?Sized>(repo: &R, before: Option<&str>, after: Option<&str>) -> DiffFiles {
-    DiffFiles::new(before.and_then(|c| commit_files(repo, c)), after.and_then(|c| commit_files(repo, c)))
 }
 
 /// Archivos del working tree (el disco bajo `workdir`).

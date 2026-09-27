@@ -711,7 +711,7 @@ fn paint_badge(painter: &egui::Painter, right: f32, mid: f32, width: f32, files:
 }
 
 /// Conteos de un archivo en palabras, en el idioma del visor.
-fn counts_text(s: &FileSummary) -> String {
+pub(crate) fn counts_text(s: &FileSummary) -> String {
     if s.category == SummaryCategory::Cosmetic {
         return tr!("history.cosmetic");
     }

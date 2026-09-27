@@ -13,7 +13,28 @@ riku gui --repo R --commit-a A --commit-b B archivo   # modo diff
 riku open archivo                          # igual, sin bloquear la terminal
 ```
 
-Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual` o `riku show COMMIT archivo -f visual`. `open` y el modo visual relanzan el propio ejecutable como un proceso aparte (`riku gui …`), así la terminal y el shell quedan libres. Sin escritorio gráfico (`DISPLAY`/`WAYLAND_DISPLAY`), `riku gui` lo explica y la CLI sigue funcionando.
+`riku gui` sin archivo abre la **pantalla de inicio** (ver abajo): desde ahí se hace todo sin la terminal. Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual` o `riku show COMMIT archivo -f visual`. `open` y el modo visual relanzan el propio ejecutable como un proceso aparte (`riku gui …`), así la terminal y el shell quedan libres. Sin escritorio gráfico (`DISPLAY`/`WAYLAND_DISPLAY`), `riku gui` lo explica y la CLI sigue funcionando.
+
+## Pantalla de inicio
+
+Lo que se ve sin nada abierto (y con el botón **Inicio**). Usa el mismo núcleo que la CLI:
+
+| Qué | Equivale a |
+|---|---|
+| **Proyecto:** la carpeta, su rama y cuántos archivos tienen cambios sin commitear; **Abrir carpeta…** y las carpetas recientes | `riku gui /ruta` |
+| **Cambios sin commitear:** cada archivo con su resumen; un clic abre su diff contra `HEAD` (Diff / Before / After) | `riku status`, `riku diff ARCHIVO -f visual` |
+| **Historial** | `riku log --graph` (panel History, **H**) |
+| **Comparar versiones…:** un archivo entre dos versiones (un commit, rama o tag, o el disco) | `riku diff A B ARCHIVO -f visual` |
+| **Diagnóstico:** repo, `.riku.toml`, PDK, símbolos, librerías de Magic y módulos | `riku doctor` |
+| **Archivos recientes** | — |
+
+**Abrir carpeta…** es un selector propio: se navega por las carpetas (las que son un repo llevan la marca `git`) o se pega una ruta y Enter. No usa el diálogo del sistema, que en Linux depende de GTK o de un portal y no anda en el contenedor ni por WSLg. Cambiar de carpeta recarga el árbol, vuelve a detectar el repo y pasa **History** al nuevo. Los cambios sin commitear se calculan en segundo plano la primera vez que se ve el inicio (con layouts grandes cuesta); **↻** los vuelve a revisar.
+
+Con un archivo o un diff abierto, **Comparar…** (barra superior) abre la misma ventana con ese archivo elegido, y **Exportar → PNG / SVG** guarda lo que se ve como imagen (lo de `riku render` y `riku diff -f png`) en `<temp>/riku/`; la ruta queda en el portapapeles.
+
+## La ventana
+
+La barra superior es el título de la ventana: se arrastra para moverla, doble clic maximiza o restaura, y a la derecha están **minimizar, maximizar y cerrar**, del alto de la barra, con fondo al pasar el puntero (cerrar se pone rojo). Los bordes cambian el tamaño. El marco que dibuja Linux para una ventana de winit (WSLg, Wayland sin decoraciones del servidor) tiene botones tenues que no responden al puntero; **Ajustes → Usar el marco del sistema** vuelve a él (se recuerda).
 
 ### Controles
 
@@ -28,7 +49,9 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
 | Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo lo que se puede abrir: `.sch`, `.sym`, `.gds`, `.oas`, `.mag`, `.raw`) |
-| Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla inicial |
+| Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla de inicio |
+| Abrir otra carpeta | **Abrir carpeta…** (inicio o panel **Proyecto**) |
+| Volver al inicio | botón **Inicio** |
 | Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
 | Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
 | Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
@@ -49,10 +72,23 @@ Un panel abajo, a todo el ancho, con el historial del repo del proyecto:
 ## Arquitectura
 
 ```
-src/
-├── main.rs           arranque y fuentes
+src/gui/
+├── mod.rs            arranque (ventana sin marco del sistema)
 ├── launch.rs         argumentos (--repo, --commit-a, --commit-b, --cell)
-├── app.rs            estado, carga async por backend, paneles
+├── app/mod.rs        estado, preferencias, atajos y el cuadro (`ui`)
+├── app/panels.rs     barra superior, barra de estado, paneles, centro
+├── app/loading.rs    abrir, recargar y recibir cargas
+├── app/actions.rs    inicio: carpeta, status, comparar, diagnóstico, exportar
+├── content.rs        qué ocupa el lienzo: `enum Content { Home, Scene, Wave }`
+├── loader.rs         carga en segundo plano (una sola; la nueva cancela)
+├── canvas.rs         gestos y pintado de una escena
+├── details_panel.rs  panel de detalles y selector de celdas
+├── home.rs           pantalla de inicio (solo dibuja; devuelve la acción)
+├── folder_picker.rs  "Abrir carpeta…" propio
+├── dialogs.rs        "Comparar versiones…" y "Diagnóstico"
+├── window_frame.rs   botones de la ventana, arrastre y bordes
+├── history/          panel History (modelo sin egui + vista)
+├── wave_view.rs      formas de onda (`.raw`)
 ├── project.rs        árbol de archivos
 ├── (los esquemáticos los dibuja el backend del módulo Xschem: riku/src/modules/xschem_view.rs)
 ├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),

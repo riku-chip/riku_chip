@@ -20,7 +20,7 @@ impl RikuGuiApp {
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
         // Un archivo suelto no es parte de un diff.
-        self.content = Content::Empty;
+        self.content = Content::Home;
         self.diff = None;
         self.remember_recent(path);
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -44,7 +44,7 @@ impl RikuGuiApp {
                 return self.open_raw(path);
             }
             if self.content.wave().is_some() {
-                self.content = Content::Empty;
+                self.content = Content::Home;
             }
         }
         let content = match std::fs::read(path) {
@@ -148,7 +148,7 @@ impl RikuGuiApp {
         // Una vista de ondas abierta taparía el diff pedido.
         #[cfg(feature = "spice")]
         if self.content.wave().is_some() {
-            self.content = Content::Empty;
+            self.content = Content::Home;
         }
         self.selected_path = Some(file.to_path_buf());
         // Otros archivos de cada commit, para los formatos que los necesitan.

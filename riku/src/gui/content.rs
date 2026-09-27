@@ -1,5 +1,5 @@
-//! Qué muestra el lienzo: nada, una escena de un backend (esquemático,
-//! layout) o una vista de formas de onda. Un solo `enum`: antes eran dos
+//! Qué muestra el lienzo: la pantalla de inicio, una escena de un backend
+//! (esquemático, layout) o una vista de formas de onda. Un solo `enum`: antes eran dos
 //! `Option` independientes y podían quedar los dos llenos (una vista de ondas
 //! tapando el diff pedido, B7).
 
@@ -155,8 +155,9 @@ impl SceneState {
 /// Lo que ocupa el lienzo.
 #[derive(Default)]
 pub(crate) enum Content {
+    /// Nada abierto: la pantalla de inicio (ver `home`).
     #[default]
-    Empty,
+    Home,
     Scene(SceneState),
     /// Formas de onda (`.raw`): no pasan por `ViewerBackend`, tienen su vista.
     #[cfg(feature = "spice")]

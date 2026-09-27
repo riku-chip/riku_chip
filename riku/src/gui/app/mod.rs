@@ -17,8 +17,10 @@ use crate::gui::motion::theme_fade_alpha;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::{space, CanvasTheme};
 use crate::gui::toast::{ToastKind, Toasts};
+use actions::RepoStatus;
 use crate::gui::{i18n, tr};
 
+mod actions;
 mod loading;
 mod panels;
 
@@ -59,6 +61,8 @@ pub struct RikuGuiApp {
     block_px: f64,
     /// `RIKU_PROFILE`: imprimir tiempos de pintado por cuadro.
     profile: bool,
+    /// Título y botones de la ventana del sistema en vez de los propios.
+    native_frame: bool,
 
     /// Lecturas del lienzo para la barra de estado (del cuadro anterior).
     readout: Readout,
@@ -78,6 +82,17 @@ pub struct RikuGuiApp {
     theme_fade: Option<(f64, egui::Color32)>,
     /// Panel History: el historial con su grafo (abajo, H).
     history: HistoryPanel,
+    /// Carpetas abiertas recientemente (persistente), la última primero.
+    recent_dirs: Vec<String>,
+    /// Cambios sin commitear del repo, para el inicio.
+    repo_status: RepoStatus,
+    /// Ventanas encima de todo: "Abrir carpeta…", "Comparar versiones…" y
+    /// "Diagnóstico".
+    folder_picker: Option<crate::gui::folder_picker::FolderPicker>,
+    compare: Option<crate::gui::dialogs::CompareDialog>,
+    doctor: Option<crate::gui::dialogs::DoctorDialog>,
+    /// Imagen que se está exportando (ruta del archivo al terminar).
+    export_job: Option<poll_promise::Promise<Result<PathBuf, String>>>,
 }
 
 /// Claves de persistencia (eframe storage).
@@ -85,7 +100,9 @@ const PREF_LABELS: &str = "riku.show_labels";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 const PREF_SIMPLIFY: &str = "riku.simplify";
+const PREF_NATIVE_FRAME: &str = "riku.native_frame";
 const PREF_RECENT: &str = "riku.recent_files";
+const PREF_RECENT_DIRS: &str = "riku.recent_dirs";
 const PREF_LANG: &str = "riku.lang";
 const PREF_HISTORY_H: &str = "riku.history_height";
 #[cfg(feature = "spice")]
@@ -136,7 +153,18 @@ impl RikuGuiApp {
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
         let simplify = pref(PREF_SIMPLIFY, true);
+        // La ventana arranca sin marco (ver `window_frame`); si el usuario
+        // prefiere el del sistema, se lo devuelve.
+        let native_frame = pref(PREF_NATIVE_FRAME, false);
+        if native_frame {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+        }
         let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
+        let mut recent_dirs: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT_DIRS)).unwrap_or_default();
+        let root = project_root.to_string_lossy().to_string();
+        recent_dirs.retain(|d| *d != root);
+        recent_dirs.insert(0, root);
+        recent_dirs.truncate(MAX_RECENT);
         let saved_lang: Option<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_LANG));
         i18n::set(&i18n::initial(saved_lang.as_deref()));
 
@@ -158,7 +186,7 @@ impl RikuGuiApp {
             selected_path,
             status: tr!("status.ready"),
             error: None,
-            content: Content::Empty,
+            content: Content::Home,
             diff: None,
             loader: Loader::new(),
             backends,
@@ -174,6 +202,7 @@ impl RikuGuiApp {
             reduce_motion,
             simplify,
             profile: std::env::var_os("RIKU_PROFILE").is_some(),
+            native_frame,
             block_px: std::env::var("RIKU_LOD_PX")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -188,6 +217,12 @@ impl RikuGuiApp {
             last_dark: None,
             theme_fade: None,
             history,
+            recent_dirs,
+            repo_status: RepoStatus::Stale,
+            folder_picker: None,
+            compare: None,
+            doctor: None,
+            export_job: None,
         };
 
         // Modo diff: commits pasados desde el CLI
@@ -290,7 +325,9 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
         eframe::set_value(storage, PREF_HISTORY_H, &self.history.height);
         eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
+        eframe::set_value(storage, PREF_NATIVE_FRAME, &self.native_frame);
         eframe::set_value(storage, PREF_RECENT, &self.recent);
+        eframe::set_value(storage, PREF_RECENT_DIRS, &self.recent_dirs);
         eframe::set_value(storage, PREF_LANG, &i18n::current());
         #[cfg(feature = "spice")]
         eframe::set_value(storage, PREF_WAVE_EXPRS, &self.wave_exprs);
@@ -318,6 +355,7 @@ impl eframe::App for RikuGuiApp {
         // Drenar carga async antes de pintar; si sigue en vuelo, solicitar
         // repaint para que el promise se consulte en el siguiente frame.
         self.poll_pending_load();
+        self.poll_jobs(&ctx);
         if self.loader.busy() {
             ctx.request_repaint();
         }
@@ -362,6 +400,11 @@ impl eframe::App for RikuGuiApp {
         // Archivo arrastrado sobre la ventana: indicar que se puede soltar.
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             drop_hint(&ctx);
+        }
+        self.show_dialogs(&ctx);
+        if !self.native_frame {
+            crate::gui::window_frame::outline(&ctx);
+            crate::gui::window_frame::resize_edges(&ctx);
         }
         let area = self.canvas_rect.unwrap_or_else(|| ctx.content_rect());
         self.toasts.show(&ctx, area);

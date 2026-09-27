@@ -85,14 +85,14 @@ Lo que quedó sin hacer, con el porqué, para retomarlo cuando haga falta:
 | Qué | CLI | Visor (`riku gui`) |
 |---|---|---|
 | Ver un archivo | `riku open archivo` | Panel **Proyecto** (árbol de la carpeta), recientes, arrastrar a la ventana |
-| Cambios sin commitear | `riku status` | — (falta) |
-| Diff de un archivo entre versiones | `riku diff [A] [B] archivo` (`-f visual` abre el visor) | Solo desde **History** (commit contra su padre) o lanzado desde la CLI |
+| Cambios sin commitear | `riku status` | **Inicio → Cambios sin commitear** |
+| Diff de un archivo entre versiones | `riku diff [A] [B] archivo` (`-f visual` abre el visor) | **Comparar versiones…**, **History** (commit contra su padre) o lanzado desde la CLI |
 | Diff de todo el repo | `riku diff [A] [B]` | — |
 | Qué cambió un commit | `riku show` | **History**: elegir un commit muestra sus archivos |
 | Historial | `riku log [--graph]` | **History** (tecla H) con el grafo |
-| Exportar imagen | `riku render` (PNG/SVG, de Carlos) | — |
-| Diagnóstico (PDK, formatos) | `riku doctor` | — |
-| Elegir carpeta / repo | `riku gui /ruta` (al abrir) | — (falta: hoy no se puede cambiar adentro) |
+| Exportar imagen | `riku render` (PNG/SVG, de Carlos) | **Exportar → PNG / SVG** |
+| Diagnóstico (PDK, formatos) | `riku doctor` | **Inicio → Diagnóstico** |
+| Elegir carpeta / repo | `riku gui /ruta` (al abrir) | **Abrir carpeta…** (inicio o panel Proyecto) |
 | Comparar ondas con otro `.raw` | — | Vista de ondas: **Comparar con…** |
 
 ### Visor: pantalla de inicio y paridad con la CLI (pedido del usuario)
@@ -127,8 +127,8 @@ Solo cortes que se pagan solos:
 ### Orden de trabajo de 9.3
 
 1. ✅ **Visor por dentro** (hecho): `app.rs` (1 709 líneas) pasó a `app/mod.rs` (estado, arranque, atajos, `ui`, 440), `app/panels.rs` (las zonas de la ventana, 470) y `app/loading.rs` (abrir, recargar, recibir cargas, 320), más `content.rs` (`enum Content { Empty, Scene, Wave }` + `DiffContext`, que viaja con la carga y se fija al llegar), `loader.rs` (carga en segundo plano), `canvas.rs` (gestos y pintado) y `details_panel.rs`. Lo de `spice` salió de `app` a `wave_view.rs` (`is_raw`, `read_raw`, `raw_files`, `compare_bytes`). Capturas antes/después iguales salvo el ancho guardado de los paneles. **Siguiente:** agregar `Content::Home` en el paso 2.
-2. **Inicio y carpeta:** `Content::Home`, selector de carpeta, carpetas recientes, cambio de repo en History.
-3. **Acciones desde el inicio:** cambios sin commitear, comparar, diagnóstico, exportar imagen. Usan el mismo núcleo que la CLI (`status`, `diff_set`, `doctor`, `render`), sin duplicar lógica.
+2. ✅ **Inicio y carpeta** (hecho): `Content::Empty` pasó a `Content::Home` (la pantalla de inicio, `home.rs`: solo dibuja y devuelve un `HomeAction`); botón **Inicio** en la barra. `folder_picker.rs`: "Abrir carpeta…" propio en un `egui::Modal` (navegar, pegar una ruta, marca `git`, ocultas); también desde el panel Proyecto. Carpetas recientes (`riku.recent_dirs`). `open_folder` recarga el árbol, crea un `HistoryPanel` nuevo (repo nuevo) y vuelve al inicio.
+3. ✅ **Acciones desde el inicio** (hecho, `app/actions.rs` + `dialogs.rs`): *Cambios sin commitear* (`status::analyze_with_options_path` en un hilo, solo al ver el inicio; cada archivo abre su diff `HEAD` → `:worktree`), *Historial*, *Comparar versiones…* (archivo del árbol + versión A/B: disco o commit/rama/tag, con las refs del repo; también **Comparar…** en la barra con el archivo abierto), *Diagnóstico* (`doctor::sections`: el mismo contenido que la CLI, que ahora lo imprime desde ahí; texto y JSON iguales al anterior) y **Exportar → PNG/SVG** (`export::image` en un hilo; la ruta al portapapeles). Además, **marco propio de la ventana** (`window_frame.rs`, pedido del usuario: los botones del marco de WSLg/Wayland casi no se ven ni se sombrean): minimizar/maximizar/cerrar del alto de la barra con fondo al pasar (cerrar en rojo), arrastrar la barra, doble clic maximiza, bordes para cambiar el tamaño; **Ajustes → Usar el marco del sistema** lo vuelve atrás. Capturas en Xvfb del inicio, el selector, el diagnóstico, comparar, un cambio abierto y la imagen exportada. Pendiente de probar en un escritorio real: mover, maximizar y cambiar el tamaño (Xvfb no tiene gestor de ventanas).
 4. ✅ **Núcleo** (hecho): `core/analysis/diff_pair.rs` con `Version { Rev, WorkTree, Absent }`, `End { version, path }` (ruta propia por lado: la vieja si se renombró) y `OnError { Propagate, InFile }` (la única diferencia de política: `diff`/`show` propagan un error de Git; `status`/`log` lo dejan en el archivo). `diff_pair` lee, arma `DiffFiles` (`version_files`/`sources`) y llama a `pipeline::diff_blobs`; el aviso "no existe en A ni en B" vive ahí. `diff_set`, `show`, `status`, `log` y el visor (`load_backend_diff`, con `Version::from_token`) pasan por él. `commit_diff.rs` y `pipeline::summarize` borrados; `diff A B` sin archivo corre en paralelo como `show` (`map_in_waves`). Misma salida en 15 casos (`diff` de un archivo, de todo, contra el disco, con renombre, con archivo inexistente; `show`, `show` del commit inicial, `status` y `log`, texto y JSON) contra el binario anterior.
 5. **Layouts (hecho):** `source.rs` (una sola lectura para CLI y visor; la clave de cache marca cada lado y lleva el lambda de Magic), `diff_scene.rs` y `layer_style.rs` fuera del backend, `changed_cells` sobre el mismo recorrido que el diff (`pair_cells` + `map_changed_cells`), `scene.rs` muerto borrado, API pública cerrada a lo que usa `riku`. Además, `process.rs`: un solo modelo de estilo de capas (tablas compiladas + PDK instalado).
 6. **Microkernel y el resto:** `Registry::extensions()`, claves de Xschem fuera del núcleo, `shlex` en el shell, rutas relativas, utilidades compartidas CLI/visor.
@@ -209,3 +209,4 @@ Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLay
 | Diezmado de ondas por rango visible | Hecho | `Curve` guarda la serie completa y su versión reducida: entera o casi, la reducida; al acercarse, el tramo visible (búsqueda binaria) con dos puntos por píxel. Zoom al 1 % de una curva de 10⁶ puntos: de ~40 puntos en pantalla a ~1600, pico incluido. RAM: solo las curvas que se muestran guardan la serie (las demás se sueltan). Un barrido que va hacia atrás usa siempre la reducida |
 | 9.3 paso 1: visor por dentro | Hecho | Ver "Orden de trabajo de 9.3". De paso: el panel History mostraba `3 signals_added` (los conteos de señales que agregó `7f5a4bc` no tenían texto corto): ahora usa el de la CLI si falta |
 | 9.3 paso 4: núcleo | Hecho | `diff_pair` (ver "Orden de trabajo de 9.3"). Suite con `-D warnings` y la salida de la CLI igual a la anterior en 15 casos |
+| 9.3 pasos 2 y 3: inicio y acciones | Hecho | Ver "Orden de trabajo de 9.3". Incluye el marco propio de la ventana. Suite con `-D warnings`, las combinaciones de features y `riku doctor` igual al anterior (texto y JSON) |
