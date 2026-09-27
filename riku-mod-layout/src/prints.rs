@@ -487,10 +487,10 @@ pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &Pair
     let t_local = t.elapsed();
     let (n_a, n_b, n_local, n_scan) = (a_own.len(), b_own.len(), local.len(), scan.len());
     let side = |own: Vec<OwnedPolygon>| -> Vec<OwnedPolygon> { own.into_iter().chain(local.iter().cloned()).collect() };
-    let split = xor_split_owned(&side(a_own), &side(b_own), key.into());
+    let (added, removed, leaves) = tiled_xor(&side(a_own), &side(b_own), key, LEAF_POLYGONS);
     if profile {
         eprintln!(
-            "[xor] {}/{}: propios {n_a} + {n_b} en {:.2?} · comunes cerca {n_local} (de {n_scan} pedazos) en {:.2?} · clipper {:.2?}",
+            "[xor] {}/{}: propios {n_a} + {n_b} en {:.2?} · comunes cerca {n_local} (de {n_scan} pedazos) en {:.2?} · clipper {:.2?} en {leaves} cuadrantes",
             key.layer,
             key.datatype,
             t_own,
@@ -498,7 +498,128 @@ pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &Pair
             t.elapsed() - t_local
         );
     }
-    (split.added, split.removed)
+    (added, removed)
+}
+
+/// Polígonos por cuadrante del XOR: con menos, una sola llamada a Clipper.
+const LEAF_POLYGONS: usize = 1000;
+/// Niveles máximos del quadtree (4^8 = 65 536 cuadrantes).
+const MAX_DEPTH: u32 = 8;
+
+/// XOR (`added = B \ A`, `removed = A \ B`) partiendo el plano en un
+/// quadtree por bbox hasta que cada hoja tenga a lo sumo `leaf` polígonos
+/// (de los dos lados). Cada hoja hace su XOR en paralelo y recorta el
+/// resultado a su rectángulo: `XOR(A, B) ∩ T = XOR(A ∩ T, B ∩ T)`, así la
+/// unión de las hojas es el XOR completo. Clipper barre por franjas y su
+/// costo crece mucho más rápido que la cantidad de bordes que comparten una
+/// franja: con miles de rectángulos alineados (capa 19/0 de un chip de IHP,
+/// 124 mil) una llamada tarda 358 s y 256 cuadrantes, 4,9 s.
+///
+/// Un polígono de diferencia que cruza un borde de cuadrante sale partido;
+/// las áreas y los bbox no cambian. Devuelve también la cantidad de hojas.
+fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, usize) {
+    if a.len() + b.len() <= 2 * leaf {
+        let split = xor_split_owned(a, b, key.into());
+        return (split.added, split.removed, 1);
+    }
+    let (ba, bb): (Vec<[f64; 4]>, Vec<[f64; 4]>) = (a.iter().map(owned_bbox).collect(), b.iter().map(owned_bbox).collect());
+    let bounds = ba.iter().chain(&bb).fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |r, x| {
+        [r[0].min(x[0]), r[1].min(x[1]), r[2].max(x[2]), r[3].max(x[3])]
+    });
+    let mut leaves: Vec<([f64; 4], Vec<u32>, Vec<u32>)> = Vec::new();
+    let sides = Sides { a: &ba, b: &bb, leaf };
+    sides.split(bounds, (0..a.len() as u32).collect(), (0..b.len() as u32).collect(), 0, &mut leaves);
+    let n = leaves.len();
+    let parts: Vec<(Vec<OwnedPolygon>, Vec<OwnedPolygon>)> = leaves
+        .par_iter()
+        .map(|(rect, ia, ib)| {
+            let pick = |polys: &[OwnedPolygon], idx: &[u32]| -> Vec<OwnedPolygon> { idx.iter().map(|&i| polys[i as usize].clone()).collect() };
+            let split = xor_split_owned(&pick(a, ia), &pick(b, ib), key.into());
+            let cut = |v: Vec<OwnedPolygon>| -> Vec<OwnedPolygon> { v.iter().filter_map(|p| clip_to_rect(p, rect)).collect() };
+            (cut(split.added), cut(split.removed))
+        })
+        .collect();
+    let (mut added, mut removed) = (Vec::new(), Vec::new());
+    for (x, y) in parts {
+        added.extend(x);
+        removed.extend(y);
+    }
+    (added, removed, n)
+}
+
+/// Los bbox de los polígonos de cada lado, para armar el quadtree.
+struct Sides<'a> {
+    a: &'a [[f64; 4]],
+    b: &'a [[f64; 4]],
+    leaf: usize,
+}
+
+impl Sides<'_> {
+    /// Parte `rect` en 4 mientras tenga más de `leaf` polígonos (índices de
+    /// A y de B cuyo bbox lo toca) y no se haya llegado a [`MAX_DEPTH`]. Las
+    /// hojas sin polígonos no se guardan.
+    fn split(&self, rect: [f64; 4], ia: Vec<u32>, ib: Vec<u32>, depth: u32, out: &mut Vec<([f64; 4], Vec<u32>, Vec<u32>)>) {
+        if ia.is_empty() && ib.is_empty() {
+            return;
+        }
+        if ia.len() + ib.len() <= self.leaf || depth >= MAX_DEPTH {
+            out.push((rect, ia, ib));
+            return;
+        }
+        let (mx, my) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
+        let quads = [[rect[0], rect[1], mx, my], [mx, rect[1], rect[2], my], [rect[0], my, mx, rect[3]], [mx, my, rect[2], rect[3]]];
+        for q in quads {
+            let touches = |b: &[f64; 4]| b[0] <= q[2] && b[2] >= q[0] && b[1] <= q[3] && b[3] >= q[1];
+            let sub_a: Vec<u32> = ia.iter().copied().filter(|&i| touches(&self.a[i as usize])).collect();
+            let sub_b: Vec<u32> = ib.iter().copied().filter(|&i| touches(&self.b[i as usize])).collect();
+            self.split(q, sub_a, sub_b, depth + 1, out);
+        }
+    }
+}
+
+/// Recorta un polígono a un rectángulo (Sutherland–Hodgman: vale para
+/// cualquier polígono contra una región convexa). `None` si no queda área.
+fn clip_to_rect(p: &OwnedPolygon, r: &[f64; 4]) -> Option<OwnedPolygon> {
+    use gdstk_rs::Point2D;
+    let mut pts: Vec<Point2D> = p.points.clone();
+    for side in 0..4 {
+        let inside = |q: &Point2D| match side {
+            0 => q.x >= r[0],
+            1 => q.x <= r[2],
+            2 => q.y >= r[1],
+            _ => q.y <= r[3],
+        };
+        let cross = |a: &Point2D, b: &Point2D| -> Point2D {
+            if side < 2 {
+                let x = if side == 0 { r[0] } else { r[2] };
+                Point2D { x, y: a.y + (x - a.x) / (b.x - a.x) * (b.y - a.y) }
+            } else {
+                let y = if side == 2 { r[1] } else { r[3] };
+                Point2D { x: a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x), y }
+            }
+        };
+        let mut out = Vec::with_capacity(pts.len() + 4);
+        for i in 0..pts.len() {
+            let (a, b) = (&pts[(i + pts.len() - 1) % pts.len()], &pts[i]);
+            match (inside(a), inside(b)) {
+                (true, true) => out.push(*b),
+                (true, false) => out.push(cross(a, b)),
+                (false, true) => {
+                    out.push(cross(a, b));
+                    out.push(*b);
+                }
+                (false, false) => {}
+            }
+        }
+        pts = out;
+        if pts.len() < 3 {
+            return None;
+        }
+    }
+    // Lo que cae justo sobre un borde del cuadrante queda sin área.
+    let n = pts.len();
+    let area2: f64 = (0..n).map(|i| pts[i].x * pts[(i + 1) % n].y - pts[(i + 1) % n].x * pts[i].y).sum();
+    (area2.abs() > 1e-12).then(|| OwnedPolygon { layer: p.layer, datatype: p.datatype, points: pts })
 }
 
 fn owned_bbox(p: &OwnedPolygon) -> [f64; 4] {
@@ -768,6 +889,58 @@ mod tests {
     fn unmatched_pairs_keys_as_a_multiset() {
         let (a, b) = unmatched(&[Some(1), Some(2), Some(2), None], &[Some(2), Some(3), Some(1), None]);
         assert_eq!((a, b), (vec![1, 3], vec![1, 3]));
+    }
+
+    fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> OwnedPolygon {
+        let pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+        OwnedPolygon { layer: 1, datatype: 0, points: pts.iter().map(|&(x, y)| gdstk_rs::Point2D { x, y }).collect() }
+    }
+
+    fn area(v: &[OwnedPolygon]) -> f64 {
+        v.iter()
+            .map(|p| {
+                let n = p.points.len();
+                (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>().abs() / 2.0
+            })
+            .sum()
+    }
+
+    #[test]
+    fn clip_to_rect_keeps_the_inside() {
+        let r = rect(0.0, 0.0, 4.0, 2.0);
+        let c = clip_to_rect(&r, &[1.0, -1.0, 3.0, 1.0]).expect("área");
+        assert!((area(&[c]) - 2.0).abs() < 1e-12);
+        // Fuera, o solo tocando un borde: nada.
+        assert!(clip_to_rect(&r, &[5.0, 0.0, 6.0, 1.0]).is_none());
+        assert!(clip_to_rect(&r, &[4.0, 0.0, 6.0, 1.0]).is_none());
+    }
+
+    #[test]
+    fn tiled_xor_gives_the_same_areas_as_one_call() {
+        // Una grilla de 60×60 rectángulos en A; en B los de las columnas
+        // pares corridos 0,3 y uno de cada 7 borrado. Con hojas de 50
+        // polígonos, el quadtree baja varios niveles y parte polígonos del
+        // resultado sobre los bordes.
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        for i in 0..60 {
+            for j in 0..60 {
+                let (x, y) = (i as f64 * 2.0, j as f64 * 1.5);
+                a.push(rect(x, y, x + 1.2, y + 1.0));
+                if (i * 60 + j) % 7 != 0 {
+                    let dx = if i % 2 == 0 { 0.3 } else { 0.0 };
+                    b.push(rect(x + dx, y, x + dx + 1.2, y + 1.0));
+                }
+            }
+        }
+        let key = LayerKey { layer: 1, datatype: 0 };
+        let whole = xor_split_owned(&a, &b, key.into());
+        let (added, removed, leaves) = tiled_xor(&a, &b, key, 50);
+        assert!(leaves > 16, "{leaves} hojas");
+        assert!((area(&added) - area(&whole.added)).abs() < 1e-9, "{} vs {}", area(&added), area(&whole.added));
+        assert!((area(&removed) - area(&whole.removed)).abs() < 1e-9, "{} vs {}", area(&removed), area(&whole.removed));
+        // Sin nada que partir: una sola llamada.
+        assert_eq!(tiled_xor(&a[..10], &b[..10], key, 50).2, 1);
     }
 
     #[test]

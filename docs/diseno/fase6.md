@@ -1,6 +1,6 @@
 # Fase 6: rendimiento con layouts grandes y multinúcleo
 
-Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-27): **6.1, 6.2, 6.3, 6.4 y 6.5.a hechos**; faltan 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
+Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-27): **6.1 a 6.5 hechos**; falta 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
 
 ---
 
@@ -323,6 +323,7 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 | 6.1 + 6.5.a | Hecho (2026-09-26) | `gds_diff.rs`: la huella de celda pasa a ser **por capa** (`layer_prints`, una sola pasada de aplanado) y se reutiliza para saltar las capas iguales. Las capas que difieren van a `xor_layer`: empareja los polígonos idénticos de A y B (hash + vértices), y si lo común es mayoría hace el XOR solo de lo propio más los comunes que lo tocan (`XOR(A' ∪ Cl, B' ∪ Cl)`, grilla de bboxes); si no, el XOR de la capa entera como antes. Resultado en el layout de 42 MB: **~22 min → 6,4 s** (1,7 GB), igual a KLayout (área de diferencia 0; KLayout tarda 26 s). Con un cambio real en las capas 6/0 (4,8 millones de polígonos) y 19/0: **16 s**, áreas idénticas a KLayout. `riku-mod-layout` sube a 0.2.0 (invalida la cache). 54 tests; regresión y `compare.sh --xor` idénticos |
 | 6.3 | Hecho (2026-09-26) | `gdstk_rust` `3ff9daf`. `finish_load` (shims.cpp), al leer GDS/OASIS: borra una vez los puntos repetidos de cada `FlexPath` (copia de `remove_overlapping_points`, que en gdstk es privada) y calcula las capas de `Library::layers()`. `unsafe impl Send + Sync` para los handles del bridge, con el porqué. Se borró `as_flexpath_mut`. `tests/concurrency.rs`: 12 hilos × 40 rondas aplanan, piden bbox, capas y XOR (jerarquía SREF/AREF y paths con puntos repetidos) y dan lo mismo que un hilo. CI de gdstk_rust: job no bloqueante con ThreadSanitizer. Regresión, `compare.sh` (tres PDKs) y `compare.sh --xor` idénticos |
 | 6.4 | Hecho (2026-09-27) | `prints.rs`: huella jerárquica (árbol de Merkle), instancias gemelas, aplanado por pedazos en paralelo y XOR por huellas; `hier_walk::Origins`; `--jobs`/`RIKU_JOBS` en `riku`; cache con archivo temporal por hilo. Resultado y diferencias con el diseño al final |
+| 6.5.b | Hecho (2026-09-27) | `prints.rs::tiled_xor`: con más de 2 000 polígonos en juego, quadtree por bbox (hojas de ≤ 1 000, hasta 8 niveles), XOR por hoja en paralelo y recorte Sutherland–Hodgman al rectángulo de la hoja. `riku-mod-layout` 0.3.0. Resultado al final |
 
 **Diferencias con el plan (6.1 + 6.5.a):**
 - **Hizo falta tocar gdstk-rs** (el plan decía que no): no había una booleana sobre listas de polígonos. Se agregó `xor_split_owned` (`gdstk_rust` `3746c63`), con dos tests que la comparan contra `xor_split_flat`.
@@ -351,3 +352,17 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 - **Bug de rendimiento previo encontrado:** atribuir cada polígono del XOR a su instancia (`origin_of_polygon`) pedía a gdstk el bbox de cada referencia por cada polígono, y gdstk lo recalcula recorriendo todo el subárbol: con una instancia movida (147 mil polígonos) tardaba horas. Ahora `Origins` los calcula una vez por celda.
 - **Sin umbrales de "celda chica":** el costo de repartir es de microsegundos (librería SKY130: 0,10–0,15 s contra 0,12 s de antes).
 - **Hilos:** en esta CPU (2 núcleos rápidos + 8 lentos) suman poco una vez que el algoritmo evita el trabajo; ayudan en el caso pesado (instancia movida: 7,2 → 4,7 s, dominado por Clipper en la 6/0). Ese caso es el candidato para 6.5.b (XOR por cuadrantes).
+
+**Resultado de 6.5.b** (2026-09-27, mismo layout y máquina, `--jobs 1` / `--jobs 12`; salida igual con 1 y 12 hilos; áreas idénticas a KLayout con `compare.sh --xor`):
+
+| Caso | Después de 6.4 | 6.5.b, 1 hilo | 6.5.b, 12 hilos |
+|---|---|---|---|
+| Capa 19/0 regenerada entera (124 mil rectángulos corridos 1 nm) | minutos (Clipper 358 s en la top) | 5,96 s | 3,27 s |
+| Instancia de pad movida 1 µm | 7,22 s / 4,65 s | 5,61 s | 3,07 s |
+| Un polígono nuevo en la top | 2,34 s / 1,78 s | 1,75 s | 1,63 s |
+| Rectángulo en una sub-celda | 1,91 s / 1,61 s | 2,33 s | 1,96 s |
+| Sin cambios reales | 1,39 s / 1,45 s | 1,46 s | 1,33 s |
+
+- En la 19/0 de la top, Clipper pasa de 358 s a **0,28 s** (547 cuadrantes). El resto de los 3–6 s es encontrar los propios y atribuirlos a sus instancias en las otras celdas que usan la 19/0.
+- Los casos chicos no cambian: con menos de 2 000 polígonos en juego no se parte nada (la diferencia entre filas es ruido de medición).
+- **Diferencia con el diseño:** el recorte a la hoja se hace en Rust (Sutherland–Hodgman) y no hizo falta tocar gdstk-rs. Los restos de área cero sobre los bordes se descartan.

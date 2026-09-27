@@ -1,6 +1,6 @@
 [package]
 name = "riku-mod-layout"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Módulo de layouts de Riku (GDSII/OASIS): diff geométrico, paletas por PDK y backend del visor"
 license = "MIT"
