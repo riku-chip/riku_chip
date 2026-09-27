@@ -1,6 +1,6 @@
 # Fase 6: rendimiento con layouts grandes y multinúcleo
 
-Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado: **propuesto** (2026-09-26).
+Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-26): **6.1, 6.2 y 6.5.a hechos**; faltan 6.3, 6.4, 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
 
 ---
 
@@ -97,35 +97,16 @@ para cada capa:
 - **Memoria:** igual que hoy.
 - **Contrato:** ninguno cambia. Es interno a `gds_diff.rs`.
 
-### 4.2 Visor: índice espacial, nivel de detalle y triangulación en cache (`viewer-core` + visor) — detalle en [`diseno_fase6_2_visor.md`](diseno_fase6_2_visor.md)
+### 4.2 Visor: índice espacial y nivel de detalle — **hecho**
 
-Un índice que se arma **una vez** al cargar la escena y que el dibujo consulta en cada cuadro.
+Implementado en `viewer-core/src/index.rs` (`SceneIndex`) y el painter del visor; cómo funciona, en [`../gui.md`](../gui.md) y [`../arquitectura.md`](../arquitectura.md). Resultado con el layout de 42 MB y el chip completo: **11 GB → 2,5 GB** de RAM y **~600 ms → ~2 ms** para preparar el cuadro. Esquemáticos y celdas: capturas idénticas a antes en tres zooms.
 
-```rust
-// viewer-core/src/index.rs (nuevo)
-pub struct SceneIndex {
-    grid: Grid,                 // celdas del mundo → índices de elementos que las tocan
-    bboxes: Vec<[f32; 4]>,      // bbox precalculado de cada elemento
-    coverage: Vec<Coverage>,    // pirámide: por nivel y capa, qué celdas tienen geometría
-    triangles: Vec<Option<Box<[u32]>>>, // earcut de cada polígono cóncavo, calculado al cargar
-}
-
-pub enum Visible<'a> {
-    Element(usize, &'a DrawElement),   // se dibuja tal cual
-    Block { layer: Layer, rect: BoundingBox }, // geometría menor a un píxel, resumida
-}
-```
-
-- **Nivel de detalle:** en cada cuadro se pide `visit_lod(viewport, tamaño_de_píxel)`. Los elementos más grandes que un píxel se entregan como hoy. Los menores no se dibujan uno por uno: la pirámide de cobertura entrega, por capa, las celdas ocupadas del nivel cuyo tamaño ≈ 1 píxel, con los tramos contiguos de una fila fusionados en un solo rectángulo. La cantidad de formas por cuadro queda acotada por los píxeles de la pantalla, no por el tamaño del chip.
-- **Triangulación:** `polygon_fill` usa `triangles[i]` en vez de llamar a earcut en cada cuadro.
-- **Armado en paralelo:** bboxes, grilla, pirámide y triangulación son independientes por elemento → `rayon` al cargar (dentro del `spawn_blocking` del backend).
-- **Contrato sin romper a nadie:**
-  - `Scene` gana `index: Option<Arc<SceneIndex>>` y `Scene::build_index()`, con valor por defecto, igual que en la fase 4 (`text_style`, `ghost`…).
-  - `RenderableScene` gana `fn visit_lod(...)` con implementación por defecto que llama a `visit`. El crate de Carlos (que implementa `RenderableScene` con la feature `viewer-core-compat`) sigue compilando sin cambios; la CI lo verifica.
-  - `DrawElement` **no cambia** (agregarle campos rompería a quien lo construye): lo precalculado vive en tablas paralelas indexadas por posición.
-- **Quién lo usa:** `GdsBackend` y `XschemViewer` llaman a `build_index()` al terminar la escena. Un `.sch` también gana culling rápido.
-- **Estimado:** cuadro con el chip completo de ~600 ms a < 50 ms. RAM de 11 GB a ~2,5 GB (escena 2,1 GB + índice); egui deja de fabricar millones de formas por cuadro.
-- **Aparte, opcional:** la escena ocupa 2,1 GB por guardar los vértices en `f64`. Pasar la geometría a `f32` la reduciría a la mitad. Queda anotado; no entra en esta fase.
+Lo que cambió respecto al plan, por lo que salió al medir:
+- La pirámide se pinta como **una textura por nivel** (capas compuestas en su orden de pintado, cache de 3), no como rectángulos: con rectángulos seguían siendo 150–350 mil formas por cuadro.
+- **Se resume solo si hace falta:** si lo visible cabe en 60 000 elementos, se dibuja todo como siempre. Si no, hay dos pirámides (lo menor a 4 o a 16 celdas); se prueba la de 16 antes de agrandar el texel.
+- **Cables largos y finos:** el ancho se estima con `2·área/perímetro` (sirve con curvas); esos se marcan siguiendo sus bordes, los polígonos chicos por las celdas cuyo centro cae dentro, y las capas de solo contorno por sus bordes.
+- Las etiquetas ilegibles u ocultas no salen de la consulta (eran 260 mil por cuadro en un layout de 8 MB).
+- Límite: zoom cercano sobre una zona muy densa (~45 ms por cuadro); una pirámide más fina necesitaría bitsets dispersos.
 
 ### 4.3 gdstk-rs seguro entre hilos (submódulo `external/gdstk`)
 
@@ -216,7 +197,7 @@ Umbral inicial: más de 100 mil polígonos propios en un lado.
 | Paso | Qué | Dónde | Esfuerzo | Listo cuando |
 |---|---|---|---|---|
 | 6.1 | Huella por capa | `riku-mod-layout` | S | O1 en un núcleo (< 30 s) y O2 |
-| 6.2 | Índice espacial, LOD y triangulación en cache — **hecho** (ver `diseno_fase6_2_visor.md`: 11 GB → 2,5 GB, 600 ms → 2 ms) | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
+| 6.2 | Índice espacial, LOD y triangulación en cache — **hecho** (4.2: 11 GB → 2,5 GB, 600 ms → 2 ms) | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
 | 6.3 | gdstk-rs seguro entre hilos + memoria | `external/gdstk` | M | O5; la RAM baja al liberar |
 | 6.4 | `rayon` en el diff + presupuesto de memoria + cache | `riku-mod-layout` | M | O1 con 12 núcleos (< 10 s) y O2 |
 | 6.5.a | Diferencia por huellas con recorte local | `riku-mod-layout` | S | capa cambiada con pocos cambios: XOR en ms; áreas iguales a KLayout |

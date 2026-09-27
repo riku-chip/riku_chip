@@ -1,6 +1,6 @@
 # El visor (`riku gui`)
 
-Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`) y layouts GDS (`.gds`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
+Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`) y layouts (`.gds`, `.oas`), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
 
 ## Uso
 
@@ -13,7 +13,7 @@ riku gui --repo R --commit-a A --commit-b B archivo   # modo diff
 riku open archivo                          # igual, sin bloquear la terminal
 ```
 
-Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`. La CLI busca el binario en `$RIKU_GUI_BIN`, junto al ejecutable de `riku` o en `target/{release,debug}`.
+Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual` o `riku show COMMIT archivo -f visual`. `open` y el modo visual relanzan el propio ejecutable como un proceso aparte (`riku gui …`), así la terminal y el shell quedan libres. Sin escritorio gráfico (`DISPLAY`/`WAYLAND_DISPLAY`), `riku gui` lo explica y la CLI sigue funcionando.
 
 ### Controles
 
@@ -64,20 +64,10 @@ src/
 
 ## Compilar y probar
 
-```bash
-cargo build --release            # target/release/riku
-cargo test -p riku gui::         # solo los tests del visor
-```
+`cargo test -p riku gui::` corre solo los tests del visor; el resto, en [`desarrollo.md`](desarrollo.md).
 
-Se recomienda Linux (por ejemplo el contenedor iic-osic-tools): ver `docs/integracion_gds_estado.md` para los problemas conocidos de MSVC 2019 y vcpkg en Windows. Con WSLg la ventana aparece en el escritorio de Windows.
-
-### Windows
-
-Si el binario compila pero falla con `STATUS_DLL_NOT_FOUND` (0xc0000135), falta en el `PATH` la carpeta de DLLs de vcpkg que usa gdstk-rs:
-
-```powershell
-$env:PATH = "$env:VCPKG_ROOT\installed\x64-windows\bin;" + $env:PATH
-```
+- **WSLg:** la ventana aparece en el escritorio de Windows. Para capturarla con herramientas X11, lanzar con `env -u WAYLAND_DISPLAY` (usa XWayland). El visor recuerda la posición de la ventana; si alguna vez abre minimizada o fuera de pantalla, borrar la clave `"window"` de `~/.local/share/riku-gui/app.ron`.
+- **Windows:** si falla con `STATUS_DLL_NOT_FOUND` (0xc0000135), falta en el `PATH` la carpeta de DLLs de vcpkg: `$env:PATH = "$env:VCPKG_ROOT\installed\x64-windows\bin;" + $env:PATH`.
 
 ## Criterios de interfaz
 

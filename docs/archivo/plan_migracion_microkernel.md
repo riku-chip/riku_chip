@@ -1,5 +1,7 @@
 # Diseño: arquitectura final de riku_chip (monolito modular con microkernel)
 
+> **Archivo (no se mantiene).** Plan de 2026-09 para migrar a microkernel; las fases 0–5 se completaron. Algunos nombres cambiaron al implementarlo (no hay crate `riku-mod-xschem`: el módulo vive en `riku/src/modules/`; `git` y el análisis quedaron en `riku`). Estado actual: [`../arquitectura.md`](../arquitectura.md).
+
 Revisión a fondo de cómo se relacionan los crates hoy, qué salió bien, qué quedó mal acoplado, y la arquitectura objetivo para el ejecutable único. Este documento reemplaza la parte de crates de `diseno_ejecutable_unico.md`; el resto de ese diseño (proceso hijo para el visor, dependencias estáticas, `release.yml`) sigue vigente.
 
 **Fecha:** 2026-09-26 · **Base:** `main` `1621fa3`
@@ -223,7 +225,7 @@ Cada fase deja `main` verde y con los mismos tests o más. El orden va de lo que
 | 3 | **Registro único.** `Registry` con `FormatModule::viewer()`; `modules.rs`; features por módulo | H | S |
 | 4 | **`Scene` con `ghost` y `annotations`; `XschemBackend` al módulo.** La GUI usa una sola ruta; `sch_painter.rs` se reduce a producir overlays; se quita la feature del submódulo | E, F, pendiente #1 | L |
 | 5 | Renombrar `gds-renderer` → `riku-mod-layout`; borrar el render SVG (nunca se conectó a un comando; la exportación futura sale de la escena neutra, ver pendientes #11). Además, dos comandos que salen casi gratis del registro: **`riku show`** y **`--ci`** (ver 3.1) | G | S+S+S |
-| 6 | **Rendimiento con layouts grandes y multinúcleo** (6.1 + 6.5.a hechos: diff de 42 MB de ~22 min a 6,4 s): huella por capa antes del XOR, índice espacial y nivel de detalle en el visor, gdstk-rs seguro entre hilos, `rayon` en el diff, XOR por cuadrantes y `log` en paralelo. Diseño y mediciones en [`diseno_fase6_rendimiento.md`](diseno_fase6_rendimiento.md) | pendiente #2 | L |
+| 6 | **Rendimiento con layouts grandes y multinúcleo** (6.1 + 6.5.a hechos: diff de 42 MB de ~22 min a 6,4 s): huella por capa antes del XOR, índice espacial y nivel de detalle en el visor, gdstk-rs seguro entre hilos, `rayon` en el diff, XOR por cuadrantes y `log` en paralelo. Diseño y mediciones en [`../diseno/fase6.md`](../diseno/fase6.md) | pendiente #2 | L |
 | 7 | **`riku log --graph`**: grafo ASCII de ramas y merges a la izquierda del log semántico (ver 3.2) | — | M |
 | 8 | **Módulo Magic (`.mag`)**: primer formato nuevo sobre la arquitectura; prueba que agregar un formato no toca núcleo, CLI ni visor. NGSpice (`.raw`) queda después: son formas de onda, no geometría ni netlist, y necesita otro tipo de vista (ver 3.3) | — | L |
 

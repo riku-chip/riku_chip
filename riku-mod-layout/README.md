@@ -46,4 +46,4 @@ src/
 cargo test -p riku-mod-layout
 ```
 
-Los fixtures (`tests/fixtures/*.gds`) se generan con los scripts Python de la misma carpeta (gdstk). La geometría, los labels y el XOR se verificaron contra KLayout sobre las librerías de celdas estándar de los tres PDKs: ver `docs/integracion_gds_estado.md`.
+Los fixtures (`tests/fixtures/*.gds`) se generan con los scripts Python de la misma carpeta (gdstk). La geometría, los labels y el XOR se verificaron contra KLayout sobre las librerías de celdas estándar de los tres PDKs: ver [`docs/layouts.md`](../docs/layouts.md).

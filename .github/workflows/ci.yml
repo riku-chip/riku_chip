@@ -64,7 +64,7 @@ jobs:
         working-directory: external/xschem-viewer-rust
         run: cargo check --features viewer-core-compat
 
-  # Exploratorio (#12 de docs/roadmap/pendientes.md): no bloquea el merge
+  # Exploratorio (ver docs/roadmap.md, "Windows estable"): no bloquea el merge
   # hasta que pase de forma estable. gdstk-rs busca zlib y qhull en vcpkg.
   windows:
     name: windows (no bloqueante)
