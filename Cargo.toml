@@ -43,3 +43,10 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.simplecss]
 opt-level = 3
+
+# El parser de Xschem lo genera pest dentro de xschem-viewer: sin optimizar
+# tarda ~15 ms en un .sch de 7 KB, y `riku log`/`diff` parsean muchos.
+[profile.dev.package.xschem-viewer]
+opt-level = 2
+[profile.dev.package.pest]
+opt-level = 3
