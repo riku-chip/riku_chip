@@ -36,7 +36,7 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 
 ### Alta
 
-- **Publicar la primera versión:** crear el tag `v*` (la CI publica los paquetes). La licencia ya está: Apache-2.0 (`LICENSE`), la misma que `xschem-viewer-rust`.
+- ~~Publicar la primera versión~~: hecho, [`v0.1.0`](https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0) (`.tar.gz`, `.deb`, `SHA256SUMS`; licencia Apache-2.0). Las siguientes: subir la versión en `riku/Cargo.toml` y crear el tag `vX.Y.Z`.
 
 ### Media
 

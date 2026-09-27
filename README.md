@@ -46,7 +46,7 @@ Y lo muestra en un **visor** con las versiones antes/después y los cambios resa
 
 Un solo ejecutable, `riku`, con la CLI, el shell y el visor. Linux x86_64 con glibc 2.35 o más nueva (Ubuntu 22.04+, Debian 12+, Fedora 36+, iic-osic-tools); para el visor, X11 o Wayland.
 
-Desde [Releases](https://github.com/riku-chip/riku_chip/releases):
+Desde [Releases](https://github.com/riku-chip/riku_chip/releases) (última: [`v0.1.0`](https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0)):
 
 ```bash
 tar xf riku-<versión>-linux-x86_64.tar.gz && ./riku-<versión>-linux-x86_64/install.sh   # o --system
