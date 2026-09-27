@@ -97,7 +97,7 @@ para cada capa:
 - **Memoria:** igual que hoy.
 - **Contrato:** ninguno cambia. Es interno a `gds_diff.rs`.
 
-### 4.2 Visor: índice espacial, nivel de detalle y triangulación en cache (`viewer-core` + visor)
+### 4.2 Visor: índice espacial, nivel de detalle y triangulación en cache (`viewer-core` + visor) — detalle en [`diseno_fase6_2_visor.md`](diseno_fase6_2_visor.md)
 
 Un índice que se arma **una vez** al cargar la escena y que el dibujo consulta en cada cuadro.
 
