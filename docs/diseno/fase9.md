@@ -145,21 +145,18 @@ Cada paso con la verificación completa y, en los del visor, capturas en Xvfb.
 
 ## 9.4 Librerías
 
-| Librería | Hoy → última | Recomendación |
-|---|---|---|
-| `eframe`/`egui` + `egui_plot` | 0.34 / 0.35 → 0.36 / 0.37 | **Actualizar juntas** (M: cambios de API entre versiones menores de egui). Probablemente saca duplicados del árbol (`smithay-client-toolkit` 0.19/0.20, `calloop`, `rustix` 0.38/1.1, `thiserror` 1/2) |
-| `rustyline` | 14 → 18 | **Actualizar** (S–M: API de `Helper`/`Completer`); saca `unicode-width` 0.1 duplicado |
-| `git2` | 0.20 → 0.21 | Actualizar (S). `gix` (Rust puro, seguro entre hilos: simplificaría `reopener`) no conviene ahora: migración L para poca ganancia |
-| `earcutr` | 0.5 | Probar `earcut` 0.4 (más rápido, mantenido) midiendo con `profile_view` antes de cambiar |
-| `shlex` | — | **Agregar** (arreglo del shell) |
-| `rust-i18n` | 4.2.2 → 4.2.3 | Parche; trae `itertools` 0.11 duplicado (no se puede evitar) |
-| `clap`, `serde`, `rayon`, `tokio`, `thiserror`, `glob`, `dirs`, `cxx`, `pest` (Carlos) | al día | Bien así |
-| `poll-promise` 0.3 | sin cambios hace tiempo | Bien así (chico y estable) |
-| `async-trait` | — | Sigue haciendo falta (no hay `async fn` en traits usados como `dyn`) |
-| `libc` | — | Solo para `SIGPIPE` (`main.rs:6`): correcto |
-| R-tree (`rstar`) | — | **No** hace falta (ver 9.2) |
+✅ Hecha (2026-09-27). Cada librería se revisó contra su changelog y el código de la versión nueva antes de cambiarla; un commit por librería.
 
-425 paquetes en el lock.
+| Librería | Antes → ahora | Qué hubo que cambiar | Verificación | Qué mejora |
+|---|---|---|---|---|
+| `rust-i18n` | 4.2.2 → 4.2.3 | nada | suite | parche |
+| `git2` | 0.20 → 0.21 | `shorthand`, `path`, `tag_names` devuelven `Result` (antes `Option`): se conserva saltear lo que no es UTF-8; `Oid::zero` → `Oid::ZERO_SHA1`. Las features `ssh`/`https` ya estaban apagadas | CLI igual en 15 casos | libgit2 1.9.3; sin pánicos con nombres que no son UTF-8 |
+| `rustyline` | 14 → 18 | nada: `Completer`/`Hinter`/`Highlighter`/`Validator` conservan lo que usa el shell, `readline` acepta `String` (`impl Prompt`), mismas features por defecto | shell con una pseudo-terminal: Tab, comillas, `cd` | sale `unicode-width` 0.1 duplicado |
+| `egui`/`eframe` | 0.34 → 0.36 | `Panel`/`CentralPanel::show_inside` → `show`; `DroppedFile` es un trait (`path()`); `Plot::new` pide `AsId` (Hash + Debug). Los paneles usan `show` (no `show_collapsible`): el nuevo "arrastrar para cerrar" no aplica | capturas antes/después de las seis pantallas: iguales salvo el kerning (`harfrust`) y ~16 px más de panel de detalles (egui cuenta la línea separadora) | texto con kerning y ligaduras; arreglos de rectángulos finos en diagonal, pánico con NaN en el hit-test, `ScrollArea`, `Grid`, paneles que desbordaban, arrastre al hacer clic arriba. "Sin núcleo ocupado esperando el próximo cuadro" (0.36.2) no se nota en Xvfb: 0 % de CPU quieto en las dos versiones |
+| `egui_plot` | 0.35 → 0.37 | `label_formatter` recibe `HoverPosition` (cerca de un punto / en otro lado); mismo texto | globo sobre una curva: nombre, x, y como antes | — |
+| `earcutr` → `earcut` | 0.5 → 0.4.11 | solo `fill::triangulate` por dentro (misma firma: el visor y el crate de Carlos no cambian), un `Earcut` por hilo que reusa sus buffers | tests de `fill` (área exacta, anillo); misma cantidad de índices | formas típicas de layout 3–3,6× más rápidas; un cóncavo de 2000 vértices 0,7× (raro); la carga del chip de 42 MB no cambia (la triangulación pesa poco ahí). georust, MIT/Apache |
+
+El lock pasó de 455 a 424 paquetes. Quedan duplicados que no dependen de nosotros (`calloop`, `rustix`, `bitflags` 1/2, `itertools` 0.11 por `rust-i18n`…). `clap`, `serde`, `rayon`, `tokio`, `thiserror`, `glob`, `dirs`, `cxx`, `poll-promise`, `async-trait`, `libc` y `shlex`, al día o bien así.
 
 ## 9.5 Está bien así (no tocar)
 
@@ -219,3 +216,4 @@ Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLay
 | 9.3 paso 4: núcleo | Hecho | `diff_pair` (ver "Orden de trabajo de 9.3"). Suite con `-D warnings` y la salida de la CLI igual a la anterior en 15 casos |
 | 9.3 pasos 2 y 3: inicio y acciones | Hecho | Ver "Orden de trabajo de 9.3". Incluye el marco propio de la ventana. Suite con `-D warnings`, las combinaciones de features y `riku doctor` igual al anterior (texto y JSON) |
 | 9.3 paso 6: microkernel | Hecho | Ver "Orden de trabajo de 9.3". Suite con `-D warnings`, combinaciones de features; CLI igual al binario anterior en 15 casos salvo `"placement": true` en el JSON de un esquemático; rutas desde una subcarpeta y comillas del shell probadas en un repo real |
+| 9.4 librerías | Hecha | Ver "9.4 Librerías": git2 0.21, rustyline 18, egui/eframe 0.36 + egui_plot 0.37, earcut 0.4, rust-i18n 4.2.3; suite con `-D warnings` y combinaciones de features |
