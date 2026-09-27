@@ -12,15 +12,16 @@ pub(super) fn get_blob(
 ) -> Result<Vec<u8>, GitError> {
     let commit = resolve_commit(repo, commit_ish)?;
     let blob_id = tree_entry_id(repo, commit.tree()?, file_path)?;
-    let blob = repo.find_blob(blob_id)?;
-    let size = blob.size();
+    // El tamaño sale de la cabecera del objeto: un blob demasiado grande se
+    // rechaza sin descomprimirlo entero.
+    let (size, _) = repo.odb()?.read_header(blob_id)?;
     if size > LARGE_BLOB_THRESHOLD {
         return Err(GitError::LargeBlob {
             path: file_path.to_string(),
             size,
         });
     }
-    Ok(blob.content().to_vec())
+    Ok(repo.find_blob(blob_id)?.content().to_vec())
 }
 
 /// Tamaño de un blob leyendo solo la cabecera del objeto.
