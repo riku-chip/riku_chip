@@ -213,18 +213,33 @@ Con los hashes por polígono de 4.1, cada lado se parte en los polígonos **idé
 - Costo: dos `NOT` sobre conjuntos chicos. La 8/0 pasa de 0,84 s a milisegundos; una 19/0 con un cambio chico pasaría de 358 s a milisegundos.
 - Correctitud: la geometría del resultado es idéntica a la del XOR completo. La **partición en polígonos** puede diferir (Clipper une lo que toca de otra forma), así que el conteo `+N polys` puede cambiar; las áreas, bbox e instancias no. Se documenta y se verifica contra KLayout por área.
 
-#### 4.5.b Cuadrantes, para cuando `A'` y `B'` son grandes (una capa regenerada entera)
+#### 4.5.b XOR por cuadrantes (diseño verificado, 2026-09-27)
 
-Umbral inicial: más de 100 mil polígonos propios en un lado.
+Después de 6.4, lo que llega a Clipper en una capa que difiere es `A' ∪ Cl` contra `B' ∪ Cl`: chico cuando el cambio es local, pero grande si una instancia se mueve (74 mil polígonos por lado) o si una capa se regenera entera. Medido con `examples/profile_xor.rs` (cada polígono va a los cuadrantes que toca su bbox; el resultado se recorta al cuadrante; áreas comparadas con el XOR entero):
 
-- **Identidad:** `XOR(A, B) ∩ T = XOR(A ∩ T, B ∩ T)` para cualquier rectángulo `T`. Partiendo el bbox de la capa en cuadrantes `T₁…Tₙ`, la unión de los resultados es el XOR completo.
-- **Por cuadrante:** tomar los polígonos cuyo bbox toca el cuadrante, recortarlos al cuadrante, XOR, y recortar el resultado al cuadrante (un polígono que cruza el borde aparece en los dos lados, cada uno con su parte).
-- **Por qué arregla el peor caso de Clipper:** cada franja horizontal ve solo los bordes de su cuadrante. Con una grilla de k×k, los bordes activos por franja bajan del orden de k veces y la cantidad de trabajo de cada llamada, del orden de k².
-- **Y reparte núcleos:** los cuadrantes son independientes.
-- **Tamaño:** grilla adaptativa, hasta ~20 mil polígonos por cuadrante (se parte en 4 el que se pase).
-- **gdstk-rs:** función nueva `xor_split_flat_in(a, b, rect) -> XorSplit` que filtra por bbox, recorta y hace el XOR en C++ (Clipper ya soporta la intersección con un rectángulo).
-- **Efecto visible:** un polígono de diferencia que cruza un borde de cuadrante sale partido en dos. Las áreas, los bbox y las instancias no cambian. El conteo `+N polys` sí puede cambiar, solo en capas donde se usan cuadrantes. Se documenta; la comparación contra KLayout es por área y sigue igual.
-- **Cache:** la clave de `diff_cache.rs` incluye `CARGO_PKG_VERSION`. Como 4.5.a y 4.5.b pueden cambiar la partición de los polígonos, `riku-mod-layout` sube a `0.2.0` al activarlos, y los resultados viejos se recalculan solos.
+| Caso | Entero | 2×2 | 4×4 | 8×8 | 16×16 | 32×32 |
+|---|---|---|---|---|---|---|
+| Pad movido, 6/0 (74k + 74k), secuencial | 1,18 s | 0,91 s | 1,04 s | 1,09 s | 1,53 s | 3,0 s |
+| · en paralelo (12 hilos) | | 0,50 s | 0,26 s | **0,15 s** | 0,25 s | 0,74 s |
+| 19/0 (124k + 124k rectángulos), secuencial | 358 s | 84 s | 19 s | 8,4 s | 4,9 s | 5,2 s |
+| · en paralelo | | 59 s | 14 s | 5,0 s | **1,8 s** | 1,7 s |
+
+- **Dos efectos distintos.** En la 6/0 Clipper es lineal: partir no ahorra trabajo, pero reparte (8× con 8×8). En la 19/0 (miles de rectángulos en la misma franja horizontal) el costo por llamada es casi cuadrático: cada partición en 4 divide el total por ~4. Los cuadrantes arreglan el peor caso **y** usan los núcleos.
+- **Bordes:** polígonos duplicados por tocar varios cuadrantes: 1,00–1,04× hasta 8×8; 1,16× a 32×32. Áreas idénticas en todos los casos.
+- **Tamaño óptimo:** ~500–1000 polígonos por cuadrante (16×16 sobre 124k). Más chico ya no ahorra y suma bordes y llamadas.
+
+**Diseño (solo Rust, en `prints.rs`; sin tocar gdstk-rs):**
+
+1. `xor_layer` sigue armando `A' ∪ Cl` y `B' ∪ Cl`. Si entre los dos hay menos de **2 000** polígonos, una sola llamada a `xor_split_owned`, como hoy.
+2. Si no, **quadtree por bbox**: se parte el bbox de todo en 4 mientras un cuadrante tenga más de **1 000** polígonos (contando los de los dos lados que lo tocan) y no haya bajado de 8 niveles. Adaptativo: las zonas densas se parten más; las vacías no se visitan. Cada polígono se asigna a las hojas que toca su bbox.
+3. Cada hoja hace su `xor_split_owned` (en `par_iter`, el orden de las hojas fijo) y **recorta el resultado a su rectángulo** (Sutherland–Hodgman, en Rust; los polígonos de gdstk con agujeros vienen como un solo contorno con puentes, que el recorte respeta). Los restos de área cero por recortar sobre un borde se descartan.
+4. Identidad: `XOR(A, B) ∩ T = XOR(A ∩ T, B ∩ T)`; recortar el resultado al cuadrante es lo mismo que recortar las entradas y más barato. La unión de las hojas es el XOR completo.
+
+**Qué cambia en la salida:** un polígono de diferencia que cruza un borde de cuadrante sale partido: el conteo `+N polys` puede subir; las áreas, los bbox, las instancias y lo cosmético no. Solo pasa en capas con más de 2 000 polígonos en juego. `riku-mod-layout` sube a **0.3.0** (la cache se invalida sola).
+
+**Verificación:** áreas iguales a KLayout con `compare.sh --xor` en el pad movido y en un caso nuevo con la 19/0 regenerada entera (todos sus rectángulos corridos 1 unidad, hecho con KLayout); test unitario del recorte y otro que compara el XOR por cuadrantes con el entero en los fixtures; regresión de salida.
+
+**Objetivo:** pad movido de 4,7–7 s a **< 2 s**; capa 19/0 regenerada de minutos a **< 5 s**.
 
 ### 4.6 `log`, `show` y `status` en paralelo (núcleo del ejecutable: `riku/src/core/analysis`)
 

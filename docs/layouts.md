@@ -55,4 +55,5 @@ Visualmente (`tools/verify/klayout_snapshot.py`) la geometría coincide; cambia 
 - `profile_diff a.gds b.gds [s]`: tiempo y memoria de cada etapa del diff (`SKIP_FP=1`, `PRINTS=1`, `CANON=1` para diagnósticos).
 - `profile_view layout.gds`: cuánto tarda el visor en armar la escena y el índice, y qué se dibujaría con el chip completo.
 - `profile_prints layout.gds [celda] [hilos]`: lo que decide la huella por pedazos (fase 6.4): reparto de las referencias de la top, igualdad con la huella entera, tiempo de aplanar/hashear/ordenar, memoria por polígono y escalado por hilos (`SKIP_WHOLE=1` para medir la memoria de los pedazos sola).
+- `profile_xor a.gds b.gds <celda instanciada o top> <layer> <datatype>`: el XOR de una capa entre dos versiones, entero y por k×k cuadrantes (tiempos, áreas, duplicados por los bordes); `SKIP_WHOLE=1` cuando el entero tarda minutos.
 - `verify_dump`: el volcado para comparar con KLayout.
