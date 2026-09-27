@@ -40,6 +40,8 @@ El lector de Magic vive en `external/gdstk/rust` (`cargo test --test magic`). Do
 
 Con cada tag `v*`: compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estáticas (`GDSTK_STATIC=1`), verifica que el binario solo dependa de glibc, corre pruebas de humo y publica `riku-<versión>-linux-x86_64.tar.gz` (con `install.sh`, entrada de menú e icono de `packaging/`), `riku_<versión>-1_amd64.deb` y `SHA256SUMS`. El binario ocupa ~13 MB instalado; los paquetes, ~5 MB.
 
+Para publicar una versión: subir `version` en `riku/Cargo.toml`, commitear y `git tag -a vX.Y.Z -m "Riku X.Y.Z" && git push origin vX.Y.Z`. Los usuarios instalan la última con `packaging/get.sh` (resuelve `releases/latest`, verifica el `SHA256SUMS` y corre `install.sh`) o una concreta pasándole el tag. Con **Actions → Release → Run workflow** se prueba todo sin publicar (los paquetes quedan como artefactos del run).
+
 ## Herramientas
 
 | Dónde | Para qué |

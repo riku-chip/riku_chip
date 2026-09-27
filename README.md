@@ -46,12 +46,26 @@ Y lo muestra en un **visor** con las versiones antes/después y los cambios resa
 
 Un solo ejecutable, `riku`, con la CLI, el shell y el visor. Linux x86_64 con glibc 2.35 o más nueva (Ubuntu 22.04+, Debian 12+, Fedora 36+, iic-osic-tools); para el visor, X11 o Wayland.
 
-Desde [Releases](https://github.com/riku-chip/riku_chip/releases) (última: [`v0.1.0`](https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0)):
+Desde [Releases](https://github.com/riku-chip/riku_chip/releases), con el instalador (descarga, verifica el checksum e instala en `~/.local/bin`, sin sudo):
 
 ```bash
-tar xf riku-<versión>-linux-x86_64.tar.gz && ./riku-<versión>-linux-x86_64/install.sh   # o --system
-sudo apt install ./riku_<versión>-1_amd64.deb                                           # o el .deb
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh                  # la última versión
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.1.0     # una versión concreta
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sudo sh -s -- latest --system   # en /usr/local/bin
 ```
+
+A mano, con el `.tar.gz` o el `.deb` de una versión (cambiar `0.1.0` por la que se quiera; la lista está en [Releases](https://github.com/riku-chip/riku_chip/releases)):
+
+```bash
+V=0.1.0
+curl -fLO https://github.com/riku-chip/riku_chip/releases/download/v$V/riku-$V-linux-x86_64.tar.gz
+tar xf riku-$V-linux-x86_64.tar.gz && ./riku-$V-linux-x86_64/install.sh          # o --system
+# o el .deb:
+curl -fLO https://github.com/riku-chip/riku_chip/releases/download/v$V/riku_$V-1_amd64.deb
+sudo apt install ./riku_$V-1_amd64.deb
+```
+
+Con la CLI de GitHub: `gh release download -R riku-chip/riku_chip` (la última) o `gh release download v0.1.0 -R riku-chip/riku_chip`. Para desinstalar: `install.sh --uninstall` (el del paquete descargado) o `sudo apt remove riku`.
 
 Desde el código (ver [`docs/desarrollo.md`](docs/desarrollo.md)):
 
