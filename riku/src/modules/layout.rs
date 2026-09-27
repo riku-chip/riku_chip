@@ -148,10 +148,7 @@ impl FormatModule for LayoutModule {
         let b = LayoutSide { bytes: content_b, files: files.after.as_deref() };
         let r = match diff_layout_sides(a, b, path_hint, &cfg, cache) {
             Ok(r) => r,
-            Err(e) => {
-                report.warnings.push(translate_error(e, path_hint));
-                return report;
-            }
+            Err(e) => return FileChange::failed(FileFormat::Gds, translate_error(e, path_hint)),
         };
 
         for n in r.cells_removed {
@@ -207,10 +204,11 @@ mod tests {
         let gds = proof_lib_bytes();
         let report = LayoutModule::new().diff(svg, &gds, "x.gds", &DiffOptions::default());
         assert!(report.changes.is_empty());
-        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
         assert!(
-            report.warnings[0].contains("(A)") && report.warnings[0].contains("GDSII"),
-            "warning debe identificar lado A y mencionar GDSII: {:?}",
+            err.contains("(A)") && err.contains("GDSII"),
+            "el error debe identificar lado A y mencionar GDSII: {:?}",
             report.warnings
         );
     }
@@ -221,10 +219,11 @@ mod tests {
         let gds = proof_lib_bytes();
         let report = LayoutModule::new().diff(&gds, svg, "x.gds", &DiffOptions::default());
         assert!(report.changes.is_empty());
-        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
         assert!(
-            report.warnings[0].contains("(B)") && report.warnings[0].contains("GDSII"),
-            "warning debe identificar lado B y mencionar GDSII: {:?}",
+            err.contains("(B)") && err.contains("GDSII"),
+            "el error debe identificar lado B y mencionar GDSII: {:?}",
             report.warnings
         );
     }

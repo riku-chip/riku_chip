@@ -25,6 +25,9 @@ impl FileSummary {
 
     /// Construye un summary desde un `FileChange` con el nivel solicitado.
     pub fn from_report_with(report: &FileChange, path: &str, level: DetailLevel) -> Self {
+        if let Some(err) = &report.error {
+            return Self { format: report.format.clone(), ..Self::error(path, err.clone()) };
+        }
         let agg = aggregate_changes(report, level);
         let category = decide_category(agg.semantic, agg.cosmetic);
         let full_report = matches!(level, DetailLevel::Completo).then(|| report.clone());
@@ -172,7 +175,7 @@ mod tests {
     }
 
     fn report(entries: Vec<Change>) -> FileChange {
-        FileChange { format: FileFormat::Xschem, changes: entries, warnings: Vec::new() }
+        FileChange { format: FileFormat::Xschem, changes: entries, ..Default::default() }
     }
 
     #[test]
@@ -196,6 +199,15 @@ mod tests {
         assert_eq!(s.counts.get(labels::COMPONENTS_ADDED), Some(&2));
         assert_eq!(s.counts.get(labels::NETS_REMOVED), Some(&1));
         assert_eq!(s.counts.get(labels::COMPONENTS_RENAMED), Some(&1));
+    }
+
+    #[test]
+    fn un_modulo_que_falla_es_error_no_unchanged() {
+        let r = FileChange::failed(FileFormat::Gds, "(B) no es GDSII");
+        let s = FileSummary::from_report(&r, "a.gds");
+        assert_eq!(s.category, SummaryCategory::Error);
+        assert_eq!(s.format, FileFormat::Gds);
+        assert_eq!(s.errors, vec!["(B) no es GDSII".to_string()]);
     }
 
     #[test]

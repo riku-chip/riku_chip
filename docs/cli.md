@@ -87,6 +87,7 @@ Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nom
   "schema": "riku-diff/v2",
   "file": "design/op_amp.sch",
   "format": "xschem",
+  "error": null,
   "warnings": [],
   "changes": [
     { "kind": "added",    "element": { "type": "component", "name": "M5" }, "cosmetic": false },
@@ -102,7 +103,7 @@ Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nom
 }
 ```
 
-Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `-f json-v1` da la forma anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`), idéntica byte a byte, y se mantiene durante una versión.
+Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `error` no es `null` cuando el módulo no pudo comparar el archivo (un lado roto o ilegible): entonces `changes` viene vacío y no significa "sin cambios"; en `-f json-v1` ese mensaje va primero en `warnings`. `-f json-v1` da la forma anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`), idéntica byte a byte, y se mantiene durante una versión.
 
 **Visual** (`-f visual`): abre el visor con las vistas **Diff**, **Before** y **After** (ver [`gui.md`](gui.md)).
 
@@ -135,7 +136,7 @@ El commit inicial se compara contra vacío (todo aparece añadido); un merge, co
   "commit": { "oid": "077931d3…", "short_id": "077931d", "author": "…", "timestamp": 1790477193,
               "message": "…", "parents": ["fbb15d00…"] },
   "files": [ { "file": "a.sch", "status": "modified", "old_path": null, "format": "xschem",
-               "warnings": [], "changes": [ … como en riku-diff/v2 … ] } ]
+               "error": null, "warnings": [], "changes": [ … como en riku-diff/v2 … ] } ]
 }
 ```
 
@@ -187,7 +188,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 riku status [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--include-unknown] [--ci]
 ```
 
-Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios) o `unknown` (sin módulo; se listan con `--include-unknown`).
+Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios), `unknown` (sin módulo; se listan con `--include-unknown`) o `error` (no se pudo comparar; el mensaje va en `errors`, y `status` termina con 2).
 
 ```json
 {
@@ -209,7 +210,7 @@ Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios 
 |---|---|
 | 0 | Sin cambios, o solo cosméticos |
 | 1 | Hay cambios funcionales |
-| 2 | Error (commit o archivo inexistente, repo inválido…) |
+| 2 | Error (commit o archivo inexistente, repo inválido…, o algún archivo que no se pudo comparar, como un GDS roto: lo demás se imprime igual) |
 
 Con `-f json`, un error también sale como JSON en stdout: `{"schema": "riku-error/v1", "error": "commit no encontrado: v9"}`.
 

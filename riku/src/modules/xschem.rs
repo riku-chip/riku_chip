@@ -111,17 +111,11 @@ impl FormatModule for XschemModule {
 
         let text_a = match validate_xschem(content_a, "A", path_hint) {
             Ok(t) => t,
-            Err(w) => {
-                report.warnings.push(w);
-                return report;
-            }
+            Err(w) => return FileChange::failed(FileFormat::Xschem, w),
         };
         let text_b = match validate_xschem(content_b, "B", path_hint) {
             Ok(t) => t,
-            Err(w) => {
-                report.warnings.push(w);
-                return report;
-            }
+            Err(w) => return FileChange::failed(FileFormat::Xschem, w),
         };
 
         let sch_a = parse_text(text_a);
@@ -214,10 +208,11 @@ N 0 0 10 0 {lab=OUT}\n";
         let invalid: &[u8] = &[0xFF, 0xFE, 0x00, 0x80];
         let report = driver().diff(invalid, VALID_SCH, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty(), "no debe inventar cambios");
-        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
         assert!(
-            report.warnings[0].contains("(A)") && report.warnings[0].contains("UTF-8"),
-            "warning debe identificar lado A y mencionar UTF-8: {:?}",
+            err.contains("(A)") && err.contains("UTF-8"),
+            "el error debe identificar lado A y mencionar UTF-8: {:?}",
             report.warnings
         );
     }
@@ -227,10 +222,11 @@ N 0 0 10 0 {lab=OUT}\n";
         let invalid: &[u8] = &[0xFF, 0xFE, 0x00, 0x80];
         let report = driver().diff(VALID_SCH, invalid, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty());
-        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
         assert!(
-            report.warnings[0].contains("(B)") && report.warnings[0].contains("UTF-8"),
-            "warning debe identificar lado B y mencionar UTF-8: {:?}",
+            err.contains("(B)") && err.contains("UTF-8"),
+            "el error debe identificar lado B y mencionar UTF-8: {:?}",
             report.warnings
         );
     }
@@ -244,10 +240,11 @@ N 0 0 10 0 {lab=OUT}\n";
             "no debe reportar 'todo removido' falso: {:?}",
             report.changes
         );
-        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
         assert!(
-            report.warnings[0].contains("(B)") && report.warnings[0].contains("Xschem"),
-            "warning debe identificar lado B y mencionar formato: {:?}",
+            err.contains("(B)") && err.contains("Xschem"),
+            "el error debe identificar lado B y mencionar formato: {:?}",
             report.warnings
         );
     }
@@ -257,8 +254,9 @@ N 0 0 10 0 {lab=OUT}\n";
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
         let report = driver().diff(svg, VALID_SCH, "x.sch", &DiffOptions::default());
         assert!(report.changes.is_empty());
-        assert_eq!(report.warnings.len(), 1);
-        assert!(report.warnings[0].contains("(A)"));
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let err = report.error.as_deref().unwrap_or_default();
+        assert!(err.contains("(A)"));
     }
 
     #[test]

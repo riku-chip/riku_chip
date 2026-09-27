@@ -60,10 +60,7 @@ impl FormatModule for WaveformModule {
         let mut report = FileChange::new(FileFormat::Waveform);
         let (a, b) = match (read_side(before, "A", path_hint), read_side(after, "B", path_hint)) {
             (Ok(a), Ok(b)) => (a, b),
-            (Err(e), _) | (_, Err(e)) => {
-                report.warnings.push(e);
-                return report;
-            }
+            (Err(e), _) | (_, Err(e)) => return FileChange::failed(FileFormat::Waveform, e),
         };
         for plot in compare::compare(&a, &b, Tolerance::default()) {
             if let (Some((a0, a1)), Some((b0, b1))) = plot.x_range {
@@ -190,8 +187,9 @@ mod tests {
     }
 
     #[test]
-    fn garbage_is_a_warning_not_a_panic() {
+    fn garbage_is_an_error_not_a_panic() {
         let r = WaveformModule::new().diff(b"basura", b"basura", "x.raw", &DiffOptions::default());
-        assert!(r.changes.is_empty() && !r.warnings.is_empty());
+        assert!(r.changes.is_empty() && r.error.is_some());
+        assert!(!r.is_empty(), "un archivo ilegible no es 'sin cambios'");
     }
 }

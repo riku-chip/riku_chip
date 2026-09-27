@@ -18,6 +18,8 @@ pub(super) enum Outcome {
     Clean,
     /// Hay al menos un cambio funcional (`status`, `diff`, `show`).
     Functional,
+    /// Algún archivo no se pudo comparar (el resto se imprimió igual).
+    Failed,
 }
 
 impl From<Changes> for Outcome {
@@ -25,6 +27,7 @@ impl From<Changes> for Outcome {
         match c {
             Changes::Clean => Outcome::Clean,
             Changes::Functional => Outcome::Functional,
+            Changes::Failed => Outcome::Failed,
         }
     }
 }

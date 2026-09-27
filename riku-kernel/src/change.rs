@@ -12,6 +12,10 @@ pub struct FileChange {
     /// Problemas no fatales (un lado ilegible, formato inesperado…).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// El módulo no pudo comparar (un lado roto o ilegible): `changes` no
+    /// dice nada y el archivo no cuenta como "sin cambios".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl FileChange {
@@ -19,9 +23,15 @@ impl FileChange {
         Self { format, ..Default::default() }
     }
 
-    /// `true` si no hay ningún cambio funcional (solo cosméticos o nada).
+    /// Un archivo que no se pudo comparar.
+    pub fn failed(format: FileFormat, error: impl Into<String>) -> Self {
+        Self { format, error: Some(error.into()), ..Default::default() }
+    }
+
+    /// `true` si se comparó y no hay ningún cambio funcional (solo
+    /// cosméticos o nada). Con error es `false`: no se sabe.
     pub fn is_empty(&self) -> bool {
-        self.changes.iter().all(|c| c.cosmetic)
+        self.error.is_none() && self.changes.iter().all(|c| c.cosmetic)
     }
 
     /// Cambios funcionales (no cosméticos).
@@ -304,5 +314,16 @@ mod tests {
         f.changes.push(Change::new(ChangeKind::Added, Element::Net { name: "vdd".into() }));
         assert!(!f.is_empty());
         assert_eq!(f.functional().count(), 1);
+    }
+
+    #[test]
+    fn failed_is_not_empty() {
+        let f = FileChange::failed(FileFormat::Gds, "(A) no es GDSII");
+        assert!(!f.is_empty());
+        assert_eq!(f.functional().count(), 0);
+        let v = serde_json::to_value(&f).unwrap();
+        assert_eq!(v["error"], "(A) no es GDSII");
+        // Sin error, el JSON no cambia.
+        assert!(serde_json::to_value(FileChange::new(FileFormat::Gds)).unwrap().get("error").is_none());
     }
 }

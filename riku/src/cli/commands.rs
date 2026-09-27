@@ -16,7 +16,7 @@ use crate::core::domain::models::FileChange;
 use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
 use crate::core::analysis::status::{self, StatusOptions};
-use crate::core::analysis::summary::DetailLevel;
+use crate::core::analysis::summary::{DetailLevel, SummaryCategory};
 
 use super::OutputFormat;
 use super::format;
@@ -55,7 +55,7 @@ pub(super) fn run_diff(
                 .map_err(|e| e.to_string())?;
             let warnings = std::mem::take(&mut report.warnings);
             print_diff(&report, &warnings, &file, &from, &to, format)?;
-            Ok(Changes::of(report.functional().next().is_some()))
+            Ok(Changes::of_reports([&report]))
         }
         None => {
             if matches!(format, OutputFormat::JsonV1) {
@@ -67,7 +67,7 @@ pub(super) fn run_diff(
                 OutputFormat::Json => format::diff_set::print_json(&report)?,
                 _ => format::diff_set::print_text(&report)?,
             }
-            Ok(Changes::of(report.has_functional_changes()))
+            Ok(Changes::of_reports(report.files.iter().filter_map(|f| f.change.as_ref())))
         }
     }
 }
@@ -101,11 +101,27 @@ pub(super) enum Changes {
     Clean,
     /// Al menos un cambio funcional.
     Functional,
+    /// Algún archivo no se pudo comparar.
+    Failed,
 }
 
 impl Changes {
     fn of(functional: bool) -> Self {
         if functional { Changes::Functional } else { Changes::Clean }
+    }
+
+    /// Un error en cualquier archivo pesa más que los cambios.
+    fn of_reports<'a>(reports: impl IntoIterator<Item = &'a FileChange>) -> Self {
+        let mut out = Changes::Clean;
+        for r in reports {
+            if r.error.is_some() {
+                return Changes::Failed;
+            }
+            if r.functional().next().is_some() {
+                out = Changes::Functional;
+            }
+        }
+        out
     }
 }
 
@@ -144,7 +160,7 @@ pub(super) fn run_show(
         OutputFormat::Json => format::show_json::print(&report, true)?,
         _ => format::show_text::print(&report)?,
     }
-    Ok(Changes::of(report.has_functional_changes()))
+    Ok(Changes::of_reports(report.files.iter().filter_map(|f| f.change.as_ref())))
 }
 
 /// Imprime un diff en el formato pedido (texto, JSON v2 o JSON v1).
@@ -267,6 +283,9 @@ pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
         format::status_text::print(&report, level, args.include_unknown);
     }
 
+    if report.count_by_category(SummaryCategory::Error) > 0 {
+        return Ok(Changes::Failed);
+    }
     Ok(Changes::of(report.has_semantic_changes()))
 }
 

@@ -9,6 +9,10 @@ use super::common::marker_for_change;
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, Value};
 
 pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
+    if let Some(err) = &report.error {
+        print_error(file_path, err);
+        return Ok(());
+    }
     if report.is_empty() {
         println!("Sin cambios semánticos.");
         return Ok(());
@@ -28,6 +32,12 @@ pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
     print_nets(report);
 
     Ok(())
+}
+
+/// Un archivo que el módulo no pudo comparar (no es "sin cambios").
+pub fn print_error(file_path: &str, err: &str) {
+    println!("Archivo : {}", super::color::bold(file_path));
+    println!("  {} {err}", super::color::red("no se pudo comparar:"));
 }
 
 fn print_header(file_path: &str, semantic: usize, cosmetic: usize) {

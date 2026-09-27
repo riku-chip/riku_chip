@@ -44,7 +44,9 @@ pub fn print_files(files: &[ShowFile], untouched: &str) -> Result<(), String> {
         if let Some(old) = &f.old_path {
             println!("Renombrado: {old} → {}", f.path);
         }
-        if change.is_empty() {
+        if let Some(err) = &change.error {
+            diff_text::print_error(&f.path, err);
+        } else if change.is_empty() {
             let why = match f.status {
                 None => untouched,
                 Some(ChangeStatus::Removed) => "eliminado",

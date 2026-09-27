@@ -18,6 +18,7 @@ pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &s
         "from": from,
         "to": to,
         "format": report.format,
+        "error": report.error,
         "warnings": warnings,
         "changes": report.changes,
     });
@@ -27,6 +28,7 @@ pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &s
 pub fn print_v1(report: &FileChange, warnings: &[String], file_path: &str) -> Result<(), String> {
     let mut payload = riku_kernel::legacy::diff_report_json(report);
     payload["file"] = json!(file_path);
-    payload["warnings"] = json!(warnings);
+    // v1 no tenía campo de error: va primero entre los avisos.
+    payload["warnings"] = json!(report.error.iter().chain(warnings).collect::<Vec<_>>());
     super::print_enveloped(&payload, true)
 }

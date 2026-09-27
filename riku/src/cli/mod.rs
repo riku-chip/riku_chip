@@ -251,6 +251,9 @@ pub fn run() -> ExitCode {
     match cmd.execute() {
         Ok(Outcome::Ok | Outcome::Clean) => ExitCode::SUCCESS,
         Ok(Outcome::Functional) => ExitCode::from(if ci_codes { 1 } else { 0 }),
+        // Un archivo que no se pudo comparar: lo demás ya se imprimió, pero
+        // el resultado no es confiable (un chequeo de CI no debe pasar).
+        Ok(Outcome::Failed) => ExitCode::from(if ci_codes { 2 } else { 1 }),
         Err(err) => {
             // Con salida JSON, el error también es JSON (en stdout) para que
             // quien lo lee no tenga que distinguir texto de datos.

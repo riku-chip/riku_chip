@@ -27,15 +27,16 @@ pub fn print(report: &ShowReport, pretty: bool) -> Result<(), String> {
 
 /// Un archivo con sus cambios tipados (lo comparten `show` y `diff`).
 pub fn file_json(f: &ShowFile) -> serde_json::Value {
-    let (format, warnings, changes) = match &f.change {
-        Some(c) => (json!(c.format), json!(c.warnings), json!(c.changes)),
-        None => (json!(null), json!([]), json!([])),
+    let (format, error, warnings, changes) = match &f.change {
+        Some(c) => (json!(c.format), json!(c.error), json!(c.warnings), json!(c.changes)),
+        None => (json!(null), json!(null), json!([]), json!([])),
     };
     json!({
         "file": f.path,
         "status": f.status,
         "old_path": f.old_path,
         "format": format,
+        "error": error,
         "warnings": warnings,
         "changes": changes,
     })

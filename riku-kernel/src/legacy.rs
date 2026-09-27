@@ -41,9 +41,15 @@ pub struct LegacyReport {
     pub warnings: Vec<String>,
 }
 
-/// El reporte de driver v1 de un `FileChange`.
+/// El reporte de driver v1 de un `FileChange`. v1 no tenía campo de error:
+/// va primero entre los avisos, como antes.
 pub fn driver_report(fc: &FileChange) -> LegacyReport {
-    LegacyReport { file_type: fc.format.clone(), changes: entries(fc), warnings: fc.warnings.clone() }
+    LegacyReport { file_type: fc.format.clone(), changes: entries(fc), warnings: warnings(fc) }
+}
+
+/// Los avisos con la forma de v1: el error (si hay) y después los avisos.
+pub fn warnings(fc: &FileChange) -> Vec<String> {
+    fc.error.iter().chain(&fc.warnings).cloned().collect()
 }
 
 /// Cuerpo de `riku diff -f json` v1: componentes, nets y `is_move_all`.

@@ -195,3 +195,44 @@ fn cli_json_v2_has_typed_changes() {
     assert_eq!(area["after"].as_f64(), Some(1.0));
     assert_eq!(top["location"]["min_x"].as_f64(), Some(12.0));
 }
+
+/// `riku diff --ci` (y `show --ci`): 0 sin cambios, 1 con cambios, 2 si un
+/// lado no se pudo leer. Antes un GDS roto salía como "sin cambios" y 0.
+#[test]
+fn ci_exit_code_is_2_when_a_side_is_unreadable() {
+    let r = gds_repo();
+    let repo = Repository::open(&r.path).unwrap();
+    let broken = commit_bytes(&repo, r.file, b"\x00\x06\x00\x02\x02\x58 roto", "roto");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_riku"))
+            .args(args)
+            .arg("--repo")
+            .arg(&r.path)
+            .output()
+            .expect("ejecutar riku")
+    };
+    let code = |args: &[&str]| run(args).status.code();
+
+    assert_eq!(code(&["diff", &r.b, &r.b, r.file, "--ci"]), Some(0));
+    assert_eq!(code(&["diff", &r.a, &r.b, r.file, "--ci"]), Some(1));
+    assert_eq!(code(&["diff", &r.a, &broken, r.file, "--ci"]), Some(2));
+    assert_eq!(code(&["diff", &r.a, &broken, "--ci"]), Some(2), "diff de todos los archivos");
+    assert_eq!(code(&["show", &broken, "--ci"]), Some(2));
+    // Sin --ci, el error también es un código distinto de 0.
+    assert_eq!(code(&["diff", &r.a, &broken, r.file]), Some(1));
+
+    let out = run(&["diff", &r.a, &broken, r.file, "-f", "json", "--ci"]);
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(json["error"].as_str().is_some_and(|e| e.contains("(B)")), "{json}");
+    assert!(json["changes"].as_array().unwrap().is_empty(), "{json}");
+
+    let out = run(&["diff", &r.a, &broken, r.file]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("no se pudo comparar") && !text.contains("Sin cambios"), "{text}");
+
+    // log: el archivo roto aparece como error, no se oculta como "sin cambios".
+    let out = run(&["log", "-f", "json"]);
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let commit = json["commits"].as_array().unwrap().iter().find(|c| c["oid"] == broken.as_str()).expect("commit roto en el log");
+    assert_eq!(commit["files"][0]["category"], "error", "{commit}");
+}
