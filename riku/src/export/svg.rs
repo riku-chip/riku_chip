@@ -168,9 +168,13 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
 
     // Versión anterior (diff), atenuada y solo en contorno.
     let ghost = if style.dark { Rgb(95, 95, 95, 1.0) } else { Rgb(185, 185, 185, 1.0) };
+    let mut batch = Batch::default();
     for el in scene.ghost() {
-        element(&mut out, &xf, el, None, ghost, drawn_text);
+        if !batch.add(&mut out, &xf, el, None, ghost) {
+            element(&mut out, &xf, el, None, ghost, drawn_text);
+        }
     }
+    batch.flush(&mut out);
 
     let mut labels: Vec<(f64, f64, String, Rgb)> = Vec::new();
     scene.visit(&bbox.inflate(bbox.width().max(bbox.height())), &mut |el| {
@@ -183,10 +187,16 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
                     labels.push((px, py, content.clone(), stroke));
                 }
             }
-            _ => element(&mut out, &xf, el, Some(fill), stroke, drawn_text),
+            _ => {
+                if !batch.add(&mut out, &xf, el, Some(fill), stroke) {
+                    batch.flush(&mut out);
+                    element(&mut out, &xf, el, Some(fill), stroke, drawn_text);
+                }
+            }
         }
         true
     });
+    batch.flush(&mut out);
 
     for a in scene.annotations() {
         annotation(&mut out, &xf, a, style.dark);
@@ -208,44 +218,78 @@ fn stroke_attrs(c: Rgb, width: f64) -> String {
     format!(r#"stroke="{}" stroke-opacity="{:.3}" stroke-width="{width}""#, c.css(), c.3)
 }
 
-/// Un elemento. `fill = None`: solo contorno (versión anterior).
-fn element(out: &mut String, xf: &Xform, el: &DrawElement, fill: Option<Rgb>, stroke: Rgb, drawn_text: bool) {
-    let st = stroke_attrs(stroke, 1.0);
-    let fill_attrs = |filled: bool| match (filled, fill) {
+fn fill_attrs(filled: bool, fill: Option<Rgb>) -> String {
+    match (filled, fill) {
         (true, Some(f)) if f.3 > 0.0 => format!(r#"fill="{}" fill-opacity="{:.3}""#, f.css(), f.3),
         _ => r#"fill="none""#.to_string(),
-    };
+    }
+}
+
+/// Rectángulos y polígonos seguidos con el mismo estilo (los de una capa)
+/// van en un solo `<path>`: un layout grande son cientos de miles, y como
+/// elementos sueltos el SVG pesa decenas de MB y tarda en rasterizarse.
+#[derive(Default)]
+struct Batch {
+    attrs: String,
+    d: String,
+}
+
+impl Batch {
+    /// Suma `el` si es un rectángulo o polígono; `false` si no lo es.
+    fn add(&mut self, out: &mut String, xf: &Xform, el: &DrawElement, fill: Option<Rgb>, stroke: Rgb) -> bool {
+        let (pts, filled): (Vec<(f64, f64)>, bool) = match el {
+            DrawElement::Rect { x, y, w, h, filled, .. } => {
+                (vec![xf.p(*x, *y), xf.p(x + w, *y), xf.p(x + w, y + h), xf.p(*x, y + h)], *filled)
+            }
+            DrawElement::Polygon { points, filled, .. } if points.len() >= 2 => {
+                (points.iter().map(|(x, y)| xf.p(*x, *y)).collect(), *filled)
+            }
+            _ => return false,
+        };
+        let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
+        for &(x, y) in &pts {
+            lo = (lo.0.min(x), lo.1.min(y));
+            hi = (hi.0.max(x), hi.1.max(y));
+        }
+        // Menos de un píxel: no se vería (layouts grandes vistos enteros).
+        if hi.0 - lo.0 < 0.3 && hi.1 - lo.1 < 0.3 {
+            return true;
+        }
+        let attrs = format!("{} {}", fill_attrs(filled, fill), stroke_attrs(stroke, 1.0));
+        if attrs != self.attrs {
+            self.flush(out);
+            self.attrs = attrs;
+        }
+        for (i, (x, y)) in pts.iter().enumerate() {
+            let _ = write!(self.d, "{}{x:.1} {y:.1}", if i == 0 { "M" } else { "L" });
+        }
+        if filled {
+            self.d.push('Z');
+        }
+        true
+    }
+
+    fn flush(&mut self, out: &mut String) {
+        if !self.d.is_empty() {
+            let _ = write!(out, r#"<path d="{}" {}/>"#, self.d, self.attrs);
+            self.d.clear();
+        }
+    }
+}
+
+/// Un elemento que no es rectángulo ni polígono (esos van en [`Batch`]).
+/// `fill = None`: solo contorno (versión anterior).
+fn element(out: &mut String, xf: &Xform, el: &DrawElement, fill: Option<Rgb>, stroke: Rgb, drawn_text: bool) {
+    let st = stroke_attrs(stroke, 1.0);
+    let fill_attrs = |filled: bool| fill_attrs(filled, fill);
     match el {
         DrawElement::Line { x1, y1, x2, y2, .. } => {
             let ((a, b), (c, d)) = (xf.p(*x1, *y1), xf.p(*x2, *y2));
             let _ = write!(out, r#"<line x1="{a:.2}" y1="{b:.2}" x2="{c:.2}" y2="{d:.2}" {st}/>"#);
         }
-        DrawElement::Rect { x, y, w, h, filled, .. } => {
-            let ((a, b), (c, d)) = (xf.p(*x, *y), xf.p(x + w, y + h));
-            let (rx, ry, rw, rh) = (a.min(c), b.min(d), (c - a).abs(), (d - b).abs());
-            if rw < 0.3 && rh < 0.3 {
-                return;
-            }
-            let _ = write!(out, r#"<rect x="{rx:.2}" y="{ry:.2}" width="{rw:.2}" height="{rh:.2}" {} {st}/>"#, fill_attrs(*filled));
-        }
         DrawElement::Circle { cx, cy, r, filled, .. } => {
             let (a, b) = xf.p(*cx, *cy);
             let _ = write!(out, r#"<circle cx="{a:.2}" cy="{b:.2}" r="{:.2}" {} {st}/>"#, r * xf.s, fill_attrs(*filled));
-        }
-        DrawElement::Polygon { points, filled, .. } if points.len() >= 2 => {
-            let pts: Vec<(f64, f64)> = points.iter().map(|(x, y)| xf.p(*x, *y)).collect();
-            let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
-            for &(x, y) in &pts {
-                lo = (lo.0.min(x), lo.1.min(y));
-                hi = (hi.0.max(x), hi.1.max(y));
-            }
-            // Menos de un píxel: no se vería (layouts grandes vistos enteros).
-            if hi.0 - lo.0 < 0.3 && hi.1 - lo.1 < 0.3 {
-                return;
-            }
-            let list: String = pts.iter().map(|(x, y)| format!("{x:.2},{y:.2}")).collect::<Vec<_>>().join(" ");
-            let tag = if *filled { "polygon" } else { "polyline" };
-            let _ = write!(out, r#"<{tag} points="{list}" {} {st}/>"#, fill_attrs(*filled));
         }
         DrawElement::Text { x, y, content, size, angle_deg, h_align, v_align, .. } if drawn_text => {
             let (a, b) = xf.p(*x, *y);

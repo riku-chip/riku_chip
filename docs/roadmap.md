@@ -51,10 +51,9 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 
 | Tema | Por qué | Esfuerzo |
 |---|---|---|
-| Exportar SVG/PNG desde el visor | Un botón "Exportar…" que escriba la escena neutra (sirve para `.sch` y `.gds`); opcional `riku render` | S |
+| Exportar SVG/PNG desde el visor | Un botón "Exportar…" en la GUI; la CLI ya lo hace (`riku render`, `-f png\|svg`) y el botón puede reusar `riku/src/export` | S |
 | `cargo fmt` en la CI | El formato no es uniforme; activarlo es un commit grande solo de formato | S |
 | Clippy en la CI | Primero como job no bloqueante | S |
-| Paleta SKY130 completa desde su `.lyp` | `gen_palettes.py` ya lo hace para GF180 e IHP; es sumar una entrada | S |
 
 ### Limitaciones conocidas
 

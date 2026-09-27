@@ -11,3 +11,35 @@ exclude = ["external"]
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# El rasterizado de imágenes (`riku render -f png`) sin optimizar tarda
+# decenas de segundos en layouts grandes; optimizado, un par. Solo estos
+# crates: el resto del build de desarrollo sigue igual de rápido.
+[profile.dev.package.resvg]
+opt-level = 3
+[profile.dev.package.usvg]
+opt-level = 3
+[profile.dev.package.tiny-skia]
+opt-level = 3
+[profile.dev.package.tiny-skia-path]
+opt-level = 3
+[profile.dev.package.roxmltree]
+opt-level = 3
+[profile.dev.package.svgtypes]
+opt-level = 3
+[profile.dev.package.kurbo]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.strict-num]
+opt-level = 3
+[profile.dev.package.simplecss]
+opt-level = 3
