@@ -100,6 +100,12 @@ fn entry(c: &Change) -> LegacyEntry {
             (c.kind != ChangeKind::Removed).then(|| values(|d| d.after.as_ref())),
         ),
         Element::Net { name } => (format!("net:{name}"), None, None),
+        // v1 no tenía puertos de layout: el nombre y los valores, como una net.
+        Element::Port { .. } => (
+            c.element.name(),
+            (c.kind != ChangeKind::Added).then(|| values(|d| d.before.as_ref())),
+            (c.kind != ChangeKind::Removed).then(|| values(|d| d.after.as_ref())),
+        ),
         Element::Signal { name, .. } => (
             format!("signal:{name}"),
             (c.kind != ChangeKind::Added).then(|| values(|d| d.before.as_ref())),
@@ -155,6 +161,7 @@ mod tests {
                 cell: "TOP".into(),
                 layer: 1,
                 datatype: 0,
+                layer_name: None,
                 via: Some(Via { path: vec!["INV".into()], instances: 1, at: Some([10.0, 10.0]) }),
             },
         )

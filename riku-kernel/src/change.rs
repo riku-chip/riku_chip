@@ -119,10 +119,15 @@ pub enum Element {
         cell: String,
         layer: u32,
         datatype: u32,
+        /// Nombre de la capa si el formato lo da (Magic: `metal1`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        layer_name: Option<String>,
         /// Si el cambio viene de una sub-celda instanciada.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         via: Option<Via>,
     },
+    /// Puerto de una celda de un layout (Magic: `port 1 nsew signal input`).
+    Port { cell: String, name: String },
     /// Señal de una simulación (`v(out)`, `i(vdd)`) dentro de un análisis
     /// (`Transient Analysis`).
     Signal { plot: String, name: String },
@@ -135,10 +140,17 @@ impl Element {
             Self::Component { name } | Self::Net { name } | Self::Cell { name } => name.clone(),
             Self::Whole => "(archivo)".into(),
             Self::Signal { name, .. } => name.clone(),
-            Self::Geometry { cell, layer, datatype, via } => match via {
-                Some(v) => format!("{cell}:L{layer}/{datatype}:{}", v.path.join("/")),
-                None => format!("{cell}:L{layer}/{datatype}"),
-            },
+            Self::Geometry { cell, layer, datatype, layer_name, via } => {
+                let layer = match layer_name {
+                    Some(n) => n.clone(),
+                    None => format!("L{layer}/{datatype}"),
+                };
+                match via {
+                    Some(v) => format!("{cell}:{layer}:{}", v.path.join("/")),
+                    None => format!("{cell}:{layer}"),
+                }
+            }
+            Self::Port { cell, name } => format!("{cell}:port:{name}"),
         }
     }
 }
@@ -250,11 +262,15 @@ mod tests {
                 cell: "TOP".into(),
                 layer: 1,
                 datatype: 0,
+                layer_name: None,
                 via: Some(Via { path: vec!["INV".into()], instances: 2, at: None }),
             },
         )
         .with_detail("added_area_um2", None, Some(1.0.into()));
         let v = serde_json::to_value(&c).unwrap();
+        // Sin nombre de capa el JSON es el de siempre.
+        assert!(v["element"].get("layer_name").is_none());
+        assert_eq!(c.element.name(), "TOP:L1/0:INV");
         assert_eq!(v["kind"], "added");
         assert_eq!(v["element"]["type"], "geometry");
         assert_eq!(v["element"]["via"]["instances"], 2);
@@ -262,6 +278,20 @@ mod tests {
         assert!(v.get("renamed_from").is_none() && v.get("location").is_none());
         let back: Change = serde_json::from_value(v).unwrap();
         assert_eq!(back, c);
+    }
+
+    #[test]
+    fn named_layers_and_ports() {
+        let g = Element::Geometry { cell: "inv".into(), layer: 7, datatype: 0, layer_name: Some("metal1".into()), via: None };
+        assert_eq!(g.name(), "inv:metal1");
+        let v = serde_json::to_value(&g).unwrap();
+        assert_eq!(v["layer_name"], "metal1");
+        // Un JSON viejo, sin layer_name, se sigue leyendo.
+        let old: Element = serde_json::from_str(r#"{"type":"geometry","cell":"A","layer":1,"datatype":0}"#).unwrap();
+        assert!(matches!(old, Element::Geometry { layer_name: None, .. }));
+        let p = Element::Port { cell: "inv".into(), name: "A".into() };
+        assert_eq!(p.name(), "inv:port:A");
+        assert_eq!(serde_json::to_value(&p).unwrap()["type"], "port");
     }
 
     #[test]

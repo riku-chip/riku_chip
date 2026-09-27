@@ -2,7 +2,8 @@
 //!
 //! Un módulo trae todo lo que Riku sabe hacer con un formato: reconocerlo
 //! ([`FormatModule::detect`]), comparar dos versiones
-//! ([`FormatModule::diff`]) y, opcionalmente, mostrarlo en el visor
+//! ([`FormatModule::diff`], o [`FormatModule::diff_with`] si el formato
+//! reparte un diseño en varios archivos) y, opcionalmente, mostrarlo en el visor
 //! ([`FormatModule::viewer`]). El núcleo, la CLI y el visor solo conocen el
 //! [`Registry`]; qué módulos existen se decide en un único lugar del
 //! ejecutable.
@@ -10,7 +11,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use viewer_core::ViewerBackend;
+use viewer_core::{DiffFiles, ViewerBackend};
 
 use crate::{FileChange, FileFormat};
 
@@ -59,6 +60,24 @@ pub trait FormatModule: Send + Sync {
     /// Cambios entre dos versiones. Un lado vacío es un archivo que no
     /// existía en esa versión. Los problemas no fatales van en `warnings`.
     fn diff(&self, before: &[u8], after: &[u8], path_hint: &str, opts: &DiffOptions) -> FileChange;
+
+    /// Como [`Self::diff`], con acceso a los otros archivos de cada versión
+    /// (el mismo commit, o el disco): lo necesitan los formatos repartidos
+    /// en varios archivos, como Magic (una celda por archivo). `path_hint`
+    /// es la ruta del archivo relativa a la raíz de esas fuentes.
+    ///
+    /// Por defecto ignora `files` y llama a `diff`.
+    fn diff_with(
+        &self,
+        before: &[u8],
+        after: &[u8],
+        path_hint: &str,
+        opts: &DiffOptions,
+        files: &DiffFiles,
+    ) -> FileChange {
+        let _ = files;
+        self.diff(before, after, path_hint, opts)
+    }
 
     /// Backend del visor para este formato; `None` si no se puede mostrar.
     fn viewer(&self) -> Option<Arc<dyn ViewerBackend>> {
@@ -179,5 +198,8 @@ mod tests {
         let opts = DiffOptions { cosmetic_threshold: Some(1.0), ..Default::default() };
         assert!(m.diff(&[], &[], "a.gds", &opts).changes[0].cosmetic);
         assert!(!m.diff(&[], &[], "a.gds", &DiffOptions::default()).changes[0].cosmetic);
+        // Sin implementación propia, diff_with es diff.
+        let with = m.diff_with(&[], &[], "a.gds", &opts, &DiffFiles::default());
+        assert!(with.changes[0].cosmetic);
     }
 }

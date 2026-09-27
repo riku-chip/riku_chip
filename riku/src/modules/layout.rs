@@ -35,6 +35,7 @@ fn geom_change(g: &GdsGeomDiff) -> Change {
         cell: g.cell.clone(),
         layer: g.layer.layer,
         datatype: g.layer.datatype,
+        layer_name: None,
         via,
     };
     let mut c = Change::new(kind, element)

@@ -14,6 +14,8 @@
 //! - [`LayerPaint`] / [`Rgba`] — estilo por capa que una escena puede proveer.
 //! - [`ChangeItem`] — cambio listable de una escena de diff.
 //! - [`ViewerBackend`] — trait asíncrono que implementa cada formato concreto.
+//! - [`FileSource`] / [`DiffFiles`] — otros archivos de la misma versión
+//!   (commit o disco), para formatos repartidos en varios archivos.
 //! - [`ViewerError`] — errores unificados, incluyendo `Cancelled` y `Join`.
 //!
 //! Los tipos ricos específicos de un formato (p.ej. `MissingSymbol` de Xschem)
@@ -24,6 +26,7 @@ pub mod bbox;
 pub mod diff;
 pub mod element;
 pub mod error;
+pub mod files;
 pub mod fill;
 pub mod index;
 pub mod paint;
@@ -35,6 +38,7 @@ pub use bbox::BoundingBox;
 pub use diff::{Annotation, AnnotationShape, ChangeItem, ChangeKind};
 pub use element::{DrawElement, HAlign, Layer, VAlign};
 pub use error::{Result, ViewerError};
+pub use files::{DiffFiles, DiskFiles, FileSource};
 pub use index::{CoverageLayer, CoverageView, Fill, LodQuery, SceneIndex, Visible};
 pub use paint::{LayerPaint, Rgba};
 pub use scene::{RenderableScene, Scene, SceneHandle, TextStyle, ViewEntry};

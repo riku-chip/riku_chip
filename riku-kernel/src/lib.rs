@@ -21,3 +21,5 @@ mod module;
 pub use change::{Bounds, Change, ChangeKind, Detail, Element, FileChange, Value, Via};
 pub use format::FileFormat;
 pub use module::{DiffOptions, FormatModule, ModuleInfo, Registry};
+// Otros archivos de la misma versión (formatos de varios archivos).
+pub use viewer_core::{DiffFiles, DiskFiles, FileSource};
