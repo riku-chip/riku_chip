@@ -91,26 +91,80 @@ pub fn layout(commits: &[(String, Vec<String>)]) -> Vec<GraphRow>;
 
 ---
 
-## 4. Panel **Historial** en el visor
+## 4. Panel **History** en el visor (7.3) — diseño revisado contra el código, 2026-09-27
+
+### 4.1 Dónde va: un panel **abajo**, a todo el ancho
+
+La columna izquierda del visor mide ~200 px y ya cambia de contenido según el modo (árbol del proyecto, o las vistas Diff/Before/After en un diff). Una fila de historial necesita el ancho completo: grafo, id, ramas, mensaje, autor, fecha y resumen. Por eso el historial es un **panel inferior redimensionable** (`egui::Panel::bottom`), como la terminal de VS Code: el lienzo sigue arriba, y al abrir un archivo desde el historial su diff aparece ahí mismo, sin perder la lista.
 
 ```
-┌ History ───────────────────────────────────────┬ 51c0de · pad nuevo en metal1 ──┐
-│ ●━━ main   ajuste de W en M5            2 h    │ chip.gds                       │
-│ ○━┓        Merge rama layout             3 h   │   + 8/0 · 2 polys · 4,0 µm²    │
-│ ┃ ● layout pad nuevo en metal1    ◀     ayer   │     en sg13g2_IOPadIn          │
-│ ● ┃        valor de R2                  ayer   │   [Diff] [Before] [After]      │
-│ ●━┛        inicial                      lun    │                                │
-└────────────────────────────────────────────────┴────────────────────────────────┘
+┌ Riku ─ [Fit] [Reload] [Labels] [History ▾] ────────────────────────────────────────────┐
+│ Project │                                                               │ Details     │
+│ …       │                  lienzo: el diff del archivo elegido          │ …           │
+├─────────┴───────────────────────────────────────────────────────────────┴─────────────┤
+│ History  [filter: *.gds      ] [Only this file]                  main · 240 commits    │
+│ ●━━  a3f9c1  main  HEAD   ajuste de W en M5         carlos   2 h  ▣ 1 sch            ││ a3f9c1 · ajuste de W en M5
+│ ○━┓  7be210            Merge rama layout             ana      3 h                     ││ carlos · 2026-09-27 14:32
+│ ┃ ●  51c0de  layout      pad nuevo en metal1   ◀     ana     ayer ▣ 1 gds            ││ ─────────────────────────
+│ ● ┃  e02a4b            valor de R2                   carlos  ayer ▣ 1 sch            ││ ▸ op_amp.sch   1 modificado
+│ ●━┛  9d1f00            inicial                       carlos   lun                     ││   [Diff] [Before] [After]
+└───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Dónde:** una pestaña **History** junto a **Project** en el panel izquierdo (el árbol de archivos y el historial comparten lugar); atajo **H**. El repo es el del proyecto abierto (`GitService::open` sobre la carpeta, o `--repo`).
-- **Dibujo** (`gui/history_view.rs`, egui `Painter`): cada carril con su color (la paleta del tema, clara u oscura); los tramos oblicuos como curvas Bézier cúbicas (`CubicBezierShape`); los nodos como círculos (hueco para un merge); refs como chips redondeados (`HEAD`, ramas, tags). Filas de alto fijo con `ScrollArea::show_rows`: solo se dibuja lo visible, así un historial de miles de commits no pesa.
-- **Datos:** primero la lista y el grafo (instantáneo: solo Git); los resúmenes semánticos se calculan en segundo plano con el análisis en paralelo de 6.6 y aparecen a medida que llegan. Se cargan 200 commits; **Load more** trae los siguientes.
-- **Clic en un commit:** el panel derecho muestra sus archivos con el resumen (`analyze_show`); cada archivo abre el diff visual contra el primer padre con **Diff / Before / After** (`load_backend_diff`, que ya sirve para `.sch`, `.gds`/`.oas` y `.raw`).
-- **Filtro:** un campo para `--paths` (glob) y un botón **Only this file** cuando hay un archivo abierto: el grafo se simplifica como en la terminal.
-- **Textos** en `locales/gui.yml` (inglés y español).
+- **Abrir y cerrar:** botón **History** en la barra y tecla **H**; alto por defecto 260 px, se recuerda. Solo con un proyecto dentro de un repo Git (si no, el botón explica por qué está deshabilitado).
+- **Dos columnas dentro del panel:** a la izquierda la lista con el grafo; a la derecha, el commit seleccionado.
 
-**Tests:** el modelo de la vista (qué filas, qué seleccionada, qué pide abrir) sin ventana; capturas sobre Xvfb con `xt.py` en el repo de Riku y en una historia con merges.
+### 4.2 Datos: en dos fases, sin trabar la interfaz
+
+| Fase | Qué | Costo medido | Cómo |
+|---|---|---|---|
+| 1. Grafo | commits, padres, refs y carriles | ~0,01 s cada 200 commits en disco local | `walk_with_summary` con una opción nueva `summaries: false` (salta la segunda pasada de 6.6) + `graph::layout` |
+| 2. Resúmenes | qué cambió en cada commit (sch, gds, raw) | 0,05 s (repo de Riku) a segundos (historial de layouts), en paralelo | la segunda pasada de 6.6 sobre los mismos commits |
+| Al seleccionar | todos los archivos del commit, también merges y archivos sin módulo | lo de `riku show` | `analyze_show`, en cache por commit |
+
+- Cada fase corre en un hilo aparte (`poll_promise::Promise::spawn_thread`, ya en las dependencias); adentro, `rayon` reparte los commits como en 6.6. La interfaz dibuja lo que ya llegó: primero el grafo, después aparecen los resúmenes.
+- **Páginas de 200 commits;** **Load more** trae los siguientes y vuelve a ubicar los carriles de toda la lista (secuencial y lineal: 1 000 commits en 0,08 s).
+- **Filtro:** un glob (`*.gds`) o **Only this file** con el archivo abierto; recarga con `--paths` y el grafo simplificado (7.1).
+
+### 4.3 Dibujo (`gui/history_view.rs`)
+
+- Filas de alto fijo (22 px) con `ScrollArea::show_rows`: solo se dibujan las visibles, así miles de commits no pesan.
+- **Grafo:** columnas de 14 px; nodos como círculos (huecos en un merge); tramos verticales como líneas; tramos oblicuos como **curvas Bézier cúbicas** (`epaint::CubicBezierShape`, en egui 0.34), que salen y llegan verticales para que las ramas se vean suaves, como en VS Code.
+- **Colores por carril:** una paleta de 8 para claro y 8 para oscuro, con contraste verificado contra el fondo del panel (`theme::contrast`).
+- **Fila:** id corto (monoespaciado), chips redondeados de refs (`HEAD` resaltado, ramas, tags), primera línea del mensaje (recortada), autor, fecha relativa ("2 h", "ayer"), y un resumen por formato a la derecha (`▣ 2 sch · 1 gds`, en el color de la categoría: semántico o cosmético).
+- La **geometría** (dónde va cada nodo y cada curva) sale de una función pura `row_shapes(row, x0, y0) -> Vec<Primitive>`, testeable sin ventana; el `Painter` solo la dibuja.
+
+### 4.4 Interacción
+
+| Acción | Efecto |
+|---|---|
+| Clic en un commit | Lo selecciona; a la derecha, su mensaje completo, autor, fecha, padres y archivos (con su resumen) |
+| Clic en un archivo del commit | Abre su diff en el lienzo contra el primer padre (`load_backend_diff`; sirve para `.sch`, `.gds`/`.oas` y `.raw`) con **Diff / Before / After**. En el commit inicial se compara contra vacío |
+| ↑ / ↓ con el panel enfocado | Cambia de commit |
+| Doble clic en un commit | Abre su primer archivo con cambios |
+| Pasar el mouse por un chip de rama | La rama se resalta en el grafo |
+
+### 4.5 Arquitectura
+
+- **Microkernel:** el panel usa solo el núcleo (`log`, `show`, `graph`) y la carga de diffs que ya existe (por el registro de módulos). No sabe de formatos: un formato nuevo (Magic) aparece en el historial sin tocar el panel.
+- **Estado separado del dibujo:** `HistoryModel` (commits, selección, páginas, filtro, pedidos pendientes) es una estructura sin egui, con tests de sus transiciones (seleccionar, cargar más, pedir abrir un archivo → `Request::OpenDiff { parent, commit, path }`). `app.rs` solo atiende esos pedidos.
+- **Multinúcleo donde sirve:** resúmenes en paralelo (6.6) y fuera del hilo de la interfaz; los carriles, en un núcleo.
+- **Textos** en `locales/gui.yml` (`history.*`, inglés y español); el test existente verifica que no falte ningún idioma.
+
+### 4.6 Pruebas
+
+- Tests del modelo y de `row_shapes` (curvas que empiezan y terminan en el centro del nodo, colores por carril, filas visibles).
+- `summaries: false` da el mismo grafo que con resúmenes.
+- Capturas sobre Xvfb con `xt.py`: el repo de Riku y el clon de gdstk (merges anidados), en claro y oscuro; abrir un archivo desde el historial muestra su diff.
+
+### 4.7 Pasos
+
+| Paso | Qué | Listo cuando |
+|---|---|---|
+| 7.3a | `summaries: false` en `LogOptions`; `HistoryModel` con sus tests | grafo sin resúmenes idéntico; transiciones testeadas |
+| 7.3b | Panel inferior, lista virtual y grafo con curvas (`row_shapes`) | captura del repo de Riku y de gdstk en los dos temas |
+| 7.3c | Resúmenes en segundo plano, detalle del commit, abrir el diff | clic en un archivo → diff en el lienzo |
+| 7.3d | Filtro, **Load more**, teclado, textos en/es, docs (`gui.md`) | capturas finales; `cargo test` y CI en verde |
 
 ---
 
@@ -128,7 +182,7 @@ pub fn layout(commits: &[(String, Vec<String>)]) -> Vec<GraphRow>;
 |---|---|---|---|---|
 | 7.1 | Motor de carriles, orden topológico y reescritura de padres con `--paths` | `core/analysis/graph.rs`, `core/git/commit_log.rs` | S | Tests de propiedades verdes en los DAG sintéticos y en los 722 commits de gdstk |
 | 7.2 | `riku log --graph` (Unicode, ASCII, colores, JSON) | `cli/format/log_text.rs`, `cli/mod.rs` | S | Salidas esperadas; `log` sin `--graph` idéntico |
-| 7.3 | Panel **Historial** en el visor | `gui/history_view.rs`, `gui/app.rs`, `locales/gui.yml` | M | Grafo con curvas, clic → cambios → diff visual; capturas en claro y oscuro |
+| 7.3 | Panel **History** abajo en el visor (ver §4.7: 7.3a–d) | `gui/history_view.rs`, `gui/app.rs`, `locales/gui.yml`, `LogOptions::summaries` | M | Grafo con curvas, clic → cambios → diff visual; capturas en claro y oscuro |
 | 7.4 | (Opcional) TUI con `ratatui` sobre el mismo motor | `cli/tui.rs` | M | Si hace falta usar Riku sin escritorio |
 
 ---
