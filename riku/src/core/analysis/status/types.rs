@@ -67,4 +67,6 @@ impl StatusReport {
 pub struct StatusOptions {
     pub level: DetailLevel,
     pub paths: Vec<String>,
+    /// Opciones de diff del proyecto (`.riku.toml`).
+    pub diff: riku_kernel::DiffOptions,
 }

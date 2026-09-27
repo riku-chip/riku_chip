@@ -60,8 +60,8 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
         repo.reopener(),
         changes,
         &costs,
-        |c| summarize_owned(repo, workdir, &c, level, modules),
-        |r, c| summarize_owned(r, workdir, &c, level, modules),
+        |c| summarize_owned(repo, workdir, &c, level, modules, &opts.diff),
+        |r, c| summarize_owned(r, workdir, &c, level, modules, &opts.diff),
         |c, e| (FileSummary::error(&c.path, e.to_string()), Vec::new()),
     );
     let mut files = Vec::with_capacity(results.len());
@@ -88,9 +88,10 @@ fn summarize_owned<R: GitRepository + ?Sized>(
     change: &WorkingChange,
     level: DetailLevel,
     modules: &Registry,
+    diff: &riku_kernel::DiffOptions,
 ) -> (FileSummary, Vec<String>) {
     let mut warnings = Vec::new();
-    let summary = summarize_change(repo, workdir, change, level, modules, &mut warnings);
+    let summary = summarize_change(repo, workdir, change, level, modules, diff, &mut warnings);
     (summary, warnings)
 }
 
@@ -100,6 +101,7 @@ fn summarize_change<R: GitRepository + ?Sized>(
     change: &WorkingChange,
     level: DetailLevel,
     modules: &Registry,
+    diff: &riku_kernel::DiffOptions,
     warnings: &mut Vec<String>,
 ) -> FileSummary {
     let Some(module) = modules.for_path(&change.path) else {
@@ -134,7 +136,7 @@ fn summarize_change<R: GitRepository + ?Sized>(
         crate::core::git::files::commit_files(repo, "HEAD"),
         crate::core::git::files::workdir_files(workdir),
     );
-    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level, &files)
+    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level, &files, diff)
 }
 
 fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {
@@ -251,6 +253,7 @@ mod tests {
         let opts = StatusOptions {
             level: DetailLevel::Resumen,
             paths: vec!["amp_*.sch".to_string()],
+            ..Default::default()
         };
         let report = analyze_with_options(&repo, None, &opts, &crate::modules::registry()).unwrap();
         assert_eq!(report.files.len(), 1);

@@ -35,6 +35,9 @@ pub struct DiffOptions {
     /// Umbral de área bajo el cual un cambio es cosmético, en las unidades
     /// de área del formato (µm² en layouts). `None` = el del módulo.
     pub cosmetic_threshold: Option<f64>,
+    /// Tolerancia relativa (fracción, 0.001 = 0,1 %) para valores continuos,
+    /// como las formas de onda. `None` = la del módulo.
+    pub tolerance: Option<f64>,
     /// Permite usar la cache en disco de diffs caros.
     pub use_cache: bool,
     /// Señales calculadas a comparar además de las del archivo
@@ -45,7 +48,7 @@ pub struct DiffOptions {
 
 impl Default for DiffOptions {
     fn default() -> Self {
-        Self { cosmetic_threshold: None, use_cache: true, expressions: Vec::new() }
+        Self { cosmetic_threshold: None, tolerance: None, use_cache: true, expressions: Vec::new() }
     }
 }
 

@@ -6,6 +6,7 @@
 //! clap (en `cli/mod.rs`) y el brazo correspondiente de `execute`.
 
 use super::commands::{self, Changes};
+use crate::core::config::Overrides;
 use super::doctor;
 use super::gui;
 use super::{Commands, ListFormat, OutputFormat};
@@ -54,10 +55,14 @@ impl Commands {
                 repo,
                 format,
                 cosmetic_threshold_um2,
+                tolerance,
                 no_cache,
                 exprs,
                 ci: _,
-            } => commands::run_diff(repo, &targets, format, cosmetic_threshold_um2, !no_cache, exprs).map(Outcome::from),
+            } => {
+                let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
+                commands::run_diff(repo, &targets, format, o).map(Outcome::from)
+            }
 
             Commands::Show {
                 commit,
@@ -65,11 +70,14 @@ impl Commands {
                 repo,
                 format,
                 cosmetic_threshold_um2,
+                tolerance,
                 no_cache,
                 exprs,
                 ci: _,
-            } => commands::run_show(repo, &commit, file_path.as_deref(), format, cosmetic_threshold_um2, !no_cache, exprs)
-                .map(Outcome::from),
+            } => {
+                let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
+                commands::run_show(repo, &commit, file_path.as_deref(), format, o).map(Outcome::from)
+            }
 
             Commands::Log {
                 file_path,

@@ -191,7 +191,7 @@ fn build_log_commit<R: GitRepository + ?Sized>(
             };
             let sources = crate::core::git::files::between(repo, Some(parent), Some(&commit));
             let summary =
-                pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level, &sources);
+                pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level, &sources, &opts.diff);
             // Saltamos archivos sin cambio semántico ni cosmético detectado,
             // para no inflar el log con ruido de driver.
             if matches!(summary.category, SummaryCategory::Unchanged) {

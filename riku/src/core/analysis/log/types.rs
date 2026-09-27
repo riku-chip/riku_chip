@@ -84,4 +84,6 @@ pub struct LogOptions {
     /// completa los resúmenes después. Con `paths` no tiene efecto (filtrar
     /// exige saber qué tocó cada commit).
     pub skip_summaries: bool,
+    /// Opciones de diff del proyecto (`.riku.toml`).
+    pub diff: riku_kernel::DiffOptions,
 }

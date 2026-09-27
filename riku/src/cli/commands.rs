@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use riku_kernel::DiffOptions;
+use crate::core::config::{self, Overrides};
 
 use crate::core::analysis::diff_set::{self, Side};
 use crate::core::analysis::show::analyze_show;
@@ -31,9 +31,7 @@ pub(super) fn run_diff(
     repo: PathBuf,
     targets: &[String],
     format: OutputFormat,
-    cosmetic_threshold_um2: f64,
-    use_cache: bool,
-    expressions: Vec<String>,
+    overrides: Overrides,
 ) -> Result<Changes, String> {
     let modules = crate::modules::registry();
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
@@ -44,11 +42,13 @@ pub(super) fn run_diff(
         let Some(file) = file else {
             return Err("diff -f visual necesita un archivo: riku diff [A] [B] <archivo> -f visual".into());
         };
-        return present_visual(&repo, from.token(), to.token(), &file, &expressions).map(|_| Changes::Clean);
+        let exprs = config::options_for(&repo, overrides)?.expressions;
+        return present_visual(&repo, from.token(), to.token(), &file, &exprs).map(|_| Changes::Clean);
     }
-    // El umbral cosmético y la cache los usa el módulo de layouts; las
-    // expresiones, el de simulación. Los demás los ignoran.
-    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
+    // Flags > `.riku.toml` > cada módulo. El umbral cosmético y la cache los
+    // usa el módulo de layouts; la tolerancia y las expresiones, el de
+    // simulación. Los demás los ignoran.
+    let opts = config::options_for(&repo, overrides)?;
     match file {
         Some(file) => {
             let mut report = diff_set::analyze_file(&svc, workdir.as_deref(), &from, &to, &file, &modules, &opts)
@@ -133,11 +133,10 @@ pub(super) fn run_show(
     commit: &str,
     file_path: Option<&str>,
     format: OutputFormat,
-    cosmetic_threshold_um2: f64,
-    use_cache: bool,
-    expressions: Vec<String>,
+    overrides: Overrides,
 ) -> Result<Changes, String> {
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
+    let opts = config::options_for(&repo, overrides)?;
     if matches!(format, OutputFormat::Visual) {
         let Some(file) = file_path else {
             return Err("show -f visual necesita un archivo: riku show <commit> <archivo> -f visual".into());
@@ -148,13 +147,12 @@ pub(super) fn run_show(
                 "{commit} es el commit inicial: no hay versión anterior con la que comparar. Para verlo: riku open {file}"
             ));
         };
-        return present_visual(&repo, parent, &changes.commit.info.oid, file, &expressions).map(|_| Changes::Clean);
+        return present_visual(&repo, parent, &changes.commit.info.oid, file, &opts.expressions).map(|_| Changes::Clean);
     }
     if matches!(format, OutputFormat::JsonV1) {
         return Err("show no tiene salida json-v1; usa -f json (schema riku-show/v1)".into());
     }
 
-    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
     match format {
         OutputFormat::Json => format::show_json::print(&report, true)?,
@@ -241,6 +239,7 @@ pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
         start: args.branch,
         graph: args.graph,
         skip_summaries: false,
+        diff: config::options_for(&args.repo, Overrides::default())?,
     };
     let report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 
@@ -274,6 +273,7 @@ pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     let opts = StatusOptions {
         level,
         paths: args.paths,
+        diff: config::options_for(&args.repo, Overrides::default())?,
     };
     let report = status::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 

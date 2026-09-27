@@ -90,6 +90,11 @@ fn print(report: &DoctorReport) {
         Some(p) => println!("  [ok]  {}", p.display()),
         None => println!("  [!]  No detectado — diff/log no funcionarán"),
     }
+    match project_config(report) {
+        Some((path, Ok(()))) => println!("  [ok]  {}: opciones del proyecto", path.display()),
+        Some((path, Err(e))) => println!("  [!]  {}: {e}", path.display()),
+        None => println!("  [--]  {}: no hay (opciones por defecto)", crate::core::config::FILE),
+    }
 
     println!("\n--- PDK ---");
     print_xschemrc(&report.xschemrc);
@@ -208,6 +213,10 @@ fn print_json(r: &DoctorReport) -> Result<(), String> {
         "schema": "riku-doctor/v1",
         "version": env!("CARGO_PKG_VERSION"),
         "repo": r.repo_workdir.as_ref().map(path),
+        "config": project_config(r).map(|(p, res)| serde_json::json!({
+            "path": path(&p),
+            "error": res.err(),
+        })),
         "xschemrc": r.xschemrc.as_ref().map(path),
         "pdk": { "state": pdk_state, "path": pdk_path },
         "tools": { "state": tools_state, "path": tools_path },
@@ -217,4 +226,14 @@ fn print_json(r: &DoctorReport) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
     println!("{text}");
     Ok(())
+}
+
+/// `.riku.toml` del repo, si existe, y si se puede leer.
+fn project_config(r: &DoctorReport) -> Option<(PathBuf, Result<(), String>)> {
+    let root = r.repo_workdir.as_deref()?;
+    let file = root.join(crate::core::config::FILE);
+    file.is_file().then(|| {
+        let res = crate::core::config::load(Some(root)).map(|_| ());
+        (file, res)
+    })
 }

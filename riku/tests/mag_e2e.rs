@@ -214,7 +214,7 @@ fn log_and_status_read_sub_cells_from_their_own_version() {
 
     let svc = GitService::open(r.dir.path()).unwrap();
     let modules = riku::modules::registry();
-    let opts = StatusOptions { level: DetailLevel::Completo, paths: Vec::new() };
+    let opts = StatusOptions { level: DetailLevel::Completo, paths: Vec::new(), ..Default::default() };
     let status = analyze_with_options(&svc, Some(r.dir.path()), &opts, &modules).unwrap();
     let top = status.files.iter().find(|f| f.path == "chip/top.mag").expect("top en status");
     let report = top.full_report.as_ref().expect("reporte completo");

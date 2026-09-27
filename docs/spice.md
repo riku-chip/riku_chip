@@ -10,7 +10,7 @@ El módulo `spice` (`riku/src/modules/spice/`, feature `spice`, activada por def
   - **Δmáx:** el error máximo |B − A| y en qué punto del eje ocurre.
   - **RMS:** el error cuadrático medio, ponderado por el paso.
   - **% del rango:** Δmáx relativo al rango (máximo − mínimo) de la señal.
-- **Cosmético:** un cambio es cosmético si Δmáx no pasa del **0,1 % del rango** de la señal (con un piso absoluto de 1e-12 para señales casi constantes). Así, volver a simular sin cambios reales no ensucia el reporte.
+- **Cosmético:** un cambio es cosmético si Δmáx no pasa del **0,1 % del rango** de la señal (con un piso absoluto de 1e-12 para señales casi constantes). Así, volver a simular sin cambios reales no ensucia el reporte. Se cambia con `--tolerance 0.5%` o, para todo el proyecto, en `.riku.toml` (`[waveform] tolerance`, ver [`cli.md`](cli.md#configuración-del-proyecto-rikutoml)), donde también se pueden fijar expresiones que se comparan siempre.
 - Si el eje cambió (otra duración de la simulación), se compara el tramo común y se avisa.
 
 ## En la CLI

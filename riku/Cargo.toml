@@ -23,6 +23,8 @@ dirs = "6.0.0"
 # Sin features por defecto: Riku solo lee repos locales, no necesita https/ssh (OpenSSL, libssh2).
 git2 = { version = "0.20.4", default-features = false }
 glob = "0.3"
+# `.riku.toml` (configuración del proyecto).
+toml = "0.8"
 # Pool de hilos del proceso (lo configura `--jobs`/`RIKU_JOBS`).
 rayon = "1"
 serde = { version = "1.0.228", features = ["derive"] }

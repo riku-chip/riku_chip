@@ -11,6 +11,10 @@ pub const COMPONENTS_RENAMED: &str = "components_renamed";
 pub const NETS_ADDED: &str = "nets_added";
 pub const NETS_REMOVED: &str = "nets_removed";
 pub const NETS_MODIFIED: &str = "nets_modified";
+/// Señales de una simulación (`.raw`).
+pub const SIGNALS_ADDED: &str = "signals_added";
+pub const SIGNALS_REMOVED: &str = "signals_removed";
+pub const SIGNALS_MODIFIED: &str = "signals_modified";
 
 /// Traduce una clave canónica a etiqueta corta humana (singular/plural).
 /// Devuelve `None` si la clave no es canónica — el formateador puede entonces
@@ -32,6 +36,12 @@ pub fn label_for(key: &str, count: i64) -> Option<String> {
         NETS_REMOVED => "nets eliminadas",
         NETS_MODIFIED if !plural => "net modificada",
         NETS_MODIFIED => "nets modificadas",
+        SIGNALS_ADDED if !plural => "señal nueva",
+        SIGNALS_ADDED => "señales nuevas",
+        SIGNALS_REMOVED if !plural => "señal eliminada",
+        SIGNALS_REMOVED => "señales eliminadas",
+        SIGNALS_MODIFIED if !plural => "señal cambió",
+        SIGNALS_MODIFIED => "señales cambiaron",
         _ => return None,
     };
     Some(label.to_string())

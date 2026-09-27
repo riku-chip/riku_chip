@@ -79,9 +79,17 @@ fn aggregate_changes(report: &FileChange, level: DetailLevel) -> Aggregated {
         if matches!(level, DetailLevel::Detalle | DetailLevel::Completo) {
             let element = match &change.element {
                 Element::Net { name } => name.clone(),
+                // La misma señal puede cambiar en varios análisis (tran, ac).
+                Element::Signal { plot, name } => format!("{name} · {plot}"),
                 _ => entry.element.clone(),
             };
-            details.push(DetailEntry { kind: detail_kind, element, params: extract_param_changes(&entry) });
+            // Una señal no tiene "parámetros": su Δ numérico está en `riku diff`.
+            let params = if matches!(change.element, Element::Signal { .. }) {
+                BTreeMap::new()
+            } else {
+                extract_param_changes(&entry)
+            };
+            details.push(DetailEntry { kind: detail_kind, element, params });
         }
     }
 
@@ -104,9 +112,16 @@ fn decide_category(semantic: i64, cosmetic: i64) -> SummaryCategory {
     }
 }
 
-/// Nets por un lado; componentes, celdas y geometría cuentan como
-/// "componentes" (así lo reportaban `status`/`log` v1).
+/// Nets y señales por su lado; componentes, celdas y geometría cuentan
+/// como "componentes" (así lo reportaban `status`/`log` v1).
 fn classify(change: &Change) -> (&'static str, DetailKind) {
+    if matches!(change.element, Element::Signal { .. }) {
+        return match change.kind {
+            ChangeKind::Added => (labels::SIGNALS_ADDED, DetailKind::SignalAdded),
+            ChangeKind::Removed => (labels::SIGNALS_REMOVED, DetailKind::SignalRemoved),
+            ChangeKind::Modified | ChangeKind::Renamed => (labels::SIGNALS_MODIFIED, DetailKind::SignalModified),
+        };
+    }
     let is_net = matches!(change.element, Element::Net { .. });
     match (is_net, change.kind) {
         (true, ChangeKind::Added) => (labels::NETS_ADDED, DetailKind::NetAdded),

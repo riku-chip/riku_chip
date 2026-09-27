@@ -19,7 +19,8 @@ pub fn summarize(
     path: &str,
     level: DetailLevel,
     files: &DiffFiles,
+    opts: &DiffOptions,
 ) -> FileSummary {
-    let report = module.diff_with(before, after, path, &DiffOptions::default(), files);
+    let report = module.diff_with(before, after, path, opts, files);
     FileSummary::from_report_with(&report, path, level)
 }

@@ -111,6 +111,7 @@ Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move
 |---|---|
 | `--cosmetic-threshold-um2 X` | Umbral de área para marcar cosmético un cambio de layout |
 | `--no-cache` (o `RIKU_NO_CACHE=1`) | No usar ni guardar la cache de diffs de layouts grandes (`~/.cache/riku/diff`) |
+| `--tolerance TOL` | Tolerancia de formas de onda: fracción (`0.005`) o porcentaje (`0.5%`) del rango de cada señal |
 | `--expr EXPR` | Señal calculada a comparar en un `.raw` (repetible): `--expr "gain = v(out)/v(in)"`. Ver [`spice.md`](spice.md#expresiones) |
 | `--ci` | Códigos de salida de CI (abajo) |
 | `-r REPO` | Repositorio (por defecto, el directorio actual) |
@@ -228,6 +229,24 @@ Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error).
 ## `riku doctor`
 
 Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados. Con `-f json` (schema `riku-doctor/v1`), `modules` lista cada formato con su `name`, `format`, `extensions` y si está `available`: así un script sabe qué archivos puede comparar este `riku`.
+
+## Configuración del proyecto (`.riku.toml`)
+
+Un `.riku.toml` en la raíz del repo fija las opciones de diff del proyecto, para que todos (personas, CI y agentes) comparen igual sin repetir flags. Lo usan `diff`, `show`, `log` y `status`; los flags de la línea de comandos ganan sobre el archivo, y las expresiones de `--expr` se suman a las del archivo.
+
+```toml
+[layout]
+cosmetic_threshold_um2 = 0.01        # µm²: un cambio de menos área es cosmético
+
+[waveform]
+tolerance = "0.5%"                   # o 0.005: fracción del rango de cada señal (por defecto 0,1 %)
+expressions = [                      # señales calculadas que se comparan siempre (ver spice.md)
+  "gain = v(out)/v(in)",
+  "tran: vpk = max(v(out))",
+]
+```
+
+Una clave que no existe es un error (con la clave más parecida), no se ignora en silencio. `riku doctor` dice si hay archivo y si se puede leer.
 
 ## `riku completions`
 

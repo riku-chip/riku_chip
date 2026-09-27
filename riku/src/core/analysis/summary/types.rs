@@ -76,6 +76,9 @@ pub enum DetailKind {
     NetAdded,
     NetRemoved,
     NetModified,
+    SignalAdded,
+    SignalRemoved,
+    SignalModified,
     /// El driver reportó un cambio que no encaja en las categorías anteriores.
     Other,
 }
@@ -84,10 +87,10 @@ impl DetailKind {
     /// Marker de una sola letra usado por los formateadores de texto del CLI.
     pub fn marker(&self) -> &'static str {
         match self {
-            Self::ComponentAdded | Self::NetAdded => "+",
-            Self::ComponentRemoved | Self::NetRemoved => "-",
+            Self::ComponentAdded | Self::NetAdded | Self::SignalAdded => "+",
+            Self::ComponentRemoved | Self::NetRemoved | Self::SignalRemoved => "-",
             Self::ComponentRenamed => "r",
-            Self::ComponentModified | Self::NetModified | Self::Other => "~",
+            Self::ComponentModified | Self::NetModified | Self::SignalModified | Self::Other => "~",
         }
     }
 }

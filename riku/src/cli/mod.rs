@@ -75,10 +75,15 @@ pub(crate) enum Commands {
         #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
         /// Umbral en µm² para clasificar un cambio de layout como cosmético
-        /// (sub-DRC). Por defecto 0.01 µm², debajo del piso DRC de PDKs como
-        /// sky130 y gf180. Los demás formatos lo ignoran.
-        #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
-        cosmetic_threshold_um2: f64,
+        /// (sub-DRC). Por defecto 0.01 µm² (debajo del piso DRC de PDKs como
+        /// sky130 y gf180), o el de `.riku.toml`. Los demás formatos lo ignoran.
+        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2")]
+        cosmetic_threshold_um2: Option<f64>,
+        /// Tolerancia de formas de onda: fracción del rango de cada señal
+        /// (`0.005`) o porcentaje (`0.5%`). Por defecto 0.1 %, o la de
+        /// `.riku.toml`.
+        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction)]
+        tolerance: Option<f64>,
         /// No usar ni guardar la cache de diffs de layouts grandes
         /// (también: RIKU_NO_CACHE=1).
         #[arg(long = "no-cache")]
@@ -107,8 +112,13 @@ pub(crate) enum Commands {
         #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
         /// Umbral cosmético de layouts en µm² (como en `diff`).
-        #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
-        cosmetic_threshold_um2: f64,
+        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2")]
+        cosmetic_threshold_um2: Option<f64>,
+        /// Tolerancia de formas de onda: fracción del rango de cada señal
+        /// (`0.005`) o porcentaje (`0.5%`). Por defecto 0.1 %, o la de
+        /// `.riku.toml`.
+        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction)]
+        tolerance: Option<f64>,
         /// No usar ni guardar la cache de diffs de layouts grandes.
         #[arg(long = "no-cache")]
         no_cache: bool,

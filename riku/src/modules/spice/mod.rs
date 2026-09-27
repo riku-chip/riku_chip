@@ -62,7 +62,9 @@ impl FormatModule for WaveformModule {
             (Ok(a), Ok(b)) => (a, b),
             (Err(e), _) | (_, Err(e)) => return FileChange::failed(FileFormat::Waveform, e),
         };
-        for plot in compare::compare(&a, &b, Tolerance::default()) {
+        // Tolerancia del proyecto (`.riku.toml`, `--tolerance`) o la del módulo.
+        let tol = opts.tolerance.map_or_else(Tolerance::default, |rel| Tolerance { rel, ..Tolerance::default() });
+        for plot in compare::compare(&a, &b, tol) {
             if let (Some((a0, a1)), Some((b0, b1))) = plot.x_range {
                 if a0 != b0 || a1 != b1 {
                     report.warnings.push(format!(
@@ -82,7 +84,7 @@ impl FormatModule for WaveformModule {
                 Err(e) => report.warnings.push(format!("{text}: {e}")),
             }
         }
-        let (derived, warnings) = derived::evaluate(&exprs, &a, &b, Tolerance::default());
+        let (derived, warnings) = derived::evaluate(&exprs, &a, &b, tol);
         report.warnings.extend(warnings);
         for d in &derived {
             report.changes.push(signal_change(&d.diff));
