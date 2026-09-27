@@ -168,6 +168,106 @@ El lock pasó de 455 a 424 paquetes. Quedan duplicados que no dependen de nosotr
 - Spice: `raw.rs` con binarios truncados e índices acotados; `expr.rs` sin pánicos; `compare.rs` (RMS por trapecios, NaN, punto de operación); interpolación O((n+m)·log n) con `partition_point`.
 - CLI/visor: `dispatch.rs` único, `wants_json` + `riku-error/v1`, códigos de `--ci`, `resolve_targets`; filas de History y del selector de celdas virtualizadas; `HistoryModel` sin egui y con tests; `LayerBatch`, `OUTLINE_MIN_PX`, caché de cobertura de 3 niveles; carga única con `CancellationToken`; re-encuadre con animaciones interrumpibles; `label_layout` y `toast` puros y testeados; `wave_view` como excepción bien delimitada (salvo lo que se filtra a `app.rs`).
 
+## 9.6 Pendientes chicos: diseño
+
+Cuatro pendientes que quedaron de la 9.3. Orden propuesto: A → B → C → D (cada uno con su commit y su verificación).
+
+### A. `--compact` en `diff` y `show` (S)
+
+**Hoy:** `log` y `status` tienen `--compact`; `diff` (un archivo y todos), `diff -f json-v1` y `show` imprimen siempre indentado (`print_enveloped(&payload, true)`).
+
+**Diseño:**
+- `Commands::Diff` y `Commands::Show` suman `#[arg(long, help = tr!("help.compact"))] compact: bool` (el mismo texto que `log`/`status`).
+- `diff_json::print`, `print_v1`, `diff_set::print_json` y `show_json::print` reciben `pretty: bool` (hoy `show_json::print` ya lo recibe y se le pasa `true`).
+- Con `-f text`, `-f visual` o imágenes, `--compact` no hace nada (igual que en `log`/`status`).
+
+**Verificación:** el JSON sin `--compact` idéntico al de hoy (15 casos de `p4_regress.sh`); con `--compact`, una línea que parsea igual (`jq -S` de las dos formas coincide).
+
+### B. `GitRepository` más angosto (S–M)
+
+**Hoy:** 10 métodos; `get_commits` es legado (solo lo usan el default de `get_commits_with_options` y 4 tests); 5 defaults devuelven vacío o error (`working_tree_changes`, `current_branch`, `get_commits_with_options`, `refs_by_oid`, `commit_changes`) y esconden implementaciones que faltan: un adaptador nuevo compila y devuelve "sin cambios".
+
+**Diseño:**
+- Quitar `get_commits` del trait. Los tests pasan a `get_commits_with_options(&LogQuery { paths: &[archivo], .. })`, que es lo que usa el log real (y filtra igual que `git log -- archivo`, B10). La función `commit_log::get_commits` se borra si queda sin uso.
+- Sin default: `working_tree_changes`, `current_branch`, `get_commits_with_options`, `refs_by_oid`, `commit_changes`. Cada implementador dice qué hace.
+- Con default, porque "no sé" es una respuesta válida: `blob_size` (`None` = sin estimación: todo en una tanda) y `reopener` (`None` = en secuencia).
+- Los 3 mocks de tests implementan lo que falte con cuerpos explícitos (`Ok(vec![])`, `unimplemented!("no lo usa este test")`).
+- **No** partir en traits chicos (`BlobReader`, `History`, `WorkTree`): lo usan un adaptador real y 3 mocks; el ahorro no paga el cambio de todas las firmas genéricas del núcleo.
+
+**Verificación:** suite; `p4_regress.sh` igual.
+
+### C. Todo a v2: se borra la forma v1 (M)
+
+**Decisión (2026-09-27, pedido del usuario):** estandarizar en la forma tipada (v2) y borrar la v1. Nadie la consume: revisado el repo entero, el crate de Carlos (sus `nets_added`/`is_move_all` son tipos internos de su motor, no nuestro JSON) y `tools/` (no leen JSON).
+
+**Dos cosas distintas llamadas "v1":**
+- **La forma v1 de un cambio** (`legacy.rs`): `element` de texto con convenciones (`"net:vdd"`, `"cell:INV"`, `"TOP:L1/0:INV"`, `"a → b"`) y mapas `before`/`after` de strings. Es lo que se borra.
+- **El número de versión de cada schema** (`riku-show/v1`, `riku-diff-set/v1`, `riku-doctor/v1`, `riku-error/v1`): la primera versión de *ese* JSON. `show` y `diff-set` ya llevan los cambios tipados; `doctor` y `error` no tienen cambios. No se tocan.
+
+**Hoy la forma v1 sale en:**
+
+| Dónde | Qué |
+|---|---|
+| `riku diff … -f json-v1` | todo el reporte (`components`, `nets_added`, `nets_removed`, `is_move_all`) |
+| `riku status/log --full --json` | `files[].full_report` (`driver_report`) |
+| `riku status/log --detail --json` | `files[].details[].element` (texto: `"vin → vin_diff"`) y `params` sacados de los mapas v1 |
+| `riku status --full` (texto) | la lista del reporte completo con la notación v1 |
+
+**Diseño:**
+- **`diff`:** sale `-f json-v1` (`OutputFormat::JsonV1`, `diff_json::print_v1`, los textos `err.json_v1_one_file` y `err.show_no_v1`). Pedirlo da el error de clap con los valores válidos.
+- **`status` y `log` → `riku-status/v2` y `riku-log/v2`** (sube la versión: el cambio es incompatible):
+  - `full_report`: el `FileChange` tipado, igual que un archivo de `riku diff -f json` (`format`, `error`, `warnings`, `changes`).
+  - `details[]`: `{ kind, element, renamed_from?, params }`. `element` pasa a ser el elemento tipado de v2 (`{"type": "component", "name": "M3"}`), `renamed_from` aparece en un renombre, y `params` (`{"W": "4u → 8u"}`) sale de `Change::params()`, sin la ubicación. `kind` y `counts` no cambian.
+- **Núcleo:** `summary/build.rs` arma los detalles desde el `Change` (sin `legacy::entries`). `summary/types.rs` serializa `full_report` tal cual.
+- **Texto:** `status --detail/--full` y `log --detail` muestran los nombres con `Element::name()` (el mismo que `riku diff`). Diferencias visibles: una celda se ve `INV`, no `cell:INV`; una señal, `v(out)`, no `signal:v(out)`; un renombre, `vin → vin_diff` como hoy.
+- **Kernel:** se borra `riku-kernel/src/legacy.rs` (230 líneas) y su mención en `lib.rs`. El kernel queda solo con el modelo tipado.
+- **Tests:** `gds_e2e.rs` deja el helper `json-v1` y comprueba lo mismo en v2 (la geometría llega vía instancia: `via.path`, `location`). Los tests de schema de `walk.rs` y `status/analyze.rs` pasan a `/v2`. `release.yml` busca el cambio de geometría en `-f json` (`"type": "geometry"`) en vez de `"TOP:L1/0:INV"` en `-f json-v1`.
+- **Docs:** `docs/cli.md` (opciones de `diff`, la sección JSON con ejemplos de `status`/`log` en v2, la lista de schemas), `README.md`, `docs/arquitectura.md` (sale `legacy.rs` del contrato), `docs/roadmap.md` y una nota de "cambio incompatible" en la sección JSON de `cli.md`. `docs/archivo/` y `fase7.md` son historia: no se tocan.
+
+**Verificación:**
+- **Sin cambios:** `diff -f json`, `show -f json` y `diff` sin archivo en JSON salen idénticos (`p4_regress.sh`).
+- **Lo que cambia:** `status --json`, `log --json`, `--detail --json` y `--full --json` se comparan a mano. Mismos archivos, conteos y categorías; cambian solo el schema, `details` y `full_report`.
+- **Texto:** `status`/`log` sin `--detail` salen iguales. Con `--detail`/`--full`, solo los nombres descritos arriba.
+- **CI:** la suite con `-D warnings` y el paso de humo de `release.yml`.
+
+### D. Diff de todo el repo en el visor (M)
+
+**Hoy:** el visor compara un archivo a la vez (Comparar…, History, un cambio sin commitear). `riku diff A B -f visual` sin archivo da error ("necesita un archivo").
+
+**Qué ve el usuario:**
+- **Comparar versiones…** suma la opción **Todos los archivos que cambiaron**.
+- El panel izquierdo muestra **Cambios A → B**: la lista de archivos (estado `A/M/D/R` y su resumen, como en *Cambios sin commitear*). Un clic abre el diff de ese archivo (Diff / Before / After) y la lista queda a la vista para pasar al siguiente; **↑/↓** recorren la lista; **×** la cierra.
+- `riku diff A B -f visual` (y `riku diff -f visual`: HEAD contra el disco) abre el visor con esa lista en vez de dar error. `riku gui --repo R --commit-a A --commit-b B` sin archivo hace lo mismo.
+
+```mermaid
+flowchart LR
+  subgraph Núcleo
+    CP[diff_set::changed_paths<br/>rápido: solo Git] --> L[lista A/M/D/R]
+    DP[diff_pair por archivo<br/>OnError::InFile] --> S[FileSummary]
+  end
+  subgraph Visor
+    CS[ChangeSet<br/>gui/change_set.rs] -->|al abrir| CP
+    CS -->|hilo, de a uno| DP
+    CS -->|clic| LBD[load_backend_diff A B archivo]
+  end
+```
+
+**Diseño:**
+- **Núcleo:** `diff_set::changed_paths` pasa a `pub` (hoy privada): la lista sale al instante, porque solo lee Git (y el disco contra `:worktree`). Los resúmenes se calculan después, uno por archivo, con `diff_pair(.., OnError::InFile)` + `FileSummary::from_report_with`: el mismo flujo que `status`/`log`. No hace falta una API nueva: no se usa `analyze_all`, que calcula todos los diffs antes de devolver algo (con layouts grandes, el usuario esperaría sin ver nada).
+- **Visor:** `gui/change_set.rs`:
+  - `ChangeSet { from, to, files: Vec<Entry { path, status, old_path, summary: Option<FileSummary> }>, selected, job }`.
+  - Un hilo recorre los archivos en orden y va llenando `summary`; despierta a la UI con `request_repaint`. Si se cierra la lista o se abre otra, el hilo se cancela (un `AtomicBool` que revisa entre archivos).
+  - `show(ui) -> Option<Request>` dibuja la lista (sin egui en el modelo, como `HistoryModel`, para testearlo).
+- **App:** `change_set: Option<ChangeSet>` al lado de `diff`. El panel izquierdo lo muestra arriba de *Vistas* (Diff/Before/After). Abrir un archivo suelto o volver al inicio lo cierra. `load_backend_diff` no cambia.
+- **CLI:** `present_visual` acepta que no haya archivo; `launch.rs` ya tiene `--repo/--commit-a/--commit-b`, y sin archivo la app abre el `ChangeSet`.
+- **Formatos sin módulo** (un `.txt` que cambió): en la lista, atenuados y sin clic (como en *Cambios sin commitear*).
+
+**Verificación:** test del modelo (orden, cancelación, selección con ↑/↓); capturas en Xvfb (lista vacía mientras llegan los resúmenes, lista completa, un archivo abierto con la lista al costado); `riku diff HEAD~3 HEAD -f visual` abre la lista.
+
+**Riesgos:**
+- Un diff de todo el repo entre commits lejanos puede tener cientos de archivos: la lista se virtualiza (`show_rows`, como History), y los resúmenes van de a uno para no competir en memoria con el diff abierto.
+- Un repo con layouts grandes tarda en resumir: la lista y el clic funcionan desde el primer momento; solo los resúmenes llegan después.
+
 ## Orden propuesto
 
 1. **9.1 Bugs** B1–B10 (+ menores), cada uno con su test.
