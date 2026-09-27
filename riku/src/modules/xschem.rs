@@ -266,5 +266,22 @@ N 0 0 10 0 {lab=OUT}\n";
         assert!(s.components.is_empty());
         assert!(s.wires.is_empty());
     }
-}
 
+    /// Dónde se va el tiempo al parsear un esquemático real (medición).
+    #[test]
+    #[ignore = "medición"]
+    fn parse_cost_breakdown() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/SH/op_sim.sch");
+        let text = std::fs::read_to_string(path).unwrap();
+        let n = 20;
+        let t = std::time::Instant::now();
+        let opts: Vec<_> = (0..n).map(|_| render_options_for(&text).0).collect();
+        let t_opts = t.elapsed() / n;
+        let t = std::time::Instant::now();
+        for o in &opts {
+            std::hint::black_box(xschem_viewer::semantic::parse_semantic(&text, o));
+        }
+        let t_parse = t.elapsed() / n;
+        eprintln!("[P8] opciones de render: {t_opts:?} · parse_semantic: {t_parse:?} (por esquemático)");
+    }
+}
