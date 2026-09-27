@@ -489,8 +489,9 @@ Formato convencional: `tipo(scope): descripción`. Tipos comunes: `feat`, `fix`,
 | Exportar la vista del visor a SVG/PNG                               | planificado   |
 | `riku show <commit> [archivo]`                                      | ✓ Estable     |
 | Modo `--ci` (exit code: 0 cosmético, 1 funcional, 2 error)          | ✓ Estable     |
-| `--graph` ASCII en `riku log`                                       | planificado (fase 6) |
-| Módulo Magic (`.mag`)                                               | planificado (fase 7) |
+| Diff de layouts grandes y visor fluido (multinúcleo, LOD)          | planificado (fase 6) |
+| `--graph` ASCII en `riku log`                                       | planificado (fase 7) |
+| Módulo Magic (`.mag`)                                               | planificado (fase 8) |
 | NGSpice (`.raw`)                                                    | planificado   |
 
 Pendientes técnicos priorizados (layouts muy grandes, exportación desde el visor…): [`docs/roadmap/pendientes.md`](docs/roadmap/pendientes.md).

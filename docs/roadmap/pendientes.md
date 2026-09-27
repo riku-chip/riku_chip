@@ -15,8 +15,8 @@ Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días.
 - Un `.sch` nuevo o eliminado entre dos commits ahora lista todos sus componentes y nets como añadidos o eliminados (un lado vacío es un esquemático sin nada, como en los layouts).
 
 ### 2. Diff de layouts muy grandes
-- **Por qué:** en un `user_project_wrapper` de 42 MB (Caravel), el primer `riku diff` **no terminó en 45 minutos** (se midió con el binario de release; se cortó). La cache (#9 del diseño) evita repetirlo, pero la primera vez sigue siendo inviable: se aplana la jerarquía completa de cada celda, y las celdas que instancian a otras repiten el trabajo.
-- **Dónde:** `riku-mod-layout/src/gds_diff.rs`. Idea: una huella *estructural* por celda (polígonos propios + references con su transformación, combinada con la de sus hijas y memoizada), que detecta las celdas sin cambios en O(formas) y sin aplanar. El XOR queda solo para las celdas que cambiaron de verdad, empezando por las hojas.
+- **Por qué:** en un `user_project_wrapper` de 42 MB (IHP SG13G2), el primer `riku diff` **no terminó en 45 minutos**. Medido por etapas (2026-09-26): leer 0,5 s, huellas de celda 4,2 s, aplanar por capa unos segundos, y **XOR ~22 min**, casi todo sobre capas idénticas en A y B; la capa 19/0 (124 mil rectángulos) sola tarda 358 s por el peor caso de Clipper. El visor con ese layout usa 11 GB y ~600 ms por cuadro.
+- **Dónde y cómo:** Fase 6, [`diseno_fase6_rendimiento.md`](diseno_fase6_rendimiento.md): huella por capa antes del XOR (~22 min → ~12 s en un núcleo), índice espacial y nivel de detalle en el visor, gdstk-rs seguro entre hilos, `rayon`, XOR por cuadrantes.
 - **Esfuerzo:** M.
 - **Listo cuando:** el primer diff de ese layout baja de un minuto y los tests contra KLayout (`tools/verify/compare.sh --xor`) siguen idénticos.
 
