@@ -472,10 +472,9 @@ impl RikuGuiApp {
 
         self.selected_path = Some(file.to_path_buf());
         // Otros archivos de cada commit, para los formatos que los necesitan.
-        let files = viewer_core::DiffFiles::new(
-            crate::core::git::files::commit_files(&svc, commit_a).filter(|_| !commit_a.is_empty()),
-            crate::core::git::files::commit_files(&svc, commit_b),
-        );
+        // Contra el disco, las sub-celdas también salen del disco.
+        use crate::core::analysis::diff_set::token_files;
+        let files = viewer_core::DiffFiles::new(token_files(&svc, commit_a), token_files(&svc, commit_b));
         let kind = LoadKind::Diff { before: Arc::new(before), files, tab: DiffTab::Diff };
         self.spawn_backend_load(backend, Arc::new(after), file_str, entry, kind, true);
         Ok(())

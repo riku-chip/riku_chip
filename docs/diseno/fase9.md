@@ -129,3 +129,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 | B3 | Hecho | `blob_io::Blob` (`Bytes`/`Missing`/`Skipped`) y `pipeline::diff_blobs`: un lado omitido (>50 MB, ilegible; también en disco) es error sin llamar al módulo; `FileSummary.warnings`, y `log` no oculta un archivo con avisos |
 | B4 | Hecho | `read_ascii`: más valores que variables en un punto es error, no pánico |
 | B5 | Hecho | gdstk_rust: un aviso del lector (códigos 1-8) devuelve la `Library` y `read_warning()`; riku lo muestra como aviso (qué celdas faltan) en el diff y en el visor |
+| B6 | Hecho | `diff_set::token_files`: el visor contra `:worktree` lee las sub-celdas del disco |

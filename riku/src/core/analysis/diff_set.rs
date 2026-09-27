@@ -14,7 +14,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use riku_kernel::{DiffFiles, DiffOptions, Registry};
+use std::sync::Arc;
+
+use riku_kernel::{DiffFiles, DiffOptions, FileSource, Registry};
 
 use crate::core::analysis::blob_io::{self, Blob};
 use crate::core::analysis::pipeline;
@@ -22,7 +24,7 @@ use crate::core::analysis::commit_diff::AnalyzeError;
 use crate::core::analysis::show::ShowFile;
 use crate::core::domain::git_types::ChangeStatus;
 use crate::core::domain::models::{FileChange, FileFormat};
-use crate::core::domain::ports::GitRepository;
+use crate::core::domain::ports::{GitRepository, RepoRoot};
 use crate::core::git::files;
 
 /// Nombre que usa el visor (y la CLI al lanzarlo) para "el working tree"
@@ -80,6 +82,17 @@ fn read_side<R: GitRepository + ?Sized>(
     match side {
         Side::Rev(r) => Ok(blob_io::read_blob(repo, r, path)?),
         Side::WorkTree => Ok(blob_io::read_disk(workdir, path)),
+    }
+}
+
+/// Los otros archivos de una versión tal como la nombra el visor: `""` es
+/// ninguna (el commit inicial), [`WORKTREE`] el disco y lo demás un commit.
+/// Magic busca ahí las sub-celdas.
+pub fn token_files<R: GitRepository + RepoRoot + ?Sized>(repo: &R, token: &str) -> Option<Arc<dyn FileSource>> {
+    match token {
+        "" => None,
+        WORKTREE => files::workdir_files(repo.root()),
+        rev => files::commit_files(repo, rev),
     }
 }
 

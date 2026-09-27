@@ -462,3 +462,21 @@ fn renamed_and_modified_files_are_compared_with_their_old_path() {
     let f = status.files.iter().find(|f| f.path == "otro.sch").unwrap_or_else(|| panic!("{:?}", status.files));
     one_added(&f.counts, "status");
 }
+
+/// El visor con `B = :worktree` (`riku diff A top.mag -f visual`) busca las
+/// sub-celdas en el disco, no en un commit llamado `:worktree`.
+#[test]
+fn viewer_sides_read_other_files_from_the_commit_or_the_disk() {
+    use riku::core::analysis::diff_set::{token_files, WORKTREE};
+
+    let temp = test_tempdir();
+    let repo = Repository::init(temp.path()).unwrap();
+    commit_files(&repo, &[("sub.mag", b"en HEAD".to_vec())], "v1");
+    fs::write(temp.path().join("sub.mag"), b"en disco").unwrap();
+    let svc = GitService::open(temp.path()).unwrap();
+
+    let read = |token: &str| token_files(&svc, token).and_then(|f| f.read("sub.mag"));
+    assert_eq!(read("HEAD").as_deref(), Some(&b"en HEAD"[..]));
+    assert_eq!(read(WORKTREE).as_deref(), Some(&b"en disco"[..]));
+    assert!(token_files(&svc, "").is_none(), "el commit inicial no tiene versión anterior");
+}
