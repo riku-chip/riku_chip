@@ -6,6 +6,7 @@
 mod common;
 pub mod diff_json;
 pub mod diff_text;
+pub mod log_graph;
 pub mod log_json;
 pub mod log_text;
 pub mod show_json;

@@ -40,11 +40,18 @@ pub(super) fn format_counts(f: &FileSummary, allow_cosmetic_label: bool) -> Stri
 /// pasa como string para que cada formateador conserve su estética sin
 /// necesidad de un parámetro `level`.
 pub(super) fn print_detail(d: &DetailEntry, indent: &str) {
-    println!("{indent}{} {}", d.kind.marker(), d.element);
-    let param_indent = format!("{indent}    ");
-    for (k, v) in &d.params {
-        println!("{param_indent}{k}: {v}");
+    for line in detail_lines(d, indent) {
+        println!("{line}");
     }
+}
+
+/// Las líneas de [`print_detail`], sin imprimirlas.
+pub(super) fn detail_lines(d: &DetailEntry, indent: &str) -> Vec<String> {
+    let mut out = vec![format!("{indent}{} {}", d.kind.marker(), d.element)];
+    for (k, v) in &d.params {
+        out.push(format!("{indent}    {k}: {v}"));
+    }
+    out
 }
 
 #[cfg(test)]

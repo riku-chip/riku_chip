@@ -77,6 +77,8 @@ impl Commands {
                 full,
                 paths,
                 branch,
+                graph,
+                ascii,
             } => commands::run_log(commands::LogArgs {
                 repo,
                 file_path,
@@ -87,6 +89,8 @@ impl Commands {
                 full,
                 paths,
                 branch,
+                graph,
+                ascii,
             })
             .map(|_| Outcome::Ok),
 

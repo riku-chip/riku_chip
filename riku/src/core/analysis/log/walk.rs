@@ -5,7 +5,7 @@ use std::path::Path;
 use riku_kernel::Registry;
 
 use crate::core::analysis::blob_io;
-use crate::core::analysis::{parallel, pipeline};
+use crate::core::analysis::{graph, parallel, pipeline};
 use crate::core::analysis::summary::SummaryCategory;
 use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitWithParents, LogQuery};
 use crate::core::domain::ports::GitRepository;
@@ -38,8 +38,12 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
         file_path: None,
         limit: opts.limit,
         start: opts.start.as_deref(),
+        topological: opts.graph,
     };
     let raw = repo.get_commits_with_options(&query)?;
+    // El DAG cargado (oid y padres), para el grafo.
+    let dag: Vec<(String, Vec<String>)> =
+        if opts.graph { raw.iter().map(|c| (c.info.oid.clone(), c.parents.clone())).collect() } else { Vec::new() };
     let refs_map = repo.refs_by_oid().unwrap_or_default();
 
     // Dos pasadas sobre los commits, cada una repartida entre los hilos con
@@ -83,6 +87,16 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
             continue;
         }
         commits.push(log_commit);
+    }
+
+    if opts.graph {
+        // Con `--paths` algunos commits no se muestran: sus hijos se conectan
+        // al ancestro visible más cercano.
+        let visible: std::collections::HashSet<String> = commits.iter().map(|c| c.info.oid.clone()).collect();
+        let shown = if visible.len() == dag.len() { dag } else { graph::simplify(&dag, &visible) };
+        for (c, row) in commits.iter_mut().zip(graph::layout(&shown)) {
+            c.graph = Some(row);
+        }
     }
 
     Ok(LogReport { commits, warnings })
@@ -186,7 +200,7 @@ fn build_log_commit_without_files(
     let Planned { raw, warnings, .. } = planned;
     let refs = refs_map.get(&raw.info.oid).cloned().unwrap_or_default();
     let is_merge = raw.parents.len() > 1;
-    (LogCommit { info: raw.info, parents: raw.parents, refs, is_merge, files: Vec::new() }, warnings)
+    (LogCommit { info: raw.info, parents: raw.parents, refs, is_merge, files: Vec::new(), graph: None }, warnings)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -128,10 +128,28 @@ El commit inicial se compara contra vacío (todo aparece añadido); un merge, co
 ## `riku log`
 
 ```bash
-riku log [archivo] [-n N] [--detail|--full] [--json [--compact]] [--paths PAT]… [--branch REF]
+riku log [archivo] [-n N] [--detail|--full] [--json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii]]
 ```
 
 Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archivo con módulo, un resumen de lo que cambió respecto al primer padre. Los merges se marcan `[merge]` sin diff por archivo. `--detail` agrega una entrada por componente/net; `--full`, el reporte completo del módulo. `--paths` filtra por glob (se puede repetir).
+
+**`--graph`** dibuja las ramas y los merges a la izquierda, en orden topológico (cada commit antes que sus padres), como `git log --graph`:
+
+```text
+○   f510bb8 [merge]  Merge pull request #231 from mabrains/main
+├─╮
+│ ○   ac3c577 [merge]  Merge pull request #1 from mabrains/Add_polygon_perimeter_method
+│ ├─╮
+│ │ ● f964d1e  Undo changes to setup.py
+│ │ ● 2e0a69b  Add perimeter function and python interface
+├─┴─╯
+● c23297b  Release 0.9.49
+```
+
+- `●` commit, `○` merge, `┆` una rama que sigue más allá de `-n`. Un color por rama si la salida es una terminal (sin colores si se redirige, con `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza).
+- `--ascii` (o `RIKU_ASCII=1`) usa `* | / \ -` para terminales o fuentes sin Unicode.
+- Con `--paths`, los commits que no tocan esos archivos no se muestran y sus hijos se conectan al ancestro visible más cercano.
+- Con `--json`, cada commit lleva `graph`: `column`, `lane` (la rama, para el color), `passing` (otras ramas que pasan por la fila), `edges` (`[columna aquí, columna en la fila siguiente, rama]`) y `truncated`.
 
 ```json
 {

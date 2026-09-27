@@ -1,6 +1,7 @@
 pub(super) mod blob_io;
 pub mod commit_diff;
 pub mod envelope;
+pub mod graph;
 pub mod log;
 pub(crate) mod parallel;
 pub mod pipeline;

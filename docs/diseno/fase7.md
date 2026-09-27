@@ -1,6 +1,6 @@
 # Fase 7: el grafo del historial
 
-Estado (2026-09-27): **diseño**. Resumen en [`../roadmap.md`](../roadmap.md).
+Estado (2026-09-27): **7.1 y 7.2 hechos**; falta 7.3 (panel del visor). Resumen en [`../roadmap.md`](../roadmap.md).
 
 Un solo motor que ubica los commits en carriles y dos formas de dibujarlo: `riku log --graph` en la terminal y un panel **Historial** en el visor, como el Git Graph de VS Code pero con el resumen semántico de cada commit (qué componentes, capas o señales cambiaron) y el diff visual a un clic.
 
@@ -140,3 +140,17 @@ pub fn layout(commits: &[(String, Vec<String>)]) -> Vec<GraphRow>;
 | Historias con muchas ramas abiertas a la vez: el grafo se ensancha | Compactar columnas libres (paso 5); en la terminal, más de 12 carriles se dibujan con `…` y se avisa |
 | Orden topológico distinto del de Git en empates | Mismos criterios que Git (`TOPOLOGICAL \| TIME`); los tests comparan la topología (quién es padre de quién), no el dibujo exacto |
 | El panel calcula resúmenes de muchos commits con layouts | Se calculan en segundo plano, en tandas por memoria (6.6), solo para los commits cargados |
+
+---
+
+## Avance
+
+| Paso | Estado | Notas |
+|---|---|---|
+| 7.1 | Hecho (2026-09-27) | `core/analysis/graph.rs`: `layout` (carriles) y `simplify` (padres reescritos con `--paths`); `LogQuery::topological`; `LogCommit::graph`. Tests de propiedades: siguiendo los tramos desde cada nodo se llega exactamente a sus padres, nunca dos ramas en una columna. Casos sintéticos (lineal, merge, merge de merge, octopus, criss-cross, dos raíces, corte con `-n`) y la historia real de gdstk: 722 commits y 35 merges, entera, cortada a 100 y con un tercio visible. 1 000 commits: 0,08 s |
+| 7.2 | Hecho (2026-09-27) | `cli/format/log_graph.rs`: cada celda de transición se arma con las direcciones que conecta (arriba, abajo, izquierda, derecha) y de ahí sale el carácter (`├ ┴ ╯ ┼`…), así cualquier cruce se dibuja bien; ASCII con la misma tabla. `--graph`, `--ascii`, `graph` en el JSON. El `log` sin `--graph` queda igual (regresión) |
+
+**Diferencias con el diseño:**
+- **Ancho por fila**, no global: con un ancho único, los tramos lineales heredaban el ancho de la zona más ramificada (8 columnas en gdstk) y el texto quedaba muy corrido. Igual que `git log --graph`.
+- **Sin dependencias nuevas:** los colores son códigos ANSI directos (detectando terminal con `IsTerminal`, `NO_COLOR` y `CLICOLOR_FORCE`), sin `anstream`. `--color` y el tope de 12 carriles quedaron afuera: no hicieron falta en las historias probadas.
+- **Un solo núcleo:** ubicar los carriles es secuencial (cada fila depende de la anterior) y lineal; lo que sí se reparte entre núcleos son los resúmenes de cada commit (6.6).

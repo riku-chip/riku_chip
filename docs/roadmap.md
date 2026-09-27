@@ -15,7 +15,7 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | 4 | Una sola ruta del visor para `.sch` y `.gds` (fantasmas y anotaciones en la escena) | hecha |
 | 5 | `gds-renderer` → `riku-mod-layout` sin el render SVG; `riku show`; `--ci` | hecha |
 | 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | hecha |
-| 7 | Grafo del historial: `riku log --graph` (Unicode, colores) y panel **Historial** en el visor — [`diseno/fase7.md`](diseno/fase7.md) | diseño |
+| 7 | Grafo del historial: `riku log --graph` (Unicode, colores) y panel **Historial** en el visor — [`diseno/fase7.md`](diseno/fase7.md) | en curso: motor y `log --graph` hechos; falta el panel del visor |
 | 8 | Módulo Magic (`.mag`) | pendiente (L) |
 | — | Módulo `spice`: diff de formas de onda de ngspice (`.raw`) en la CLI y vista de curvas en el visor ([`spice.md`](spice.md)) | hecho |
 

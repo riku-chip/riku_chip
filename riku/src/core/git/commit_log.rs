@@ -44,7 +44,8 @@ pub(super) fn get_commits_with_options(
     };
     let mut walker = repo.revwalk()?;
     walker.push(start_oid)?;
-    walker.set_sorting(git2::Sort::TIME)?;
+    let sort = if query.topological { git2::Sort::TOPOLOGICAL | git2::Sort::TIME } else { git2::Sort::TIME };
+    walker.set_sorting(sort)?;
 
     let limit = query.limit.unwrap_or(usize::MAX);
     let mut results = Vec::new();

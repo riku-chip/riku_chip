@@ -37,6 +37,9 @@ pub struct LogQuery<'a> {
     pub limit: Option<usize>,
     /// Si está, comienza desde ese ref/oid en lugar de `HEAD`.
     pub start: Option<&'a str>,
+    /// Orden topológico (cada hijo antes que sus padres, empates por fecha),
+    /// como `git log --graph`. Sin él, solo por fecha.
+    pub topological: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

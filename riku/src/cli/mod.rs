@@ -133,6 +133,13 @@ pub(crate) enum Commands {
         /// Empieza desde otra ref/oid en lugar de HEAD.
         #[arg(long, value_name = "REF")]
         branch: Option<String>,
+        /// Dibuja el grafo de ramas y merges a la izquierda (orden
+        /// topológico). Con --json agrega el lugar de cada commit en el grafo.
+        #[arg(long)]
+        graph: bool,
+        /// Grafo con caracteres ASCII en vez de Unicode (también: RIKU_ASCII=1).
+        #[arg(long, requires = "graph")]
+        ascii: bool,
     },
     /// Verifica que el entorno este correctamente configurado.
     Doctor {

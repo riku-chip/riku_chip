@@ -71,11 +71,11 @@ fn print_commit(c: &LogCommit, level: DetailLevel) {
     }
 }
 
-fn first_line(msg: &str) -> String {
+pub(super) fn first_line(msg: &str) -> String {
     msg.lines().next().unwrap_or("").to_string()
 }
 
-fn format_refs(refs: &[String]) -> String {
+pub(super) fn format_refs(refs: &[String]) -> String {
     // HEAD primero si está; el resto en orden alfabético estable.
     let mut sorted = refs.to_vec();
     sorted.sort_by(|a, b| match (a == "HEAD", b == "HEAD") {

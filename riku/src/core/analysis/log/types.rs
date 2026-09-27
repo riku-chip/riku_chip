@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::core::analysis::envelope::Envelope;
+use crate::core::analysis::graph::GraphRow;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 use crate::core::domain::git_types::{CommitInfo, GitError};
 
@@ -46,6 +47,9 @@ pub struct LogCommit {
     /// Resumen por archivo. Vacío en commits root o merge en v1.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub files: Vec<FileSummary>,
+    /// Lugar del commit en el grafo del historial (solo con `--graph`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub graph: Option<GraphRow>,
 }
 
 impl LogCommit {
@@ -73,4 +77,6 @@ pub struct LogOptions {
     pub limit: Option<usize>,
     /// Ref/oid de inicio. `None` = HEAD.
     pub start: Option<String>,
+    /// Orden topológico y lugar de cada commit en el grafo (`--graph`).
+    pub graph: bool,
 }

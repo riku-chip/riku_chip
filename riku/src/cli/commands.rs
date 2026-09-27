@@ -155,6 +155,8 @@ pub(super) struct LogArgs {
     pub full: bool,
     pub paths: Vec<String>,
     pub branch: Option<String>,
+    pub graph: bool,
+    pub ascii: bool,
 }
 
 pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
@@ -172,11 +174,14 @@ pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
         paths,
         limit: Some(args.limit),
         start: args.branch,
+        graph: args.graph,
     };
     let report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 
     if args.json {
         format::log_json::print(&report, !args.compact)?;
+    } else if args.graph {
+        format::log_graph::print(&report, level, format::log_graph::Style::detect(args.ascii));
     } else {
         format::log_text::print(&report, level);
     }
