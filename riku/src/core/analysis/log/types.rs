@@ -72,7 +72,9 @@ pub struct LogReport {
 #[derive(Clone, Debug, Default)]
 pub struct LogOptions {
     pub level: DetailLevel,
-    /// Filtra commits que tocan al menos uno de estos paths exactos.
+    /// Solo los commits que tocan algún archivo que coincide con estos globs
+    /// (merges incluidos, respecto a su primer padre). `limit` cuenta los
+    /// que pasan el filtro.
     pub paths: Vec<String>,
     pub limit: Option<usize>,
     /// Ref/oid de inicio. `None` = HEAD.
@@ -81,8 +83,8 @@ pub struct LogOptions {
     pub graph: bool,
     /// Sin resumen por archivo: solo commits, refs y grafo (lo que es Git,
     /// sin diffs). El visor lo usa para mostrar el historial al instante y
-    /// completa los resúmenes después. Con `paths` no tiene efecto (filtrar
-    /// exige saber qué tocó cada commit).
+    /// completa los resúmenes después. Con `paths` también: el filtro es de
+    /// Git, no necesita los resúmenes.
     pub skip_summaries: bool,
     /// Opciones de diff del proyecto (`.riku.toml`).
     pub diff: riku_kernel::DiffOptions,

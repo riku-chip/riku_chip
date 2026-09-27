@@ -446,7 +446,8 @@ fn renamed_and_modified_files_are_compared_with_their_old_path() {
     };
 
     let log = walk_with_summary(&svc, &LogOptions::default(), &modules).unwrap();
-    let f = &log.commits[0].files[0];
+    let renamed = log.commits.iter().find(|c| c.info.message.trim() == "renombre").expect("commit del renombre");
+    let f = &renamed.files[0];
     assert_eq!(f.path, "new.sch");
     one_added(&f.counts, "log");
 
@@ -479,4 +480,40 @@ fn viewer_sides_read_other_files_from_the_commit_or_the_disk() {
     assert_eq!(read("HEAD").as_deref(), Some(&b"en HEAD"[..]));
     assert_eq!(read(WORKTREE).as_deref(), Some(&b"en disco"[..]));
     assert!(token_files(&svc, "").is_none(), "el commit inicial no tiene versión anterior");
+}
+
+/// `log -n 5 a.sch`: los 5 commits más recientes que tocan `a.sch`, aunque
+/// estén más atrás que los últimos 5 del repo (antes cortaba primero y
+/// filtraba después: salía vacío).
+#[test]
+fn log_limit_counts_only_the_commits_that_touch_the_paths() {
+    use riku::core::analysis::log::{walk_with_summary, LogOptions};
+
+    let sch = |v: u32| format!("v {{xschem version=3.0.0 file_version=1.2}}\nC {{res.sym}} 0 0 0 0 {{name=R1 value={v}k}}\n").into_bytes();
+    let temp = test_tempdir();
+    let repo = Repository::init(temp.path()).unwrap();
+    commit_files(&repo, &[("a.sch", sch(1))], "a1");
+    commit_files(&repo, &[("a.sch", sch(2))], "a2");
+    for i in 0..10 {
+        commit_files(&repo, &[("b.sch", sch(i))], &format!("b{i}"));
+    }
+    let svc = GitService::open(temp.path()).unwrap();
+    let modules = riku::modules::registry();
+    // Los commits del test caen en el mismo segundo: el orden por fecha
+    // entre ellos no está definido, así que se comparan ordenados.
+    let messages = |opts: &LogOptions| -> Vec<String> {
+        let mut m: Vec<String> =
+            walk_with_summary(&svc, opts, &modules).unwrap().commits.iter().map(|c| c.info.message.trim().to_string()).collect();
+        m.sort();
+        m
+    };
+    let opts = LogOptions { paths: vec!["a.sch".into()], limit: Some(5), ..Default::default() };
+    assert_eq!(messages(&opts), ["a1", "a2"]);
+    let opts = LogOptions { paths: vec!["*.sch".into()], limit: Some(3), ..Default::default() };
+    assert_eq!(messages(&opts).len(), 3);
+    // Sin resúmenes (el panel History) filtra igual, sin leer blobs.
+    let opts = LogOptions { paths: vec!["a.sch".into()], limit: Some(5), skip_summaries: true, ..Default::default() };
+    assert_eq!(messages(&opts), ["a1", "a2"]);
+    let opts = LogOptions { paths: vec!["a.sch".into()], limit: Some(1), skip_summaries: true, ..Default::default() };
+    assert_eq!(messages(&opts).len(), 1);
 }

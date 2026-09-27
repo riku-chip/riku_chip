@@ -4,6 +4,7 @@ use git2::{Commit, Repository};
 
 use crate::core::domain::git_types::{CommitInfo, CommitWithParents, GitError, LogQuery};
 use crate::core::git::helpers::{commit_info_from, resolve_commit};
+use crate::core::path_matcher::PathMatcher;
 
 pub(super) fn get_commits(
     repo: &Repository,
@@ -22,7 +23,7 @@ pub(super) fn get_commits(
         let oid = oid?;
         let commit = repo.find_commit(oid)?;
         if let Some(file_path) = file_path {
-            if !commit_touches(repo, &commit, file_path)? {
+            if !commit_touches(repo, &commit, |p| p == Path::new(file_path))? {
                 continue;
             }
         }
@@ -48,6 +49,7 @@ pub(super) fn get_commits_with_options(
     walker.set_sorting(sort)?;
 
     let limit = query.limit.unwrap_or(usize::MAX);
+    let matcher = PathMatcher::new(query.paths);
     let mut results = Vec::new();
     for oid in walker {
         if results.len() >= limit {
@@ -55,10 +57,10 @@ pub(super) fn get_commits_with_options(
         }
         let oid = oid?;
         let commit = repo.find_commit(oid)?;
-        if let Some(file_path) = query.file_path {
-            if !commit_touches(repo, &commit, file_path)? {
-                continue;
-            }
+        // El filtro va antes del límite: `-n 20 --paths x` son los 20 más
+        // recientes que tocan x, no los 20 más recientes filtrados.
+        if !query.paths.is_empty() && !commit_touches(repo, &commit, |p| p.to_str().is_some_and(|p| matcher.matches(p)))? {
+            continue;
         }
         let info = commit_info_from(&commit);
         let parents = (0..commit.parent_count())
@@ -70,33 +72,18 @@ pub(super) fn get_commits_with_options(
     Ok(results)
 }
 
-fn commit_touches(
-    repo: &Repository,
-    commit: &Commit<'_>,
-    file_path: &str,
-) -> Result<bool, GitError> {
-    if commit.parent_count() == 0 {
-        return Ok(super::blob::tree_entry_id(repo, commit.tree()?, file_path).is_ok());
-    }
-
-    let parent = commit.parent(0)?;
-    let tree_a = parent.tree()?;
+/// `true` si el commit cambió, respecto a su primer padre (o a nada, si es
+/// el inicial), algún archivo que cumple `wanted`. El diff de árboles de Git
+/// salta los subárboles iguales por su oid: cuesta lo que cambió, no el
+/// tamaño del repo.
+fn commit_touches(repo: &Repository, commit: &Commit<'_>, wanted: impl Fn(&Path) -> bool) -> Result<bool, GitError> {
+    let tree_a = match commit.parent_count() {
+        0 => None,
+        _ => Some(commit.parent(0)?.tree()?),
+    };
     let tree_b = commit.tree()?;
-    let diff = repo.diff_tree_to_tree(Some(&tree_a), Some(&tree_b), None)?;
-    for delta in diff.deltas() {
-        if delta
-            .new_file()
-            .path()
-            .map(|p| p == Path::new(file_path))
-            .unwrap_or(false)
-            || delta
-                .old_file()
-                .path()
-                .map(|p| p == Path::new(file_path))
-                .unwrap_or(false)
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    let diff = repo.diff_tree_to_tree(tree_a.as_ref(), Some(&tree_b), None)?;
+    Ok(diff
+        .deltas()
+        .any(|d| d.new_file().path().is_some_and(&wanted) || d.old_file().path().is_some_and(&wanted)))
 }

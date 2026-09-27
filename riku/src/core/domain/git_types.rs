@@ -31,8 +31,10 @@ pub struct CommitWithParents {
 /// Filtros opcionales para recorrido de historia.
 #[derive(Debug, Default, Clone)]
 pub struct LogQuery<'a> {
-    /// Si está, solo se incluyen commits que tocan ese archivo.
-    pub file_path: Option<&'a str>,
+    /// Si no está vacío, solo los commits que tocan (respecto a su primer
+    /// padre) algún archivo que coincide con uno de estos globs. El filtro
+    /// va dentro del recorrido: `limit` cuenta los commits que pasan.
+    pub paths: &'a [String],
     /// Límite duro de commits devueltos. `None` = sin límite.
     pub limit: Option<usize>,
     /// Si está, comienza desde ese ref/oid en lugar de `HEAD`.

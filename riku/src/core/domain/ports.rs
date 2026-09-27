@@ -36,12 +36,12 @@ pub trait GitRepository {
 
     /// Versión enriquecida de `get_commits` con filtros y padres por commit.
     /// Default delega a `get_commits` y sintetiza padres vacíos para no romper
-    /// adapters existentes.
+    /// adapters existentes; no filtra por `paths`.
     fn get_commits_with_options(
         &self,
         query: &LogQuery<'_>,
     ) -> Result<Vec<CommitWithParents>, GitError> {
-        let mut commits = self.get_commits(query.file_path)?;
+        let mut commits = self.get_commits(None)?;
         if let Some(limit) = query.limit {
             commits.truncate(limit);
         }

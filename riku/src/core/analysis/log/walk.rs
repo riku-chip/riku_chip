@@ -31,11 +31,9 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     opts: &LogOptions,
     modules: &Registry,
 ) -> Result<LogReport, LogError> {
-    // Para mantener semántica de Git nativo cuando hay `paths`, recorremos
-    // todo y filtramos por commit. Si en el futuro hace falta optimizar,
-    // pasar el primer path al `LogQuery::file_path`.
+    // El filtro por `paths` va en el recorrido de Git, antes del límite.
     let query = LogQuery {
-        file_path: None,
+        paths: &opts.paths,
         limit: opts.limit,
         start: opts.start.as_deref(),
         topological: opts.graph,
@@ -50,7 +48,7 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     // una conexión a Git por hilo (ver `parallel`): primero qué archivos
     // cambió cada uno y cuánto pesan (barato: árboles de Git y cabeceras de
     // blobs), después los diffs, en tandas que caben en memoria.
-    if opts.skip_summaries && opts.paths.is_empty() {
+    if opts.skip_summaries {
         let mut commits: Vec<LogCommit> = raw
             .into_iter()
             .map(|c| build_log_commit_without_files(Planned { raw: c, files: Vec::new(), warnings: Vec::new() }, &refs_map).0)
@@ -95,8 +93,10 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     let mut commits = Vec::with_capacity(built.len());
     for (log_commit, w) in built {
         warnings.extend(w);
-        // Si hay filtro de paths y este commit no tocó ninguno, lo omitimos.
-        if !opts.paths.is_empty() && log_commit.files.is_empty() && !log_commit.is_merge {
+        // Tocó un archivo del filtro, pero ninguno con cambios que mostrar
+        // (sin módulo, o sin cambios semánticos ni avisos). Los merges y el
+        // commit inicial no llevan resumen: pasaron el filtro de Git, quedan.
+        if !opts.paths.is_empty() && log_commit.files.is_empty() && log_commit.parents.len() == 1 {
             continue;
         }
         commits.push(log_commit);

@@ -149,7 +149,7 @@ El commit inicial se compara contra vacío (todo aparece añadido); un merge, co
 riku log [archivo] [-n N] [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii]]
 ```
 
-Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archivo con módulo, un resumen de lo que cambió respecto al primer padre. Los merges se marcan `[merge]` sin diff por archivo. `--detail` agrega una entrada por componente/net; `--full`, el reporte completo del módulo. `--paths` filtra por glob (se puede repetir).
+Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archivo con módulo, un resumen de lo que cambió respecto al primer padre. Los merges se marcan `[merge]` sin diff por archivo. `--detail` agrega una entrada por componente/net; `--full`, el reporte completo del módulo. `--paths` (o el archivo) filtra por glob (se puede repetir): `-n` cuenta solo los commits que tocan esos archivos respecto a su primer padre, como `git log -n N -- archivo`; un merge que no los toca tampoco se muestra.
 
 **`--graph`** dibuja las ramas y los merges a la izquierda, en orden topológico (cada commit antes que sus padres), como `git log --graph`:
 
