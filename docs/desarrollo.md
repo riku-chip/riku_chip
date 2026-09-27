@@ -42,6 +42,22 @@ Con cada tag `v*`: compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estática
 
 Para publicar una versión: subir `version` en `riku/Cargo.toml`, commitear y `git tag -a vX.Y.Z -m "Riku X.Y.Z" && git push origin vX.Y.Z`. Los usuarios instalan la última con `packaging/get.sh` (resuelve `releases/latest`, verifica el `SHA256SUMS` y corre `install.sh`) o una concreta pasándole el tag. Con **Actions → Release → Run workflow** se prueba todo sin publicar (los paquetes quedan como artefactos del run).
 
+## Traducciones
+
+Los textos de la CLI y del visor están en `riku/locales/`, un archivo por idioma (`en.yml`, `es.yml`). El inglés es el idioma por defecto y el de respaldo: una clave que falte en otro idioma se muestra en inglés. El idioma se elige con `RIKU_LANG=<código>` o, en el visor, en Settings → Language.
+
+**Agregar un idioma** (sin tocar código):
+
+1. Copiar `riku/locales/en.yml` a `riku/locales/<código>.yml` (código ISO 639-1: `pt`, `fr`…).
+2. Traducir los valores, nunca las claves. Poner el nombre del idioma en su propio idioma en `lang.name` (`Português`).
+3. Conservar las variables `%{nombre}` tal cual; cambiar su orden en la frase está bien.
+4. `cargo test -p riku i18n`: el test compara cada idioma con `en.yml` y dice qué claves faltan, cuáles sobran y qué variables no coinciden.
+5. Probar con `RIKU_LANG=<código> riku --help` y en el visor (aparece solo en Settings → Language).
+
+**Agregar un texto al código:** escribir `tr!("seccion.clave")` (o `tr!("seccion.clave", nombre = valor)`) y agregar la clave a **todos** los archivos de `locales/`; si falta en alguno, el test lo marca. `build.rs` hace que cargo recompile al cambiar un `.yml`.
+
+Pendiente: los mensajes que salen del núcleo y de los módulos de formato (errores de Git, avisos de un formato) todavía están en español en el código.
+
 ## Herramientas
 
 | Dónde | Para qué |

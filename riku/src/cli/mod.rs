@@ -181,7 +181,7 @@ pub fn run() -> ExitCode {
     use dispatch::Outcome;
 
     // Idioma de la salida y de la ayuda: RIKU_LANG (en, es); inglés por defecto.
-    crate::i18n::set(crate::i18n::initial(None));
+    crate::i18n::set(&crate::i18n::initial(None));
     let cli = Cli::parse();
     configure_threads(cli.jobs);
     let Some(cmd) = cli.command else {

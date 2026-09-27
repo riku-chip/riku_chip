@@ -1,7 +1,12 @@
-//! Idioma de la CLI y del visor. Los textos están en `riku/locales/*.yml`
-//! (inglés y español por clave: `cli.yml`, `gui.yml`) y se incrustan al
-//! compilar; en el código se piden con [`tr!`]. El inglés es el idioma por
-//! defecto y el de respaldo si falta una traducción.
+//! Idioma de la CLI y del visor. Los textos están en `riku/locales/<código>.yml`
+//! (un archivo por idioma: `en.yml`, `es.yml`…) y se incrustan al compilar;
+//! en el código se piden con [`tr!`]. El inglés es el idioma por defecto y el
+//! de respaldo si falta una traducción.
+//!
+//! **Agregar un idioma** no toca código: copiar `en.yml` a `<código>.yml`,
+//! traducir los valores y poner su nombre en `lang.name`. La lista de
+//! idiomas (menú del visor, `RIKU_LANG`) sale de los archivos que haya. Ver
+//! `docs/desarrollo.md`, "Traducciones".
 //!
 //! Prioridad: `RIKU_LANG` (para scripts, CI y capturas) > la elección
 //! guardada en los Ajustes del visor > inglés.
@@ -15,31 +20,42 @@ macro_rules! tr {
 }
 pub(crate) use tr;
 
-/// Idiomas disponibles: código y nombre (en su propio idioma, para el menú).
-pub const LANGUAGES: [(&str, &str); 2] = [("en", "English"), ("es", "Español")];
-
 pub const DEFAULT: &str = "en";
 
 /// Variable de entorno que fuerza el idioma.
 pub const ENV: &str = "RIKU_LANG";
 
-fn supported(code: &str) -> Option<&'static str> {
-    // `es_PE.UTF-8` o `es-PE` cuentan como `es`.
+/// Idiomas disponibles: código y nombre en su propio idioma (`lang.name`),
+/// el inglés primero y después por código.
+pub fn languages() -> Vec<(String, String)> {
+    let mut codes: Vec<String> = rust_i18n::available_locales!().into_iter().map(|c| c.to_string()).collect();
+    codes.sort_by_key(|c| (c != DEFAULT, c.clone()));
+    codes
+        .into_iter()
+        .map(|c| {
+            let name = rust_i18n::t!("lang.name", locale = &c).into_owned();
+            (c, name)
+        })
+        .collect()
+}
+
+/// Código disponible para `code` (`es_PE.UTF-8` o `es-PE` cuentan como `es`).
+fn supported(code: &str) -> Option<String> {
     let base = code.split(['_', '-', '.']).next().unwrap_or("").to_ascii_lowercase();
-    LANGUAGES.iter().map(|(c, _)| *c).find(|c| *c == base)
+    rust_i18n::available_locales!().into_iter().map(|c| c.to_string()).find(|c| *c == base)
 }
 
 /// Idioma a usar al arrancar según `RIKU_LANG` y la preferencia guardada.
-pub fn initial(saved: Option<&str>) -> &'static str {
+pub fn initial(saved: Option<&str>) -> String {
     std::env::var(ENV)
         .ok()
         .and_then(|v| supported(&v))
         .or_else(|| saved.and_then(supported))
-        .unwrap_or(DEFAULT)
+        .unwrap_or_else(|| DEFAULT.to_string())
 }
 
 pub fn set(code: &str) {
-    rust_i18n::set_locale(supported(code).unwrap_or(DEFAULT));
+    rust_i18n::set_locale(&supported(code).unwrap_or_else(|| DEFAULT.to_string()));
 }
 
 pub fn current() -> String {
@@ -49,51 +65,23 @@ pub fn current() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn codes_are_normalized() {
-        assert_eq!(supported("es_PE.UTF-8"), Some("es"));
-        assert_eq!(supported("EN-us"), Some("en"));
-        assert_eq!(supported("fr"), None);
-        assert_eq!(initial(Some("fr")), if std::env::var(ENV).is_ok() { initial(None) } else { DEFAULT });
+        assert_eq!(supported("es_PE.UTF-8").as_deref(), Some("es"));
+        assert_eq!(supported("EN-us").as_deref(), Some("en"));
+        assert_eq!(supported("xx"), None);
+        if std::env::var(ENV).is_err() {
+            assert_eq!(initial(Some("xx")), DEFAULT);
+        }
     }
 
-    /// Cada clave de `gui.yml` debe tener los dos idiomas: si alguien agrega
-    /// un texto y olvida uno, la GUI mostraría el de respaldo sin avisar.
     #[test]
-    fn every_key_has_both_languages() {
-        for (name, text) in [("gui.yml", include_str!("../locales/gui.yml")), ("cli.yml", include_str!("../locales/cli.yml"))] {
-            check_file(name, text);
-        }
-    }
-
-    fn check_file(name: &str, text: &str) {
-        let mut current: Option<(String, Vec<String>)> = None;
-        let mut problems = Vec::new();
-        let mut check = |entry: Option<(String, Vec<String>)>| {
-            if let Some((key, langs)) = entry {
-                for (code, _) in LANGUAGES {
-                    if !langs.iter().any(|l| l == code) {
-                        problems.push(format!("{name}: {key}: falta `{code}`"));
-                    }
-                }
-            }
-        };
-        for line in text.lines() {
-            if line.trim().is_empty() || line.trim_start().starts_with('#') || line.starts_with("_version") {
-                continue;
-            }
-            if !line.starts_with(' ') {
-                check(current.take());
-                current = Some((line.trim_end_matches(':').to_string(), Vec::new()));
-            } else if let Some((_, langs)) = current.as_mut() {
-                if let Some((code, _)) = line.trim().split_once(':') {
-                    langs.push(code.to_string());
-                }
-            }
-        }
-        check(current.take());
-        assert!(problems.is_empty(), "traducciones incompletas:\n{}", problems.join("\n"));
+    fn languages_come_from_the_files() {
+        let langs = languages();
+        assert_eq!(langs[0], ("en".to_string(), "English".to_string()));
+        assert!(langs.contains(&("es".to_string(), "Español".to_string())));
     }
 
     #[test]
@@ -101,5 +89,51 @@ mod tests {
         assert_eq!(rust_i18n::t!("toolbar.fit", locale = "en"), "Fit");
         assert_eq!(rust_i18n::t!("toolbar.fit", locale = "es"), "Encuadrar");
         assert_eq!(rust_i18n::t!("status.loading", locale = "es", file = "a.gds"), "Cargando a.gds …");
+    }
+
+    /// `clave: valor` de primer nivel de un `locales/*.yml` (un valor por
+    /// línea, como los escribimos).
+    fn read_keys(text: &str) -> BTreeMap<String, String> {
+        text.lines()
+            .filter(|l| !l.starts_with(['#', ' ']) && !l.starts_with("_version") && !l.trim().is_empty())
+            .filter_map(|l| l.split_once(':'))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+            .collect()
+    }
+
+    fn placeholders(value: &str) -> BTreeSet<String> {
+        value.split("%{").skip(1).filter_map(|p| p.split_once('}')).map(|(n, _)| n.to_string()).collect()
+    }
+
+    /// Cada idioma tiene exactamente las claves del inglés y las mismas
+    /// variables (`%{file}`) en cada una. Si alguien agrega un texto y olvida
+    /// un idioma, o traduce el nombre de una variable, este test lo dice.
+    #[test]
+    fn every_language_matches_english() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+        let en = read_keys(&std::fs::read_to_string(dir.join("en.yml")).unwrap());
+        let mut problems = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("yml") || path.file_stem().is_some_and(|s| s == "en") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let other = read_keys(&std::fs::read_to_string(&path).unwrap());
+            for k in en.keys().filter(|k| !other.contains_key(*k)) {
+                problems.push(format!("{name}: falta `{k}`"));
+            }
+            for k in other.keys().filter(|k| !en.contains_key(*k)) {
+                problems.push(format!("{name}: `{k}` no existe en en.yml"));
+            }
+            for (k, v) in &other {
+                if let Some(e) = en.get(k) {
+                    if placeholders(e) != placeholders(v) {
+                        problems.push(format!("{name}: `{k}` tiene otras variables que en.yml"));
+                    }
+                }
+            }
+        }
+        assert!(problems.is_empty(), "traducciones incompletas:\n{}", problems.join("\n"));
     }
 }

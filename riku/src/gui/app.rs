@@ -247,7 +247,7 @@ impl RikuGuiApp {
         let simplify = pref(PREF_SIMPLIFY, true);
         let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
         let saved_lang: Option<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_LANG));
-        i18n::set(i18n::initial(saved_lang.as_deref()));
+        i18n::set(&i18n::initial(saved_lang.as_deref()));
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
         // scheduler principal. Dos workers son suficientes para una GUI.
@@ -985,10 +985,11 @@ impl eframe::App for RikuGuiApp {
                         ui.separator();
                         ui.label(RichText::new(tr!("settings.language")).strong());
                         let current = i18n::current();
-                        ui.horizontal(|ui| {
-                            for (code, name) in i18n::LANGUAGES {
+                        // Los idiomas salen de riku/locales/*.yml: uno nuevo aparece solo.
+                        ui.horizontal_wrapped(|ui| {
+                            for (code, name) in i18n::languages() {
                                 if ui.selectable_label(current == code, name).clicked() {
-                                    i18n::set(code);
+                                    i18n::set(&code);
                                 }
                             }
                         });
