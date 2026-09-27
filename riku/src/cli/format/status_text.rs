@@ -6,6 +6,7 @@
 //! - `Completo`: imprime el `FileChange` íntegro tras el resumen.
 
 use super::common::{format_counts, print_detail};
+use crate::i18n::tr;
 use crate::core::analysis::status::StatusReport;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 use crate::core::domain::models::FileChange;
@@ -21,27 +22,27 @@ pub fn print(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
 
 fn print_header(report: &StatusReport) {
     if let Some(b) = &report.branch {
-        let mut header = format!("En rama {} (HEAD {})", b.name, b.head_short);
+        let mut header = tr!("status.branch", branch = b.name, head = b.head_short);
         if let Some(up) = &b.upstream {
             let rel = describe_upstream(b.ahead, b.behind);
             header.push_str(&format!(" — vs {up}: {rel}"));
         }
         println!("{header}");
     } else {
-        println!("Repositorio sin HEAD (commit inicial pendiente).");
+        println!("{}", tr!("status.no_head"));
     }
 }
 
 fn describe_upstream(ahead: usize, behind: usize) -> String {
     let mut parts = Vec::new();
     if ahead > 0 {
-        parts.push(format!("{ahead} adelante"));
+        parts.push(tr!("status.ahead", count = ahead));
     }
     if behind > 0 {
-        parts.push(format!("{behind} atrás"));
+        parts.push(tr!("status.behind", count = behind));
     }
     if parts.is_empty() {
-        "al día".to_string()
+        tr!("status.up_to_date")
     } else {
         parts.join(", ")
     }
@@ -50,7 +51,7 @@ fn describe_upstream(ahead: usize, behind: usize) -> String {
 fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
     if report.files.is_empty() {
         println!();
-        println!("Sin cambios.");
+        println!("{}", tr!("status.clean"));
         return;
     }
 
@@ -66,50 +67,43 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
 
     if !semantic.is_empty() {
         println!();
-        println!("{}", super::color::bold("Modificados con cambios semánticos:"));
+        println!("{}", super::color::bold(&tr!("status.semantic")));
         for f in &semantic {
             print_file_entry(f, level);
         }
     }
     if !cosmetic.is_empty() {
         println!();
-        println!("Modificados sin cambios semánticos:");
+        println!("{}", tr!("status.cosmetic"));
         for f in &cosmetic {
-            println!("  {}    (solo cambios cosméticos)", f.path);
+            println!("  {}    {}", f.path, tr!("summary.only_cosmetic"));
         }
     }
     if !unchanged.is_empty() {
         println!();
-        println!("Modificados sin diferencias detectadas por driver:");
+        println!("{}", tr!("status.unchanged"));
         for f in &unchanged {
             println!("  {}", f.path);
         }
     }
     if !errored.is_empty() {
         println!();
-        println!("{}", super::color::red("Errores al analizar:"));
+        println!("{}", super::color::red(&tr!("status.errors")));
         for f in &errored {
-            let msg = f
-                .errors
-                .first()
-                .map(String::as_str)
-                .unwrap_or("(sin detalle)");
+            let msg = f.errors.first().cloned().unwrap_or_else(|| tr!("status.no_detail"));
             println!("  {}    {msg}", f.path);
         }
     }
     if !unknown.is_empty() {
         if include_unknown {
             println!();
-            println!("No reconocidos por Riku:");
+            println!("{}", tr!("status.unknown"));
             for f in &unknown {
                 println!("  {}", f.path);
             }
         } else {
             println!();
-            println!(
-                "No reconocidos por Riku ({}): use --include-unknown para listarlos.",
-                unknown.len()
-            );
+            println!("{}", tr!("status.unknown_count", count = unknown.len()));
         }
     }
 }
@@ -127,9 +121,9 @@ fn print_file_entry(f: &FileSummary, level: DetailLevel) {
 }
 
 fn print_full_report(rep: &FileChange) {
-    println!("      ── reporte completo ──");
+    println!("      {}", tr!("status.full_report"));
     if rep.changes.is_empty() {
-        println!("      (sin entradas)");
+        println!("      {}", tr!("status.no_entries"));
         return;
     }
     // Misma notación que el JSON `full_report` (v1): `cell:INV`, `net:vdd`…
@@ -143,7 +137,7 @@ fn print_full_report(rep: &FileChange) {
         println!("      {} {}{cosmetic}", super::color::marker(marker), e.element);
     }
     if !rep.warnings.is_empty() {
-        println!("      avisos del driver:");
+        println!("      {}", tr!("status.module_warnings"));
         for w in &rep.warnings {
             println!("        - {w}");
         }

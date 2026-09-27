@@ -6,6 +6,7 @@
 //! `ls`), resolución de rutas relativas, un prompt con contexto (cwd + repo)
 //! y autocompletado con Tab (`shell_complete`).
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -47,7 +48,7 @@ impl ShellContext {
                 self.repo = git2::Repository::discover(&p).ok();
                 println!("  → {}", self.cwd.display());
             }
-            _ => println!("  [!] No existe o no es una carpeta: {}", next.display()),
+            _ => println!("  [!] {}", tr!("shell.not_dir", path = next.display())),
         }
     }
 
@@ -62,7 +63,7 @@ impl ShellContext {
                 match p.canonicalize() {
                     Ok(p) => p,
                     Err(_) => {
-                        println!("  [!] No existe: {t}");
+                        println!("  [!] {}", tr!("shell.not_found", path = t));
                         return;
                     }
                 }
@@ -73,7 +74,7 @@ impl ShellContext {
         let mut entries: Vec<_> = match std::fs::read_dir(&dir) {
             Ok(e) => e.filter_map(|e| e.ok()).collect(),
             Err(_) => {
-                println!("  [!] No se puede leer: {}", dir.display());
+                println!("  [!] {}", tr!("shell.unreadable", path = dir.display()));
                 return;
             }
         };
@@ -90,7 +91,7 @@ impl ShellContext {
         for entry in &entries {
             let path = entry.path();
             let openable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                ["sch", "sym", "gds", "oas", "mag"].iter().any(|o| e.eq_ignore_ascii_case(o))
+                ["sch", "sym", "gds", "oas", "mag", "raw"].iter().any(|o| e.eq_ignore_ascii_case(o))
             });
             if openable {
                 let in_git = self
@@ -108,7 +109,7 @@ impl ShellContext {
             }
         }
         if !found {
-            println!("  (sin esquemáticos, layouts ni subdirectorios)");
+            println!("  {}", tr!("shell.empty_dir"));
         }
         println!();
     }
@@ -162,13 +163,13 @@ fn shell_status_line(ctx: &ShellContext) -> String {
             std::env::var("PDK").unwrap_or_default()
         ),
         PdkStatus::Misconfigured(_) | PdkStatus::NotConfigured => {
-            "PDK: no detectado".to_string()
+            tr!("shell.pdk_none")
         }
     };
     let repo_str = git2::Repository::discover(&ctx.cwd)
         .ok()
         .and_then(|r| r.workdir().map(|p| p.display().to_string()))
-        .unwrap_or_else(|| "repo: no encontrado".to_string());
+        .unwrap_or_else(|| tr!("shell.repo_none"));
     format!("  v{version}  ·  {pdk}  ·  {repo_str}")
 }
 
@@ -179,9 +180,9 @@ pub(super) fn run_shell() -> Result<(), String> {
     print!("{LOGO}");
     println!("{}", shell_status_line(&ctx));
     if ctx.repo.is_none() {
-        println!("  [!] No se detectó repositorio Git. Usa 'cd <ruta>' para navegar a uno.");
+        println!("  [!] {}", tr!("shell.no_repo"));
     }
-    println!("  'help' para ver los comandos, Tab para completar, 'exit' para salir.\n");
+    println!("  {}\n", tr!("shell.hint"));
 
     let mut rl: rustyline::Editor<RikuHelper, rustyline::history::DefaultHistory> =
         rustyline::Editor::new().map_err(|e| e.to_string())?;
@@ -221,37 +222,32 @@ pub(super) fn run_shell() -> Result<(), String> {
         }
     }
 
-    println!("\n  Hasta luego.\n");
+    println!("\n  {}\n", tr!("shell.bye"));
     Ok(())
 }
 
 fn print_shell_help() {
+    let row = |cmd: &str, key: &str| println!("    {cmd:<46}{}", tr!(key));
     println!();
-    println!("  Navegación:");
-    println!("    ls [ruta]                                     listar .sch, .sym, .gds, .oas y .mag");
-    println!("    cd <ruta>                                     cambiar directorio");
+    println!("  {}", tr!("shell.h_nav"));
+    row("ls [path]", "shell.h_ls");
+    row("cd <path>", "shell.h_cd");
     println!();
-    println!("  Git:");
-    println!("    status [--detail|--full] [--json [--compact]] [--paths PAT]");
-    println!(
-        "                                                    cambios semánticos en working tree"
-    );
-    println!(
-        "    log [archivo.sch] [--detail|--full] [--json [--compact]] [--paths PAT] [--branch REF]"
-    );
-    println!(
-        "                                                    historial con resumen semántico por commit"
-    );
-    println!("    diff <commit_a> <commit_b> <archivo>          diff semántico (.sch, .gds, .oas, .mag)");
-    println!("    diff ... --format visual                      diff en el visor");
-    println!("    show <commit> [archivo]                       cambios de un commit respecto a su padre");
+    println!("  {}", tr!("shell.h_git"));
+    row("status [--detail] [-f json]", "shell.h_status");
+    row("diff [A] [B] [file] [-f json]", "shell.h_diff");
+    row("diff ... -f visual", "shell.h_visual");
+    row("show <commit> [file]", "shell.h_show");
+    row("log [file] [-n N] [--graph] [--detail]", "shell.h_log");
     println!();
-    println!("  Visor:");
-    println!("    open [archivo]                                abrir el visor (.sch, .gds, .oas, .mag)");
+    println!("  {}", tr!("shell.h_viewer"));
+    row("open [file]", "shell.h_open");
     println!();
-    println!("  Entorno:");
-    println!("    doctor                                        verificar PDK y repo");
-    println!("    exit                                          salir");
+    println!("  {}", tr!("shell.h_env"));
+    row("doctor [-f json]", "shell.h_doctor");
+    row("exit", "shell.h_exit");
+    println!();
+    println!("  {}", tr!("shell.h_more"));
     println!();
 }
 
@@ -262,7 +258,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
     match Cli::try_parse_from(&args) {
         Ok(parsed) => {
             let Some(mut cmd) = parsed.command else {
-                println!("  Ya estás en el shell.");
+                println!("  {}", tr!("shell.already"));
                 return;
             };
             resolve_for_shell(&mut cmd, ctx);
@@ -270,7 +266,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
             // exit codes; cambios pendientes se reflejan en la salida del
             // propio comando.
             if let Err(e) = cmd.execute() {
-                eprintln!("  Error: {e}");
+                eprintln!("  {}", tr!("shell.error", error = e));
             }
         }
         Err(e) => {
@@ -279,7 +275,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
                 e.to_string()
                     .lines()
                     .next()
-                    .unwrap_or("comando no reconocido")
+                    .unwrap_or(&tr!("shell.unknown_cmd"))
             );
         }
     }

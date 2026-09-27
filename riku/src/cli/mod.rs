@@ -12,6 +12,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::i18n::tr;
+
 mod commands;
 mod dispatch;
 mod doctor;
@@ -21,21 +23,24 @@ mod shell;
 mod shell_complete;
 
 // ─── Tipos del parser ────────────────────────────────────────────────────────
+//
+// La ayuda sale de `riku/locales/cli.yml` (`help = tr!(…)`), así que va en el
+// idioma de RIKU_LANG. Por eso los campos no llevan comentarios `///`: clap los
+// tomaría como ayuda en español.
 
-/// Formato de `log`, `status` y `doctor`.
+// Formato de `log`, `status` y `doctor`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ListFormat {
     Text,
-    /// JSON estable, con `schema` versionado.
     Json,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum OutputFormat {
     Text,
-    /// JSON con cambios tipados (schema riku-diff/v2).
+    // JSON con cambios tipados (schema riku-diff/v2).
     Json,
-    /// JSON anterior (componentes con strings); se mantiene una versión.
+    // JSON anterior (componentes con strings); se mantiene una versión.
     JsonV1,
     Visual,
 }
@@ -44,186 +49,127 @@ pub enum OutputFormat {
 #[command(
     name = "riku",
     version,
-    about = "Riku: diff semántico de diseños de chips sobre Git",
-    long_about = "Riku compara versiones de un diseño de chip guardado en Git: \
-                  esquemáticos de Xschem (.sch), layouts (.gds, .oas, .mag) y \
-                  simulaciones de ngspice (.raw). Sin comando abre un shell interactivo.",
-    after_help = MAIN_EXAMPLES
+    about = tr!("help.about"),
+    long_about = tr!("help.long_about"),
+    after_help = tr!("help.examples_main")
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
-    /// Hilos para el trabajo pesado (diff de layouts, carga del visor). Por
-    /// defecto, los núcleos disponibles (también: RIKU_JOBS). Se fija al
-    /// arrancar; en el shell no cambia.
-    #[arg(long, global = true, value_name = "N")]
+    #[arg(long, global = true, value_name = "N", help = tr!("help.jobs"))]
     pub(crate) jobs: Option<usize>,
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
-    /// Compara dos versiones (commits o el working tree), de un archivo o de todos.
-    #[command(after_help = DIFF_EXAMPLES)]
+    #[command(about = tr!("help.diff"), after_help = tr!("help.examples_diff"))]
     Diff {
-        /// `[A] [B] [ARCHIVO]`. Sin B, se compara contra el working tree (el
-        /// disco); sin A, contra HEAD; sin ARCHIVO, todos los archivos que
-        /// cambiaron.
-        #[arg(value_name = "A B ARCHIVO", num_args = 0..=3)]
+        #[arg(value_name = "A B FILE", num_args = 0..=3, help = tr!("help.diff_targets"))]
         targets: Vec<String>,
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
         repo: PathBuf,
-        #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
+        #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text, help = tr!("help.format_diff"))]
         format: OutputFormat,
-        /// Umbral en µm² para clasificar un cambio de layout como cosmético
-        /// (sub-DRC). Por defecto 0.01 µm² (debajo del piso DRC de PDKs como
-        /// sky130 y gf180), o el de `.riku.toml`. Los demás formatos lo ignoran.
-        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2")]
+        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2", help = tr!("help.cosmetic"))]
         cosmetic_threshold_um2: Option<f64>,
-        /// Tolerancia de formas de onda: fracción del rango de cada señal
-        /// (`0.005`) o porcentaje (`0.5%`). Por defecto 0.1 %, o la de
-        /// `.riku.toml`.
-        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction)]
+        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction, help = tr!("help.tolerance"))]
         tolerance: Option<f64>,
-        /// No usar ni guardar la cache de diffs de layouts grandes
-        /// (también: RIKU_NO_CACHE=1).
-        #[arg(long = "no-cache")]
+        #[arg(long = "no-cache", help = tr!("help.no_cache"))]
         no_cache: bool,
-        /// Señal calculada a comparar además de las del archivo (puede
-        /// repetirse), con la sintaxis de ngspice: `--expr "v(out)/v(in)"`,
-        /// `--expr "gain = db(v(out))"`, `--expr "max(v(out))"`. Solo para
-        /// resultados de simulación (.raw); ver docs/spice.md.
-        #[arg(long = "expr", value_name = "EXPR")]
+        #[arg(long = "expr", value_name = "EXPR", help = tr!("help.expr"))]
         exprs: Vec<String>,
-        /// Código de salida para CI: 0 sin cambios o solo cosméticos,
-        /// 1 cambios funcionales, 2 error.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.ci"))]
         ci: bool,
     },
-    /// Muestra los cambios semánticos de un commit respecto a su padre.
-    #[command(after_help = SHOW_EXAMPLES)]
+    #[command(about = tr!("help.show"), after_help = tr!("help.examples_show"))]
     Show {
-        /// Commit (hash, rama, HEAD~2…).
+        #[arg(help = tr!("help.show_commit"))]
         commit: String,
-        /// Solo este archivo; sin él, todos los que cambió el commit.
+        #[arg(help = tr!("help.show_file"))]
         file_path: Option<String>,
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
         repo: PathBuf,
-        /// text, json (schema riku-show/v1) o visual (necesita el archivo).
-        #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
+        #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text, help = tr!("help.format_show"))]
         format: OutputFormat,
-        /// Umbral cosmético de layouts en µm² (como en `diff`).
-        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2")]
+        #[arg(long = "cosmetic-threshold-um2", value_name = "UM2", help = tr!("help.cosmetic"))]
         cosmetic_threshold_um2: Option<f64>,
-        /// Tolerancia de formas de onda: fracción del rango de cada señal
-        /// (`0.005`) o porcentaje (`0.5%`). Por defecto 0.1 %, o la de
-        /// `.riku.toml`.
-        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction)]
+        #[arg(long, value_name = "TOL", value_parser = crate::core::config::parse_fraction, help = tr!("help.tolerance"))]
         tolerance: Option<f64>,
-        /// No usar ni guardar la cache de diffs de layouts grandes.
-        #[arg(long = "no-cache")]
+        #[arg(long = "no-cache", help = tr!("help.no_cache"))]
         no_cache: bool,
-        /// Señal calculada a comparar además de las del archivo (puede
-        /// repetirse), con la sintaxis de ngspice: `--expr "v(out)/v(in)"`,
-        /// `--expr "gain = db(v(out))"`, `--expr "max(v(out))"`. Solo para
-        /// resultados de simulación (.raw); ver docs/spice.md.
-        #[arg(long = "expr", value_name = "EXPR")]
+        #[arg(long = "expr", value_name = "EXPR", help = tr!("help.expr"))]
         exprs: Vec<String>,
-        /// Código de salida para CI: 0 sin cambios o solo cosméticos,
-        /// 1 cambios funcionales, 2 error.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.ci"))]
         ci: bool,
     },
-    /// Lista commits con un resumen semántico por archivo.
-    #[command(after_help = LOG_EXAMPLES)]
+    #[command(about = tr!("help.log"), after_help = tr!("help.examples_log"))]
     Log {
-        /// Path posicional opcional. Equivalente a `--paths <PAT>`.
+        #[arg(help = tr!("help.log_file"))]
         file_path: Option<String>,
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
         repo: PathBuf,
-        #[arg(short = 'n', long, default_value_t = 20)]
+        #[arg(short = 'n', long, default_value_t = 20, help = tr!("help.limit"))]
         limit: usize,
-        /// Conservado por compatibilidad. Sin efecto: el log siempre es
-        /// semántico.
+        // Sin efecto: el log siempre es semántico (compatibilidad).
         #[arg(short = 's', long, hide = true)]
         semantic: bool,
-        /// text o json (schema riku-log/v1).
-        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text, help = tr!("help.format_list"))]
         format: ListFormat,
-        /// Igual que `-f json` (se mantiene por compatibilidad).
+        // Igual que `-f json` (compatibilidad).
         #[arg(long, hide = true)]
         json: bool,
-        /// JSON compacto (una línea); por defecto, con sangría.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.compact"))]
         compact: bool,
-        /// Más detalle: una entrada por componente, net o señal cambiada.
-        #[arg(long, conflicts_with = "full")]
+        #[arg(long, conflicts_with = "full", help = tr!("help.detail"))]
         detail: bool,
-        /// Imprime el reporte completo del driver por archivo.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.full"))]
         full: bool,
-        /// Filtra por glob (se puede repetir). Ej.: --paths 'amp_*.sch'.
-        #[arg(long = "paths", value_name = "PAT")]
+        #[arg(long = "paths", value_name = "PAT", help = tr!("help.paths"))]
         paths: Vec<String>,
-        /// Empieza desde otra ref/oid en lugar de HEAD.
-        #[arg(long, value_name = "REF")]
+        #[arg(long, value_name = "REF", help = tr!("help.branch"))]
         branch: Option<String>,
-        /// Dibuja el grafo de ramas y merges a la izquierda (orden
-        /// topológico). Con --json agrega el lugar de cada commit en el grafo.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.graph"))]
         graph: bool,
-        /// Grafo con caracteres ASCII en vez de Unicode (también: RIKU_ASCII=1).
-        #[arg(long, requires = "graph")]
+        #[arg(long, requires = "graph", help = tr!("help.ascii"))]
         ascii: bool,
     },
-    /// Verifica el entorno y lista los formatos que este `riku` sabe comparar.
+    #[command(about = tr!("help.doctor"))]
     Doctor {
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
         repo: PathBuf,
-        /// text o json (schema riku-doctor/v1): repo, PDK y módulos de formato.
-        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text, help = tr!("help.format_list"))]
         format: ListFormat,
     },
-    /// Resume los cambios del working tree respecto a HEAD.
-    #[command(after_help = STATUS_EXAMPLES)]
+    #[command(about = tr!("help.status"), after_help = tr!("help.examples_status"))]
     Status {
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
         repo: PathBuf,
-        /// Lista también los archivos que ningún módulo reconoce.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.include_unknown"))]
         include_unknown: bool,
-        /// text o json (schema riku-status/v1).
-        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text, help = tr!("help.format_list"))]
         format: ListFormat,
-        /// Igual que `-f json` (se mantiene por compatibilidad).
+        // Igual que `-f json` (compatibilidad).
         #[arg(long, hide = true)]
         json: bool,
-        /// JSON compacto (una línea); por defecto, con sangría.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.compact"))]
         compact: bool,
-        /// Más detalle: una entrada por componente, net o señal cambiada.
-        #[arg(long, conflicts_with = "full")]
+        #[arg(long, conflicts_with = "full", help = tr!("help.detail"))]
         detail: bool,
-        /// Imprime el reporte completo del driver por archivo.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.full"))]
         full: bool,
-        /// Filtra por glob (se puede repetir). Ej.: --paths 'amp_*.sch'.
-        #[arg(long = "paths", value_name = "PAT")]
+        #[arg(long = "paths", value_name = "PAT", help = tr!("help.paths"))]
         paths: Vec<String>,
-        /// Sin efecto: `status` siempre usa los códigos de CI (0 limpio,
-        /// 1 cambios funcionales, 2 error). Se acepta por uniformidad.
-        #[arg(long)]
+        #[arg(long, help = tr!("help.status_ci"))]
         ci: bool,
     },
-    /// Imprime el autocompletado para una shell: `riku completions bash > ~/.local/share/bash-completion/completions/riku`.
+    #[command(about = tr!("help.completions"))]
     Completions {
-        /// bash, zsh, fish, powershell o elvish.
+        #[arg(help = tr!("help.shell"))]
         shell: clap_complete::Shell,
     },
-    /// Abre un archivo .sch, .gds, .oas, .mag o .raw en el visor de escritorio.
+    #[command(about = tr!("help.open"))]
     Open { file: Option<PathBuf> },
-    /// Abre el visor en este proceso: `riku gui [archivo] [--cell CELDA]`.
-    /// `open` y `diff -f visual` lo usan por debajo.
-    #[command(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[command(about = tr!("help.gui"), trailing_var_arg = true, allow_hyphen_values = true)]
     Gui {
         args: Vec<String>,
     },
@@ -234,6 +180,8 @@ pub(crate) enum Commands {
 pub fn run() -> ExitCode {
     use dispatch::Outcome;
 
+    // Idioma de la salida y de la ayuda: RIKU_LANG (en, es); inglés por defecto.
+    crate::i18n::set(crate::i18n::initial(None));
     let cli = Cli::parse();
     configure_threads(cli.jobs);
     let Some(cmd) = cli.command else {
@@ -279,52 +227,6 @@ pub fn run() -> ExitCode {
 
 /// Esquema del error cuando la salida pedida es JSON.
 pub const ERROR_SCHEMA: &str = "riku-error/v1";
-
-const MAIN_EXAMPLES: &str = "\
-Ejemplos:
-  riku status                      qué cambió en el disco respecto a HEAD
-  riku diff                        el detalle de esos cambios
-  riku diff HEAD~1 HEAD amp.sch    un archivo entre dos commits
-  riku show HEAD -f json           el último commit, en JSON
-  riku log -n 10 --graph           historial con el grafo de ramas
-  riku doctor -f json              formatos soportados y entorno
-
-Salida para scripts y agentes: -f json en todos los comandos (con `schema`);
-códigos 0 sin cambios, 1 cambios funcionales, 2 error con --ci (status siempre).";
-
-const DIFF_EXAMPLES: &str = "\
-Ejemplos:
-  riku diff                          working tree contra HEAD, todos los archivos
-  riku diff amp.sch                  ese archivo, working tree contra HEAD
-  riku diff main                     working tree contra main
-  riku diff HEAD~1 HEAD              todo lo que cambió entre dos commits
-  riku diff HEAD~1 HEAD top.gds -f json
-  riku diff v1 v2 tb.raw --expr \"gain = v(out)/v(in)\"
-  riku diff HEAD amp.sch -f visual   abrir el visor (A = HEAD, B = disco)
-
-Un argumento es un ARCHIVO si Riku conoce su extensión o existe en el disco;
-si no, es un commit (hash, rama, tag, HEAD~2).";
-
-const SHOW_EXAMPLES: &str = "\
-Ejemplos:
-  riku show HEAD                   el último commit contra su padre
-  riku show a3f2b1c amp.sch        solo ese archivo
-  riku show HEAD -f json --ci      JSON y código 1 si hay cambios funcionales";
-
-const LOG_EXAMPLES: &str = "\
-Ejemplos:
-  riku log                         los últimos 20 commits
-  riku log amp.sch -n 5 --detail   un archivo, con cada componente cambiado
-  riku log --graph                 con el grafo de ramas y merges
-  riku log -f json --compact       JSON en una línea";
-
-const STATUS_EXAMPLES: &str = "\
-Ejemplos:
-  riku status                      resumen por archivo
-  riku status --detail             con cada componente, net o señal
-  riku status -f json              JSON (schema riku-status/v1)
-
-Código de salida: 0 sin cambios o solo cosméticos, 1 cambios funcionales, 2 error.";
 
 /// Un solo pool de hilos para todo el proceso: `--jobs N`, si no
 /// `RIKU_JOBS`, si no los núcleos disponibles (lo que elige `rayon`). Los

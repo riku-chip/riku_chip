@@ -1,10 +1,19 @@
-//! Idioma del visor. Los textos están en `riku/locales/gui.yml` (inglés y
-//! español por clave) y se incrustan al compilar; en el código se piden con
-//! [`tr!`](crate::gui::tr). El inglés es el idioma por defecto y el de
-//! respaldo si falta una traducción.
+//! Idioma de la CLI y del visor. Los textos están en `riku/locales/*.yml`
+//! (inglés y español por clave: `cli.yml`, `gui.yml`) y se incrustan al
+//! compilar; en el código se piden con [`tr!`]. El inglés es el idioma por
+//! defecto y el de respaldo si falta una traducción.
 //!
-//! Prioridad: `RIKU_LANG` (para scripts y capturas) > la elección guardada
-//! en Ajustes > inglés.
+//! Prioridad: `RIKU_LANG` (para scripts, CI y capturas) > la elección
+//! guardada en los Ajustes del visor > inglés.
+
+/// Texto traducido como `String`, con variables:
+/// `tr!("status.loading", file = name)`.
+macro_rules! tr {
+    ($($arg:tt)*) => {
+        rust_i18n::t!($($arg)*).into_owned()
+    };
+}
+pub(crate) use tr;
 
 /// Idiomas disponibles: código y nombre (en su propio idioma, para el menú).
 pub const LANGUAGES: [(&str, &str); 2] = [("en", "English"), ("es", "Español")];
@@ -53,14 +62,19 @@ mod tests {
     /// un texto y olvida uno, la GUI mostraría el de respaldo sin avisar.
     #[test]
     fn every_key_has_both_languages() {
-        let text = include_str!("../../locales/gui.yml");
+        for (name, text) in [("gui.yml", include_str!("../locales/gui.yml")), ("cli.yml", include_str!("../locales/cli.yml"))] {
+            check_file(name, text);
+        }
+    }
+
+    fn check_file(name: &str, text: &str) {
         let mut current: Option<(String, Vec<String>)> = None;
         let mut problems = Vec::new();
         let mut check = |entry: Option<(String, Vec<String>)>| {
             if let Some((key, langs)) = entry {
                 for (code, _) in LANGUAGES {
                     if !langs.iter().any(|l| l == code) {
-                        problems.push(format!("{key}: falta `{code}`"));
+                        problems.push(format!("{name}: {key}: falta `{code}`"));
                     }
                 }
             }

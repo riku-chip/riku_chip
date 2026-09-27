@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 use crate::core::config::{self, Overrides};
+use crate::i18n::tr;
 
 use crate::core::analysis::diff_set::{self, Side};
 use crate::core::analysis::show::analyze_show;
@@ -40,7 +41,7 @@ pub(super) fn run_diff(
 
     if matches!(format, OutputFormat::Visual) {
         let Some(file) = file else {
-            return Err("diff -f visual necesita un archivo: riku diff [A] [B] <archivo> -f visual".into());
+            return Err(tr!("err.visual_needs_file"));
         };
         let exprs = config::options_for(&repo, overrides)?.expressions;
         return present_visual(&repo, from.token(), to.token(), &file, &exprs).map(|_| Changes::Clean);
@@ -59,7 +60,7 @@ pub(super) fn run_diff(
         }
         None => {
             if matches!(format, OutputFormat::JsonV1) {
-                return Err("-f json-v1 solo sirve para un archivo; usa -f json (schema riku-diff-set/v1)".into());
+                return Err(tr!("err.json_v1_one_file"));
             }
             let report = diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts)
                 .map_err(|e| e.to_string())?;
@@ -89,7 +90,7 @@ fn resolve_targets(
         [a, f] if is_file(f) => (rev(a), Side::WorkTree, Some(f.clone())),
         [a, b] => (rev(a), rev(b), None),
         [a, b, f] => (rev(a), rev(b), Some(f.clone())),
-        _ => return Err("diff acepta a lo más 3 argumentos: [A] [B] [ARCHIVO]".into()),
+        _ => return Err(tr!("err.too_many_targets")),
     })
 }
 
@@ -139,18 +140,16 @@ pub(super) fn run_show(
     let opts = config::options_for(&repo, overrides)?;
     if matches!(format, OutputFormat::Visual) {
         let Some(file) = file_path else {
-            return Err("show -f visual necesita un archivo: riku show <commit> <archivo> -f visual".into());
+            return Err(tr!("err.show_visual_needs_file"));
         };
         let changes = svc.commit_changes(commit).map_err(|e| e.to_string())?;
         let Some(parent) = changes.commit.parents.first() else {
-            return Err(format!(
-                "{commit} es el commit inicial: no hay versión anterior con la que comparar. Para verlo: riku open {file}"
-            ));
+            return Err(tr!("err.initial_commit", commit = commit, file = file));
         };
         return present_visual(&repo, parent, &changes.commit.info.oid, file, &opts.expressions).map(|_| Changes::Clean);
     }
     if matches!(format, OutputFormat::JsonV1) {
-        return Err("show no tiene salida json-v1; usa -f json (schema riku-show/v1)".into());
+        return Err(tr!("err.show_no_v1"));
     }
 
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;

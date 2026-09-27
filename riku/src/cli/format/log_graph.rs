@@ -51,7 +51,7 @@ pub fn print(report: &LogReport, level: DetailLevel, style: Style) {
         eprintln!("[!] {w}");
     }
     if report.commits.is_empty() {
-        println!("Sin commits encontrados.");
+        println!("{}", crate::i18n::tr!("log.no_commits"));
         return;
     }
     for line in render(&report.commits, level, style) {
@@ -270,15 +270,15 @@ mod tests {
         // Cada fila con su ancho: la del merge ya abre la segunda columna.
         let expected = "\
 ○   m [merge]  msg m
-│     t · desconocido
+│     t · unknown
 ├─╮
 ● │ a  msg a
-│ │   t · desconocido
+│ │   t · unknown
 │ ● f  msg f
-│ │   t · desconocido
+│ │   t · unknown
 ├─╯
 ● b  msg b
-    t · desconocido";
+    t · unknown";
         assert_eq!(plain("m:a f, a:b, f:b, b:", true), expected);
     }
 

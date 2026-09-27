@@ -6,6 +6,7 @@
 
 use crate::core::analysis::summary::{DetailEntry, FileSummary, SummaryCategory, label_for};
 use crate::core::domain::models::ChangeKind;
+use crate::i18n::tr;
 
 /// Marker de una sola letra para un `ChangeKind` (`r` = renombre).
 pub(super) fn marker_for_change(kind: ChangeKind) -> &'static str {
@@ -23,10 +24,10 @@ pub(super) fn marker_for_change(kind: ChangeKind) -> &'static str {
 /// otra sección y solo procesa `counts`.
 pub(super) fn format_counts(f: &FileSummary, allow_cosmetic_label: bool) -> String {
     if allow_cosmetic_label && matches!(f.category, SummaryCategory::Cosmetic) {
-        return "(solo cambios cosméticos)".to_string();
+        return tr!("summary.only_cosmetic");
     }
     if f.counts.is_empty() {
-        return "(cambios sin detalle)".to_string();
+        return tr!("summary.no_detail");
     }
     let mut parts = Vec::with_capacity(f.counts.len());
     for (key, count) in &f.counts {
@@ -76,9 +77,9 @@ mod tests {
     fn format_counts_cosmetico_etiquetado_solo_si_se_permite() {
         let mut f = FileSummary::unknown("a.sch");
         f.category = SummaryCategory::Cosmetic;
-        assert_eq!(format_counts(&f, true), "(solo cambios cosméticos)");
+        assert_eq!(format_counts(&f, true), "(cosmetic changes only)");
         // Sin permiso, cae en la rama de counts vacíos.
-        assert_eq!(format_counts(&f, false), "(cambios sin detalle)");
+        assert_eq!(format_counts(&f, false), "(changes without detail)");
     }
 
     #[test]

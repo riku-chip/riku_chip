@@ -6,6 +6,7 @@
 //! la geometría. Las nets añadidas y eliminadas se listan al final.
 
 use super::common::marker_for_change;
+use crate::i18n::tr;
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, Value};
 
 pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
@@ -14,7 +15,7 @@ pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
         return Ok(());
     }
     if report.is_empty() {
-        println!("Sin cambios semánticos.");
+        println!("{}", tr!("diff.no_changes"));
         return Ok(());
     }
 
@@ -41,10 +42,10 @@ pub fn print_error(file_path: &str, err: &str) {
 }
 
 fn print_header(file_path: &str, semantic: usize, cosmetic: usize) {
-    println!("Archivo : {}", super::color::bold(file_path));
-    println!("Cambios : {semantic}");
+    println!("{}", tr!("diff.file", file = super::color::bold(file_path)));
+    println!("{}", tr!("diff.changes", count = semantic));
     if cosmetic > 0 {
-        println!("Cosméticos: {cosmetic}");
+        println!("{}", tr!("diff.cosmetic", count = cosmetic));
     }
     println!();
 }
@@ -72,7 +73,7 @@ fn print_change(c: &Change) {
             ChangeKind::Modified | ChangeKind::Renamed => print_param_diff(c),
             ChangeKind::Added => {
                 if let Some(sym) = c.after("symbol") {
-                    println!("      símbolo: {sym}");
+                    println!("      {}", tr!("diff.symbol", symbol = sym));
                 }
             }
             ChangeKind::Removed => {}
@@ -85,9 +86,9 @@ fn print_geometry(c: &Change) {
     if let Element::Geometry { cell, via: Some(via), .. } = &c.element {
         let pretty = std::iter::once(cell.as_str()).chain(via.path.iter().map(String::as_str)).collect::<Vec<_>>().join(" → ");
         match (via.instances, via.at) {
-            (n, _) if n > 1 => println!("      origen: {pretty} (en {n} instancias)"),
-            (_, Some([x, y])) => println!("      origen: {pretty} @ ({x:.3}, {y:.3})"),
-            _ => println!("      origen: {pretty}"),
+            (n, _) if n > 1 => println!("      {}", tr!("diff.origin_n", path = pretty, count = n)),
+            (_, Some([x, y])) => println!("      {} @ ({x:.3}, {y:.3})", tr!("diff.origin", path = pretty)),
+            _ => println!("      {}", tr!("diff.origin", path = pretty)),
         }
     }
     let count = |k: &str| c.after(k).map_or_else(|| "0".to_string(), Value::to_string);
@@ -131,18 +132,20 @@ fn print_signal(c: &Change) {
         return;
     }
     match c.kind {
-        ChangeKind::Added => println!("      nueva en {plot}"),
-        ChangeKind::Removed => println!("      ya no está en {plot}"),
+        ChangeKind::Added => println!("      {}", tr!("diff.signal_new", plot = plot)),
+        ChangeKind::Removed => println!("      {}", tr!("diff.signal_gone", plot = plot)),
         _ => match (num("max_abs_diff"), num("at")) {
             (Some(max), Some(at)) => {
                 let unit = text("unit");
-                println!(
-                    "      Δmáx {} en {} · RMS {} · {:.2} % del rango  ({plot})",
-                    eng(max, &unit),
-                    eng(at, &text("x_unit")),
-                    eng(num("rms_diff").unwrap_or(0.0), &unit),
-                    num("rel_diff").unwrap_or(0.0) * 100.0
+                let line = tr!(
+                    "diff.signal_delta",
+                    max = eng(max, &unit),
+                    at = eng(at, &text("x_unit")),
+                    rms = eng(num("rms_diff").unwrap_or(0.0), &unit),
+                    rel = format!("{:.2}", num("rel_diff").unwrap_or(0.0) * 100.0),
+                    plot = plot
                 );
+                println!("      {line}");
             }
             _ => println!("      {}  ({plot})", text("note")),
         },
@@ -176,8 +179,8 @@ fn print_param_diff(c: &Change) {
         let key = &d.key;
         match (&d.before, &d.after) {
             (Some(a), Some(b)) if a != b => println!("      {key}: {a} → {b}"),
-            (None, Some(b)) => println!("      {key}: (nuevo) → {b}"),
-            (Some(a), None) => println!("      {key}: {a} → (eliminado)"),
+            (None, Some(b)) => println!("      {key}: {} → {b}", tr!("diff.new")),
+            (Some(a), None) => println!("      {key}: {a} → {}", tr!("diff.deleted")),
             _ => {}
         }
     }

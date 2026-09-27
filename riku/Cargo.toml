@@ -48,8 +48,8 @@ poll-promise = { version = "0.3", features = ["tokio"], optional = true }
 async-trait = { version = "0.1", optional = true }
 # Gráficos de formas de onda (feature `gui` + `spice`). 0.35 es la que va con egui 0.34.
 egui_plot = { version = "0.35", optional = true }
-# Textos del visor en inglés y español (locales/gui.yml, incrustado al compilar).
-rust-i18n = { version = "4", optional = true }
+# Textos de la CLI y del visor en inglés y español (locales/*.yml, incrustados al compilar).
+rust-i18n = "4"
 
 [target.'cfg(unix)'.dependencies]
 # SIGPIPE por defecto (ver main.rs).
@@ -66,7 +66,7 @@ spice = []
 # CI), sin egui. Cada módulo aporta su visor (ver FormatModule::viewer).
 # El índice de las escenas (culling, nivel de detalle) se arma con todos los
 # núcleos (`viewer-core/parallel`).
-gui = ["dep:eframe", "dep:tokio", "dep:poll-promise", "dep:async-trait", "dep:egui_plot", "dep:rust-i18n", "viewer-core/parallel"]
+gui = ["dep:eframe", "dep:tokio", "dep:poll-promise", "dep:async-trait", "dep:egui_plot", "viewer-core/parallel"]
 
 [dev-dependencies]
 tempfile = "3.27.0"

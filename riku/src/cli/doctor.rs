@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use riku_kernel::ModuleInfo;
 
+use crate::i18n::tr;
+
 use crate::modules::xschem_pdk::{pdk_status, PdkStatus};
 
 // ─── Modelo ──────────────────────────────────────────────────────────────────
@@ -83,17 +85,17 @@ fn tools_status() -> ToolsStatus {
 // ─── Presentación ────────────────────────────────────────────────────────────
 
 fn print(report: &DoctorReport) {
-    println!("\nRiku Doctor — Diagnóstico del Entorno\n");
+    println!("\n{}\n", tr!("doctor.title"));
 
-    println!("--- Repositorio Git ---");
+    println!("--- {} ---", tr!("doctor.repo"));
     match &report.repo_workdir {
         Some(p) => println!("  [ok]  {}", p.display()),
-        None => println!("  [!]  No detectado — diff/log no funcionarán"),
+        None => println!("  [!]  {}", tr!("doctor.no_repo")),
     }
     match project_config(report) {
-        Some((path, Ok(()))) => println!("  [ok]  {}: opciones del proyecto", path.display()),
+        Some((path, Ok(()))) => println!("  [ok]  {}", tr!("doctor.config_ok", file = path.display())),
         Some((path, Err(e))) => println!("  [!]  {}: {e}", path.display()),
-        None => println!("  [--]  {}: no hay (opciones por defecto)", crate::core::config::FILE),
+        None => println!("  [--]  {}", tr!("doctor.config_none", file = crate::core::config::FILE)),
     }
 
     println!("\n--- PDK ---");
@@ -103,45 +105,38 @@ fn print(report: &DoctorReport) {
     #[cfg(feature = "layout")]
     print_magic();
     if !report.has_symbols {
-        println!(
-            "  [!]  Sin fuente de símbolos — los componentes se renderizarán como cajas vacías"
-        );
+        println!("  [!]  {}", tr!("doctor.no_symbols"));
     }
 
-    println!("\n--- Drivers ---");
+    println!("\n--- {} ---", tr!("doctor.modules"));
     for info in &report.drivers {
         let status = if info.available { "[ok]" } else { "[x]" };
         println!("  {status}  {:10} {}", info.name, info.version);
     }
 
-    println!("\nEntorno listo.\n");
+    println!("\n{}\n", tr!("doctor.ready"));
 }
 
 fn print_xschemrc(xschemrc: &Option<PathBuf>) {
     match xschemrc {
         Some(p) => println!("  [ok]  .xschemrc: {}", p.display()),
-        None => println!("  [--]  .xschemrc: no encontrado"),
+        None => println!("  [--]  {}", tr!("doctor.xschemrc_missing")),
     }
 }
 
 fn print_pdk(pdk: &PdkStatus) {
     match pdk {
         PdkStatus::Found(p) => println!("  [ok]  $PDK_ROOT/$PDK → {}", p.display()),
-        PdkStatus::Misconfigured(p) => println!(
-            "  [!]  $PDK_ROOT/$PDK configurado pero ruta no encontrada: {}",
-            p.display()
-        ),
+        PdkStatus::Misconfigured(p) => println!("  [!]  {}", tr!("doctor.pdk_missing", path = p.display())),
         PdkStatus::NotConfigured => {
             let root = crate::modules::xschem_pdk::pdk_root();
             let installed = root.as_deref().map(crate::modules::xschem_pdk::installed_pdks).unwrap_or_default();
             match (root, installed.is_empty()) {
                 (Some(r), false) => println!(
-                    "  [ok]  $PDK no definida: se detecta por los símbolos de cada esquemático
-        (instalados en {}: {}). Para fijarlo: export PDK=<nombre>",
-                    r.display(),
-                    installed.join(", ")
+                    "  [ok]  {}",
+                    tr!("doctor.pdk_detected", root = r.display(), list = installed.join(", "))
                 ),
-                _ => println!("  [--]  $PDK_ROOT / $PDK: no configurados y no hay PDKs en /foss/pdks"),
+                _ => println!("  [--]  {}", tr!("doctor.pdk_none")),
             }
         }
     }
@@ -153,21 +148,18 @@ fn print_pdk(pdk: &PdkStatus) {
 fn print_magic() {
     let libs = riku_mod_layout::mag::pdk_libraries();
     if libs.is_empty() {
-        println!("  [--]  Magic: sin librerías .mag en el PDK (las celdas usadas deben estar en el repo o en $RIKU_MAG_PATH)");
+        println!("  [--]  {}", tr!("doctor.magic_none"));
     } else {
         let list: Vec<String> = libs.iter().map(|(tech, n)| format!("{tech} ({n})")).collect();
-        println!("  [ok]  Magic: librerías .mag en {}", list.join(", "));
+        println!("  [ok]  {}", tr!("doctor.magic_libs", list = list.join(", ")));
     }
 }
 
 fn print_tools(tools: &ToolsStatus) {
     match tools {
         ToolsStatus::Found(p) => println!("  [ok]  $TOOLS → {}", p.display()),
-        ToolsStatus::Misconfigured(p) => println!(
-            "  [!]  $TOOLS configurado pero devices no encontrado: {}",
-            p.display()
-        ),
-        ToolsStatus::NotConfigured => println!("  [--]  $TOOLS: no configurado"),
+        ToolsStatus::Misconfigured(p) => println!("  [!]  {}", tr!("doctor.tools_missing", path = p.display())),
+        ToolsStatus::NotConfigured => println!("  [--]  {}", tr!("doctor.tools_none")),
     }
 }
 

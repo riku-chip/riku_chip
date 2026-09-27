@@ -13,7 +13,7 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | `riku doctor` | Diagnóstico del entorno y formatos soportados |
 | `riku completions <shell>` | Autocompletado para bash, zsh, fish, powershell o elvish |
 
-Todos los comandos aceptan `-f json` (salida con `schema` versionado) y `--help` con ejemplos. Para usar Riku desde scripts, CI o agentes de IA, ver [Scripts y agentes](#scripts-y-agentes).
+Todos los comandos aceptan `-f json` (salida con `schema` versionado) y `--help` con ejemplos. La salida y la ayuda están en inglés por defecto; `RIKU_LANG=es` las pone en español (los ejemplos de este documento están en español). Para usar Riku desde scripts, CI o agentes de IA, ver [Scripts y agentes](#scripts-y-agentes).
 
 Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas`/`.mag` (layouts, diff geométrico; Magic con sus sub-celdas del mismo commit: [`layouts.md`](layouts.md#magic-mag)) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
 
@@ -279,6 +279,7 @@ riku diff HEAD~1 HEAD -f json  # qué cambió el último commit
 | Variable | Efecto |
 |---|---|
 | `PDK_ROOT`, `PDK`, `TOOLS` | Símbolos de Xschem ([`xschem.md`](xschem.md)) |
+| `RIKU_LANG` | Idioma de la CLI y del visor: `en` (por defecto) o `es`. En el visor también se elige en Settings → Language |
 | `RIKU_NO_CACHE=1` | Sin cache de diffs de layouts |
 | `RIKU_MAG_PATH=dir1:dir2` | Directorios extra donde buscar las celdas `.mag` que usa un layout de Magic (antes que el PDK) |
 | `RIKU_MAG_LAMBDA=µm` | Lambda de Magic, si la tecnología del `.mag` no es SKY130, GF180 ni IHP |

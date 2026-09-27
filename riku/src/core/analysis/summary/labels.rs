@@ -21,30 +21,30 @@ pub const SIGNALS_MODIFIED: &str = "signals_modified";
 /// imprimir la clave tal cual.
 pub fn label_for(key: &str, count: i64) -> Option<String> {
     let plural = count.abs() != 1;
-    let label = match key {
-        COMPONENTS_ADDED if !plural => "componente añadido",
-        COMPONENTS_ADDED => "componentes añadidos",
-        COMPONENTS_REMOVED if !plural => "componente eliminado",
-        COMPONENTS_REMOVED => "componentes eliminados",
-        COMPONENTS_MODIFIED if !plural => "componente modificado",
-        COMPONENTS_MODIFIED => "componentes modificados",
-        COMPONENTS_RENAMED if !plural => "componente renombrado",
-        COMPONENTS_RENAMED => "componentes renombrados",
-        NETS_ADDED if !plural => "net añadida",
-        NETS_ADDED => "nets añadidas",
-        NETS_REMOVED if !plural => "net eliminada",
-        NETS_REMOVED => "nets eliminadas",
-        NETS_MODIFIED if !plural => "net modificada",
-        NETS_MODIFIED => "nets modificadas",
-        SIGNALS_ADDED if !plural => "señal nueva",
-        SIGNALS_ADDED => "señales nuevas",
-        SIGNALS_REMOVED if !plural => "señal eliminada",
-        SIGNALS_REMOVED => "señales eliminadas",
-        SIGNALS_MODIFIED if !plural => "señal cambió",
-        SIGNALS_MODIFIED => "señales cambiaron",
+    let key = match key {
+        COMPONENTS_ADDED if !plural => "label.component_added",
+        COMPONENTS_ADDED => "label.components_added",
+        COMPONENTS_REMOVED if !plural => "label.component_removed",
+        COMPONENTS_REMOVED => "label.components_removed",
+        COMPONENTS_MODIFIED if !plural => "label.component_modified",
+        COMPONENTS_MODIFIED => "label.components_modified",
+        COMPONENTS_RENAMED if !plural => "label.component_renamed",
+        COMPONENTS_RENAMED => "label.components_renamed",
+        NETS_ADDED if !plural => "label.net_added",
+        NETS_ADDED => "label.nets_added",
+        NETS_REMOVED if !plural => "label.net_removed",
+        NETS_REMOVED => "label.nets_removed",
+        NETS_MODIFIED if !plural => "label.net_modified",
+        NETS_MODIFIED => "label.nets_modified",
+        SIGNALS_ADDED if !plural => "label.signal_added",
+        SIGNALS_ADDED => "label.signals_added",
+        SIGNALS_REMOVED if !plural => "label.signal_removed",
+        SIGNALS_REMOVED => "label.signals_removed",
+        SIGNALS_MODIFIED if !plural => "label.signal_modified",
+        SIGNALS_MODIFIED => "label.signals_modified",
         _ => return None,
     };
-    Some(label.to_string())
+    Some(crate::i18n::tr!(key))
 }
 
 #[cfg(test)]
@@ -53,11 +53,8 @@ mod tests {
 
     #[test]
     fn label_for_singular_y_plural() {
-        assert_eq!(label_for(COMPONENTS_ADDED, 1).unwrap(), "componente añadido");
-        assert_eq!(
-            label_for(COMPONENTS_ADDED, 3).unwrap(),
-            "componentes añadidos"
-        );
+        assert_eq!(label_for(COMPONENTS_ADDED, 1).unwrap(), "component added");
+        assert_eq!(label_for(COMPONENTS_ADDED, 3).unwrap(), "components added");
         assert_eq!(label_for("clave_desconocida", 1), None);
     }
 }

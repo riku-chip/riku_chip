@@ -2,6 +2,7 @@
 //! `git show`) y el diff de texto de cada archivo con módulo.
 
 use super::diff_text;
+use crate::i18n::tr;
 use super::log_text::format_timestamp;
 use crate::core::analysis::show::{ShowFile, ShowReport};
 use crate::core::domain::git_types::ChangeStatus;
@@ -9,13 +10,13 @@ use crate::core::domain::git_types::ChangeStatus;
 pub fn print(report: &ShowReport) -> Result<(), String> {
     let info = &report.commit.info;
     let parent = match report.commit.parents.as_slice() {
-        [] => "commit inicial: se compara contra vacío".to_string(),
-        [p] => format!("padre {}", short(p)),
-        [p, ..] => format!("merge: se compara contra el primer padre {}", short(p)),
+        [] => tr!("show.initial"),
+        [p] => tr!("show.parent", parent = short(p)),
+        [p, ..] => tr!("show.merge", parent = short(p)),
     };
     println!("{}  ({parent})", super::color::yellow(&format!("commit {}", info.short_id)));
-    println!("Autor : {}", info.author);
-    println!("Fecha : {}", format_timestamp(info.timestamp));
+    println!("{}", tr!("show.author", author = info.author));
+    println!("{}", tr!("show.date", date = format_timestamp(info.timestamp)));
     println!();
     for line in info.message.lines() {
         println!("    {line}");
@@ -23,10 +24,10 @@ pub fn print(report: &ShowReport) -> Result<(), String> {
     println!();
 
     if report.files.is_empty() {
-        println!("El commit no cambió archivos.");
+        println!("{}", tr!("show.no_files"));
         return Ok(());
     }
-    print_files(&report.files, "no cambió en este commit")
+    print_files(&report.files, &tr!("show.untouched"))
 }
 
 /// El diff de texto de cada archivo con módulo y, al final, los que ningún
@@ -42,24 +43,24 @@ pub fn print_files(files: &[ShowFile], untouched: &str) -> Result<(), String> {
             eprintln!("[!] {w}");
         }
         if let Some(old) = &f.old_path {
-            println!("Renombrado: {old} → {}", f.path);
+            println!("{}", tr!("show.renamed", old = old, new = f.path));
         }
         if let Some(err) = &change.error {
             diff_text::print_error(&f.path, err);
         } else if change.is_empty() {
             let why = match f.status {
-                None => untouched,
-                Some(ChangeStatus::Removed) => "eliminado",
-                _ => "sin cambios semánticos",
+                None => untouched.to_string(),
+                Some(ChangeStatus::Removed) => tr!("show.removed"),
+                _ => tr!("show.no_semantic"),
             };
-            println!("Archivo : {}\n  {why}", f.path);
+            println!("{}\n  {why}", tr!("diff.file", file = f.path));
         } else {
             diff_text::print(change, &f.path)?;
         }
         println!();
     }
     if !unknown.is_empty() {
-        println!("Sin módulo de Riku ({}): {}", unknown.len(), unknown.join(", "));
+        println!("{}", tr!("show.no_module", count = unknown.len(), list = unknown.join(", ")));
     }
     Ok(())
 }

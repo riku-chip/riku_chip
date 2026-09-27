@@ -20,7 +20,7 @@ pub fn print(report: &LogReport, level: DetailLevel) {
     }
 
     if report.commits.is_empty() {
-        println!("Sin commits encontrados.");
+        println!("{}", crate::i18n::tr!("log.no_commits"));
         return;
     }
 
@@ -54,15 +54,15 @@ fn print_commit(c: &LogCommit, level: DetailLevel) {
     );
 
     if c.is_merge {
-        println!("          (merge commit; v1 no calcula diff por archivo)");
+        println!("          {}", crate::i18n::tr!("log.merge_no_diff"));
         return;
     }
     if c.parents.is_empty() {
-        println!("          (commit raíz)");
+        println!("          {}", crate::i18n::tr!("log.root"));
         return;
     }
     if c.files.is_empty() {
-        println!("          (sin cambios reconocidos por Riku)");
+        println!("          {}", crate::i18n::tr!("log.nothing_known"));
         return;
     }
 
@@ -90,7 +90,7 @@ pub(super) fn format_refs(refs: &[String]) -> String {
 /// formato `YYYY-MM-DD HH:MM` en UTC.
 pub(crate) fn format_timestamp(ts: i64) -> String {
     if ts <= 0 {
-        return "desconocido".to_string();
+        return crate::i18n::tr!("log.unknown_date");
     }
     // Conversión manual sin chrono. UNIX → UTC.
     let secs = ts as u64;
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn timestamp_negativo_o_cero_se_marca_desconocido() {
-        assert_eq!(format_timestamp(0), "desconocido");
-        assert_eq!(format_timestamp(-1), "desconocido");
+        assert_eq!(format_timestamp(0), "unknown");
+        assert_eq!(format_timestamp(-1), "unknown");
     }
 }

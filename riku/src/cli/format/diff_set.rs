@@ -5,6 +5,7 @@
 use serde_json::json;
 
 use super::color;
+use crate::i18n::tr;
 use super::show_json::file_json;
 use super::show_text::print_files;
 use crate::core::analysis::diff_set::DiffSetReport;
@@ -14,13 +15,14 @@ pub const DIFF_SET_SCHEMA: &str = "riku-diff-set/v1";
 pub fn print_text(report: &DiffSetReport) -> Result<(), String> {
     let n = report.files.len();
     let head = format!("diff {} → {}", report.from.label(), report.to.label());
-    println!("{}  ({n} archivo{})", color::bold(&head), if n == 1 { "" } else { "s" });
+    let files = if n == 1 { tr!("diffset.file") } else { tr!("diffset.files", count = n) };
+    println!("{}  ({files})", color::bold(&head));
     println!();
     if n == 0 {
-        println!("Sin cambios.");
+        println!("{}", tr!("diffset.clean"));
         return Ok(());
     }
-    print_files(&report.files, "sin cambios")
+    print_files(&report.files, &tr!("diffset.untouched"))
 }
 
 pub fn print_json(report: &DiffSetReport) -> Result<(), String> {
