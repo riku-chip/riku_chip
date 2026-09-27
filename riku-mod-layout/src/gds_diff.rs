@@ -712,14 +712,18 @@ struct BucketAcc {
 /// Agrupa los items de una misma (cell, capa, sub-cell) que solo difieren en
 /// la instancia: la CLI reporta "en N instancias" en lugar de N lineas. Suma
 /// conteos y areas, une bboxes y recalcula el flag cosmetico.
+///
+/// Los grupos se buscan en un mapa (celda, capa, sub-cell) → posición: antes
+/// se recorría la lista de grupos por cada item, O(n²).
 fn group_instances(items: Vec<GdsGeomDiff>, cfg: &DiffConfig) -> Vec<GdsGeomDiff> {
     let mut out: Vec<GdsGeomDiff> = Vec::with_capacity(items.len());
+    let mut groups: HashMap<(String, LayerKey, Vec<String>), usize> = HashMap::new();
     for g in items {
-        let same = out.iter_mut().find(|o| {
-            o.instances > 0 && o.cell == g.cell && o.layer == g.layer && o.origin_path == g.origin_path
-        });
+        // Solo los de una instancia se agrupan, y con el primero que la tuvo.
+        let key = (g.instances > 0).then(|| (g.cell.clone(), g.layer, g.origin_path.clone()));
+        let same = key.as_ref().and_then(|k| groups.get(k)).map(|&i| &mut out[i]);
         match same {
-            Some(o) if g.instances > 0 => {
+            Some(o) => {
                 o.added_polygons += g.added_polygons;
                 o.removed_polygons += g.removed_polygons;
                 o.added_area_um2 += g.added_area_um2;
@@ -737,7 +741,12 @@ fn group_instances(items: Vec<GdsGeomDiff>, cfg: &DiffConfig) -> Vec<GdsGeomDiff
                 o.instance_at_um = None;
                 o.cosmetic = (o.added_area_um2 + o.removed_area_um2) < cfg.cosmetic_threshold_um2;
             }
-            _ => out.push(g),
+            None => {
+                if let Some(k) = key {
+                    groups.insert(k, out.len());
+                }
+                out.push(g);
+            }
         }
     }
     out

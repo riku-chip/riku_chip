@@ -10,7 +10,7 @@
 //! Reemplaza al adaptador `viewer-core-compat` del crate de Xschem: vive del
 //! lado de Riku, el motor no depende de nada de Riku.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -313,13 +313,29 @@ fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, rep
                 scene.ghost.extend(a.elements_of(before).flat_map(convert));
             }
         }
-        // Wires que ya no están (en cualquier sentido).
+        // Wires que ya no están (en cualquier sentido). Los de B se buscan
+        // por sus extremos en una grilla de celdas de `NEAR`: comparar cada
+        // wire de A con todos los de B era O(n²).
+        let cell = |x: f64, y: f64| ((x / NEAR).floor() as i64, (y / NEAR).floor() as i64);
+        let mut by_end: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for (i, &(bx1, by1, bx2, by2, _)) in b.wires.iter().enumerate() {
+            by_end.entry(cell(bx1, by1)).or_default().push(i);
+            by_end.entry(cell(bx2, by2)).or_default().push(i);
+        }
         for &(x1, y1, x2, y2, _) in &a.wires {
             let same = |&(bx1, by1, bx2, by2, _): &(f64, f64, f64, f64, Option<String>)| {
                 (near(x1, bx1) && near(y1, by1) && near(x2, bx2) && near(y2, by2))
                     || (near(x1, bx2) && near(y1, by2) && near(x2, bx1) && near(y2, by1))
             };
-            if !b.wires.iter().any(same) {
+            // Un extremo de B a menos de NEAR de (x1, y1) cae en su celda o
+            // en una vecina.
+            let (cx, cy) = cell(x1, y1);
+            let found = (cx - 1..=cx + 1)
+                .flat_map(|x| (cy - 1..=cy + 1).map(move |y| (x, y)))
+                .filter_map(|k| by_end.get(&k))
+                .flatten()
+                .any(|&i| same(&b.wires[i]));
+            if !found {
                 scene.ghost.push(Vc::Line { x1, y1, x2, y2, layer: 1 });
             }
         }
@@ -432,8 +448,11 @@ fn param_changes(c: &Change) -> String {
     changed.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join(" · ")
 }
 
+/// Distancia bajo la cual dos coordenadas son la misma.
+const NEAR: f64 = 0.001;
+
 fn near(a: f64, b: f64) -> bool {
-    (a - b).abs() < 0.001
+    (a - b).abs() < NEAR
 }
 
 #[cfg(test)]
@@ -471,6 +490,25 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
         // La segunda línea queda una altura de texto más abajo.
         assert!((texts[1].1 - texts[0].1 - texts[0].2).abs() < 1e-9, "{texts:?}");
         assert!(s.layers.contains_key(&1), "capa de wires con su color");
+    }
+
+    #[test]
+    fn a_wire_kept_reversed_or_within_tolerance_is_not_a_ghost() {
+        let head = "v {xschem version=3.0.0 file_version=1.2}
+";
+        let a = format!("{head}N 0 0 100 0 {{lab=x}}
+N 0 50 100 50 {{lab=old}}
+N 3 7 3 90 {{lab=y}}
+");
+        // El primero invertido, el tercero corrido menos que la tolerancia.
+        let b = format!("{head}N 100 0 0 0 {{lab=x}}
+N 3.0004 7 3 90 {{lab=y}}
+");
+        let (ra, (rb, pdk)) = (resolve(a.as_bytes()).unwrap().0, resolve(b.as_bytes()).unwrap());
+        let report = XschemModule::new().diff(a.as_bytes(), b.as_bytes(), "t.sch", &DiffOptions::default());
+        let s = diff_scene(Some(&ra), &rb, &pdk, &report);
+        let ghosts: Vec<f64> = s.ghost.iter().filter_map(|g| match g { Vc::Line { y1, .. } => Some(*y1), _ => None }).collect();
+        assert_eq!(ghosts, vec![50.0], "solo el wire que ya no está");
     }
 
     #[test]
