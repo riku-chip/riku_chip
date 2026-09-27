@@ -16,7 +16,7 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | 5 | `gds-renderer` → `riku-mod-layout` sin el render SVG; `riku show`; `--ci` | hecha |
 | 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | hecha |
 | 7 | Grafo del historial: `riku log --graph` (Unicode, colores) y panel **Historial** en el visor — [`diseno/fase7.md`](diseno/fase7.md) | hecha: motor, `log --graph` y panel **History** del visor |
-| 8 | Módulo Magic (`.mag`) | pendiente (L) |
+| 8 | Módulo Magic (`.mag`): lector en gdstk-rs, jerarquía entre archivos, capas con nombre — ideas en [`diseno/fase8.md`](diseno/fase8.md) | ideas (L) |
 | — | Módulo `spice`: diff de formas de onda de ngspice (`.raw`) en la CLI y vista de curvas en el visor ([`spice.md`](spice.md)) | hecho |
 
 Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migracion_microkernel.md).
