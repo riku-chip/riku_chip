@@ -157,7 +157,50 @@ La columna izquierda del visor mide ~200 px y ya cambia de contenido según el m
 - `summaries: false` da el mismo grafo que con resúmenes.
 - Capturas sobre Xvfb con `xt.py`: el repo de Riku y el clon de gdstk (merges anidados), en claro y oscuro; abrir un archivo desde el historial muestra su diff.
 
-### 4.7 Pasos
+### 4.8 Criterios de diseño (guías de Apple: *Designing Fluid Interfaces*, *Principles of Great Design*)
+
+El visor ya los sigue (`gui/motion.rs`: resortes críticamente amortiguados que parten del valor en pantalla, inercia con la proyección de Apple, **Reduce motion** en Ajustes). El panel reusa esas piezas; no se agrega otro sistema de animación.
+
+**Movimiento: solo donde ayuda a entender, siempre interrumpible**
+
+| Qué se mueve | Cómo | Por qué |
+|---|---|---|
+| Abrir y cerrar el panel (**H**) | La altura con `spring_step` (amortiguamiento 1, respuesta 0,3 s), **desde la altura actual**: apretar **H** a mitad de camino lo da vuelta sin salto | Interrumpible; entra y sale por el mismo camino (abajo), así queda claro de dónde vino |
+| La marca de selección al moverse con ↑/↓ | Se desliza con el mismo resorte desde donde está; con ↑↓ repetido, cada tecla solo cambia el destino | Continuidad: el ojo sigue la selección en vez de buscarla |
+| La lista al seleccionar fuera de la vista | Desplaza lo justo para mostrar la fila (`scroll_to_rect`) | Nunca perder de vista lo elegido |
+| Los resúmenes que llegan en segundo plano | Aparecen con un fundido corto de opacidad, sin mover nada | Llegan tarde, pero no reacomodan la fila que se está leyendo |
+| El grafo, las filas, los chips | **No se animan** | Es información: tiene que estar quieta para leerse |
+| Con **Reduce motion** | Todo lo anterior es instantáneo (o un fundido) | Accesibilidad: sin movimientos vestibulares |
+
+**Respuesta inmediata**
+- Resaltado de la fila **al pasar el mouse y al apretar** (no al soltar); la selección se confirma al soltar, y arrastrar fuera cancela.
+- El grafo aparece al instante (fase 1, solo Git); lo lento (resúmenes) nunca bloquea: el encabezado muestra el avance como estado ("Analizando 34/200…"), no un spinner que tape la lista.
+- Redimensionar el panel y el divisor interno sigue al puntero 1:1 (egui).
+
+**Jerarquía y tipografía** (la fila se lee de izquierda a derecha, de lo más importante a lo menos)
+- **Mensaje** en el peso y tamaño normales del visor, es lo primero que se lee. **Id** en monoespaciado, más chico y gris. **Autor y fecha** en tono terciario, alineados a la derecha, la fecha con números tabulares ("2 h", "ayer"; la fecha exacta al pasar el mouse).
+- Grilla de 4/8 px (`theme::space`): fila de 24 px, columna del grafo de 14 px, nodos de 8 px, chips con 4 px de relleno y esquinas redondeadas de 6 px. Todo alineado a la misma línea base; nada "a ojo".
+- Texto largo con puntos suspensivos y el texto completo en el tooltip; nunca se corta la fila en dos líneas.
+
+**Color: al servicio del significado, nunca solo**
+- Una paleta de 8 carriles para claro y otra para oscuro, con contraste verificado contra el fondo (`theme::contrast` ≥ 3:1 para líneas).
+- Nada se comunica **solo** con color: un merge es un nodo **hueco**; `HEAD` es el único chip **relleno**; el resumen dice "sch" / "gds" / "raw" además del color de categoría.
+- **Enfocar atenuando:** al pasar el mouse por un chip de rama, su carril queda al 100 % y los demás al 35 %, para seguir una rama entre merges sin perder el contexto.
+- El cambio de tema claro↔oscuro usa el fundido que ya tiene el visor (sin saltos de brillo).
+
+**Orientación (dónde estoy, a dónde puedo ir, cómo vuelvo)**
+- Encabezado del panel: rama actual, cantidad de commits y el filtro activo, en una línea.
+- Al abrir un archivo desde el historial, la ruta sobre el lienzo lo dice: `History › 51c0de › chip.gds › Diff`. El commit sigue seleccionado abajo, así volver es mirar la lista.
+- **Esc** devuelve el foco al lienzo; **H** cierra el panel. Nada queda atrapado.
+
+**Simplicidad y control**
+- Lo común primero: la lista y el detalle. El filtro por glob es un campo chico en el encabezado; **Only this file** aparece solo si hay un archivo abierto.
+- Todo es de solo lectura: el panel no cambia de rama ni toca el working tree, así que no hacen falta confirmaciones.
+- Teclado completo: ↑/↓ (commit), **Enter** (abre el primer archivo con cambios), **Tab** (pasa a la lista de archivos), **Esc**, **H**. El alto del panel y la posición del divisor se recuerdan.
+
+**Proceso:** prototipo interactivo antes de pulir. En 7.3b, capturas en claro y oscuro y una grabación cuadro a cuadro del abrir/cerrar y de ↑↓ rápido, para revisar que el movimiento no salte ni se atrase.
+
+### 4.9 Pasos
 
 | Paso | Qué | Listo cuando |
 |---|---|---|
