@@ -1,6 +1,7 @@
 //! Módulo de layouts de Riku (GDSII, OASIS y Magic) sobre `gdstk-rs`: diff
 //! geométrico con cache, paletas por PDK y el backend del visor.
 
+mod box_grid;
 mod diff_cache;
 mod gds_diff;
 mod hier_walk;

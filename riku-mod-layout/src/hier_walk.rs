@@ -11,6 +11,8 @@
 
 use gdstk_rs::{BoundingBox, Cell, OwnedPolygon, Point2D};
 
+use crate::box_grid::BoxGrid;
+
 /// Identidad de origen: cadena de nombres de cells desde la cell raiz
 /// hasta la sub-cell que aporto el poligono. Longitud 1 si nace en la
 /// propia cell raiz, 2 si nace via una reference (max en fase 1).
@@ -77,6 +79,10 @@ pub struct Origins {
     /// (bbox, cell de la instancia, posición): una entrada por repetición de
     /// cada referencia, o una por el arreglo entero si es enorme.
     instances: Vec<(BoundingBox, String, Point2D)>,
+    /// Índice espacial de `instances`: un polígono mira solo las instancias
+    /// de su zona, no todas (una celda estándar usada 50 000 veces eran
+    /// 50 000 chequeos por polígono).
+    grid: BoxGrid,
 }
 
 impl Origins {
@@ -109,7 +115,8 @@ impl Origins {
                 instances.push((b, target.clone(), Point2D { x: o.x + off.x, y: o.y + off.y }));
             }
         }
-        Self { cell: cell.name().to_string(), instances }
+        let boxes: Vec<[f64; 4]> = instances.iter().map(|(b, ..)| [b.min_x, b.min_y, b.max_x, b.max_y]).collect();
+        Self { cell: cell.name().to_string(), grid: BoxGrid::new(&boxes), instances }
     }
 
     /// Atribuye el poligono a la instancia mas especifica (bbox mas chico)
@@ -121,13 +128,12 @@ impl Origins {
         let Some((cx, cy)) = polygon_bbox_center(poly) else {
             return root();
         };
-        let contains = |b: &BoundingBox| cx >= b.min_x && cx <= b.max_x && cy >= b.min_y && cy <= b.max_y;
         let area = |b: &BoundingBox| (b.max_x - b.min_x).max(0.0) * (b.max_y - b.min_y).max(0.0);
         // (area, cell, x, y): el menor gana; cell y posicion desempatan.
         let best = self
-            .instances
-            .iter()
-            .filter(|(b, ..)| contains(b))
+            .grid
+            .containing(cx, cy)
+            .map(|k| &self.instances[k])
             .map(|(b, target, at)| (area(b), target.as_str(), at.x, at.y))
             .min_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
         match best {

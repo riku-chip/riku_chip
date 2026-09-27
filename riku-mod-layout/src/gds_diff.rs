@@ -873,6 +873,40 @@ mod tests {
         assert!(check_acyclic(&Library::from_bytes(&fixture_bytes("hier_inv_a.gds")).unwrap()).is_ok());
     }
 
+    /// TOP con `n` instancias sueltas de INV; en B, INV suma un rectángulo.
+    fn many_instances(n: usize, changed: bool) -> Library {
+        use gdstk_rs::{GdsTag, LibraryBuilder, Placement, Point2D};
+        let mut b = LibraryBuilder::new("L", 1e-6, 1e-9);
+        let top = b.add_cell("TOP");
+        let inv = b.add_cell("INV");
+        let m1 = GdsTag { layer: 1, datatype: 0 };
+        b.add_box(inv, m1, 0.0, 0.0, 1.0, 1.0);
+        if changed {
+            b.add_box(inv, m1, 2.0, 0.0, 2.5, 1.0);
+        }
+        let side = (n as f64).sqrt().ceil() as usize;
+        for k in 0..n {
+            let origin = Point2D { x: (k % side) as f64 * 4.0, y: (k / side) as f64 * 2.0 };
+            b.add_reference(top, inv, &Placement { origin, ..Placement::default() });
+        }
+        b.build()
+    }
+
+    #[test]
+    fn a_cell_used_many_times_is_attributed_quickly() {
+        // Cada polígono del XOR se atribuye a su instancia: antes se miraban
+        // todas (n × n chequeos), ahora solo las de su zona.
+        let n = 40_000;
+        let (a, b) = (many_instances(n, false), many_instances(n, true));
+        let t = std::time::Instant::now();
+        let r = diff_libraries(Some(&a), Some(&b), &DiffConfig::default());
+        eprintln!("[P3] {n} instancias: {:?}", t.elapsed());
+        let top: Vec<_> = r.geometry.iter().filter(|g| g.cell == "TOP").collect();
+        assert_eq!(top.len(), 1, "agrupado por instancias: {top:?}");
+        assert_eq!((top[0].instances, top[0].added_polygons), (n, n));
+        assert!((top[0].added_area_um2 - 0.5 * n as f64).abs() < 1e-6);
+    }
+
     fn fixture_bytes(name: &str) -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
