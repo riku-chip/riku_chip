@@ -21,7 +21,7 @@ clap = { version = "4.5.60", features = ["derive"] }
 clap_complete = "4.5"
 dirs = "6.0.0"
 # Sin features por defecto: Riku solo lee repos locales, no necesita https/ssh (OpenSSL, libssh2).
-git2 = { version = "0.20.4", default-features = false }
+git2 = { version = "0.21.0", default-features = false }
 glob = "0.3"
 # `.riku.toml` (configuración del proyecto).
 toml = "0.8"
@@ -55,7 +55,7 @@ poll-promise = { version = "0.3", features = ["tokio"], optional = true }
 # Gráficos de formas de onda (feature `gui` + `spice`). 0.35 es la que va con egui 0.34.
 egui_plot = { version = "0.35", optional = true }
 # Textos de la CLI y del visor en inglés y español (locales/*.yml, incrustados al compilar).
-rust-i18n = "4"
+rust-i18n = "4.2.3"
 
 [target.'cfg(unix)'.dependencies]
 # SIGPIPE por defecto (ver main.rs).

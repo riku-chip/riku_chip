@@ -32,7 +32,7 @@ pub(super) fn working_tree_changes(repo: &Repository) -> Result<Vec<WorkingChang
                 .or(entry.head_to_index())
                 .and_then(|d| d.new_file().path().map(|p| p.to_string_lossy().to_string()))
         });
-        let path = match new_path.or_else(|| entry.path().map(str::to_string)) {
+        let path = match new_path.or_else(|| entry.path().ok().map(str::to_string)) {
             Some(p) => p,
             None => continue,
         };

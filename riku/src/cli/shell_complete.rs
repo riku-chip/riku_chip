@@ -112,7 +112,7 @@ fn git_refs(cwd: &Path) -> Vec<String> {
         v.extend(branches.filter_map(Result::ok).filter_map(|(b, _)| b.name().ok().flatten().map(str::to_string)));
     }
     if let Ok(tags) = repo.tag_names(None) {
-        v.extend(tags.iter().flatten().map(str::to_string));
+        v.extend(tags.iter().filter_map(|t| t.ok().flatten()).map(str::to_string));
     }
     if let Ok(mut walk) = repo.revwalk() {
         if walk.push_head().is_ok() {

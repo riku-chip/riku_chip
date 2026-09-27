@@ -69,9 +69,10 @@ pub(super) fn refs_by_oid(repo: &Repository) -> Result<HashMap<String, Vec<Strin
             Some(o) => o,
             None => continue,
         };
+        // Un nombre que no es UTF-8 no se muestra (como antes).
         let name = match r.shorthand() {
-            Some(n) => n.to_string(),
-            None => continue,
+            Ok(n) => n.to_string(),
+            Err(_) => continue,
         };
         map.entry(target.to_string()).or_default().push(name);
     }
@@ -83,8 +84,8 @@ fn upstream_relation(
     head: &Reference<'_>,
 ) -> Result<(Option<String>, usize, usize), GitError> {
     let branch_name = match head.shorthand() {
-        Some(n) => n,
-        None => return Ok((None, 0, 0)),
+        Ok(n) => n,
+        Err(_) => return Ok((None, 0, 0)),
     };
     let branch = match repo.find_branch(branch_name, git2::BranchType::Local) {
         Ok(b) => b,
@@ -95,8 +96,8 @@ fn upstream_relation(
         Err(_) => return Ok((None, 0, 0)),
     };
     let upstream_name = upstream.name().ok().flatten().map(|s| s.to_string());
-    let local_oid = head.target().unwrap_or_else(git2::Oid::zero);
-    let upstream_oid = upstream.get().target().unwrap_or_else(git2::Oid::zero);
+    let local_oid = head.target().unwrap_or(git2::Oid::ZERO_SHA1);
+    let upstream_oid = upstream.get().target().unwrap_or(git2::Oid::ZERO_SHA1);
     let (ahead, behind) = repo
         .graph_ahead_behind(local_oid, upstream_oid)
         .unwrap_or((0, 0));
