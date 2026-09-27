@@ -37,8 +37,8 @@ pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
 
 /// Un archivo que el módulo no pudo comparar (no es "sin cambios").
 pub fn print_error(file_path: &str, err: &str) {
-    println!("Archivo : {}", super::color::bold(file_path));
-    println!("  {} {err}", super::color::red("no se pudo comparar:"));
+    println!("{}", tr!("diff.file", file = super::color::bold(file_path)));
+    println!("  {} {err}", super::color::red(&tr!("diff.failed")));
 }
 
 fn print_header(file_path: &str, semantic: usize, cosmetic: usize) {

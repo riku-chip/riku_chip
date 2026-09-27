@@ -490,3 +490,6 @@ help.open:
 help.gui:
   en: "Run the viewer in this process: riku gui [file] [--cell CELL]. open and diff -f visual use it underneath."
   es: "Abre el visor en este proceso: riku gui [archivo] [--cell CELDA]. open y diff -f visual lo usan por debajo."
+diff.failed:
+  en: "could not compare:"
+  es: "no se pudo comparar:"
