@@ -66,7 +66,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
 
     if !semantic.is_empty() {
         println!();
-        println!("Modificados con cambios semánticos:");
+        println!("{}", super::color::bold("Modificados con cambios semánticos:"));
         for f in &semantic {
             print_file_entry(f, level);
         }
@@ -87,7 +87,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
     }
     if !errored.is_empty() {
         println!();
-        println!("Errores al analizar:");
+        println!("{}", super::color::red("Errores al analizar:"));
         for f in &errored {
             let msg = f
                 .errors
@@ -140,7 +140,7 @@ fn print_full_report(rep: &FileChange) {
             _ => "~",
         };
         let cosmetic = if e.cosmetic { " [cosmetic]" } else { "" };
-        println!("      {marker} {}{cosmetic}", e.element);
+        println!("      {} {}{cosmetic}", super::color::marker(marker), e.element);
     }
     if !rep.warnings.is_empty() {
         println!("      avisos del driver:");

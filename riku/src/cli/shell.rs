@@ -295,11 +295,16 @@ fn dispatch_shell_command(ctx: &mut ShellContext, line: &str) {
 /// tipo del parser con conocimiento del REPL.
 fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
     match cmd {
-        Commands::Diff {
-            repo, file_path, ..
-        } => {
+        Commands::Diff { repo, targets, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
-            *file_path = ctx.resolve_file(file_path);
+            // El último argumento, si es un archivo (extensión conocida o
+            // existe desde el cwd del shell), pasa a ruta del repo.
+            if let Some(last) = targets.last_mut() {
+                let modules = crate::modules::registry();
+                if modules.for_path(last).is_some() || ctx.cwd.join(&*last).is_file() {
+                    *last = ctx.resolve_file(last);
+                }
+            }
         }
         Commands::Show {
             repo, file_path, ..
@@ -317,7 +322,7 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 *f = ctx.resolve_file(f);
             }
         }
-        Commands::Doctor { repo } => {
+        Commands::Doctor { repo, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
         }
         Commands::Status { repo, .. } => {
@@ -330,6 +335,6 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 }
             }
         }
-        Commands::Gui { .. } => {}
+        Commands::Gui { .. } | Commands::Completions { .. } => {}
     }
 }

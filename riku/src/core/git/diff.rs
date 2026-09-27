@@ -52,14 +52,10 @@ fn changed_files(mut diff: Diff<'_>) -> Result<Vec<ChangedFile>, GitError> {
             .path()
             .or_else(|| delta.old_file().path())
             .ok_or_else(|| GitError::CommitNotFound("delta path missing".to_string()))?;
-        results.push(ChangedFile {
-            path: new_path.to_string_lossy().to_string(),
-            status,
-            old_path: delta
-                .old_file()
-                .path()
-                .map(|p| p.to_string_lossy().to_string()),
-        });
+        let path = new_path.to_string_lossy().to_string();
+        // Ruta anterior solo si cambió (renombre): git la informa siempre.
+        let old_path = delta.old_file().path().map(|p| p.to_string_lossy().to_string()).filter(|old| *old != path);
+        results.push(ChangedFile { path, status, old_path });
     }
     Ok(results)
 }

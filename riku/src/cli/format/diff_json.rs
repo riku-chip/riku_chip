@@ -11,10 +11,12 @@ use crate::core::domain::models::FileChange;
 
 pub const DIFF_SCHEMA: &str = "riku-diff/v2";
 
-pub fn print(report: &FileChange, warnings: &[String], file_path: &str) -> Result<(), String> {
+pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &str, to: &str) -> Result<(), String> {
     let payload = json!({
         "schema": DIFF_SCHEMA,
         "file": file_path,
+        "from": from,
+        "to": to,
         "format": report.format,
         "warnings": warnings,
         "changes": report.changes,

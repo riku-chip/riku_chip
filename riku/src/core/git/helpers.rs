@@ -20,7 +20,10 @@ pub(super) fn resolve_commit<'r>(
     repo: &'r Repository,
     commit_ish: &str,
 ) -> Result<Commit<'r>, GitError> {
-    let obj = repo.revparse_single(commit_ish)?;
-    let commit = obj.peel_to_commit()?;
+    // Un commit que no existe es el error más común (un typo, una rama de
+    // otro clon): decirlo claro, no con el texto de libgit2.
+    let not_found = |_| GitError::CommitNotFound(commit_ish.to_string());
+    let obj = repo.revparse_single(commit_ish).map_err(not_found)?;
+    let commit = obj.peel_to_commit().map_err(not_found)?;
     Ok(commit)
 }

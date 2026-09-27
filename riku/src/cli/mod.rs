@@ -22,6 +22,14 @@ mod shell_complete;
 
 // ─── Tipos del parser ────────────────────────────────────────────────────────
 
+/// Formato de `log`, `status` y `doctor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ListFormat {
+    Text,
+    /// JSON estable, con `schema` versionado.
+    Json,
+}
+
 #[derive(Clone, Debug, ValueEnum)]
 pub enum OutputFormat {
     Text,
@@ -33,7 +41,15 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "riku", version, about = "Riku - VCS semantico para diseno de chips")]
+#[command(
+    name = "riku",
+    version,
+    about = "Riku: diff semántico de diseños de chips sobre Git",
+    long_about = "Riku compara versiones de un diseño de chip guardado en Git: \
+                  esquemáticos de Xschem (.sch), layouts (.gds, .oas, .mag) y \
+                  simulaciones de ngspice (.raw). Sin comando abre un shell interactivo.",
+    after_help = MAIN_EXAMPLES
+)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
@@ -46,18 +62,21 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
-    /// Muestra cambios semanticos entre dos commits para un archivo.
+    /// Compara dos versiones (commits o el working tree), de un archivo o de todos.
+    #[command(after_help = DIFF_EXAMPLES)]
     Diff {
-        commit_a: String,
-        commit_b: String,
-        file_path: String,
+        /// `[A] [B] [ARCHIVO]`. Sin B, se compara contra el working tree (el
+        /// disco); sin A, contra HEAD; sin ARCHIVO, todos los archivos que
+        /// cambiaron.
+        #[arg(value_name = "A B ARCHIVO", num_args = 0..=3)]
+        targets: Vec<String>,
         #[arg(short, long, default_value = ".")]
         repo: PathBuf,
         #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
-        /// Umbral en micrometros cuadrados para clasificar un cambio GDS como
-        /// cosmetico (sub-DRC). Default 0.01 µm² (debajo del piso DRC en
-        /// PDKs como sky130/gf180). Ignorado por drivers no-GDS.
+        /// Umbral en µm² para clasificar un cambio de layout como cosmético
+        /// (sub-DRC). Por defecto 0.01 µm², debajo del piso DRC de PDKs como
+        /// sky130 y gf180. Los demás formatos lo ignoran.
         #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
         cosmetic_threshold_um2: f64,
         /// No usar ni guardar la cache de diffs de layouts grandes
@@ -75,7 +94,8 @@ pub(crate) enum Commands {
         #[arg(long)]
         ci: bool,
     },
-    /// Muestra los cambios semanticos de un commit respecto a su padre.
+    /// Muestra los cambios semánticos de un commit respecto a su padre.
+    #[command(after_help = SHOW_EXAMPLES)]
     Show {
         /// Commit (hash, rama, HEAD~2…).
         commit: String,
@@ -86,7 +106,7 @@ pub(crate) enum Commands {
         /// text, json (schema riku-show/v1) o visual (necesita el archivo).
         #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
-        /// Umbral cosmetico de layouts en µm² (como en `diff`).
+        /// Umbral cosmético de layouts en µm² (como en `diff`).
         #[arg(long = "cosmetic-threshold-um2", default_value_t = 0.01)]
         cosmetic_threshold_um2: f64,
         /// No usar ni guardar la cache de diffs de layouts grandes.
@@ -103,7 +123,8 @@ pub(crate) enum Commands {
         #[arg(long)]
         ci: bool,
     },
-    /// Lista commits con resumen semantico por archivo.
+    /// Lista commits con un resumen semántico por archivo.
+    #[command(after_help = LOG_EXAMPLES)]
     Log {
         /// Path posicional opcional. Equivalente a `--paths <PAT>`.
         file_path: Option<String>,
@@ -112,22 +133,25 @@ pub(crate) enum Commands {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
         /// Conservado por compatibilidad. Sin efecto: el log siempre es
-        /// semantico ahora.
+        /// semántico.
         #[arg(short = 's', long, hide = true)]
         semantic: bool,
-        /// Salida en JSON estable (schema riku-log/v1).
-        #[arg(long)]
+        /// text o json (schema riku-log/v1).
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        format: ListFormat,
+        /// Igual que `-f json` (se mantiene por compatibilidad).
+        #[arg(long, hide = true)]
         json: bool,
-        /// JSON compacto (una linea); por defecto pretty-printed.
+        /// JSON compacto (una línea); por defecto, con sangría.
         #[arg(long)]
         compact: bool,
-        /// Eleva el detalle: agrega entrada por componente/net cambiada.
+        /// Más detalle: una entrada por componente, net o señal cambiada.
         #[arg(long, conflicts_with = "full")]
         detail: bool,
         /// Imprime el reporte completo del driver por archivo.
         #[arg(long)]
         full: bool,
-        /// Filtra por glob (puede repetirse). Ej: --paths 'amp_*.sch'.
+        /// Filtra por glob (se puede repetir). Ej.: --paths 'amp_*.sch'.
         #[arg(long = "paths", value_name = "PAT")]
         paths: Vec<String>,
         /// Empieza desde otra ref/oid en lugar de HEAD.
@@ -141,35 +165,51 @@ pub(crate) enum Commands {
         #[arg(long, requires = "graph")]
         ascii: bool,
     },
-    /// Verifica que el entorno este correctamente configurado.
+    /// Verifica el entorno y lista los formatos que este `riku` sabe comparar.
     Doctor {
         #[arg(short, long, default_value = ".")]
         repo: PathBuf,
+        /// text o json (schema riku-doctor/v1): repo, PDK y módulos de formato.
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        format: ListFormat,
     },
-    /// Muestra cambios semanticos en el working tree respecto a HEAD.
+    /// Resume los cambios del working tree respecto a HEAD.
+    #[command(after_help = STATUS_EXAMPLES)]
     Status {
         #[arg(short, long, default_value = ".")]
         repo: PathBuf,
-        /// Lista tambien archivos sin driver (no reconocidos por Riku).
+        /// Lista también los archivos que ningún módulo reconoce.
         #[arg(long)]
         include_unknown: bool,
-        /// Salida en JSON estable (schema riku-status/v1).
-        #[arg(long)]
+        /// text o json (schema riku-status/v1).
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text)]
+        format: ListFormat,
+        /// Igual que `-f json` (se mantiene por compatibilidad).
+        #[arg(long, hide = true)]
         json: bool,
-        /// JSON compacto (una linea); por defecto pretty-printed.
+        /// JSON compacto (una línea); por defecto, con sangría.
         #[arg(long)]
         compact: bool,
-        /// Eleva el detalle: agrega entrada por componente/net cambiada.
+        /// Más detalle: una entrada por componente, net o señal cambiada.
         #[arg(long, conflicts_with = "full")]
         detail: bool,
         /// Imprime el reporte completo del driver por archivo.
         #[arg(long)]
         full: bool,
-        /// Filtra por glob (puede repetirse). Ej: --paths 'amp_*.sch'.
+        /// Filtra por glob (se puede repetir). Ej.: --paths 'amp_*.sch'.
         #[arg(long = "paths", value_name = "PAT")]
         paths: Vec<String>,
+        /// Sin efecto: `status` siempre usa los códigos de CI (0 limpio,
+        /// 1 cambios funcionales, 2 error). Se acepta por uniformidad.
+        #[arg(long)]
+        ci: bool,
     },
-    /// Abre un archivo .sch, .gds, .oas o .mag en el visor de escritorio.
+    /// Imprime el autocompletado para una shell: `riku completions bash > ~/.local/share/bash-completion/completions/riku`.
+    Completions {
+        /// bash, zsh, fish, powershell o elvish.
+        shell: clap_complete::Shell,
+    },
+    /// Abre un archivo .sch, .gds, .oas, .mag o .raw en el visor de escritorio.
     Open { file: Option<PathBuf> },
     /// Abre el visor en este proceso: `riku gui [archivo] [--cell CELDA]`.
     /// `open` y `diff -f visual` lo usan por debajo.
@@ -187,8 +227,17 @@ pub fn run() -> ExitCode {
     let cli = Cli::parse();
     configure_threads(cli.jobs);
     let Some(cmd) = cli.command else {
+        // El shell es interactivo: sin terminal (un script, un agente) no hay
+        // quién escriba, así que se muestra la ayuda en vez de esperar.
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            use clap::CommandFactory;
+            let _ = Cli::command().print_help();
+            return ExitCode::SUCCESS;
+        }
         return shell_to_exit(shell::run_shell());
     };
+    let json = cmd.wants_json();
 
     // `status` (siempre) y `diff`/`show` con `--ci` usan los códigos de CI:
     // 0 sin cambios o solo cosméticos, 1 cambios funcionales, 2 error. El
@@ -203,11 +252,66 @@ pub fn run() -> ExitCode {
         Ok(Outcome::Ok | Outcome::Clean) => ExitCode::SUCCESS,
         Ok(Outcome::Functional) => ExitCode::from(if ci_codes { 1 } else { 0 }),
         Err(err) => {
-            eprintln!("{err}");
+            // Con salida JSON, el error también es JSON (en stdout) para que
+            // quien lo lee no tenga que distinguir texto de datos.
+            if json {
+                println!("{}", serde_json::json!({ "schema": ERROR_SCHEMA, "error": err }));
+            } else {
+                eprintln!("{err}");
+            }
             ExitCode::from(if ci_codes { 2 } else { 1 })
         }
     }
 }
+
+/// Esquema del error cuando la salida pedida es JSON.
+pub const ERROR_SCHEMA: &str = "riku-error/v1";
+
+const MAIN_EXAMPLES: &str = "\
+Ejemplos:
+  riku status                      qué cambió en el disco respecto a HEAD
+  riku diff                        el detalle de esos cambios
+  riku diff HEAD~1 HEAD amp.sch    un archivo entre dos commits
+  riku show HEAD -f json           el último commit, en JSON
+  riku log -n 10 --graph           historial con el grafo de ramas
+  riku doctor -f json              formatos soportados y entorno
+
+Salida para scripts y agentes: -f json en todos los comandos (con `schema`);
+códigos 0 sin cambios, 1 cambios funcionales, 2 error con --ci (status siempre).";
+
+const DIFF_EXAMPLES: &str = "\
+Ejemplos:
+  riku diff                          working tree contra HEAD, todos los archivos
+  riku diff amp.sch                  ese archivo, working tree contra HEAD
+  riku diff main                     working tree contra main
+  riku diff HEAD~1 HEAD              todo lo que cambió entre dos commits
+  riku diff HEAD~1 HEAD top.gds -f json
+  riku diff v1 v2 tb.raw --expr \"gain = v(out)/v(in)\"
+  riku diff HEAD amp.sch -f visual   abrir el visor (A = HEAD, B = disco)
+
+Un argumento es un ARCHIVO si Riku conoce su extensión o existe en el disco;
+si no, es un commit (hash, rama, tag, HEAD~2).";
+
+const SHOW_EXAMPLES: &str = "\
+Ejemplos:
+  riku show HEAD                   el último commit contra su padre
+  riku show a3f2b1c amp.sch        solo ese archivo
+  riku show HEAD -f json --ci      JSON y código 1 si hay cambios funcionales";
+
+const LOG_EXAMPLES: &str = "\
+Ejemplos:
+  riku log                         los últimos 20 commits
+  riku log amp.sch -n 5 --detail   un archivo, con cada componente cambiado
+  riku log --graph                 con el grafo de ramas y merges
+  riku log -f json --compact       JSON en una línea";
+
+const STATUS_EXAMPLES: &str = "\
+Ejemplos:
+  riku status                      resumen por archivo
+  riku status --detail             con cada componente, net o señal
+  riku status -f json              JSON (schema riku-status/v1)
+
+Código de salida: 0 sin cambios o solo cosméticos, 1 cambios funcionales, 2 error.";
 
 /// Un solo pool de hilos para todo el proceso: `--jobs N`, si no
 /// `RIKU_JOBS`, si no los núcleos disponibles (lo que elige `rayon`). Los

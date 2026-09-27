@@ -1,5 +1,6 @@
 pub(super) mod blob_io;
 pub mod commit_diff;
+pub mod diff_set;
 pub mod envelope;
 pub mod graph;
 pub mod log;

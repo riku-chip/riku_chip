@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 use riku_kernel::DiffOptions;
 
-use crate::core::analysis::commit_diff::analyze_diff_with_repo;
+use crate::core::analysis::diff_set::{self, Side};
 use crate::core::analysis::show::analyze_show;
-use crate::core::domain::ports::GitRepository;
+use crate::core::domain::ports::{GitRepository, RepoRoot};
 use crate::core::domain::models::FileChange;
 use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
@@ -24,31 +24,73 @@ use super::gui;
 
 // ─── Diff ────────────────────────────────────────────────────────────────────
 
-/// `riku diff`: el mismo camino para todos los formatos. El driver se elige
-/// en el registro (por extensión) y devuelve un `FileChange`; la CLI no sabe
-/// qué formato es.
+/// `riku diff [A] [B] [ARCHIVO]`: el mismo camino para todos los formatos
+/// (el módulo sale del registro por la extensión). Ver [`diff_set`] para
+/// las formas que acepta.
 pub(super) fn run_diff(
     repo: PathBuf,
-    commit_a: &str,
-    commit_b: &str,
-    file_path: &str,
+    targets: &[String],
     format: OutputFormat,
     cosmetic_threshold_um2: f64,
     use_cache: bool,
     expressions: Vec<String>,
 ) -> Result<Changes, String> {
-    if matches!(format, OutputFormat::Visual) {
-        return present_visual(&repo, commit_a, commit_b, file_path, &expressions).map(|_| Changes::Clean);
-    }
-    // Mismo flujo que log/status; el umbral cosmético y la cache los usa el
-    // módulo de layouts, los demás los ignoran.
-    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
+    let modules = crate::modules::registry();
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
-    let mut report = analyze_diff_with_repo(&svc, commit_a, commit_b, file_path, &crate::modules::registry(), &opts)
-        .map_err(|e| e.to_string())?;
-    let warnings = std::mem::take(&mut report.warnings);
-    print_diff(&report, &warnings, file_path, format)?;
-    Ok(Changes::of(report.functional().next().is_some()))
+    let workdir = svc.root().map(|p| p.to_path_buf());
+    let (from, to, file) = resolve_targets(targets, &modules, workdir.as_deref())?;
+
+    if matches!(format, OutputFormat::Visual) {
+        let Some(file) = file else {
+            return Err("diff -f visual necesita un archivo: riku diff [A] [B] <archivo> -f visual".into());
+        };
+        return present_visual(&repo, from.token(), to.token(), &file, &expressions).map(|_| Changes::Clean);
+    }
+    // El umbral cosmético y la cache los usa el módulo de layouts; las
+    // expresiones, el de simulación. Los demás los ignoran.
+    let opts = DiffOptions { cosmetic_threshold: Some(cosmetic_threshold_um2), use_cache, expressions };
+    match file {
+        Some(file) => {
+            let mut report = diff_set::analyze_file(&svc, workdir.as_deref(), &from, &to, &file, &modules, &opts)
+                .map_err(|e| e.to_string())?;
+            let warnings = std::mem::take(&mut report.warnings);
+            print_diff(&report, &warnings, &file, &from, &to, format)?;
+            Ok(Changes::of(report.functional().next().is_some()))
+        }
+        None => {
+            if matches!(format, OutputFormat::JsonV1) {
+                return Err("-f json-v1 solo sirve para un archivo; usa -f json (schema riku-diff-set/v1)".into());
+            }
+            let report = diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts)
+                .map_err(|e| e.to_string())?;
+            match format {
+                OutputFormat::Json => format::diff_set::print_json(&report)?,
+                _ => format::diff_set::print_text(&report)?,
+            }
+            Ok(Changes::of(report.has_functional_changes()))
+        }
+    }
+}
+
+/// Interpreta `[A] [B] [ARCHIVO]`. El último argumento es un archivo si
+/// algún módulo conoce su extensión o si existe en el working tree; si no,
+/// es un commit.
+fn resolve_targets(
+    targets: &[String],
+    modules: &riku_kernel::Registry,
+    workdir: Option<&std::path::Path>,
+) -> Result<(Side, Side, Option<String>), String> {
+    let is_file = |t: &str| modules.for_path(t).is_some() || workdir.is_some_and(|w| w.join(t).is_file());
+    let rev = |t: &str| Side::Rev(t.to_string());
+    Ok(match targets {
+        [] => (rev("HEAD"), Side::WorkTree, None),
+        [f] if is_file(f) => (rev("HEAD"), Side::WorkTree, Some(f.clone())),
+        [a] => (rev(a), Side::WorkTree, None),
+        [a, f] if is_file(f) => (rev(a), Side::WorkTree, Some(f.clone())),
+        [a, b] => (rev(a), rev(b), None),
+        [a, b, f] => (rev(a), rev(b), Some(f.clone())),
+        _ => return Err("diff acepta a lo más 3 argumentos: [A] [B] [ARCHIVO]".into()),
+    })
 }
 
 /// Si un comando encontró cambios funcionales. Lo usan los códigos de salida
@@ -106,13 +148,20 @@ pub(super) fn run_show(
 }
 
 /// Imprime un diff en el formato pedido (texto, JSON v2 o JSON v1).
-fn print_diff(report: &FileChange, warnings: &[String], file_path: &str, format: OutputFormat) -> Result<(), String> {
+fn print_diff(
+    report: &FileChange,
+    warnings: &[String],
+    file_path: &str,
+    from: &Side,
+    to: &Side,
+    format: OutputFormat,
+) -> Result<(), String> {
     for w in warnings {
         eprintln!("[!] {w}");
     }
     match format {
         OutputFormat::Text => format::diff_text::print(report, file_path),
-        OutputFormat::Json => format::diff_json::print(report, warnings, file_path),
+        OutputFormat::Json => format::diff_json::print(report, warnings, file_path, from.label(), to.label()),
         OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path),
         OutputFormat::Visual => unreachable!("el visor se abre antes de imprimir"),
     }
@@ -221,3 +270,42 @@ pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     Ok(Changes::of(report.has_semantic_changes()))
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolve(args: &[&str], workdir: Option<&std::path::Path>) -> (Side, Side, Option<String>) {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        resolve_targets(&args, &crate::modules::registry(), workdir).unwrap()
+    }
+
+    fn rev(r: &str) -> Side {
+        Side::Rev(r.into())
+    }
+
+    #[test]
+    fn diff_targets_like_git() {
+        assert_eq!(resolve(&[], None), (rev("HEAD"), Side::WorkTree, None));
+        assert_eq!(resolve(&["amp.sch"], None), (rev("HEAD"), Side::WorkTree, Some("amp.sch".into())));
+        assert_eq!(resolve(&["main"], None), (rev("main"), Side::WorkTree, None));
+        assert_eq!(resolve(&["v1", "amp.sch"], None), (rev("v1"), Side::WorkTree, Some("amp.sch".into())));
+        assert_eq!(resolve(&["v1", "v2"], None), (rev("v1"), rev("v2"), None));
+        assert_eq!(resolve(&["v1", "v2", "amp.sch"], None), (rev("v1"), rev("v2"), Some("amp.sch".into())));
+    }
+
+    #[test]
+    fn an_existing_file_without_module_is_still_a_file() {
+        let dir = std::env::temp_dir().join(format!("riku-targets-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notas.txt"), "x").unwrap();
+        assert_eq!(resolve(&["notas.txt"], Some(&dir)), (rev("HEAD"), Side::WorkTree, Some("notas.txt".into())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn too_many_targets_is_an_error() {
+        let args: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        assert!(resolve_targets(&args, &crate::modules::registry(), None).is_err());
+    }
+}

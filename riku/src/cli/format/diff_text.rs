@@ -10,7 +10,7 @@ use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, Value
 
 pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
     if report.is_empty() {
-        println!("Sin cambios semanticos.");
+        println!("Sin cambios semánticos.");
         return Ok(());
     }
 
@@ -31,7 +31,7 @@ pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
 }
 
 fn print_header(file_path: &str, semantic: usize, cosmetic: usize) {
-    println!("Archivo : {file_path}");
+    println!("Archivo : {}", super::color::bold(file_path));
     println!("Cambios : {semantic}");
     if cosmetic > 0 {
         println!("Cosméticos: {cosmetic}");
@@ -53,7 +53,7 @@ fn display_name(c: &Change) -> String {
 }
 
 fn print_change(c: &Change) {
-    println!("  {} {}", marker_for_change(c.kind), display_name(c));
+    println!("  {} {}", super::color::marker(marker_for_change(c.kind)), display_name(c));
     match &c.element {
         Element::Geometry { .. } => print_geometry(c),
         Element::Signal { .. } => print_signal(c),

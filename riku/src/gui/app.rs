@@ -426,6 +426,12 @@ impl RikuGuiApp {
             if commit.is_empty() {
                 return Ok(Vec::new());
             }
+            // `riku diff A archivo -f visual`: B es el archivo en disco.
+            if commit == crate::core::analysis::diff_set::WORKTREE {
+                use crate::core::domain::ports::RepoRoot;
+                let path = svc.root().map(|w| w.join(&file_str)).ok_or("repo sin working tree")?;
+                return Ok(std::fs::read(path).unwrap_or_default());
+            }
             match svc.get_blob(commit, &file_str) {
                 Ok(bytes) => Ok(bytes),
                 Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Ok(Vec::new()),
@@ -1586,7 +1592,13 @@ fn fmt_len(v: f64) -> String {
 
 fn short_hash(s: &str) -> String {
     // Vacío: el "antes" del commit inicial.
-    if s.is_empty() { "∅".to_string() } else { s.chars().take(7).collect() }
+    if s.is_empty() {
+        "∅".to_string()
+    } else if s == crate::core::analysis::diff_set::WORKTREE {
+        "worktree".to_string()
+    } else {
+        s.chars().take(7).collect()
+    }
 }
 
 fn show_entry_tree<F>(

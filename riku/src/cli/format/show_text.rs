@@ -3,7 +3,7 @@
 
 use super::diff_text;
 use super::log_text::format_timestamp;
-use crate::core::analysis::show::ShowReport;
+use crate::core::analysis::show::{ShowFile, ShowReport};
 use crate::core::domain::git_types::ChangeStatus;
 
 pub fn print(report: &ShowReport) -> Result<(), String> {
@@ -13,7 +13,7 @@ pub fn print(report: &ShowReport) -> Result<(), String> {
         [p] => format!("padre {}", short(p)),
         [p, ..] => format!("merge: se compara contra el primer padre {}", short(p)),
     };
-    println!("commit {}  ({parent})", info.short_id);
+    println!("{}  ({parent})", super::color::yellow(&format!("commit {}", info.short_id)));
     println!("Autor : {}", info.author);
     println!("Fecha : {}", format_timestamp(info.timestamp));
     println!();
@@ -26,9 +26,14 @@ pub fn print(report: &ShowReport) -> Result<(), String> {
         println!("El commit no cambió archivos.");
         return Ok(());
     }
+    print_files(&report.files, "no cambió en este commit")
+}
 
+/// El diff de texto de cada archivo con módulo y, al final, los que ningún
+/// módulo reconoce. `untouched` explica un archivo pedido que no cambió.
+pub fn print_files(files: &[ShowFile], untouched: &str) -> Result<(), String> {
     let mut unknown = Vec::new();
-    for f in &report.files {
+    for f in files {
         let Some(change) = &f.change else {
             unknown.push(f.path.as_str());
             continue;
@@ -41,7 +46,7 @@ pub fn print(report: &ShowReport) -> Result<(), String> {
         }
         if change.is_empty() {
             let why = match f.status {
-                None => "no cambió en este commit",
+                None => untouched,
                 Some(ChangeStatus::Removed) => "eliminado",
                 _ => "sin cambios semánticos",
             };

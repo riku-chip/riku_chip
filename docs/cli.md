@@ -5,12 +5,15 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | Comando | Qué hace |
 |---|---|
 | `riku` | Shell interactivo |
-| `riku diff A B archivo` | Cambios semánticos de un archivo entre dos commits |
+| `riku diff [A] [B] [archivo]` | Cambios semánticos entre dos versiones (commits o el disco), de un archivo o de todos |
 | `riku show COMMIT [archivo]` | Cambios de un commit respecto a su padre |
 | `riku log [archivo]` | Historial con resumen semántico por commit |
 | `riku status` | Cambios del working tree respecto a `HEAD` |
 | `riku open [archivo]` / `riku gui [archivo]` | Visor (ver [`gui.md`](gui.md)) |
-| `riku doctor` | Diagnóstico del entorno |
+| `riku doctor` | Diagnóstico del entorno y formatos soportados |
+| `riku completions <shell>` | Autocompletado para bash, zsh, fish, powershell o elvish |
+
+Todos los comandos aceptan `-f json` (salida con `schema` versionado) y `--help` con ejemplos. Para usar Riku desde scripts, CI o agentes de IA, ver [Scripts y agentes](#scripts-y-agentes).
 
 Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas`/`.mag` (layouts, diff geométrico; Magic con sus sub-celdas del mismo commit: [`layouts.md`](layouts.md#magic-mag)) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
 
@@ -31,9 +34,22 @@ riku schematics (git)> cd ../layout
 ## `riku diff`
 
 ```bash
-riku diff <commit_a> <commit_b> <archivo> [-f text|json|json-v1|visual] [--ci]
+riku diff [A] [B] [archivo] [-f text|json|json-v1|visual] [--ci]
           [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
 ```
+
+Como `git diff`: sin `B` se compara contra el **working tree** (los archivos en disco, sin commitear); sin `A`, contra `HEAD`; sin archivo, todos los que cambiaron.
+
+| Forma | Compara |
+|---|---|
+| `riku diff` | disco contra `HEAD`, todos los archivos |
+| `riku diff amp.sch` | ese archivo, disco contra `HEAD` |
+| `riku diff main` | disco contra `main`, todos |
+| `riku diff main amp.sch` | ese archivo, disco contra `main` |
+| `riku diff HEAD~1 HEAD` | todo lo que cambió entre dos commits |
+| `riku diff HEAD~1 HEAD amp.sch` | ese archivo entre dos commits |
+
+Un argumento es un archivo si algún módulo conoce su extensión o si existe en el disco; si no, es un commit (hash, rama, tag, `HEAD~2`). Sin archivo, la salida de texto es la de `riku show` por archivo (los que ningún módulo reconoce se listan al final) y `-f json` usa el schema `riku-diff-set/v1` (`from`, `to` y `files`, cada uno como en `riku-show/v1`). `-f visual` necesita un archivo; con el disco como `B`, el visor muestra `worktree`.
 
 **Esquemático, texto:**
 
@@ -128,7 +144,7 @@ El commit inicial se compara contra vacío (todo aparece añadido); un merge, co
 ## `riku log`
 
 ```bash
-riku log [archivo] [-n N] [--detail|--full] [--json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii]]
+riku log [archivo] [-n N] [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii]]
 ```
 
 Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archivo con módulo, un resumen de lo que cambió respecto al primer padre. Los merges se marcan `[merge]` sin diff por archivo. `--detail` agrega una entrada por componente/net; `--full`, el reporte completo del módulo. `--paths` filtra por glob (se puede repetir).
@@ -168,7 +184,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 ## `riku status`
 
 ```bash
-riku status [--detail|--full] [--json [--compact]] [--paths PAT]… [--include-unknown]
+riku status [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--include-unknown] [--ci]
 ```
 
 Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios) o `unknown` (sin módulo; se listan con `--include-unknown`).
@@ -187,13 +203,15 @@ Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios 
 
 ## Códigos de salida y CI
 
-`riku status` siempre, y `riku diff` / `riku show` con `--ci`, terminan con:
+`riku status` siempre (acepta `--ci` por uniformidad), y `riku diff` / `riku show` con `--ci`, terminan con:
 
 | Código | Significado |
 |---|---|
 | 0 | Sin cambios, o solo cosméticos |
 | 1 | Hay cambios funcionales |
 | 2 | Error (commit o archivo inexistente, repo inválido…) |
+
+Con `-f json`, un error también sale como JSON en stdout: `{"schema": "riku-error/v1", "error": "commit no encontrado: v9"}`.
 
 Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error).
 
@@ -208,7 +226,33 @@ Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error).
 
 ## `riku doctor`
 
-Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados.
+Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados. Con `-f json` (schema `riku-doctor/v1`), `modules` lista cada formato con su `name`, `format`, `extensions` y si está `available`: así un script sabe qué archivos puede comparar este `riku`.
+
+## `riku completions`
+
+```bash
+riku completions bash > ~/.local/share/bash-completion/completions/riku
+riku completions zsh  > "${fpath[1]}/_riku"
+riku completions fish > ~/.config/fish/completions/riku.fish
+```
+
+## Scripts y agentes
+
+Riku está pensado para usarse también sin persona delante (CI, scripts, agentes de IA):
+
+- **Salida:** `-f json` en todos los comandos. Cada JSON trae `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v1`, `riku-status/v1`, `riku-doctor/v1`, `riku-error/v1`); un cambio incompatible sube la versión.
+- **Resultado:** el código de salida dice si hubo cambios funcionales (ver [Códigos de salida](#códigos-de-salida-y-ci)); con `-f json` los errores también son JSON.
+- **Descubrir:** `riku doctor -f json` lista los formatos soportados; `riku <comando> --help` trae ejemplos.
+- **Sin interacción:** `riku` sin comando abre el shell solo si hay una terminal; desde un script imprime la ayuda y termina. `-f visual` abre una ventana: no usarlo en automatizaciones.
+- **Tuberías:** cortar la salida (`riku log | head`) termina sin error, como `git`.
+
+Flujo típico de un agente que editó un diseño:
+
+```bash
+riku status -f json            # qué archivos cambiaron (código 1 si hay cambios funcionales)
+riku diff -f json              # el detalle, disco contra HEAD
+riku diff HEAD~1 HEAD -f json  # qué cambió el último commit
+```
 
 ## Variables de entorno
 

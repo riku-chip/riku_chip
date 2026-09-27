@@ -168,8 +168,53 @@ fn print_tools(tools: &ToolsStatus) {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-pub(super) fn run(repo: PathBuf) -> Result<(), String> {
+pub(super) fn run(repo: PathBuf, json: bool) -> Result<(), String> {
     let report = analyze(&repo);
+    if json {
+        return print_json(&report);
+    }
     print(&report);
+    Ok(())
+}
+
+/// `riku doctor -f json` (schema `riku-doctor/v1`): lo que un script o un
+/// agente necesita para saber qué puede comparar este `riku`.
+fn print_json(r: &DoctorReport) -> Result<(), String> {
+    let path = |p: &PathBuf| p.display().to_string();
+    let (pdk_state, pdk_path) = match &r.pdk {
+        PdkStatus::Found(p) => ("found", Some(path(p))),
+        PdkStatus::Misconfigured(p) => ("missing", Some(path(p))),
+        PdkStatus::NotConfigured => ("not_configured", None),
+    };
+    let (tools_state, tools_path) = match &r.tools {
+        ToolsStatus::Found(p) => ("found", Some(path(p))),
+        ToolsStatus::Misconfigured(p) => ("missing", Some(path(p))),
+        ToolsStatus::NotConfigured => ("not_configured", None),
+    };
+    let modules: Vec<_> = r
+        .drivers
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "name": m.name,
+                "format": m.format,
+                "extensions": m.extensions,
+                "available": m.available,
+                "version": m.version,
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "schema": "riku-doctor/v1",
+        "version": env!("CARGO_PKG_VERSION"),
+        "repo": r.repo_workdir.as_ref().map(path),
+        "xschemrc": r.xschemrc.as_ref().map(path),
+        "pdk": { "state": pdk_state, "path": pdk_path },
+        "tools": { "state": tools_state, "path": tools_path },
+        "symbols": r.has_symbols,
+        "modules": modules,
+    });
+    let text = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
+    println!("{text}");
     Ok(())
 }
