@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use gdstk_rs::magic::MagSources;
-use gdstk_rs::{Anchor, GdsTag, Library, Point2D};
+use gdstk_rs::{Anchor, GdsTag, Library};
 use viewer_core::{
     files::{DiffFiles, FileSource},
     backend::{BackendInfo, ViewerBackend},
@@ -31,7 +31,6 @@ use viewer_core::{
 use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
 use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
 use crate::palette::{detect_pdk, layer_spec, magic_layer_spec, magic_pdk, LayerRole, LayerSpec};
-use crate::scene::DrawCommand;
 use crate::style::Pdk;
 
 pub struct GdsBackend {
@@ -140,8 +139,7 @@ fn scene_pdk(names: &LayerNames, path_hint: Option<&str>, tags: &[GdsTag]) -> Pd
 }
 
 impl LayerKeys {
-    fn new(commands: &[DrawCommand], path_hint: Option<&str>, names: LayerNames) -> Self {
-        let tags: BTreeSet<(u32, u32)> = commands.iter().map(|c| tag_tuple(c.tag())).collect();
+    fn new(tags: BTreeSet<(u32, u32)>, path_hint: Option<&str>, names: LayerNames) -> Self {
         let as_gds: Vec<GdsTag> = tags.iter().map(|&t| gds_tag(t)).collect();
         let pdk = scene_pdk(&names, path_hint, &as_gds);
         let mut this = Self { keys: BTreeMap::new(), pdk, names };
@@ -234,33 +232,33 @@ fn anchor_align(anchor: Anchor) -> (HAlign, VAlign) {
     (h, v)
 }
 
-fn command_to_element(cmd: &DrawCommand, keys: &LayerKeys, text_size: f64) -> Option<DrawElement> {
-    match cmd {
-        DrawCommand::Polygon { tag, points } => Some(DrawElement::Polygon {
-            points: points.iter().map(|p: &Point2D| (p.x, p.y)).collect(),
-            layer: keys.key(*tag),
-            filled: true,
-        }),
-        DrawCommand::Label { tag, text, origin, anchor } => {
-            let (h_align, v_align) = anchor_align(*anchor);
-            Some(DrawElement::Text {
-                x: origin.x,
-                y: origin.y,
-                content: text.clone(),
-                size: text_size,
-                angle_deg: 0.0,
-                h_align,
-                v_align,
-                layer: keys.key(*tag),
-            })
-        }
+fn label_element(label: crate::labels::FlatLabel, layer: Layer, text_size: f64) -> DrawElement {
+    let (h_align, v_align) = anchor_align(label.anchor);
+    DrawElement::Text {
+        x: label.origin.x,
+        y: label.origin.y,
+        content: label.text,
+        size: text_size,
+        angle_deg: 0.0,
+        h_align,
+        v_align,
+        layer,
     }
 }
 
 /// Escena de una cell y el PDK detectado (lo reusa el diff para nombrar capas).
+///
+/// Los polígonos aplanados por gdstk pasan directo a elementos de la escena
+/// (sin una lista intermedia: en el chip de 42 MB eran ~330 MB de pico).
 fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, Pdk) {
-    let draw = crate::scene::draw_commands(lib, cell);
-    let keys = LayerKeys::new(&draw, path_hint, layer_names(lib));
+    let flat = cell.get_polygons().build();
+    let labels = crate::labels::flatten_labels(lib, cell);
+    let tags: BTreeSet<(u32, u32)> = flat
+        .polygons()
+        .map(|p| (p.layer(), p.datatype()))
+        .chain(labels.iter().map(|l| tag_tuple(l.tag)))
+        .collect();
+    let keys = LayerKeys::new(tags, path_hint, layer_names(lib));
 
     let mut scene = VcScene::new();
     // GDS usa la convencion matematica: Y crece hacia arriba.
@@ -284,22 +282,30 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
     }
 
     // Orden de pintado: poligonos por apilado (las claves ya siguen el rank)
-    // y los textos al final para que queden encima. Sort estable: dentro de
-    // una capa se conserva el orden del archivo.
-    let mut commands: Vec<&DrawCommand> = draw.iter().collect();
-    commands.sort_by_key(|c| (matches!(c, DrawCommand::Label { .. }), keys.key(c.tag())));
-
+    // y los textos al final para que queden encima. Dentro de una capa, el
+    // orden del archivo (una lista por capa, en orden de clave).
     let text_size = label_size(&scene.bbox);
-    let (mut polygons, mut labels) = (0usize, 0usize);
-    for cmd in commands {
-        match cmd {
-            DrawCommand::Polygon { .. } => polygons += 1,
-            DrawCommand::Label { .. } => labels += 1,
-        }
-        if let Some(el) = command_to_element(cmd, &keys, text_size) {
-            scene.push(el);
-        }
+    let polygons = flat.count() as usize;
+    let mut by_layer: BTreeMap<Layer, Vec<DrawElement>> = BTreeMap::new();
+    for p in flat.polygons() {
+        let layer = keys.key(GdsTag { layer: p.layer(), datatype: p.datatype() });
+        let points = p.points().map(|q| (q.x, q.y)).collect();
+        by_layer.entry(layer).or_default().push(DrawElement::Polygon { points, layer, filled: true });
     }
+    drop(flat);
+    for el in by_layer.into_values().flatten() {
+        scene.push(el);
+    }
+    let labels_count = labels.len();
+    let mut by_layer: BTreeMap<Layer, Vec<DrawElement>> = BTreeMap::new();
+    for l in labels {
+        let layer = keys.key(l.tag);
+        by_layer.entry(layer).or_default().push(label_element(l, layer, text_size));
+    }
+    for el in by_layer.into_values().flatten() {
+        scene.push(el);
+    }
+    let labels = labels_count;
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
@@ -313,6 +319,23 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
         ),
     ];
     (scene, keys.pdk)
+}
+
+/// Devuelve al sistema la memoria libre del heap. Armar una escena grande
+/// aplana en C++ y convierte a elementos: glibc se queda con lo liberado y
+/// el visor seguía ocupando el pico (chip de 42 MB: 2,25 → 1,22 GB).
+fn release_free_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        // SAFETY: malloc_trim solo recorre el heap de glibc; no toca
+        // punteros vivos.
+        unsafe {
+            malloc_trim(0);
+        }
+    }
 }
 
 /// Unidad de las coordenadas de usuario (`Library::unit()` = metros por
@@ -430,6 +453,7 @@ impl ViewerBackend for GdsBackend {
             scene.entries = entries;
             // Índice espacial (culling y nivel de detalle): aquí, fuera del hilo de la UI.
             scene.build_index();
+            release_free_memory();
             Ok(scene)
         })
         .await??;
@@ -502,6 +526,7 @@ impl ViewerBackend for GdsBackend {
                 s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
                 s.notices.extend(notices);
                 s.build_index();
+                release_free_memory();
                 s
             })
         })
@@ -1287,5 +1312,28 @@ port 1 nsew signal {class}
         let t = std::time::Instant::now();
         fresh.load_diff(a.clone(), b.clone(), Some("big.gds".into()), Some(other), CancellationToken::new()).await.unwrap();
         eprintln!("[P5] otra celda, releyendo: {:?}", t.elapsed());
+    }
+
+    /// RAM por fase al abrir la top del chip grande (`$RIKU_BIG_A`).
+    #[test]
+    #[ignore = "necesita $RIKU_BIG_A"]
+    fn memory_by_phase_on_a_big_layout() {
+        let Some(a) = std::env::var_os("RIKU_BIG_A") else { return };
+        let status = |key: &str| -> u64 {
+            std::fs::read_to_string("/proc/self/status").ok().and_then(|s| {
+                s.lines().find(|l| l.starts_with(key)).and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+            }).unwrap_or(0) / 1024
+        };
+        let show = |what: &str| eprintln!("[P6] {what:<28} RSS {:>5} MB  pico {:>5} MB", status("VmRSS"), status("VmHWM"));
+        let lib = Library::from_bytes(&std::fs::read(a).unwrap()).unwrap();
+        show("Library");
+        let top = crate::select_top_cell(&lib).unwrap();
+        let (mut scene, _) = vc_scene_from_cell(&lib, &top, None);
+        show("escena (elementos)");
+        scene.build_index();
+        show("índice");
+        release_free_memory();
+        show("tras devolver la memoria");
+        eprintln!("[P6] elementos: {}", scene.elements.len());
     }
 }
