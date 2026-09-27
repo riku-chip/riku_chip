@@ -151,6 +151,8 @@ fn plan<R: GitRepository + ?Sized>(
         },
         _ => Vec::new(),
     };
+    // Los archivos de un commit se comparan de a uno: la memoria que ocupa
+    // es la del más grande, no la suma (sumar armaba tandas más chicas).
     let cost = match raw.parents.first() {
         Some(parent) => files
             .iter()
@@ -159,7 +161,8 @@ fn plan<R: GitRepository + ?Sized>(
                 let after = (cf.status != ChangeStatus::Removed).then(|| repo.blob_size(&raw.info.oid, &cf.path)).flatten();
                 parallel::diff_cost(before, after)
             })
-            .sum(),
+            .max()
+            .unwrap_or(0),
         None => 0,
     };
     (Planned { raw, files, warnings }, cost)
