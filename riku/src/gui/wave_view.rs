@@ -47,6 +47,10 @@ pub struct WaveView {
     pairs: Vec<(String, Option<usize>, Option<usize>)>,
     /// Comparación por análisis (mismo orden que `pairs`), si hay A.
     diffs: Vec<PlotDiff>,
+    /// Por análisis: nombres del archivo e índices por nombre, armados una
+    /// vez. Con miles de señales (post-layout) buscar recorriendo la lista
+    /// hacía cada cuadro O(n²): 3,8 s con 10 000.
+    lookup: Vec<PairLookup>,
     plot: usize,
     /// Señales visibles (en minúsculas), por análisis.
     selected: HashMap<usize, BTreeSet<String>>,
@@ -130,7 +134,17 @@ impl WaveView {
             .iter()
             .position(|(_, _, b)| b.is_some_and(|i| after.plots[i].points() > 1))
             .unwrap_or(0);
+        let lookup = (0..pairs.len())
+            .map(|i| {
+                let side = |p: Option<&raw::Plot>| p.map(|p| p.signals().iter().map(|s| s.name.clone()).collect::<Vec<_>>());
+                let (_, ia, ib) = &pairs[i];
+                let b = side(ib.map(|j| &after.plots[j]));
+                let a = side(ia.and_then(|j| before.as_ref().map(|f| &f.plots[j])));
+                PairLookup::new(b.into_iter().chain(a).flatten(), diffs.get(i))
+            })
+            .collect();
         let mut view = Self {
+            lookup,
             after: Arc::new(after),
             before: before.map(Arc::new),
             label_a,
@@ -189,7 +203,11 @@ impl WaveView {
     }
 
     fn diff_of(&self, idx: usize, name: &str) -> Option<&SignalDiff> {
-        let file = self.diffs.get(idx).and_then(|d| d.signals.iter().find(|s| s.name.eq_ignore_ascii_case(name)));
+        let file = self
+            .lookup
+            .get(idx)
+            .and_then(|l| l.diff.get(&name.to_ascii_lowercase()))
+            .and_then(|&i| self.diffs.get(idx)?.signals.get(i));
         file.or_else(|| {
             let d = self.derived.iter().find(|d| d.pair == idx && d.diff.name.eq_ignore_ascii_case(name))?;
             self.is_diff().then_some(&d.diff)
@@ -310,19 +328,12 @@ impl WaveView {
 
     /// Nombres de señales del análisis (unión de A y B), en orden de B.
     fn signal_names(&self, idx: usize) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for side in [true, false] {
-            if let Some(p) = self.plot_of(side, idx) {
-                for s in p.signals() {
-                    if !names.iter().any(|n| n.eq_ignore_ascii_case(&s.name)) {
-                        names.push(s.name.clone());
-                    }
-                }
-            }
-        }
-        // Las expresiones que dan una señal, al final.
+        let Some(l) = self.lookup.get(idx) else { return Vec::new() };
+        let mut names = l.names.clone();
+        // Las expresiones que dan una señal, al final (son pocas).
         for d in self.derived.iter().filter(|d| d.pair == idx && d.diff.scalar.is_none()) {
-            if !names.iter().any(|n| n.eq_ignore_ascii_case(&d.diff.name)) {
+            let lower = d.diff.name.to_ascii_lowercase();
+            if !l.position.contains_key(&lower) && !names[l.names.len()..].iter().any(|n| n.eq_ignore_ascii_case(&lower)) {
                 names.push(d.diff.name.clone());
             }
         }
@@ -549,6 +560,30 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
             wave_plot(ui, ("riku_wave_err", idx, unit.as_str()), row_h, link, reset, Extent::default(), log_x, &x_unit, &x_label, &y_label, unit, err);
             row += 1;
         }
+    }
+}
+
+/// Nombres de un análisis y dónde buscarlos (sin distinguir mayúsculas,
+/// como SPICE): la unión de A y B en orden de B, y la señal comparada.
+struct PairLookup {
+    names: Vec<String>,
+    position: HashMap<String, usize>,
+    diff: HashMap<String, usize>,
+}
+
+impl PairLookup {
+    fn new(names: impl Iterator<Item = String>, diff: Option<&PlotDiff>) -> Self {
+        let (mut out, mut position) = (Vec::new(), HashMap::new());
+        for n in names {
+            if let std::collections::hash_map::Entry::Vacant(e) = position.entry(n.to_ascii_lowercase()) {
+                e.insert(out.len());
+                out.push(n);
+            }
+        }
+        let diff = diff
+            .map(|d| d.signals.iter().enumerate().rev().map(|(i, s)| (s.name.to_ascii_lowercase(), i)).collect())
+            .unwrap_or_default();
+        Self { names: out, position, diff }
     }
 }
 
@@ -830,7 +865,9 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
         let key = |n: &String| view.diff_of(idx, n).map_or(0.0, |d| if WaveView::changed(d) { d.rel().max(1e-9) } else { 0.0 });
         names.sort_by(|a, b| key(b).total_cmp(&key(a)));
     }
+    // Color de cada señal: su lugar en la lista completa.
     let all_names = view.signal_names(idx);
+    let color_index: HashMap<&str, usize> = all_names.iter().enumerate().map(|(i, n)| (n.as_str(), i)).rev().collect();
 
     ui.horizontal(|ui| {
         if ui.small_button(tr!("wave.select_none")).clicked() {
@@ -843,13 +880,16 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     });
     ui.separator();
 
-    egui::ScrollArea::vertical().id_salt("wave_signals").auto_shrink([false, false]).show(ui, |ui| {
-        if names.is_empty() {
-            ui.label(RichText::new(tr!("wave.no_match")).weak());
-        }
-        for n in &names {
+    if names.is_empty() {
+        ui.label(RichText::new(tr!("wave.no_match")).weak());
+    }
+    // Solo las filas a la vista: con miles de señales, armar todas cada
+    // cuadro no tiene sentido.
+    let row_h = ui.spacing().interact_size.y;
+    egui::ScrollArea::vertical().id_salt("wave_signals").auto_shrink([false, false]).show_rows(ui, row_h, names.len(), |ui, rows| {
+        for n in &names[rows] {
             let key = n.to_lowercase();
-            let color = color_for(all_names.iter().position(|m| m == n).unwrap_or(0));
+            let color = color_for(color_index.get(n.as_str()).copied().unwrap_or(0));
             let mut on = view.selection(idx).contains(&key);
             let diff = view.diff_of(idx, n).cloned();
             ui.horizontal(|ui| {
@@ -915,5 +955,39 @@ mod tests {
         assert!(is_internal("v(m.xm1.msky130_fd_pr__nfet_01v8_lvt#body)"));
         assert!(is_internal("v(x1.net3)"));
         assert!(!is_internal("v(vout)") && !is_internal("i(v1)"));
+    }
+
+    /// Tiempo de un cuadro (panel de señales + gráfico) con `n` señales
+    /// comparadas, como una simulación post-layout.
+    #[test]
+    #[ignore = "medición"]
+    fn frame_time_with_many_signals() {
+        use crate::modules::spice::raw::tests::binary_raw;
+        for n in [1_000usize, 10_000] {
+            let mut vars = vec![("time".to_string(), "time")];
+            vars.extend((0..n).map(|i| (format!("v(net{i})"), "voltage")));
+            let vars: Vec<(&str, &str)> = vars.iter().map(|(a, b)| (a.as_str(), *b)).collect();
+            let points = 200;
+            let cols = |k: f64| -> Vec<Vec<f64>> {
+                (0..=n).map(|c| (0..points).map(|p| if c == 0 { p as f64 } else { (p as f64 * 0.01 + c as f64 * k).sin() }).collect()).collect()
+            };
+            let a = raw::parse(&binary_raw("Transient Analysis", &vars, &cols(0.0))).unwrap();
+            let b = raw::parse(&binary_raw("Transient Analysis", &vars, &cols(1e-3))).unwrap();
+            let mut view = WaveView::compare(a, b, "A".into(), "B".into(), None, &[]);
+            let ctx = egui::Context::default();
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0));
+            let mut times = Vec::new();
+            for _ in 0..8 {
+                let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+                let _ = ctx.run_ui(input, |ui| {
+                    let t = std::time::Instant::now();
+                    show_details(ui, &mut view, &[]);
+                    show_plot(ui, &mut view);
+                    times.push(t.elapsed());
+                });
+            }
+            times.sort();
+            eprintln!("[ondas] {n} señales: mediana {:?}", times[times.len() / 2]);
+        }
     }
 }
