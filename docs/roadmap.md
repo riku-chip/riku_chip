@@ -30,7 +30,7 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 | 6.3 | gdstk-rs seguro entre hilos (normalizar paths al cargar, `Send`/`Sync`, test concurrente) | hecho: además, las capas dibujadas solo con paths entran al diff |
 | 6.4 | Huella jerárquica, instancias gemelas, aplanado por pedazos y `rayon` en el diff (`--jobs`/`RIKU_JOBS`) | hecho: 42 MB sin cambios 5,5 s → 1,4 s; con cambios 14,6 s → 1,8–2,3 s; siempre < 1 GB |
 | 6.5.b | XOR por cuadrantes (quadtree) para capas enormes que cambiaron enteras | hecho: 19/0 regenerada, Clipper de 358 s a 0,28 s; instancia movida 7,2 → 5,6 s (3,1 s con 12 hilos) |
-| 6.6 | `log`, `show` y `status` en paralelo | pendiente (S) |
+| 6.6 | `log`, `show` y `status` en paralelo (una conexión a Git por hilo, commits y archivos en paralelo, presupuesto de memoria) — diseño en [`diseno/fase6.md`](diseno/fase6.md) §4.6 | pendiente (S) |
 
 ## Pendientes
 

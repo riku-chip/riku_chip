@@ -241,13 +241,39 @@ Después de 6.4, lo que llega a Clipper en una capa que difiere es `A' ∪ Cl` c
 
 **Objetivo:** pad movido de 4,7–7 s a **< 2 s**; capa 19/0 regenerada de minutos a **< 5 s**.
 
-### 4.6 `log`, `show` y `status` en paralelo (núcleo del ejecutable: `riku/src/core/analysis`)
+### 4.6 `log`, `show` y `status` en paralelo (núcleo del ejecutable: `riku/src/core/analysis`) — diseño verificado, 2026-09-27
 
-- `log/walk.rs`: los commits se analizan con `par_iter().map_init(...)`. `map_init` abre un `GitService` por hilo, porque `git2::Repository` se puede mover entre hilos pero no compartir. El `collect` de rayon conserva el orden de los commits.
-- `show.rs` y `status/analyze.rs`: igual, por archivo.
-- Los avisos se juntan por commit o archivo y se concatenan en orden.
-- `GitRepository` pasa a exigir `Sync`, o se recibe una fábrica que abre el repo. Los mocks de los tests siguen funcionando con la versión secuencial.
-- **Estimado:** `log -n 200` de 3,5 s a menos de 1 s. Más importante con layouts en el historial, donde se combina con 4.4.
+#### Mediciones
+
+Primero, un hallazgo sobre las mediciones viejas: los 3,5 s de `riku log -n 200` **no eran cálculo sino el disco**. El repo del contenedor está en una carpeta montada desde Windows (9p), donde hasta `git log --stat -n 200` nativo tarda 3,7 s y `git status` 2,7 s. Sobre una copia en disco local:
+
+| Comando (repo de Riku, 240 commits, `.sch`) | En el montaje 9p | En disco local | CPU |
+|---|---|---|---|
+| `riku log -n 200` | 1,75 s | **0,06 s** | 0,09 s |
+| `riku log -n 200 --detail` | 0,96 s | 0,07 s | 0,07 s |
+| `riku status` | 3,18 s | 0,00 s | 0,02 s |
+| `riku show HEAD~3` | 0,21 s | 0,00 s | 0,01 s |
+
+Con esquemáticos no hay nada que repartir: el trabajo es el disco. Donde sí hay CPU es en un historial con layouts (12 commits de la librería SKY130, una celda cambiada por commit, sin cache):
+
+| | 1 hilo | 12 hilos |
+|---|---|---|
+| `riku log` (12 diffs de layouts, uno por commit) | 1,24 s | 0,88 s |
+| un diff suelto de esos | 0,11 s | |
+
+Los 12 hilos de hoy solo actúan **dentro** de cada diff (6.4), y en una librería de celdas chicas casi todo el diff es secuencial: por eso apenas baja. Repartir los **commits** es lo que falta: 12 diffs de 0,11 s en paralelo son ~0,3 s.
+
+#### Diseño
+
+1. **Una conexión a Git por hilo.** `git2::Repository` se puede mover entre hilos pero no compartir. `GitRepository` gana `reopener(&self) -> Option<Reopener>` (`Arc<dyn Fn() -> Result<Box<dyn GitRepository + Send>, GitError> + Send + Sync>`), con default `None`. `GitService` devuelve un `Reopener` que abre otra vez el mismo `.git`. Los mocks de los tests no lo implementan y siguen por el camino secuencial.
+2. **`log`:** con `Reopener`, los commits van en `par_iter().map_init(reopen, …)`: cada tarea arma su `LogCommit` con su propia conexión y sus propios avisos; `collect` conserva el orden y los avisos se concatenan por commit, así la salida es idéntica. Los archivos de cada commit siguen en orden dentro de la tarea (el diff de un layout ya usa el pool).
+3. **`show` y `status`:** igual, por archivo (`ShowFile` / `FileSummary` en paralelo con una conexión por hilo). En `status`, el recorrido del working tree (`working_tree_changes`, una sola llamada a git2) queda como está: es lo que domina en un montaje lento y no se puede partir.
+4. **Presupuesto de memoria:** N commits con layouts a la vez son N libraries cargadas (un layout de 42 MB ocupa ~0,5 GB por diff). `core::analysis::budget` es un semáforo de bytes (50 % de `MemAvailable`, como el de `riku-mod-layout`); antes de llamar a `module.diff` cada tarea pide `12 × (bytes de A + bytes de B)` (factor medido: 42 MB → 0,5 GB) y las chicas (`.sch`, `.raw`) pasan sin esperar. Una tarea más grande que el cupo corre sola.
+5. **Sin cambios de salida:** texto y JSON idénticos (`riku_phase1_regress.sh`); `--jobs 1` deja todo secuencial; la cache de diffs ya escribe un archivo temporal por hilo (6.4).
+
+#### Objetivo
+
+`riku log` sobre el historial de 12 commits de layouts: 1,24 s → **< 0,4 s**. En el montaje 9p, los commits en paralelo solapan las esperas del disco: se mide `log -n 200` con `--jobs 1` y por defecto, sin comprometer una cifra. Test nuevo en `tests/basic.rs`: un repo real con varios commits de layouts y esquemáticos da el mismo `LogReport` con `--jobs 1` y con el pool completo.
 
 ---
 

@@ -46,6 +46,8 @@ Con cada tag `v*`: compila en Ubuntu 22.04 con zlib, qhull y libstdc++ estática
 | `tools/palettes/gen_palettes.py` | generar las tablas de capas de GF180 e IHP desde sus `.lyp` |
 | `riku-mod-layout/examples/` | `profile_diff`, `profile_prints`, `profile_xor`, `profile_view`, `verify_dump` (ver [`layouts.md`](layouts.md)) |
 
+**Medir tiempos:** en el contenedor, `/foss/designs` es un montaje 9p desde Windows y cualquier cosa que toque muchos archivos tarda segundos (hasta `git status` nativo: 2,7 s). Para medir `log`, `status` o el visor, clonar o copiar el repo a `/tmp`; los ejecutables van en `CARGO_TARGET_DIR=/headless/riku-target/ws`.
+
 **Capturas reproducibles del visor:** `xt.py` usa `$DISPLAY`, así que se puede correr sobre un X virtual (`Xvfb :99 &`, `DISPLAY=:99`) sin depender del escritorio. El zoom con la rueda es animado y depende del tiempo entre cuadros; para comparar capturas usar **+**/**−**, que siempre terminan en el mismo zoom. `RIKU_PROFILE=1` imprime el tiempo de cada cuadro.
 
 ## Commits
