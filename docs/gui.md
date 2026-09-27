@@ -67,7 +67,6 @@ src/
 `cargo test -p riku gui::` corre solo los tests del visor; el resto, en [`desarrollo.md`](desarrollo.md).
 
 - **WSLg:** la ventana aparece en el escritorio de Windows. Para capturarla con herramientas X11, lanzar con `env -u WAYLAND_DISPLAY` (usa XWayland). El visor recuerda la posición de la ventana; si alguna vez abre minimizada o fuera de pantalla, borrar la clave `"window"` de `~/.local/share/riku-gui/app.ron`.
-- **Windows:** si falla con `STATUS_DLL_NOT_FOUND` (0xc0000135), falta en el `PATH` la carpeta de DLLs de vcpkg: `$env:PATH = "$env:VCPKG_ROOT\installed\x64-windows\bin;" + $env:PATH`.
 
 ## Criterios de interfaz
 
