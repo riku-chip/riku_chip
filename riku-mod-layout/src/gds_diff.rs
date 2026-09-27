@@ -355,9 +355,25 @@ fn diff_one_cell(
         // SREF/AREF y no perdemos cambios en sub-cells.
         let (added, removed) = match (ca, cb) {
             (Some(ca), Some(cb)) => {
+                let t = std::time::Instant::now();
                 let fp_a = ca.get_polygons().with_filter(key.layer, key.datatype).build();
                 let fp_b = cb.get_polygons().with_filter(key.layer, key.datatype).build();
-                xor_layer(&fp_a, &fp_b, key)
+                let t_flat = t.elapsed();
+                let out = xor_layer(&fp_a, &fp_b, key);
+                if std::env::var_os("RIKU_PROFILE").is_some() {
+                    eprintln!(
+                        "[diff] {name} {}/{}: aplanar {} + {} polígonos {:.2?}, xor {:.2?} → +{} −{}",
+                        key.layer,
+                        key.datatype,
+                        fp_a.count(),
+                        fp_b.count(),
+                        t_flat,
+                        t.elapsed() - t_flat,
+                        out.0.len(),
+                        out.1.len()
+                    );
+                }
+                out
             }
             (None, Some(cb)) => (flat_layer(cb, key), Vec::new()),
             (Some(ca), None) => (Vec::new(), flat_layer(ca, key)),

@@ -138,44 +138,67 @@ Revisión del C++ (lo que usa Riku):
 
 ### 4.4 Paralelismo del diff (`riku-mod-layout`, con `rayon`)
 
-**Medición después de 6.1** (layout de 42 MB, sin cambios reales, 1 núcleo): `riku diff` tarda **5,9 s** y ocupa **1,7 GB**.
+Diseño verificado con `examples/profile_prints.rs` y `RIKU_PROFILE=1` sobre el layout de 42 MB (2026-09-26, después de 6.3). Máquina: i7-1255U (2 núcleos rápidos con hyperthreading + 8 lentos = 12 hilos), 11 GB en el contenedor.
+
+#### Mediciones
+
+**Sin cambios reales** (`riku diff`, 1 núcleo): **5,5 s**, 1,7 GB.
 
 | Etapa | Tiempo | Nota |
 |---|---|---|
 | Leer A y B | 0,47 s | |
-| Aplanar las 28 celdas, A y B | 2,6 s | la top sola: 2,17 s (12,4 millones de polígonos) |
-| Huellas (`canonical_points` + hash + orden) | ~2,7 s | un `Vec` nuevo por polígono, 13,8 millones de veces |
-| XOR | 0 | ninguna capa difiere |
+| Aplanar la top (por lado) | 1,14 s | 6,2 millones de polígonos, **197 B por polígono** (1,2 GB) que se guardan enteros para quedarse con 8 B de hash |
+| Hashear la top (por lado) | 0,68 s | `canonical_points` con un `Vec` nuevo por polígono: 0,81 s; con un buffer reutilizado: 0,68 s |
+| Ordenar | 0,11 s | |
+| Las otras 27 celdas, A y B | ~0,4 s | |
 
-Con un cambio real en las capas 6/0 y 19/0 son **16 s**. Lo extra es volver a aplanar esas capas, volver a hashearlas en `xor_layer` y hacer el XOR local.
+**Con cambios reales** (capas 6/0 y 19/0, un polígono nuevo en cada una): **14,6 s**, 2,9 GB.
 
-**Hallazgo:** después de 6.1 el piso ya no es el XOR sino **aplanar y hashear la top**. Además, `layer_prints` aplana toda la celda y la guarda entera (≈ 180 B por polígono, ~2,2 GB) para quedarse con 8 B por polígono.
-
-**Diseño:**
-
-| # | Qué | Cómo | Ganancia estimada |
+| Capa | Aplanar A y B filtrado | `xor_layer` | Nota |
 |---|---|---|---|
-| a | Leer A y B a la vez | `rayon::join` | 0,47 → 0,25 s |
-| b | **Huella por pedazos** | `Cell::get_polygons` es, en el C++, lo propio de la celda más `Reference::get_polygons` de cada referencia. `layer_prints` hace lo mismo en pedazos: lo propio (`depth(0)`) y cada referencia, en paralelo. Cada pedazo se aplana, se hashea y se suelta. Al final se juntan los vectores por capa y se ordenan (`par_sort_unstable`) | aplanar + huellas: 5,3 → ~0,6 s; pico de memoria de ~2,2 GB a lo que haya en vuelo |
-| c | Sin asignación por polígono | `canonical_points` escribe en un buffer reutilizado por hilo | ~2× en las huellas, aun en un núcleo |
-| d | Celdas y lados A/B en paralelo | `par_iter` sobre las celdas comunes; A y B de cada una con `join` | rayon anida sin sobresuscribir |
-| e | Capas que difieren, en paralelo | `par_iter` sobre esas capas: aplanar filtrado + `xor_layer` | caso con cambios: 16 → ~4–5 s |
+| 6/0 (4,8 millones por lado) | 1,43 s | **6,19 s** | Clipper ve 1 polígono más su entorno: el tiempo es **volver a hashear** los 9,6 millones y emparejarlos en un `HashMap` de 4,8 millones de entradas, cuando las huellas de la 6.1 ya tenían esos hashes ordenados |
+| 19/0 (124 mil) | 0,12 s | 0,09 s | |
 
-- **Correctitud de (b):** el multiconjunto de polígonos es el mismo que el de `get_polygons()` completo, porque el C++ hace exactamente eso. Un test compara la huella por pedazos con la huella entera en los fixtures y en los tres PDKs.
-- **Referencia gigante:** si una sola referencia concentra casi todo (un macro que es el 90 % del chip), ese pedazo queda en un hilo. Primero se mide cómo se reparten las referencias de la top. Si hace falta, se parte también dentro del macro, lo que exige componer transformaciones y queda fuera de este paso.
-- **Presupuesto de memoria (solo para e):** la huella ya dice cuántos polígonos tiene cada capa de cada lado. Cada tarea pide `(nA + nB) × 180 B` a un semáforo de bytes antes de aplanar; el cupo total es el 50 % de `MemAvailable` (`/proc/meminfo`). Las tareas grandes van primero; una tarea más grande que todo el cupo corre sola, para no trabarse.
-- **Salida determinista:** `par_iter` sobre las capas en orden, y `collect` conserva ese orden. Después se agrupan las instancias como hoy.
-- **Cache (`diff_cache.rs`):** el archivo temporal pasa de `tmp<pid>` a `tmp<pid>-<contador atómico>`.
-- **Pool:** uno global. `riku` lo configura al arrancar con `--jobs N` o `RIKU_JOBS`; `riku-mod-layout` solo usa `rayon` y no fija tamaños. `RIKU_JOBS=1` sirve de salida de emergencia.
-- **Visor:** `diff_cell_as` pasa por `diff_one_cell` y se beneficia solo. La carga de la escena (`scene.rs`, `get_polygons` de toda la celda) puede usar los mismos pedazos más adelante.
+**Cómo se reparte la top:** 236 referencias; la mayor (una esquina) es el **2,8 %** del total, lo propio el 0 %. Partir por referencia reparte bien.
 
-**Objetivos revisados:** O1 ya se cumple en un núcleo. Nuevos: sin cambios, **< 2 s** y **< 1 GB**; con el cambio en 6/0 y 19/0, **< 6 s**; salida idéntica (`riku_phase1_regress.sh`, `compare.sh --xor`).
+**Huella por pedazos** (lo propio con `depth(0)` + `Reference::get_polygons` de cada referencia): **los mismos hashes que la huella entera**, verificado polígono por polígono. Y por pedazos en **un solo hilo ya es más rápido** que entero (1,56 s contra 1,93 s: menos memoria en juego) con un pico de **261 MB** en lugar de 1,2 GB.
 
-**Orden de implementación, midiendo cada paso con `profile_diff` y `/usr/bin/time`:**
-1. 6.3 en gdstk_rust: normalización, `Send`/`Sync`, test concurrente. Commit ahí y actualización del submódulo.
-2. (b) y (c) todavía en un núcleo, con el test de igualdad. Ahí se ve la baja de memoria.
-3. `rayon`: (a), (b) y (d) en paralelo.
-4. (e) con el presupuesto de memoria, `--jobs`/`RIKU_JOBS` y el arreglo de la cache.
+**Escalado del aplanado + hash por pedazos:**
+
+| Hilos | Tiempo | Pico de memoria |
+|---|---|---|
+| 1 | 1,78 s | 402 MB |
+| 2 | 1,05 s | 415 MB |
+| 4 | 0,89 s | 437 MB |
+| 12 | 0,83 s | 651 MB |
+
+Se estanca a partir de 4 hilos. No es el allocator (con tcmalloc da igual) ni el kernel (`sys` 0,9 s de 7,3 s; sin devolver memoria al SO mejora solo a 0,69 s): los hilos consumen CPU de verdad (`user` 19,7 s), y esta CPU solo tiene 2 núcleos rápidos. En un escritorio con 8–12 núcleos iguales el techo es más alto. **Conclusión: la ganancia segura es la memoria y el trabajo evitado; los núcleos suman ~2× acá y más en otras máquinas.**
+
+#### Diseño
+
+| # | Qué | Cómo | Efecto medido o estimado |
+|---|---|---|---|
+| a | **Huella por pedazos** | `layer_prints` aplana lo propio y cada referencia por separado, hashea cada pedazo con un buffer por hilo y lo suelta; junta los vectores por capa y los ordena. Pedazos en `par_iter`. | Pico 1,2 GB → ~0,3–0,6 GB por celda; 1,9 s → 0,8–1,0 s por lado |
+| b | **A y B, y las celdas, en paralelo** | `rayon::join` para leer A y B; `par_iter` sobre las celdas comunes; `join` para las huellas A/B de cada una. Anidado sobre el mismo pool. | Leer 0,47 → ~0,25 s; el resto comparte los mismos núcleos |
+| c | **Diferencia por huellas sin volver a hashear todo** | Las huellas ya son multiconjuntos ordenados de hashes por capa. La diferencia (`own_a`, `own_b`) se saca con un merge lineal. En una capa que difiere, se aplana por pedazos (filtrado por capa) en dos pasadas: la primera se queda solo con los polígonos cuyo hash está en `own` (contando repeticiones); con sus bboxes se arma la grilla; la segunda se queda con los comunes que tocan la grilla (`Cl`). Después, el mismo `XOR(A' ∪ Cl, B' ∪ Cl)` de 6.5.a. Nunca se guardan los 9,6 millones de polígonos. | 6/0: 7,6 s → ~1,5 s; 2,9 GB → < 1 GB |
+| d | **Respaldo con presupuesto** | Si `own` es mayoría (la capa se regeneró entera), sigue el XOR de la capa completa, que necesita las dos capas aplanadas: `(nA + nB) × 197 B`. Un semáforo de bytes (50 % de `MemAvailable`) deja pasar tantas de esas a la vez como quepan; una que no cabe sola espera a estar sola. Las capas por huellas (c) no piden cupo: son chicas. | Nunca más de la RAM disponible |
+| e | **Capas que difieren, en paralelo** | `par_iter` en el orden de `layers`; `collect` conserva el orden, así la salida es la misma. | |
+| f | **Hilos automáticos** | Un pool global de `rayon`, creado al arrancar `riku` con `--jobs N` (en `diff`, `show`, `log`, `status`, `gui`) o `RIKU_JOBS`; por defecto, los núcleos disponibles. El reparto real lo hace el trabajo, no un número fijo: una celda chica (menos de 2 pedazos o menos de 20 000 polígonos estimados) va secuencial en el hilo que la pidió; las tareas pesadas del respaldo (d) las limita la RAM, no los núcleos; y el robo de trabajo de rayon absorbe núcleos desparejos (los rápidos toman más pedazos). `RIKU_JOBS=1` deja todo secuencial. | Sin sobresuscribir: `log` (commits) → diff (celdas) → huellas (pedazos) comparten el pool |
+| g | **Cache** | `diff_cache.rs`: el archivo temporal pasa de `tmp<pid>` a `tmp<pid>-<contador atómico>` para que dos hilos no lo pisen. | |
+| h | **`RIKU_PROFILE=1` en el diff** | Ya imprime aplanar y `xor_layer` por capa; se suman las huellas por celda. | |
+
+**Correctitud:**
+- (a) da el mismo multiconjunto que `get_polygons()` entero porque el C++ hace exactamente lo propio más cada referencia; verificado en el layout de 42 MB y se agrega un test con fixtures que compara las dos formas (con paths, AREF y celdas anidadas).
+- (c) se apoya en el mismo supuesto que 6.1: dos polígonos con el mismo hash de 64 bits de su forma canónica son iguales. Hoy ya se decide "capa idéntica" con eso; usarlo para separar `own` de común es el mismo riesgo, no uno nuevo. El resultado geométrico es el de 6.5.a; los tests de `xor_layer` siguen valiendo.
+- La salida (texto, JSON, áreas) no cambia: `riku_phase1_regress.sh` y `compare.sh --xor`.
+
+**Objetivos revisados:** en esta máquina, sin cambios **< 2,5 s** y **< 1 GB**; con el cambio en 6/0 y 19/0 **< 5 s** y **< 1 GB**; salida idéntica. Se mide también con `RIKU_JOBS=1` para que un núcleo no empeore.
+
+**Orden de implementación, midiendo cada paso con `profile_prints`, `RIKU_PROFILE=1` y `/usr/bin/time`:**
+1. (a) en un hilo, con el buffer por hilo y el test de igualdad. Ahí se ve la baja de memoria y un poco de tiempo.
+2. (c): la diferencia por huellas en dos pasadas. Es el mayor ahorro del caso con cambios.
+3. `rayon`: (b), (a) en paralelo, (e), con (d) y (g).
+4. (f): `--jobs`/`RIKU_JOBS` y los umbrales; docs (`cli.md`, `layouts.md`).
 
 ### 4.5 XOR de una capa que cambió: primero por huellas, cuadrantes como respaldo
 
