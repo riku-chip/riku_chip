@@ -105,4 +105,4 @@ Antes de abrir un PR: `cargo test --workspace` en verde (la CI lo corre con `-D 
 
 ## Licencia
 
-Pendiente: el repositorio todavía no tiene archivo `LICENSE`.
+[Apache-2.0](LICENSE), la misma que [`xschem-viewer-rust`](https://github.com/carloscl03/xschem-viewer-rust), el motor de Xschem. El motor de layouts, [`gdstk_rust`](https://github.com/Adriel2503/gdstk_rust), mantiene la licencia de gdstk (Boost 1.0), compatible con esta.

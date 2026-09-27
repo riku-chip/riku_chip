@@ -3,7 +3,7 @@ name = "riku-kernel"
 version = "0.1.0"
 edition = "2024"
 description = "Núcleo de Riku: tipos de dominio neutros (sin conocer ningún formato de archivo)"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]

@@ -71,7 +71,7 @@ jobs:
           echo "ver=$VER" >> $GITHUB_OUTPUT
           D=riku-$VER-linux-x86_64
           mkdir -p dist/$D
-          cp target/release/riku packaging/install.sh packaging/riku.desktop packaging/riku.svg README.md dist/$D/
+          cp target/release/riku packaging/install.sh packaging/riku.desktop packaging/riku.svg README.md LICENSE dist/$D/
           chmod +x dist/$D/install.sh
           tar -C dist -czf dist/$D.tar.gz $D
           cargo install cargo-deb --locked

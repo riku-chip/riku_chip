@@ -36,7 +36,7 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 
 ### Alta
 
-- **Publicar la primera versión:** crear el tag `v*` (la CI publica los paquetes) y agregar el archivo `LICENSE` (falta decidir la licencia y sus titulares).
+- **Publicar la primera versión:** crear el tag `v*` (la CI publica los paquetes). La licencia ya está: Apache-2.0 (`LICENSE`), la misma que `xschem-viewer-rust`.
 
 ### Media
 
