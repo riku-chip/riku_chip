@@ -649,20 +649,30 @@ struct Permit<'a> {
     bytes: u64,
 }
 
+thread_local! {
+    /// Cupos que tiene este hilo. Un worker de rayon que espera sus
+    /// subtareas roba otras: si una pide cupo y el hilo ya tiene uno, no
+    /// debe dormir en el `Condvar` (nadie liberaría el suyo: se colgaba).
+    static HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 impl MemBudget {
     fn acquire(&self, bytes: u64) -> Permit<'_> {
         let bytes = bytes.min(self.total);
+        let nested = HELD.with(|h| h.get() > 0);
         let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
-        while *used > 0 && *used + bytes > self.total {
+        while !nested && *used > 0 && *used + bytes > self.total {
             used = self.freed.wait(used).unwrap_or_else(|e| e.into_inner());
         }
         *used += bytes;
+        HELD.with(|h| h.set(h.get() + 1));
         Permit { budget: self, bytes }
     }
 }
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
+        HELD.with(|h| h.set(h.get() - 1));
         let mut used = self.budget.used.lock().unwrap_or_else(|e| e.into_inner());
         *used -= self.bytes;
         self.budget.freed.notify_all();
@@ -698,6 +708,34 @@ mod tests {
     fn proof_lib() -> Library {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../external/gdstk/tests/proof_lib.gds");
         Library::open(path.to_str().unwrap())
+    }
+
+    #[test]
+    fn a_worker_holding_budget_never_sleeps_on_it() {
+        // Un worker de rayon con cupo que espera sus subtareas (el par_iter
+        // de tiled_xor) roba otra tarea grande, que pide cupo en el mismo
+        // hilo. Antes dormía en el Condvar esperando que se liberara su
+        // propio cupo: se colgaba. Acá, lo mismo sin depender del robo.
+        let budget = MemBudget { total: 100, used: Mutex::new(0), freed: Condvar::new() };
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            {
+                let _outer = budget.acquire(80);
+                let _stolen = budget.acquire(80);
+            }
+            let _ = tx.send(*budget.used.lock().unwrap());
+        });
+        let used = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("se colgó");
+        assert_eq!(used, 0, "todo el cupo devuelto");
+        // Otro hilo sin cupo sí espera: el tope sigue valiendo.
+        let budget = std::sync::Arc::new(MemBudget { total: 100, used: Mutex::new(0), freed: Condvar::new() });
+        let held = budget.acquire(80);
+        let b = budget.clone();
+        let waiter = std::thread::spawn(move || drop(b.acquire(80)));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!waiter.is_finished(), "sin cupo, espera");
+        drop(held);
+        waiter.join().unwrap();
     }
 
     /// La huella de toda la cell aplanada de una vez, como antes de 6.4.
