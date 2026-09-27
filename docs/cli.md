@@ -189,7 +189,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 riku status [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--include-unknown] [--ci]
 ```
 
-Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios), `unknown` (sin módulo; se listan con `--include-unknown`) o `error` (no se pudo comparar; el mensaje va en `errors`, y `status` termina con 2).
+Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios), `unknown` (sin módulo; se listan con `--include-unknown`) o `error` (no se pudo comparar, por ejemplo un archivo roto o de más de 50 MB; el mensaje va en `errors`, y `status` termina con 2). Los avisos del módulo (una sub-celda de Magic que no aparece…) van en `warnings` de cada archivo; en `log`, un archivo sin cambios pero con avisos no se oculta.
 
 ```json
 {

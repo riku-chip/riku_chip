@@ -10,7 +10,7 @@
 //! Los detalles por archivo se incluyen en niveles `Detalle` y `Completo`,
 //! reusando los mismos formateadores que `status` para consistencia.
 
-use super::common::{format_counts, print_detail};
+use super::common::{format_counts, print_detail, warning_lines};
 use crate::core::analysis::log::{LogCommit, LogReport};
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
 
@@ -120,6 +120,9 @@ fn days_since_epoch_to_ymd(days: u64) -> (i32, u32, u32) {
 
 fn print_file_line(f: &FileSummary, level: DetailLevel) {
     println!("          {}  {}", f.path, format_counts(f, true));
+    for w in warning_lines(f, "              ") {
+        println!("{w}");
+    }
     if matches!(level, DetailLevel::Detalle | DetailLevel::Completo) {
         for d in &f.details {
             print_detail(d, "              ");

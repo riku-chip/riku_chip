@@ -205,6 +205,7 @@ fn ci_exit_code_is_2_when_a_side_is_unreadable() {
     let broken = commit_bytes(&repo, r.file, b"\x00\x06\x00\x02\x02\x58 roto", "roto");
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_riku"))
+            .env("RIKU_LANG", "es")
             .args(args)
             .arg("--repo")
             .arg(&r.path)
@@ -235,4 +236,32 @@ fn ci_exit_code_is_2_when_a_side_is_unreadable() {
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     let commit = json["commits"].as_array().unwrap().iter().find(|c| c["oid"] == broken.as_str()).expect("commit roto en el log");
     assert_eq!(commit["files"][0]["category"], "error", "{commit}");
+}
+
+/// Un archivo en disco más grande que el límite no se compara como vacío
+/// ("todas las celdas eliminadas"): queda como error, igual que en Git.
+#[test]
+fn a_file_over_the_limit_is_an_error_not_empty() {
+    let r = gds_repo();
+    let big = vec![0u8; riku::core::domain::git_types::LARGE_BLOB_THRESHOLD + 1];
+    fs::write(r.path.join(r.file), &big).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_riku"))
+        .args(["status", "-f", "json", "--repo"])
+        .arg(&r.path)
+        .output()
+        .expect("ejecutar riku");
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let f = &json["files"][0];
+    assert_eq!(f["category"], "error", "{json}");
+    assert!(f["errors"][0].as_str().is_some_and(|e| e.contains("límite")), "{json}");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_riku"))
+        .args(["diff", r.file, "-f", "json", "--ci", "--repo"])
+        .arg(&r.path)
+        .output()
+        .expect("ejecutar riku");
+    assert_eq!(out.status.code(), Some(2));
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(json["changes"].as_array().unwrap().is_empty(), "{json}");
 }

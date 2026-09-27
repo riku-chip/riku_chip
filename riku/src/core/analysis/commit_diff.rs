@@ -8,7 +8,7 @@ use std::path::Path;
 use riku_kernel::{DiffOptions, Registry};
 use thiserror::Error;
 
-use crate::core::analysis::blob_io;
+use crate::core::analysis::{blob_io, pipeline};
 use crate::core::domain::git_types::GitError;
 use crate::core::domain::models::{FileChange, FileFormat};
 use crate::core::domain::ports::GitRepository;
@@ -49,12 +49,8 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
         return Ok(report);
     };
 
-    let mut warnings = Vec::new();
-    let content_a = blob_io::read_blob_lenient(repo, commit_a, file_path, &mut warnings)?.unwrap_or_default();
-    let content_b = blob_io::read_blob_lenient(repo, commit_b, file_path, &mut warnings)?.unwrap_or_default();
-
+    let content_a = blob_io::read_blob(repo, commit_a, file_path)?;
+    let content_b = blob_io::read_blob(repo, commit_b, file_path)?;
     let files = crate::core::git::files::between(repo, Some(commit_a), Some(commit_b));
-    let mut report = module.diff_with(&content_a, &content_b, file_path, opts, &files);
-    report.warnings.extend(warnings);
-    Ok(report)
+    Ok(pipeline::diff_blobs(module.as_ref(), &content_a, &content_b, file_path, opts, &files))
 }

@@ -1,51 +1,86 @@
-//! Helpers para leer blobs de Git tolerando errores no fatales.
+//! Lectura de una versión de un archivo (un blob de Git o el disco) para
+//! compararla.
 //!
-//! Centraliza la política `BlobNotFound | LargeBlob → vacío + warning`
-//! que se repetía en analyzer/diff_view/log.
+//! Distingue "no existe en esa versión" (se compara contra vacío: todo
+//! añadido o eliminado) de "existe pero no se puede comparar" (demasiado
+//! grande o ilegible): lo segundo no debe llegar al módulo como vacío, o el
+//! diff diría que se borró todo.
 
-use crate::core::domain::git_types::GitError;
+use std::path::Path;
+
+use crate::core::domain::git_types::{GitError, LARGE_BLOB_THRESHOLD};
 use crate::core::domain::ports::GitRepository;
 
-/// Lee un blob tolerando errores no-fatales:
-/// - `BlobNotFound`: devuelve `Ok(None)` silenciosamente.
-/// - `LargeBlob`: añade warning y devuelve `Ok(None)`.
-/// - Cualquier otro error: se propaga.
-///
-/// Usar cuando el caller distingue "no había blob" de "lo había y lo procesamos".
-pub fn read_blob_lenient<R: GitRepository + ?Sized>(
-    repo: &R,
-    commit: &str,
-    path: &str,
-    warnings: &mut Vec<String>,
-) -> Result<Option<Vec<u8>>, GitError> {
-    match repo.get_blob(commit, path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(GitError::BlobNotFound { .. }) => Ok(None),
-        Err(GitError::LargeBlob { path, size }) => {
-            warnings.push(format!(
-                "{path} ({size} bytes) demasiado grande; omitiendo."
-            ));
-            Ok(None)
+/// Una versión de un archivo.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Blob {
+    Bytes(Vec<u8>),
+    /// No existe en esa versión.
+    Missing,
+    /// Existe pero no se puede comparar; el texto dice por qué.
+    Skipped(String),
+}
+
+impl Blob {
+    /// El contenido para el módulo: vacío si no existe.
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Blob::Bytes(b) => b,
+            _ => &[],
         }
+    }
+
+    pub fn is_missing(&self) -> bool {
+        matches!(self, Blob::Missing)
+    }
+
+    pub fn skipped(&self) -> Option<&str> {
+        match self {
+            Blob::Skipped(why) => Some(why),
+            _ => None,
+        }
+    }
+}
+
+fn too_large(path: &str, size: u64) -> String {
+    format!(
+        "{path}: {} MB, más que el límite de {} MB; no se compara",
+        size / (1024 * 1024),
+        LARGE_BLOB_THRESHOLD / (1024 * 1024)
+    )
+}
+
+/// `path` en `commit`. Un error de Git que no es del archivo (commit
+/// inexistente, repo roto) se propaga.
+pub fn read_blob<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) -> Result<Blob, GitError> {
+    match repo.get_blob(commit, path) {
+        Ok(bytes) => Ok(Blob::Bytes(bytes)),
+        Err(GitError::BlobNotFound { .. }) => Ok(Blob::Missing),
+        Err(GitError::LargeBlob { path, size }) => Ok(Blob::Skipped(too_large(&path, size as u64))),
         Err(e) => Err(e),
     }
 }
 
-/// Lee un blob; cualquier error se convierte en warning + `Vec::new()`.
-/// Para flujos donde fallar el resultado entero por un blob suelto no aporta valor.
-pub fn read_blob_silent<R: GitRepository + ?Sized>(
-    repo: &R,
-    commit: &str,
-    path: &str,
-    warnings: &mut Vec<String>,
-) -> Vec<u8> {
-    match repo.get_blob(commit, path) {
-        Ok(bytes) => bytes,
-        Err(GitError::BlobNotFound { .. }) => Vec::new(),
-        Err(e) => {
-            warnings.push(format!("{path} en {commit}: {e}"));
-            Vec::new()
-        }
+/// Como [`read_blob`], pero todo error queda en el archivo (`log`, donde un
+/// blob suelto no debe tumbar el historial entero).
+pub fn read_blob_or_skip<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) -> Blob {
+    read_blob(repo, commit, path).unwrap_or_else(|e| Blob::Skipped(format!("{path} en {commit}: {e}")))
+}
+
+/// `path` en el working tree, con el mismo límite de tamaño que Git.
+pub fn read_disk(workdir: Option<&Path>, path: &str) -> Blob {
+    let Some(root) = workdir else { return Blob::Missing };
+    let full = root.join(path);
+    match std::fs::metadata(&full) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Blob::Missing,
+        Err(e) => return Blob::Skipped(format!("{path}: no se pudo leer: {e}")),
+        Ok(m) if m.len() > LARGE_BLOB_THRESHOLD as u64 => return Blob::Skipped(too_large(path, m.len())),
+        Ok(_) => {}
+    }
+    match std::fs::read(&full) {
+        Ok(bytes) => Blob::Bytes(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Blob::Missing,
+        Err(e) => Blob::Skipped(format!("{path}: no se pudo leer: {e}")),
     }
 }
 
@@ -96,106 +131,44 @@ mod tests {
         }
     }
 
+    fn blob_err(e: GitError) -> Blob {
+        let mut repo = MockRepo::new();
+        repo.set("HEAD", "a.gds", Err(e));
+        read_blob(&repo, "HEAD", "a.gds").unwrap()
+    }
+
     #[test]
-    fn lenient_ok_devuelve_some_sin_warning() {
+    fn existe_falta_o_se_omite() {
         let mut repo = MockRepo::new();
         repo.set("HEAD", "a.sch", Ok(b"hello".to_vec()));
-        let mut warnings = Vec::new();
-        let out = read_blob_lenient(&repo, "HEAD", "a.sch", &mut warnings).unwrap();
-        assert_eq!(out.as_deref(), Some(&b"hello"[..]));
-        assert!(warnings.is_empty());
+        assert_eq!(read_blob(&repo, "HEAD", "a.sch").unwrap(), Blob::Bytes(b"hello".to_vec()));
+
+        let missing = blob_err(GitError::BlobNotFound { commit: "HEAD".into(), path: "a.gds".into() });
+        assert!(missing.is_missing() && missing.bytes().is_empty());
+
+        let big = blob_err(GitError::LargeBlob { path: "big.gds".into(), size: 99 * 1024 * 1024 });
+        let why = big.skipped().expect("un blob grande se omite, no es vacío");
+        assert!(why.contains("big.gds") && why.contains("99 MB"), "{why}");
     }
 
     #[test]
-    fn lenient_blob_not_found_devuelve_none_sin_warning() {
+    fn otro_error_se_propaga_o_se_omite() {
         let mut repo = MockRepo::new();
-        repo.set(
-            "HEAD",
-            "a.sch",
-            Err(GitError::BlobNotFound {
-                commit: "HEAD".into(),
-                path: "a.sch".into(),
-            }),
-        );
-        let mut warnings = Vec::new();
-        let out = read_blob_lenient(&repo, "HEAD", "a.sch", &mut warnings).unwrap();
-        assert!(out.is_none());
-        assert!(warnings.is_empty());
+        repo.set("HEAD", "x.sch", Err(GitError::CommitNotFound("HEAD".into())));
+        assert!(matches!(read_blob(&repo, "HEAD", "x.sch"), Err(GitError::CommitNotFound(_))));
+        let why = read_blob_or_skip(&repo, "HEAD", "x.sch");
+        assert!(why.skipped().is_some_and(|w| w.contains("x.sch") && w.contains("HEAD")), "{why:?}");
     }
 
     #[test]
-    fn lenient_large_blob_devuelve_none_con_warning() {
-        let mut repo = MockRepo::new();
-        repo.set(
-            "HEAD",
-            "big.gds",
-            Err(GitError::LargeBlob {
-                path: "big.gds".into(),
-                size: 99_000_000,
-            }),
-        );
-        let mut warnings = Vec::new();
-        let out = read_blob_lenient(&repo, "HEAD", "big.gds", &mut warnings).unwrap();
-        assert!(out.is_none());
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("99000000"));
-        assert!(warnings[0].contains("big.gds"));
-    }
-
-    #[test]
-    fn lenient_otro_error_se_propaga() {
-        let mut repo = MockRepo::new();
-        repo.set(
-            "HEAD",
-            "x.sch",
-            Err(GitError::CommitNotFound("HEAD".into())),
-        );
-        let mut warnings = Vec::new();
-        let result = read_blob_lenient(&repo, "HEAD", "x.sch", &mut warnings);
-        assert!(matches!(result, Err(GitError::CommitNotFound(_))));
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn silent_ok_devuelve_bytes_sin_warning() {
-        let mut repo = MockRepo::new();
-        repo.set("HEAD", "a.sch", Ok(b"data".to_vec()));
-        let mut warnings = Vec::new();
-        let out = read_blob_silent(&repo, "HEAD", "a.sch", &mut warnings);
-        assert_eq!(out, b"data".to_vec());
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn silent_blob_not_found_devuelve_vacio_sin_warning() {
-        let mut repo = MockRepo::new();
-        repo.set(
-            "HEAD",
-            "a.sch",
-            Err(GitError::BlobNotFound {
-                commit: "HEAD".into(),
-                path: "a.sch".into(),
-            }),
-        );
-        let mut warnings = Vec::new();
-        let out = read_blob_silent(&repo, "HEAD", "a.sch", &mut warnings);
-        assert!(out.is_empty());
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn silent_otro_error_devuelve_vacio_con_warning() {
-        let mut repo = MockRepo::new();
-        repo.set(
-            "HEAD",
-            "a.sch",
-            Err(GitError::CommitNotFound("HEAD".into())),
-        );
-        let mut warnings = Vec::new();
-        let out = read_blob_silent(&repo, "HEAD", "a.sch", &mut warnings);
-        assert!(out.is_empty());
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("a.sch"));
-        assert!(warnings[0].contains("HEAD"));
+    fn disco() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.sch"), b"x").unwrap();
+        assert_eq!(read_disk(Some(dir.path()), "a.sch"), Blob::Bytes(b"x".to_vec()));
+        assert!(read_disk(Some(dir.path()), "no.sch").is_missing());
+        assert!(read_disk(None, "a.sch").is_missing());
+        // Un directorio con el nombre del archivo: existe pero no se lee.
+        std::fs::create_dir(dir.path().join("d.sch")).unwrap();
+        assert!(read_disk(Some(dir.path()), "d.sch").skipped().is_some());
     }
 }

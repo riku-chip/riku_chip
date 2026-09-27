@@ -26,7 +26,7 @@ impl FileSummary {
     /// Construye un summary desde un `FileChange` con el nivel solicitado.
     pub fn from_report_with(report: &FileChange, path: &str, level: DetailLevel) -> Self {
         if let Some(err) = &report.error {
-            return Self { format: report.format.clone(), ..Self::error(path, err.clone()) };
+            return Self { format: report.format.clone(), warnings: report.warnings.clone(), ..Self::error(path, err.clone()) };
         }
         let agg = aggregate_changes(report, level);
         let category = decide_category(agg.semantic, agg.cosmetic);
@@ -40,6 +40,7 @@ impl FileSummary {
             details: agg.details,
             full_report,
             errors: Vec::new(),
+            warnings: report.warnings.clone(),
         }
     }
 }

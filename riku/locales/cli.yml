@@ -139,6 +139,9 @@ summary.only_cosmetic:
 summary.no_detail:
   en: "(changes without detail)"
   es: "(cambios sin detalle)"
+summary.unchanged:
+  en: "(no changes)"
+  es: "(sin cambios)"
 log.no_commits:
   en: "No commits found."
   es: "Sin commits encontrados."

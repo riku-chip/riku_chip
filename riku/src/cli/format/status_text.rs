@@ -5,7 +5,7 @@
 //! - `Detalle`: añade entradas por componente/net cambiada.
 //! - `Completo`: imprime el `FileChange` íntegro tras el resumen.
 
-use super::common::{format_counts, print_detail};
+use super::common::{format_counts, print_detail, warning_lines};
 use crate::i18n::tr;
 use crate::core::analysis::status::StatusReport;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
@@ -77,6 +77,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
         println!("{}", tr!("status.cosmetic"));
         for f in &cosmetic {
             println!("  {}    {}", f.path, tr!("summary.only_cosmetic"));
+            print_warnings(f);
         }
     }
     if !unchanged.is_empty() {
@@ -84,6 +85,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
         println!("{}", tr!("status.unchanged"));
         for f in &unchanged {
             println!("  {}", f.path);
+            print_warnings(f);
         }
     }
     if !errored.is_empty() {
@@ -92,6 +94,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
         for f in &errored {
             let msg = f.errors.first().cloned().unwrap_or_else(|| tr!("status.no_detail"));
             println!("  {}    {msg}", f.path);
+            print_warnings(f);
         }
     }
     if !unknown.is_empty() {
@@ -108,8 +111,15 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
     }
 }
 
+fn print_warnings(f: &FileSummary) {
+    for w in warning_lines(f, "      ") {
+        println!("{w}");
+    }
+}
+
 fn print_file_entry(f: &FileSummary, level: DetailLevel) {
     println!("  {}    {}", f.path, format_counts(f, false));
+    print_warnings(f);
     if matches!(level, DetailLevel::Detalle | DetailLevel::Completo) {
         for d in &f.details {
             print_detail(d, "      ");

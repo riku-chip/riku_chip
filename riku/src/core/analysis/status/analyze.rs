@@ -1,11 +1,10 @@
 //! Entry points y pipeline por archivo de `riku status`.
 
-use std::io;
 use std::path::Path;
 
 use riku_kernel::Registry;
 
-use crate::core::analysis::blob_io;
+use crate::core::analysis::blob_io::{self, Blob};
 use crate::core::analysis::{parallel, pipeline};
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
 use crate::core::domain::git_types::{ChangeStatus, WorkingChange};
@@ -81,7 +80,8 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
 
 // ─── Resumen por archivo ─────────────────────────────────────────────────────
 
-/// [`summarize_change`] con sus propios avisos (una tarea por archivo).
+/// [`summarize_change`] para una tarea por archivo; los avisos del archivo
+/// van en su resumen.
 fn summarize_owned<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
@@ -90,9 +90,7 @@ fn summarize_owned<R: GitRepository + ?Sized>(
     modules: &Registry,
     diff: &riku_kernel::DiffOptions,
 ) -> (FileSummary, Vec<String>) {
-    let mut warnings = Vec::new();
-    let summary = summarize_change(repo, workdir, change, level, modules, diff, &mut warnings);
-    (summary, warnings)
+    (summarize_change(repo, workdir, change, level, modules, diff), Vec::new())
 }
 
 fn summarize_change<R: GitRepository + ?Sized>(
@@ -102,33 +100,23 @@ fn summarize_change<R: GitRepository + ?Sized>(
     level: DetailLevel,
     modules: &Registry,
     diff: &riku_kernel::DiffOptions,
-    warnings: &mut Vec<String>,
 ) -> FileSummary {
     let Some(module) = modules.for_path(&change.path) else {
         return FileSummary::unknown(&change.path);
     };
 
-    // Contenido "antes": HEAD si el archivo existía allí (con su ruta vieja
-    // si se renombró); vacío si nuevo.
+    // "Antes": HEAD si el archivo existía allí (con su ruta vieja si se
+    // renombró). "Después": el disco, con el mismo límite de tamaño.
     let content_before = match change.status {
-        ChangeStatus::Added => Vec::new(),
-        _ => match blob_io::read_blob_lenient(repo, "HEAD", change.before_path(), warnings) {
-            Ok(bytes) => bytes.unwrap_or_default(),
+        ChangeStatus::Added => Blob::Missing,
+        _ => match blob_io::read_blob(repo, "HEAD", change.before_path()) {
+            Ok(blob) => blob,
             Err(e) => return FileSummary::error(&change.path, e.to_string()),
         },
     };
-
-    // Contenido "después": working tree desde disco (a menos que el archivo
-    // esté eliminado, en cuyo caso es vacío).
     let content_after = match change.status {
-        ChangeStatus::Removed => Vec::new(),
-        _ => match read_workdir(workdir, &change.path) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                warnings.push(format!("{}: no se pudo leer: {e}", change.path));
-                Vec::new()
-            }
-        },
+        ChangeStatus::Removed => Blob::Missing,
+        _ => blob_io::read_disk(workdir, &change.path),
     };
 
     // Las sub-celdas (Magic) salen de HEAD antes y del disco después.
@@ -139,12 +127,6 @@ fn summarize_change<R: GitRepository + ?Sized>(
     pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level, &files, diff)
 }
 
-fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {
-    match workdir {
-        Some(base) => std::fs::read(base.join(rel_path)),
-        None => Ok(Vec::new()),
-    }
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 

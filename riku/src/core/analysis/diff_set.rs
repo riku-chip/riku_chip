@@ -16,7 +16,8 @@ use std::path::Path;
 
 use riku_kernel::{DiffFiles, DiffOptions, Registry};
 
-use crate::core::analysis::blob_io;
+use crate::core::analysis::blob_io::{self, Blob};
+use crate::core::analysis::pipeline;
 use crate::core::analysis::commit_diff::AnalyzeError;
 use crate::core::analysis::show::ShowFile;
 use crate::core::domain::git_types::ChangeStatus;
@@ -69,17 +70,16 @@ impl DiffSetReport {
     }
 }
 
-/// Contenido de `path` en un lado; `None` si no existe ahí.
+/// `path` en un lado.
 fn read_side<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
     side: &Side,
     path: &str,
-    warnings: &mut Vec<String>,
-) -> Result<Option<Vec<u8>>, AnalyzeError> {
+) -> Result<Blob, AnalyzeError> {
     match side {
-        Side::Rev(r) => Ok(blob_io::read_blob_lenient(repo, r, path, warnings)?),
-        Side::WorkTree => Ok(workdir.and_then(|w| std::fs::read(w.join(path)).ok())),
+        Side::Rev(r) => Ok(blob_io::read_blob(repo, r, path)?),
+        Side::WorkTree => Ok(blob_io::read_disk(workdir, path)),
     }
 }
 
@@ -122,15 +122,13 @@ fn analyze_renamed<R: GitRepository + ?Sized>(
         report.warnings.push(format!("{path}: no hay módulo de Riku para este formato."));
         return Ok(report);
     };
-    let mut warnings = Vec::new();
-    let before = read_side(repo, workdir, from, old_path.unwrap_or(path), &mut warnings)?;
-    let after = read_side(repo, workdir, to, path, &mut warnings)?;
-    if before.is_none() && after.is_none() {
-        warnings.push(format!("{path}: no existe en {} ni en {}", from.label(), to.label()));
-    }
+    let before = read_side(repo, workdir, from, old_path.unwrap_or(path))?;
+    let after = read_side(repo, workdir, to, path)?;
     let files = sources(repo, workdir, from, to);
-    let mut report = module.diff_with(&before.unwrap_or_default(), &after.unwrap_or_default(), path, opts, &files);
-    report.warnings.extend(warnings);
+    let mut report = pipeline::diff_blobs(module.as_ref(), &before, &after, path, opts, &files);
+    if before.is_missing() && after.is_missing() {
+        report.warnings.push(format!("{path}: no existe en {} ni en {}", from.label(), to.label()));
+    }
     Ok(report)
 }
 
@@ -181,16 +179,18 @@ fn changed_paths<R: GitRepository + ?Sized>(
             }
             candidates.sort();
             candidates.dedup();
-            let mut ignored = Vec::new();
             for path in candidates {
-                let before = read_side(repo, workdir, &Side::Rev(a.clone()), &path, &mut ignored)?;
-                let disk = read_side(repo, workdir, &Side::WorkTree, &path, &mut ignored)?;
+                let before = read_side(repo, workdir, &Side::Rev(a.clone()), &path)?;
+                let disk = read_side(repo, workdir, &Side::WorkTree, &path)?;
                 let (before, after) = if matches!(from, Side::WorkTree) { (disk, before) } else { (before, disk) };
+                // Un lado que no se pudo leer cuenta como modificado: el
+                // diff lo dirá como error.
                 let status = match (&before, &after) {
-                    (None, Some(_)) => ChangeStatus::Added,
-                    (Some(_), None) => ChangeStatus::Removed,
-                    (Some(x), Some(y)) if x != y => ChangeStatus::Modified,
-                    _ => continue,
+                    (Blob::Missing, Blob::Missing) => continue,
+                    (Blob::Missing, _) => ChangeStatus::Added,
+                    (_, Blob::Missing) => ChangeStatus::Removed,
+                    (Blob::Bytes(x), Blob::Bytes(y)) if x == y => continue,
+                    _ => ChangeStatus::Modified,
                 };
                 map.insert(path, (status, None));
             }

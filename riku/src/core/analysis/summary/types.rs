@@ -129,6 +129,10 @@ pub struct FileSummary {
     /// Mensajes de error si `category == Error`. Vacío en otros casos.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub errors: Vec<String>,
+    /// Avisos del módulo (una celda que falta, un eje que cambió…). Un
+    /// archivo sin cambios pero con avisos no se oculta.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub warnings: Vec<String>,
 }
 
 impl FileSummary {
@@ -141,6 +145,7 @@ impl FileSummary {
             details: Vec::new(),
             full_report: None,
             errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -153,6 +158,7 @@ impl FileSummary {
             details: Vec::new(),
             full_report: None,
             errors: vec![message.into()],
+            warnings: Vec::new(),
         }
     }
 }

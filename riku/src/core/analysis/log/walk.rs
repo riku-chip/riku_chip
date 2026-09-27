@@ -4,7 +4,7 @@ use std::path::Path;
 
 use riku_kernel::Registry;
 
-use crate::core::analysis::blob_io;
+use crate::core::analysis::blob_io::{self, Blob};
 use crate::core::analysis::{graph, parallel, pipeline};
 use crate::core::analysis::summary::SummaryCategory;
 use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitWithParents, LogQuery};
@@ -173,28 +173,28 @@ fn build_log_commit<R: GitRepository + ?Sized>(
     opts: &LogOptions,
     modules: &Registry,
 ) -> (LogCommit, Vec<String>) {
-    let Planned { raw, files: changed, mut warnings } = planned;
+    let Planned { raw, files: changed, warnings } = planned;
     let commit = raw.info.oid.clone();
     let mut files = Vec::new();
     if let Some(parent) = raw.parents.first().filter(|_| raw.parents.len() == 1) {
         for cf in changed {
             let Some(module) = modules.for_path(&cf.path) else { continue };
             let content_before = if cf.status == ChangeStatus::Added {
-                Vec::new()
+                Blob::Missing
             } else {
-                blob_io::read_blob_silent(repo, parent, cf.before_path(), &mut warnings)
+                blob_io::read_blob_or_skip(repo, parent, cf.before_path())
             };
             let content_after = if cf.status == ChangeStatus::Removed {
-                Vec::new()
+                Blob::Missing
             } else {
-                blob_io::read_blob_silent(repo, &commit, &cf.path, &mut warnings)
+                blob_io::read_blob_or_skip(repo, &commit, &cf.path)
             };
             let sources = crate::core::git::files::between(repo, Some(parent), Some(&commit));
             let summary =
                 pipeline::summarize(module.as_ref(), &content_before, &content_after, &cf.path, opts.level, &sources, &opts.diff);
-            // Saltamos archivos sin cambio semántico ni cosmético detectado,
-            // para no inflar el log con ruido de driver.
-            if matches!(summary.category, SummaryCategory::Unchanged) {
+            // Se saltan los archivos sin cambio semántico ni cosmético, para
+            // no inflar el log; con avisos no, que el aviso es la noticia.
+            if matches!(summary.category, SummaryCategory::Unchanged) && summary.warnings.is_empty() {
                 continue;
             }
             files.push(summary);

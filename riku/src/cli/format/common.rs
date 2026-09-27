@@ -26,6 +26,14 @@ pub(super) fn format_counts(f: &FileSummary, allow_cosmetic_label: bool) -> Stri
     if allow_cosmetic_label && matches!(f.category, SummaryCategory::Cosmetic) {
         return tr!("summary.only_cosmetic");
     }
+    match f.category {
+        SummaryCategory::Error => {
+            let msg = f.errors.first().cloned().unwrap_or_else(|| tr!("status.no_detail"));
+            return format!("{} {msg}", super::color::red(&tr!("diff.failed")));
+        }
+        SummaryCategory::Unchanged => return tr!("summary.unchanged"),
+        _ => {}
+    }
     if f.counts.is_empty() {
         return tr!("summary.no_detail");
     }
@@ -35,6 +43,11 @@ pub(super) fn format_counts(f: &FileSummary, allow_cosmetic_label: bool) -> Stri
         parts.push(format!("{count} {label}"));
     }
     parts.join(", ")
+}
+
+/// Los avisos del módulo para un archivo, una línea cada uno.
+pub(super) fn warning_lines(f: &FileSummary, indent: &str) -> Vec<String> {
+    f.warnings.iter().map(|w| format!("{indent}[!] {w}")).collect()
 }
 
 /// Imprime una entrada de detalle con la indentación dada. La indentación se

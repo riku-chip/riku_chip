@@ -21,7 +21,7 @@
 
 use std::io::IsTerminal;
 
-use super::common::{detail_lines, format_counts};
+use super::common::{detail_lines, format_counts, warning_lines};
 use super::log_text::{first_line, format_refs, format_timestamp};
 use crate::core::analysis::graph::GraphRow;
 use crate::core::analysis::log::{LogCommit, LogReport};
@@ -92,6 +92,7 @@ pub fn render(commits: &[LogCommit], level: DetailLevel, style: Style) -> Vec<St
         if !c.is_merge {
             for f in &c.files {
                 text.push(format!("  {}  {}", f.path, format_counts(f, true)));
+                text.extend(warning_lines(f, "      "));
                 if matches!(level, DetailLevel::Detalle | DetailLevel::Completo) {
                     for d in &f.details {
                         text.extend(detail_lines(d, "      "));
