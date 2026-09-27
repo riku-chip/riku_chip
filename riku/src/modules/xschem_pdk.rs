@@ -1,10 +1,13 @@
 //! PDK para el módulo Xschem: dónde están los símbolos del PDK.
 //!
-//! La ruta de símbolos es `<PDK_ROOT>/<PDK>/libs.tech/xschem`. Si `$PDK` no
-//! está definida (pasa seguido: el contenedor iic-osic-tools define
-//! `PDK_ROOT` pero no siempre `PDK`), se **detecta por los símbolos del
-//! esquemático**: gana el PDK instalado que tiene más de los `.sym` que el
-//! archivo referencia (`sky130_fd_pr/nfet_01v8.sym` → `sky130A`).
+//! La ruta de símbolos es `<PDK_ROOT>/<PDK>/libs.tech/xschem`. En
+//! iic-osic-tools el PDK se elige con `sak-pdk <pdk>` (define `PDK_ROOT`,
+//! `PDK` y `PDKPATH`). Si `$PDK` no está definida, se **detecta por los
+//! símbolos del esquemático**: gana el PDK instalado que tiene más de los
+//! `.sym` que el archivo referencia (`sky130_fd_pr/nfet_01v8.sym` →
+//! `sky130A`). Si está definida pero el esquemático es de otro PDK (se
+//! cambió con `sak-pdk` y se abrió un diseño viejo), los símbolos que no
+//! están en `$PDK` se buscan en los demás PDKs instalados, con un aviso.
 //!
 //! Consumido por `cli::doctor`, el shell y `modules::xschem` (diff y visor).
 //! Solo usa std.
@@ -25,8 +28,9 @@ pub enum PdkStatus {
 /// De dónde salió la ruta de símbolos de un esquemático.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PdkSource {
-    /// `$PDK_ROOT/$PDK`.
-    Env(PathBuf),
+    /// `$PDK_ROOT/$PDK` y, si el esquemático usa símbolos que no están ahí,
+    /// los PDKs instalados que los tienen (`extra`).
+    Env { path: PathBuf, extra: Vec<(String, PathBuf)> },
     /// `$PDK` no está definida y se eligieron los PDKs por los símbolos del
     /// archivo: el que tiene más primero y, si el diseño mezcla, los que
     /// aportan los símbolos que faltan.
@@ -40,7 +44,7 @@ impl PdkSource {
     /// Rutas de símbolos a agregar, en orden de prioridad.
     pub fn paths(&self) -> Vec<&Path> {
         match self {
-            Self::Env(p) => vec![p.as_path()],
+            Self::Env { path, extra } => std::iter::once(path.as_path()).chain(extra.iter().map(|(_, p)| p.as_path())).collect(),
             Self::Detected(v) => v.iter().map(|(_, p)| p.as_path()).collect(),
             Self::Missing(_) => Vec::new(),
         }
@@ -88,7 +92,15 @@ pub fn installed_pdks(root: &Path) -> Vec<String> {
 /// la del PDK instalado que tiene sus símbolos.
 pub fn symbol_source_for(content: &str) -> PdkSource {
     match pdk_status() {
-        PdkStatus::Found(p) => PdkSource::Env(p),
+        PdkStatus::Found(path) => {
+            // Símbolos del esquemático que el PDK activo no tiene: de otro PDK.
+            let pending: Vec<String> = referenced_symbols(content).into_iter().filter(|s| !path.join(s).is_file()).collect();
+            let extra = match (pending.is_empty(), pdk_root()) {
+                (false, Some(root)) => detect_for(&root, pending).into_iter().filter(|(_, p)| *p != path).collect(),
+                _ => Vec::new(),
+            };
+            PdkSource::Env { path, extra }
+        }
         PdkStatus::Misconfigured(p) => {
             PdkSource::Missing(format!("$PDK_ROOT/$PDK apunta a {}, que no existe", p.display()))
         }
@@ -111,7 +123,11 @@ pub fn symbol_source_for(content: &str) -> PdkSource {
 /// diseño de un solo PDK da uno; uno que mezcla, varios. Vacío si ninguno
 /// resuelve nada.
 pub fn detect_pdks(root: &Path, content: &str) -> Vec<(String, PathBuf)> {
-    let mut pending = referenced_symbols(content);
+    detect_for(root, referenced_symbols(content))
+}
+
+/// Como [`detect_pdks`], para una lista de símbolos.
+fn detect_for(root: &Path, mut pending: Vec<String>) -> Vec<(String, PathBuf)> {
     let rank = |name: &str| PREFERRED.iter().position(|p| *p == name).unwrap_or(PREFERRED.len());
     let mut candidates: Vec<(String, PathBuf)> = installed_pdks(root)
         .into_iter()
@@ -211,6 +227,16 @@ C {res.sym} 0 0 0 0 {name=R1}\n";
         let mixed = format!("{SKY}C {{sg13g2_pr/sg13_lv_nmos.sym}} 0 0 0 0 {{name=M9}}\n");
         // sky130A cubre 2 símbolos; ihp-sg13g2, el que falta.
         assert_eq!(names(&detect_pdks(&root, &mixed)), vec!["sky130A", "ihp-sg13g2"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn active_pdk_is_completed_with_the_one_that_has_the_rest() {
+        // $PDK activo = ihp (p. ej. tras `sak-pdk ihp-sg13g2`) y un esquemático de sky130.
+        let root = fake_root("env");
+        let ihp = root.join("ihp-sg13g2/libs.tech/xschem");
+        let pending: Vec<String> = referenced_symbols(SKY).into_iter().filter(|s| !ihp.join(s).is_file()).collect();
+        assert_eq!(names(&detect_for(&root, pending)), vec!["sky130A"]);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

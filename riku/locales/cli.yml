@@ -32,8 +32,8 @@ doctor.pdk_missing:
   en: "$PDK_ROOT/$PDK set but path not found: %{path}"
   es: "$PDK_ROOT/$PDK configurado pero ruta no encontrada: %{path}"
 doctor.pdk_detected:
-  en: "$PDK not set: detected from each schematic's symbols\n        (installed in %{root}: %{list}). To pin it: export PDK=<name>"
-  es: "$PDK no definida: se detecta por los símbolos de cada esquemático\n        (instalados en %{root}: %{list}). Para fijarlo: export PDK=<nombre>"
+  en: "$PDK not set: detected from each schematic's symbols\n        (installed in %{root}: %{list}). To pin it: sak-pdk <name> (or export PDK=<name>)"
+  es: "$PDK no definida: se detecta por los símbolos de cada esquemático\n        (instalados en %{root}: %{list}). Para fijarlo: sak-pdk <nombre> (o export PDK=<nombre>)"
 doctor.pdk_none:
   en: "$PDK_ROOT / $PDK: not set and no PDKs in /foss/pdks"
   es: "$PDK_ROOT / $PDK: no configurados y no hay PDKs en /foss/pdks"

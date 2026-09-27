@@ -128,7 +128,18 @@ fn scene_from(rs: &ResolvedScene, pdk: &PdkSource) -> Scene {
         ("Wires".into(), rs.wires.len().to_string()),
     ];
     match pdk {
-        PdkSource::Env(p) => scene.metadata.push(("PDK".into(), pdk_name(p))),
+        PdkSource::Env { path, extra } if extra.is_empty() => scene.metadata.push(("PDK".into(), pdk_name(path))),
+        PdkSource::Env { path, extra } => {
+            let active = pdk_name(path);
+            let others: Vec<&str> = extra.iter().map(|(n, _)| n.as_str()).collect();
+            scene.metadata.push(("PDK".into(), format!("{active} + {}", others.join(" + "))));
+            scene.notices.push(format!(
+                "El PDK activo es {active}, pero este esquemático usa símbolos de {}: se tomaron de ahí. \
+                 Para trabajar con él: sak-pdk {}",
+                others.join(", "),
+                others[0]
+            ));
+        }
         PdkSource::Detected(found) => {
             let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
             let main = names[0];
@@ -138,7 +149,7 @@ fn scene_from(rs: &ResolvedScene, pdk: &PdkSource) -> Scene {
             } else {
                 format!("el esquemático usa símbolos de varios PDKs: {}", names.join(", "))
             };
-            scene.notices.push(format!("$PDK no está definida: {which}. Para fijarlo: export PDK={main}"));
+            scene.notices.push(format!("$PDK no está definida: {which}. Para fijarlo: sak-pdk {main} (o export PDK={main})"));
         }
         PdkSource::Missing(_) => {}
     }
@@ -166,7 +177,7 @@ fn missing_notice(missing: &[String], pdk: &PdkSource) -> String {
             let installed = pdk_root().map(|r| installed_pdks(&r)).unwrap_or_default();
             let hint = match installed.first() {
                 Some(first) => format!(
-                    "Define el PDK del diseño, por ejemplo: export PDK={first} (instalados: {}).",
+                    "Elige el PDK del diseño, por ejemplo: sak-pdk {first} (instalados: {}).",
                     installed.join(", ")
                 ),
                 None => "Define $PDK_ROOT y $PDK (p. ej. PDK_ROOT=/foss/pdks PDK=sky130A).".to_string(),
