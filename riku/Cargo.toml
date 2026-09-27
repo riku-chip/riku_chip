@@ -50,10 +50,10 @@ async-trait = "0.1"
 resvg = "0.48"
 
 # ── Visor de escritorio (feature `gui`, activada por defecto) ──────────────
-eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland", "persistence"], optional = true }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "x11", "wayland", "persistence"], optional = true }
 poll-promise = { version = "0.3", features = ["tokio"], optional = true }
-# Gráficos de formas de onda (feature `gui` + `spice`). 0.35 es la que va con egui 0.34.
-egui_plot = { version = "0.35", optional = true }
+# Gráficos de formas de onda (feature `gui` + `spice`). 0.37 es la que va con egui 0.36.
+egui_plot = { version = "0.37", optional = true }
 # Textos de la CLI y del visor en inglés y español (locales/*.yml, incrustados al compilar).
 rust-i18n = "4.2.3"
 

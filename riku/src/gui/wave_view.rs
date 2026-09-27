@@ -719,7 +719,7 @@ impl Extent {
 #[allow(clippy::too_many_arguments)]
 fn wave_plot(
     ui: &mut egui::Ui,
-    id: impl std::hash::Hash,
+    id: impl egui::AsId,
     height: f32,
     link: egui::Id,
     reset: bool,
@@ -752,11 +752,13 @@ fn wave_plot(
             let u = yu.clone();
             move |m: GridMark, _: &std::ops::RangeInclusive<f64>| tick(m.value, &u)
         })
-        .label_formatter(move |name: &str, p: &egui_plot::PlotPoint| {
-            let head = if name.is_empty() { String::new() } else { format!("{name}
-") };
-            format!("{head}{}
-{}", eng(to_x(p.x), &xu), eng(p.y, &yu))
+        .label_formatter(move |pos: &egui_plot::HoverPosition<'_>| {
+            let (name, p) = match pos {
+                egui_plot::HoverPosition::NearDataPoint { plot_name, position, .. } => (*plot_name, position),
+                egui_plot::HoverPosition::Elsewhere { position } => ("", position),
+            };
+            let head = if name.is_empty() { String::new() } else { format!("{name}\n") };
+            Some(format!("{head}{}\n{}", eng(to_x(p.x), &xu), eng(p.y, &yu)))
         })
         .link_axis(link, [true, false])
         .link_cursor(link, [true, false])

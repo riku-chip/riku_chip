@@ -348,7 +348,9 @@ impl eframe::App for RikuGuiApp {
         self.last_dark = Some(dark);
 
         // Arrastrar un archivo desde el explorador lo abre.
-        let dropped = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
+        let dropped = ctx.input(|i| {
+            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).find(|p| !p.as_os_str().is_empty())
+        });
         if let Some(path) = dropped {
             self.open_path(&path);
         }

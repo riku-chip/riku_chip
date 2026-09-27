@@ -271,7 +271,7 @@ impl HistoryPanel {
         } else {
             panel.resizable(true).default_size(self.height).size_range(140.0..=max_h)
         };
-        let shown = panel.show_inside(ui, |ui| self.contents(ui, now, dt, reduce_motion, open_file));
+        let shown = panel.show(ui, |ui| self.contents(ui, now, dt, reduce_motion, open_file));
         if self.open && !animating {
             self.height = shown.response.rect.height();
             self.anim_h = self.height as f64;
@@ -287,8 +287,8 @@ impl HistoryPanel {
             .resizable(true)
             .default_size(320.0)
             .size_range(220.0..=560.0)
-            .show_inside(ui, |ui| self.details(ui));
-        egui::CentralPanel::default().show_inside(ui, |ui| self.list(ui, now, dt, reduce_motion));
+            .show(ui, |ui| self.details(ui));
+        egui::CentralPanel::default().show(ui, |ui| self.list(ui, now, dt, reduce_motion));
     }
 
     /// Una línea: título, filtro y estado (dónde estoy y qué está pasando).

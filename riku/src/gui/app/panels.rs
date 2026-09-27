@@ -30,7 +30,7 @@ impl RikuGuiApp {
         } else {
             egui::Margin::symmetric(space::S as i8, 2)
         });
-        egui::Panel::top("top_bar").frame(frame).show_inside(ui, |ui| {
+        egui::Panel::top("top_bar").frame(frame).show(ui, |ui| {
             let h = if own_frame { window_frame::BAR_H } else { ui.spacing().interact_size.y };
             if own_frame {
                 let bar = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(ui.max_rect().width(), h));
@@ -163,7 +163,7 @@ impl RikuGuiApp {
     /// Qué pasa, dónde está el cursor y la escala.
     pub(super) fn status_bar(&mut self, ui: &mut egui::Ui) {
         // ─── Barra de estado: qué pasa, dónde está el cursor, escala ─────────
-        egui::Panel::bottom("status_bar").show_inside(ui, |ui| {
+        egui::Panel::bottom("status_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if self.loader.busy() {
                     ui.spinner();
@@ -196,7 +196,7 @@ impl RikuGuiApp {
         egui::Panel::left("left_panel")
             .resizable(true)
             .default_size(200.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 // Formas de onda comparadas: mismas vistas que los demás formatos.
                 // Entre commits reemplazan al árbol; comparando dos archivos del
                 // proyecto, el árbol sigue abajo para abrir otro.
@@ -268,7 +268,7 @@ impl RikuGuiApp {
         egui::Panel::right("info_panel")
             .resizable(true)
             .default_size(220.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.heading(tr!("panel.details"));
                 if let Some(path) = &self.selected_path {
                     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -296,7 +296,7 @@ impl RikuGuiApp {
 
     /// Lienzo, ondas o la pantalla inicial.
     pub(super) fn central(&mut self, ui: &mut egui::Ui) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.canvas_rect = Some(ui.max_rect());
             // Lecturas para la barra de estado: las repone quien pinte.
             self.readout = Readout::default();
