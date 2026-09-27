@@ -11,7 +11,7 @@ use crate::core::domain::models::FileChange;
 
 pub const DIFF_SCHEMA: &str = "riku-diff/v2";
 
-pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &str, to: &str) -> Result<(), String> {
+pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &str, to: &str, pretty: bool) -> Result<(), String> {
     let payload = json!({
         "schema": DIFF_SCHEMA,
         "file": file_path,
@@ -22,13 +22,13 @@ pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &s
         "warnings": warnings,
         "changes": report.changes,
     });
-    super::print_enveloped(&payload, true)
+    super::print_enveloped(&payload, pretty)
 }
 
-pub fn print_v1(report: &FileChange, warnings: &[String], file_path: &str) -> Result<(), String> {
+pub fn print_v1(report: &FileChange, warnings: &[String], file_path: &str, pretty: bool) -> Result<(), String> {
     let mut payload = riku_kernel::legacy::diff_report_json(report);
     payload["file"] = json!(file_path);
     // v1 no tenía campo de error: va primero entre los avisos.
     payload["warnings"] = json!(report.error.iter().chain(warnings).collect::<Vec<_>>());
-    super::print_enveloped(&payload, true)
+    super::print_enveloped(&payload, pretty)
 }

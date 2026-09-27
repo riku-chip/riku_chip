@@ -75,6 +75,7 @@ impl Commands {
                 tolerance,
                 no_cache,
                 exprs,
+                compact,
                 ci: _,
                 output,
                 cell,
@@ -83,7 +84,7 @@ impl Commands {
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
                 let img = image_request(&format, output, cell, &size, theme)?;
-                commands::run_diff(repo, &targets, format, o, img).map(Outcome::from)
+                commands::run_diff(repo, &targets, format, !compact, o, img).map(Outcome::from)
             }
 
             Commands::Show {
@@ -95,6 +96,7 @@ impl Commands {
                 tolerance,
                 no_cache,
                 exprs,
+                compact,
                 ci: _,
                 output,
                 cell,
@@ -103,7 +105,7 @@ impl Commands {
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
                 let img = image_request(&format, output, cell, &size, theme)?;
-                commands::run_show(repo, &commit, file_path.as_deref(), format, o, img).map(Outcome::from)
+                commands::run_show(repo, &commit, file_path.as_deref(), format, !compact, o, img).map(Outcome::from)
             }
 
             Commands::Render { file, rev, repo, format, exprs, output, cell, size, theme } => {

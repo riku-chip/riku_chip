@@ -95,6 +95,8 @@ pub(crate) enum Commands {
         no_cache: bool,
         #[arg(long = "expr", value_name = "EXPR", help = tr!("help.expr"))]
         exprs: Vec<String>,
+        #[arg(long, help = tr!("help.compact"))]
+        compact: bool,
         #[arg(long, help = tr!("help.ci"))]
         ci: bool,
         #[arg(short = 'o', long, value_name = "FILE", help = tr!("help.output"))]
@@ -124,6 +126,8 @@ pub(crate) enum Commands {
         no_cache: bool,
         #[arg(long = "expr", value_name = "EXPR", help = tr!("help.expr"))]
         exprs: Vec<String>,
+        #[arg(long, help = tr!("help.compact"))]
+        compact: bool,
         #[arg(long, help = tr!("help.ci"))]
         ci: bool,
         #[arg(short = 'o', long, value_name = "FILE", help = tr!("help.output"))]

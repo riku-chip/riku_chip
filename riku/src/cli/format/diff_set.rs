@@ -25,12 +25,12 @@ pub fn print_text(report: &DiffSetReport) -> Result<(), String> {
     print_files(&report.files, &tr!("diffset.untouched"))
 }
 
-pub fn print_json(report: &DiffSetReport) -> Result<(), String> {
+pub fn print_json(report: &DiffSetReport, pretty: bool) -> Result<(), String> {
     let payload = json!({
         "schema": DIFF_SET_SCHEMA,
         "from": report.from.label(),
         "to": report.to.label(),
         "files": report.files.iter().map(file_json).collect::<Vec<_>>(),
     });
-    super::print_enveloped(&payload, true)
+    super::print_enveloped(&payload, pretty)
 }

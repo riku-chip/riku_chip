@@ -37,7 +37,7 @@ riku schematics (git)> cd ../layout
 ## `riku diff`
 
 ```bash
-riku diff [A] [B] [archivo] [-f text|json|json-v1|visual|png|svg] [--ci]
+riku diff [A] [B] [archivo] [-f text|json|json-v1|visual|png|svg] [--compact] [--ci]
           [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
 ```
 
@@ -133,6 +133,8 @@ riku show abc123 design/op_amp.sch -f visual   # el diff de ese commit en el vis
 ```
 
 El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final. Acepta las mismas opciones que `diff` salvo `json-v1`; `-f visual` necesita el archivo.
+
+Con `--compact`, el JSON de `diff` y `show` sale en una línea (como en `log` y `status`); sin él, indentado.
 
 ```json
 {

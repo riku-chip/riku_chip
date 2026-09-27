@@ -32,6 +32,7 @@ pub(super) fn run_diff(
     repo: PathBuf,
     targets: &[String],
     format: OutputFormat,
+    pretty: bool,
     overrides: Overrides,
     image: Option<crate::export::Request>,
 ) -> Result<Changes, String> {
@@ -66,7 +67,7 @@ pub(super) fn run_diff(
             let mut report = diff_set::analyze_file(&svc, workdir.as_deref(), &from, &to, &file, &modules, &opts)
                 .map_err(|e| e.to_string())?;
             let warnings = std::mem::take(&mut report.warnings);
-            print_diff(&report, &warnings, &file, &from, &to, format)?;
+            print_diff(&report, &warnings, &file, &from, &to, format, pretty)?;
             Ok(Changes::of_reports([&report]))
         }
         None => {
@@ -76,7 +77,7 @@ pub(super) fn run_diff(
             let report = diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts)
                 .map_err(|e| e.to_string())?;
             match format {
-                OutputFormat::Json => format::diff_set::print_json(&report)?,
+                OutputFormat::Json => format::diff_set::print_json(&report, pretty)?,
                 _ => format::diff_set::print_text(&report)?,
             }
             Ok(Changes::of_reports(report.files.iter().filter_map(|f| f.change.as_ref())))
@@ -255,6 +256,7 @@ pub(super) fn run_show(
     commit: &str,
     file_path: Option<&str>,
     format: OutputFormat,
+    pretty: bool,
     overrides: Overrides,
     image: Option<crate::export::Request>,
 ) -> Result<Changes, String> {
@@ -292,7 +294,7 @@ pub(super) fn run_show(
 
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
     match format {
-        OutputFormat::Json => format::show_json::print(&report, true)?,
+        OutputFormat::Json => format::show_json::print(&report, pretty)?,
         _ => format::show_text::print(&report)?,
     }
     Ok(Changes::of_reports(report.files.iter().filter_map(|f| f.change.as_ref())))
@@ -306,14 +308,15 @@ fn print_diff(
     from: &Side,
     to: &Side,
     format: OutputFormat,
+    pretty: bool,
 ) -> Result<(), String> {
     for w in warnings {
         eprintln!("[!] {w}");
     }
     match format {
         OutputFormat::Text => format::diff_text::print(report, file_path),
-        OutputFormat::Json => format::diff_json::print(report, warnings, file_path, from.label(), to.label()),
-        OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path),
+        OutputFormat::Json => format::diff_json::print(report, warnings, file_path, from.label(), to.label(), pretty),
+        OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path, pretty),
         OutputFormat::Visual | OutputFormat::Png | OutputFormat::Svg => unreachable!("se atienden antes de imprimir"),
     }
 }
