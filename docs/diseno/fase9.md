@@ -127,3 +127,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 | B1 | Hecho | `FileChange.error`; `diff`/`show`/`status` con `--ci` salen con 2 si un archivo no se pudo comparar; en `status`/`log` es la categoría `error` |
 | B2 | Hecho | `before_path()`; log, status, diff de todos y el visor (History, `-f visual`) leen el lado "antes" con la ruta vieja. Además `status` listaba un renombre con la ruta vieja (`git2` da `entry.path()` = la vieja) |
 | B3 | Hecho | `blob_io::Blob` (`Bytes`/`Missing`/`Skipped`) y `pipeline::diff_blobs`: un lado omitido (>50 MB, ilegible; también en disco) es error sin llamar al módulo; `FileSummary.warnings`, y `log` no oculta un archivo con avisos |
+| B4 | Hecho | `read_ascii`: más valores que variables en un punto es error, no pánico |

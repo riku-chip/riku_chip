@@ -286,6 +286,11 @@ fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex
                 toks.next(); // índice del punto
             }
             for tok in toks {
+                // Más valores que variables: el archivo no es lo que dice
+                // la cabecera (antes, un índice fuera de rango y pánico).
+                if row.len() == n {
+                    return err(format!("punto {points}: más de {n} valores (No. Variables: {n})"));
+                }
                 row.push(parse_val(row.len(), tok)?);
             }
         }
@@ -359,6 +364,31 @@ Title: t\nDate: d\nPlotname: AC Analysis\nFlags: complex\nNo. Variables: 2\nNo. 
         assert_eq!(ac.signal("v(out)").unwrap().unit(true), "dB");
         // Los complejos originales se conservan para las expresiones.
         assert_eq!(ac.signal("v(out)").unwrap().complex.as_deref(), Some(&[(1.0, 0.0), (0.0, 0.1)][..]));
+    }
+
+    #[test]
+    fn ascii_with_more_values_than_variables_is_an_error_not_a_panic() {
+        let text = "Title: t
+Date: d
+Plotname: Transient Analysis
+Flags: real
+No. Variables: 2
+No. Points: 2
+Variables:
+	0	time	time
+	1	v(a)	voltage
+Values:
+ 0	0.0	1.0	9.9
+ 1	1.0	2.0
+";
+        let e = parse(text.as_bytes()).unwrap_err();
+        assert!(e.to_string().contains("más de 2 valores"), "{e}");
+        // Igual si el valor de más viene en la línea siguiente.
+        let text = text.replace("	1.0	9.9
+", "	1.0
+	9.9	8.8
+");
+        assert!(parse(text.as_bytes()).is_err());
     }
 
     #[test]
