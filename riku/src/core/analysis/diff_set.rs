@@ -73,7 +73,7 @@ impl DiffSetReport {
 }
 
 /// `path` en un lado.
-fn read_side<R: GitRepository + ?Sized>(
+pub(crate) fn read_side<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
     side: &Side,
@@ -96,7 +96,7 @@ pub fn token_files<R: GitRepository + RepoRoot + ?Sized>(repo: &R, token: &str) 
     }
 }
 
-fn sources<R: GitRepository + ?Sized>(repo: &R, workdir: Option<&Path>, from: &Side, to: &Side) -> DiffFiles {
+pub(crate) fn sources<R: GitRepository + ?Sized>(repo: &R, workdir: Option<&Path>, from: &Side, to: &Side) -> DiffFiles {
     let one = |s: &Side| match s {
         Side::Rev(r) => files::commit_files(repo, r),
         Side::WorkTree => files::workdir_files(workdir),

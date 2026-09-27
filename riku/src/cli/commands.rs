@@ -33,11 +33,20 @@ pub(super) fn run_diff(
     targets: &[String],
     format: OutputFormat,
     overrides: Overrides,
+    image: Option<crate::export::Request>,
 ) -> Result<Changes, String> {
     let modules = crate::modules::registry();
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let workdir = svc.root().map(|p| p.to_path_buf());
     let (from, to, file) = resolve_targets(targets, &modules, workdir.as_deref())?;
+
+    if let Some(req) = image {
+        let file = file.ok_or_else(|| tr!("err.image_needs_file"))?;
+        let opts = config::options_for(&repo, overrides)?;
+        let path = export_between(&svc, workdir.as_deref(), &from, &to, &file, &req, &opts)?;
+        println!("{}", path.display());
+        return Ok(Changes::Clean);
+    }
 
     if matches!(format, OutputFormat::Visual) {
         let Some(file) = file else {
@@ -70,6 +79,102 @@ pub(super) fn run_diff(
             }
             Ok(Changes::of_reports(report.files.iter().filter_map(|f| f.change.as_ref())))
         }
+    }
+}
+
+/// Imagen del diff de `file` entre dos versiones.
+fn export_between(
+    svc: &GitService,
+    workdir: Option<&std::path::Path>,
+    from: &Side,
+    to: &Side,
+    file: &str,
+    req: &crate::export::Request,
+    opts: &riku_kernel::DiffOptions,
+) -> Result<std::path::PathBuf, String> {
+    let before = read_version(svc, workdir, from, file)?;
+    let after = read_version(svc, workdir, to, file)?;
+    if before.is_none() && after.is_none() {
+        return Err(tr!("err.not_in_either", file = file, a = from.label(), b = to.label()));
+    }
+    let files = diff_set::sources(svc, workdir, from, to);
+    let label = format!("{} → {}", short_label(from), short_label(to));
+    crate::export::image(
+        &crate::modules::registry(),
+        file,
+        Some(before.unwrap_or_default()),
+        after.unwrap_or_default(),
+        files,
+        &label,
+        req,
+        opts,
+    )
+}
+
+/// `file` en una versión: `None` si no existe ahí; error si existe pero no
+/// se puede leer (no se dibuja como si estuviera vacío).
+fn read_version(
+    svc: &GitService,
+    workdir: Option<&std::path::Path>,
+    side: &Side,
+    file: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    use crate::core::analysis::blob_io::Blob;
+    match diff_set::read_side(svc, workdir, side, file).map_err(|e| e.to_string())? {
+        Blob::Bytes(b) => Ok(Some(b)),
+        Blob::Missing => Ok(None),
+        Blob::Skipped(why) => Err(format!("{file} ({}): {why}", side.label())),
+    }
+}
+
+/// Imagen de `file` en una sola versión.
+fn export_one(
+    svc: &GitService,
+    workdir: Option<&std::path::Path>,
+    side: &Side,
+    file: &str,
+    req: &crate::export::Request,
+    opts: &riku_kernel::DiffOptions,
+) -> Result<std::path::PathBuf, String> {
+    let content = read_version(svc, workdir, side, file)?.ok_or_else(|| tr!("err.not_in", file = file, rev = side.label()))?;
+    let files = diff_set::sources(svc, workdir, side, side);
+    crate::export::image(&crate::modules::registry(), file, None, content, files, &short_label(side), req, opts)
+}
+
+/// `riku render ARCHIVO [--rev R]`: imagen de una versión (el disco si no hay `--rev`).
+pub(super) fn run_render(
+    repo: PathBuf,
+    file: &str,
+    rev: Option<&str>,
+    req: crate::export::Request,
+    overrides: Overrides,
+) -> Result<(), String> {
+    let opts = config::options_for(&repo, overrides)?;
+    let path = match rev {
+        // Del disco, con la ruta tal como se escribió (no hace falta un repo).
+        None => {
+            let disk = std::path::Path::new(file);
+            let content = std::fs::read(disk).map_err(|e| format!("{file}: {e}"))?;
+            // Las sub-celdas de Magic se buscan junto al archivo.
+            let dir = disk.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+            let files = riku_kernel::DiffFiles::new(None, crate::core::git::files::workdir_files(Some(dir)));
+            crate::export::image(&crate::modules::registry(), file, None, content, files, "worktree", &req, &opts)?
+        }
+        Some(r) => {
+            let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
+            let workdir = svc.root().map(|p| p.to_path_buf());
+            export_one(&svc, workdir.as_deref(), &Side::Rev(r.to_string()), file, &req, &opts)?
+        }
+    };
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// Versión corta para títulos y nombres de archivo (`a3f2b1c`, `HEAD~1`, `worktree`).
+fn short_label(side: &Side) -> String {
+    match side {
+        Side::Rev(r) if r.len() == 40 && r.chars().all(|c| c.is_ascii_hexdigit()) => r[..7].to_string(),
+        other => other.label().to_string(),
     }
 }
 
@@ -135,9 +240,24 @@ pub(super) fn run_show(
     file_path: Option<&str>,
     format: OutputFormat,
     overrides: Overrides,
+    image: Option<crate::export::Request>,
 ) -> Result<Changes, String> {
     let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
     let opts = config::options_for(&repo, overrides)?;
+    if let Some(req) = image {
+        let file = file_path.ok_or_else(|| tr!("err.image_needs_file"))?;
+        let changes = svc.commit_changes(commit).map_err(|e| e.to_string())?;
+        // El commit inicial se compara contra vacío (sin "antes").
+        let from = changes.commit.parents.first().map(|p| Side::Rev(p.clone()));
+        let to = Side::Rev(changes.commit.info.oid.clone());
+        let workdir = svc.root().map(|p| p.to_path_buf());
+        let path = match from {
+            Some(from) => export_between(&svc, workdir.as_deref(), &from, &to, file, &req, &opts)?,
+            None => export_one(&svc, workdir.as_deref(), &to, file, &req, &opts)?,
+        };
+        println!("{}", path.display());
+        return Ok(Changes::Clean);
+    }
     if matches!(format, OutputFormat::Visual) {
         let Some(file) = file_path else {
             return Err(tr!("err.show_visual_needs_file"));
@@ -176,7 +296,7 @@ fn print_diff(
         OutputFormat::Text => format::diff_text::print(report, file_path),
         OutputFormat::Json => format::diff_json::print(report, warnings, file_path, from.label(), to.label()),
         OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path),
-        OutputFormat::Visual => unreachable!("el visor se abre antes de imprimir"),
+        OutputFormat::Visual | OutputFormat::Png | OutputFormat::Svg => unreachable!("se atienden antes de imprimir"),
     }
 }
 

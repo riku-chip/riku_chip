@@ -142,8 +142,8 @@ impl FormatModule for XschemModule {
         is_xschem(content)
     }
 
-    /// Visor de símbolos y esquemáticos (ver `xschem_view.rs`).
-    #[cfg(feature = "gui")]
+    /// Visor de símbolos y esquemáticos (ver `xschem_view.rs`); también
+    /// para exportar imágenes sin ventana.
     fn viewer(&self) -> Option<std::sync::Arc<dyn viewer_core::ViewerBackend>> {
         Some(std::sync::Arc::new(super::xschem_view::XschemViewer))
     }

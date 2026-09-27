@@ -331,6 +331,10 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 }
             }
         }
+        Commands::Render { repo, file, .. } => {
+            *repo = ctx.resolve_repo(std::mem::take(repo));
+            *file = ctx.resolve_file(file);
+        }
         Commands::Gui { .. } | Commands::Completions { .. } => {}
     }
 }

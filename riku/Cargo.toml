@@ -40,12 +40,16 @@ xschem_viewer = { package = "xschem-viewer", path = "../external/xschem-viewer-r
 riku-mod-layout = { path = "../riku-mod-layout", optional = true }
 # Contrato del visor (los módulos ofrecen su backend).
 viewer-core = { path = "../viewer-core" }
+# Backends del visor (async) y un runtime mínimo para usarlos también sin
+# ventana: `riku render` y `riku diff -f png|svg`.
+tokio = { version = "1", features = ["rt"] }
+async-trait = "0.1"
+# SVG → PNG sin GPU ni pantalla (Rust puro).
+resvg = "0.48"
 
 # ── Visor de escritorio (feature `gui`, activada por defecto) ──────────────
 eframe = { version = "0.34.1", default-features = false, features = ["glow", "x11", "wayland", "persistence"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 poll-promise = { version = "0.3", features = ["tokio"], optional = true }
-async-trait = { version = "0.1", optional = true }
 # Gráficos de formas de onda (feature `gui` + `spice`). 0.35 es la que va con egui 0.34.
 egui_plot = { version = "0.35", optional = true }
 # Textos de la CLI y del visor en inglés y español (locales/*.yml, incrustados al compilar).
@@ -66,7 +70,7 @@ spice = []
 # CI), sin egui. Cada módulo aporta su visor (ver FormatModule::viewer).
 # El índice de las escenas (culling, nivel de detalle) se arma con todos los
 # núcleos (`viewer-core/parallel`).
-gui = ["dep:eframe", "dep:tokio", "dep:poll-promise", "dep:async-trait", "dep:egui_plot", "viewer-core/parallel"]
+gui = ["dep:eframe", "tokio/rt-multi-thread", "tokio/macros", "dep:poll-promise", "dep:egui_plot", "viewer-core/parallel"]
 
 [dev-dependencies]
 tempfile = "3.27.0"

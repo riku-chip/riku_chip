@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod core;
+pub mod export;
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod i18n;

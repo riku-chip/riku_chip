@@ -10,6 +10,7 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | `riku log [archivo]` | Historial con resumen semántico por commit |
 | `riku status` | Cambios del working tree respecto a `HEAD` |
 | `riku open [archivo]` / `riku gui [archivo]` | Visor (ver [`gui.md`](gui.md)) |
+| `riku render archivo [--rev R]` | Imagen (PNG o SVG) de una versión de un archivo, sin ventana |
 | `riku doctor` | Diagnóstico del entorno y formatos soportados |
 | `riku completions <shell>` | Autocompletado para bash, zsh, fish, powershell o elvish |
 
@@ -34,7 +35,7 @@ riku schematics (git)> cd ../layout
 ## `riku diff`
 
 ```bash
-riku diff [A] [B] [archivo] [-f text|json|json-v1|visual] [--ci]
+riku diff [A] [B] [archivo] [-f text|json|json-v1|visual|png|svg] [--ci]
           [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
 ```
 
@@ -248,6 +249,23 @@ expressions = [                      # señales calculadas que se comparan siemp
 
 Una clave que no existe es un error (con la clave más parecida), no se ignora en silencio. `riku doctor` dice si hay archivo y si se puede leer.
 
+## Imágenes: `riku render` y `-f png|svg`
+
+Riku dibuja una imagen sin abrir ventanas (no hace falta pantalla ni GPU): sirve en CI, por SSH y para agentes de IA, que pueden mirarla. Se ve igual que el visor: esquemáticos y layouts (`.sch`, `.gds`, `.oas`, `.mag`) con los colores del diff, y formas de onda (`.raw`) con A punteada, B continua y el error B − A.
+
+```bash
+riku diff HEAD~1 HEAD amp.sch -f png         # imagen del diff; imprime la ruta
+riku diff amp.sch -f svg -o cambios.svg      # el disco contra HEAD, en SVG
+riku show HEAD top.gds -f png --cell INV     # lo que cambió un commit, en una celda
+riku render tb.raw --rev v1 --expr "gain = v(out)/v(in)"
+riku render amp.sch --theme dark --size 2400x1500
+```
+
+- **Salida:** imprime la ruta del archivo. Sin `-o`, va a la carpeta temporal de riku (`/tmp/riku/<archivo>-<versiones>.png`).
+- **Opciones:** `-o ARCHIVO`, `--size ANCHOxALTO` (por defecto `1600x1000`), `--theme light|dark` (por defecto `light`), `--cell CELDA` (layouts) y `--expr` (formas de onda; también las de `.riku.toml`).
+- **`riku render`** dibuja una sola versión: el archivo en disco (con la ruta tal como se escribe, sin necesitar un repo) o la de un commit con `--rev`.
+- Las formas de onda muestran las señales que más cambiaron (o las primeras, sin diff) y las expresiones que den una curva.
+
 ## `riku completions`
 
 ```bash
@@ -263,6 +281,7 @@ Riku está pensado para usarse también sin persona delante (CI, scripts, agente
 - **Salida:** `-f json` en todos los comandos. Cada JSON trae `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v1`, `riku-status/v1`, `riku-doctor/v1`, `riku-error/v1`); un cambio incompatible sube la versión.
 - **Resultado:** el código de salida dice si hubo cambios funcionales (ver [Códigos de salida](#códigos-de-salida-y-ci)); con `-f json` los errores también son JSON.
 - **Descubrir:** `riku doctor -f json` lista los formatos soportados; `riku <comando> --help` trae ejemplos.
+- **Ver:** `riku diff A B archivo -f png` escribe una imagen del diff e imprime su ruta, para mirarla (ver [Imágenes](#imágenes-riku-render-y--f-pngsvg)).
 - **Sin interacción:** `riku` sin comando abre el shell solo si hay una terminal; desde un script imprime la ayuda y termina. `-f visual` abre una ventana: no usarlo en automatizaciones.
 - **Tuberías:** cortar la salida (`riku log | head`) termina sin error, como `git`.
 
@@ -272,6 +291,7 @@ Flujo típico de un agente que editó un diseño:
 riku status -f json            # qué archivos cambiaron (código 1 si hay cambios funcionales)
 riku diff -f json              # el detalle, disco contra HEAD
 riku diff HEAD~1 HEAD -f json  # qué cambió el último commit
+riku diff amp.sch -f png       # y cómo se ve (imprime la ruta de la imagen)
 ```
 
 ## Variables de entorno

@@ -9,7 +9,7 @@ use super::commands::{self, Changes};
 use crate::core::config::Overrides;
 use super::doctor;
 use super::gui;
-use super::{Commands, ListFormat, OutputFormat};
+use super::{Commands, ImageFormat, ImageTheme, ListFormat, OutputFormat};
 
 /// Resultado de ejecutar un comando, agnóstico al modo (CLI directa vs REPL).
 /// El caller decide cómo mapearlo a exit codes (o ignorarlo, en el shell).
@@ -31,6 +31,23 @@ impl From<Changes> for Outcome {
             Changes::Failed => Outcome::Failed,
         }
     }
+}
+
+/// Pedido de imagen para `diff`/`show` con `-f png|svg` (`None` con otro formato).
+fn image_request(
+    format: &OutputFormat,
+    output: Option<std::path::PathBuf>,
+    cell: Option<String>,
+    size: &str,
+    theme: ImageTheme,
+) -> Result<Option<crate::export::Request>, String> {
+    let png = match format {
+        OutputFormat::Png => true,
+        OutputFormat::Svg => false,
+        _ => return Ok(None),
+    };
+    let (width, height) = crate::export::parse_size(size)?;
+    Ok(Some(crate::export::Request { png, output, width, height, dark: theme == ImageTheme::Dark, cell }))
 }
 
 impl Commands {
@@ -59,9 +76,14 @@ impl Commands {
                 no_cache,
                 exprs,
                 ci: _,
+                output,
+                cell,
+                size,
+                theme,
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
-                commands::run_diff(repo, &targets, format, o).map(Outcome::from)
+                let img = image_request(&format, output, cell, &size, theme)?;
+                commands::run_diff(repo, &targets, format, o, img).map(Outcome::from)
             }
 
             Commands::Show {
@@ -74,9 +96,28 @@ impl Commands {
                 no_cache,
                 exprs,
                 ci: _,
+                output,
+                cell,
+                size,
+                theme,
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
-                commands::run_show(repo, &commit, file_path.as_deref(), format, o).map(Outcome::from)
+                let img = image_request(&format, output, cell, &size, theme)?;
+                commands::run_show(repo, &commit, file_path.as_deref(), format, o, img).map(Outcome::from)
+            }
+
+            Commands::Render { file, rev, repo, format, exprs, output, cell, size, theme } => {
+                let (width, height) = crate::export::parse_size(&size)?;
+                let req = crate::export::Request {
+                    png: format == ImageFormat::Png,
+                    output,
+                    width,
+                    height,
+                    dark: theme == ImageTheme::Dark,
+                    cell,
+                };
+                let o = Overrides { expressions: exprs, ..Overrides::default() };
+                commands::run_render(repo, &file, rev.as_deref(), req, o).map(|_| Outcome::Ok)
             }
 
             Commands::Log {

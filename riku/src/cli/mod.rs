@@ -43,6 +43,23 @@ pub enum OutputFormat {
     // JSON anterior (componentes con strings); se mantiene una versión.
     JsonV1,
     Visual,
+    // Imagen (sin ventana): `riku diff … -f png`.
+    Png,
+    Svg,
+}
+
+/// Formato de `riku render`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ImageFormat {
+    Png,
+    Svg,
+}
+
+/// Tema de las imágenes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ImageTheme {
+    Light,
+    Dark,
 }
 
 #[derive(Parser, Debug)]
@@ -80,6 +97,14 @@ pub(crate) enum Commands {
         exprs: Vec<String>,
         #[arg(long, help = tr!("help.ci"))]
         ci: bool,
+        #[arg(short = 'o', long, value_name = "FILE", help = tr!("help.output"))]
+        output: Option<PathBuf>,
+        #[arg(long, value_name = "CELL", help = tr!("help.cell"))]
+        cell: Option<String>,
+        #[arg(long, value_name = "WxH", default_value = "1600x1000", help = tr!("help.size"))]
+        size: String,
+        #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
+        theme: ImageTheme,
     },
     #[command(about = tr!("help.show"), after_help = tr!("help.examples_show"))]
     Show {
@@ -101,6 +126,35 @@ pub(crate) enum Commands {
         exprs: Vec<String>,
         #[arg(long, help = tr!("help.ci"))]
         ci: bool,
+        #[arg(short = 'o', long, value_name = "FILE", help = tr!("help.output"))]
+        output: Option<PathBuf>,
+        #[arg(long, value_name = "CELL", help = tr!("help.cell"))]
+        cell: Option<String>,
+        #[arg(long, value_name = "WxH", default_value = "1600x1000", help = tr!("help.size"))]
+        size: String,
+        #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
+        theme: ImageTheme,
+    },
+    #[command(about = tr!("help.render"), after_help = tr!("help.examples_render"))]
+    Render {
+        #[arg(help = tr!("help.render_file"))]
+        file: String,
+        #[arg(long, value_name = "REV", help = tr!("help.render_rev"))]
+        rev: Option<String>,
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
+        repo: PathBuf,
+        #[arg(short = 'f', long, value_enum, default_value_t = ImageFormat::Png, help = tr!("help.format_image"))]
+        format: ImageFormat,
+        #[arg(long = "expr", value_name = "EXPR", help = tr!("help.expr"))]
+        exprs: Vec<String>,
+        #[arg(short = 'o', long, value_name = "FILE", help = tr!("help.output"))]
+        output: Option<PathBuf>,
+        #[arg(long, value_name = "CELL", help = tr!("help.cell"))]
+        cell: Option<String>,
+        #[arg(long, value_name = "WxH", default_value = "1600x1000", help = tr!("help.size"))]
+        size: String,
+        #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
+        theme: ImageTheme,
     },
     #[command(about = tr!("help.log"), after_help = tr!("help.examples_log"))]
     Log {
