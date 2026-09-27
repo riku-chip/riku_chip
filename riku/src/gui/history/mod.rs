@@ -40,6 +40,9 @@ const RESPONSE: f64 = 0.3;
 pub const DEFAULT_HEIGHT: f32 = 260.0;
 /// Opacidad de las ramas que no se están siguiendo (enfocar atenuando).
 const DIM: f32 = 0.35;
+/// Espera antes de pedir el detalle del commit elegido (s): recorrer la
+/// lista con ↓ no lanza un análisis por cada fila que pasa.
+const DETAIL_DEBOUNCE: f64 = 0.15;
 
 type Job<T> = Promise<Result<T, String>>;
 
@@ -57,6 +60,11 @@ pub struct HistoryPanel {
     graph_job: Option<Job<LogReport>>,
     summary_job: Option<Job<LogReport>>,
     detail_jobs: HashMap<String, Job<Details>>,
+    /// Commit elegido cuyo detalle falta, y desde cuándo (debounce).
+    detail_wanted: Option<(String, f64)>,
+    /// Para que los hilos despierten a la UI al terminar (sin redibujar a
+    /// 60 fps mientras esperan).
+    ctx: Option<egui::Context>,
     error: Option<String>,
     loaded: bool,
     filter_text: String,
@@ -84,6 +92,8 @@ impl HistoryPanel {
             graph_job: None,
             summary_job: None,
             detail_jobs: HashMap::new(),
+            detail_wanted: None,
+            ctx: None,
             error: None,
             loaded: false,
             filter_text: String::new(),
@@ -119,7 +129,7 @@ impl HistoryPanel {
         };
         self.error = None;
         self.summary_job = None;
-        self.graph_job = Some(spawn("riku-history", move || {
+        self.graph_job = Some(spawn("riku-history", self.ctx.clone(), move || {
             log::analyze_with_options_path(&repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())
         }));
         self.loaded = true;
@@ -127,8 +137,10 @@ impl HistoryPanel {
 
     fn start_summaries(&mut self) {
         let Some(repo) = self.repo.clone() else { return };
-        let opts = LogOptions { limit: Some(self.model.limit()), graph: true, ..LogOptions::default() };
-        self.summary_job = Some(spawn("riku-history-summaries", move || {
+        // Los mismos commits que el grafo: mismo filtro y mismo límite.
+        let paths: Vec<String> = self.model.filter.split_whitespace().map(str::to_string).collect();
+        let opts = LogOptions { limit: Some(self.model.limit()), paths, graph: true, ..LogOptions::default() };
+        self.summary_job = Some(spawn("riku-history-summaries", self.ctx.clone(), move || {
             log::analyze_with_options_path(&repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())
         }));
     }
@@ -136,16 +148,12 @@ impl HistoryPanel {
     /// Recoge lo que terminó en segundo plano y pide lo que falta.
     fn poll(&mut self, now: f64) {
         if let Some(r) = take_ready(&mut self.graph_job) {
+            // El filtro por archivo es de Git: el grafo llega sin resúmenes
+            // también con filtro, y los resúmenes se piden después.
             match r {
-                Ok(report) if self.model.filter.is_empty() => {
+                Ok(report) => {
                     self.model.set_graph(report);
                     self.start_summaries();
-                }
-                // Con filtro, la carga ya trae los resúmenes (hacen falta para filtrar).
-                Ok(report) => {
-                    self.model.set_graph(report.clone());
-                    self.model.set_summaries(report);
-                    self.summaries_at = Some(now);
                 }
                 Err(e) => self.error = Some(e),
             }
@@ -165,22 +173,44 @@ impl HistoryPanel {
                 self.model.set_details(oid, p.block_and_take());
             }
         }
-        // El detalle del commit elegido, si falta.
-        if let (Some(c), Some(repo)) = (self.model.selected_commit(), self.repo.clone()) {
-            let oid = c.info.oid.clone();
-            if !self.model.details.contains_key(&oid) && !self.detail_jobs.contains_key(&oid) {
-                let job_oid = oid.clone();
-                self.detail_jobs.insert(
-                    oid,
-                    spawn("riku-history-show", move || {
-                        let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
-                        let opts = riku_kernel::DiffOptions::default();
-                        analyze_show(&svc, &job_oid, None, &crate::modules::registry(), &opts)
-                            .map(|r| Details::from_show(&r))
-                            .map_err(|e| e.to_string())
-                    }),
-                );
+        // El detalle del commit elegido, si falta: solo con el panel abierto,
+        // cuando la selección quedó quieta un momento y de a uno por vez
+        // (el último elegido gana; los que ya terminaron quedan en cache).
+        let wanted = self
+            .model
+            .selected_commit()
+            .map(|c| c.info.oid.clone())
+            .filter(|oid| self.open && !self.model.details.contains_key(oid) && !self.detail_jobs.contains_key(oid));
+        let Some(oid) = wanted else {
+            self.detail_wanted = None;
+            return;
+        };
+        let since = match &self.detail_wanted {
+            Some((w, t)) if *w == oid => *t,
+            _ => {
+                self.detail_wanted = Some((oid.clone(), now));
+                now
             }
+        };
+        if now - since < DETAIL_DEBOUNCE || !self.detail_jobs.is_empty() {
+            if let Some(ctx) = &self.ctx {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(DETAIL_DEBOUNCE));
+            }
+            return;
+        }
+        if let Some(repo) = self.repo.clone() {
+            self.detail_wanted = None;
+            let job_oid = oid.clone();
+            self.detail_jobs.insert(
+                oid,
+                spawn("riku-history-show", self.ctx.clone(), move || {
+                    let svc = GitService::open(&repo).map_err(|e| e.to_string())?;
+                    let opts = riku_kernel::DiffOptions::default();
+                    analyze_show(&svc, &job_oid, None, &crate::modules::registry(), &opts)
+                        .map(|r| Details::from_show(&r))
+                        .map_err(|e| e.to_string())
+                }),
+            );
         }
     }
 
@@ -192,6 +222,9 @@ impl HistoryPanel {
     /// usuario pidió abrir. `open_file`: el archivo abierto en el lienzo,
     /// relativo al repo (para **Only this file**).
     pub fn show(&mut self, ui: &mut egui::Ui, now: f64, dt: f64, reduce_motion: bool, open_file: Option<String>) -> Vec<Request> {
+        if self.ctx.is_none() {
+            self.ctx = Some(ui.ctx().clone());
+        }
         if self.open && !self.loaded {
             self.reload();
         }
@@ -205,8 +238,12 @@ impl HistoryPanel {
             (self.anim_h, self.anim_v) = spring_step(self.anim_h, self.anim_v, target, dt, RESPONSE);
         }
         let animating = (self.anim_h - target).abs() > 0.5;
-        if animating || self.busy() {
+        if animating {
             ui.ctx().request_repaint();
+        } else if self.busy() {
+            // Los hilos despiertan a la UI al terminar; esto es solo un
+            // respaldo, no un sondeo a 60 fps.
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         }
         if !self.open && !animating {
             self.anim_h = 0.0;
@@ -559,8 +596,20 @@ impl HistoryPanel {
     }
 }
 
-fn spawn<T: Send + 'static>(name: &str, f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Job<T> {
-    Promise::spawn_thread(name.to_string(), f)
+/// Un trabajo en un hilo aparte que, al terminar, pide un cuadro nuevo para
+/// que el resultado se vea enseguida.
+fn spawn<T: Send + 'static>(
+    name: &str,
+    ctx: Option<egui::Context>,
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Job<T> {
+    Promise::spawn_thread(name.to_string(), move || {
+        let out = f();
+        if let Some(ctx) = ctx {
+            ctx.request_repaint();
+        }
+        out
+    })
 }
 
 fn take_ready<T: Send + 'static>(job: &mut Option<Job<T>>) -> Option<Result<T, String>> {
