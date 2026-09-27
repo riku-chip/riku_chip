@@ -6,17 +6,20 @@
 //! qué hacer si el formato no tiene módulo — la pre-resolución se mantiene
 //! fuera para no leer blobs innecesarios.
 
-use riku_kernel::{DiffOptions, FormatModule};
+use riku_kernel::{DiffFiles, DiffOptions, FormatModule};
 
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
 
+/// `files`: los otros archivos de cada versión, para los formatos que los
+/// necesitan (Magic).
 pub fn summarize(
     module: &dyn FormatModule,
     before: &[u8],
     after: &[u8],
     path: &str,
     level: DetailLevel,
+    files: &DiffFiles,
 ) -> FileSummary {
-    let report = module.diff(before, after, path, &DiffOptions::default());
+    let report = module.diff_with(before, after, path, &DiffOptions::default(), files);
     FileSummary::from_report_with(&report, path, level)
 }

@@ -169,7 +169,7 @@ pub(crate) enum Commands {
         #[arg(long = "paths", value_name = "PAT")]
         paths: Vec<String>,
     },
-    /// Abre un archivo .sch, .gds u .oas en el visor de escritorio.
+    /// Abre un archivo .sch, .gds, .oas o .mag en el visor de escritorio.
     Open { file: Option<PathBuf> },
     /// Abre el visor en este proceso: `riku gui [archivo] [--cell CELDA]`.
     /// `open` y `diff -f visual` lo usan por debajo.

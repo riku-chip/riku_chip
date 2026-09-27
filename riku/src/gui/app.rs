@@ -86,11 +86,12 @@ struct BackendState {
 }
 
 /// Qué produce una carga via backend. En modo diff, `source` (en
-/// `BackendState`) es la versión "después" y `before` la "antes".
+/// `BackendState`) es la versión "después" y `before` la "antes"; `files`
+/// da los otros archivos de cada commit (las sub-celdas de un `.mag`).
 #[derive(Clone)]
 enum LoadKind {
     Single,
-    Diff { before: Arc<Vec<u8>>, tab: DiffTab },
+    Diff { before: Arc<Vec<u8>>, files: viewer_core::DiffFiles, tab: DiffTab },
 }
 
 impl BackendState {
@@ -464,7 +465,12 @@ impl RikuGuiApp {
             .ok_or_else(|| tr!("error.no_viewer", file = file_str))?;
 
         self.selected_path = Some(file.to_path_buf());
-        let kind = LoadKind::Diff { before: Arc::new(before), tab: DiffTab::Diff };
+        // Otros archivos de cada commit, para los formatos que los necesitan.
+        let files = viewer_core::DiffFiles::new(
+            crate::core::git::files::commit_files(&svc, commit_a).filter(|_| !commit_a.is_empty()),
+            crate::core::git::files::commit_files(&svc, commit_b),
+        );
+        let kind = LoadKind::Diff { before: Arc::new(before), files, tab: DiffTab::Diff };
         self.spawn_backend_load(backend, Arc::new(after), file_str, entry, kind, true);
         Ok(())
     }
@@ -483,8 +489,8 @@ impl RikuGuiApp {
     /// celda, conservando la vista para comparar la misma zona.
     fn select_diff_tab(&mut self, tab: DiffTab) {
         let Some(bs) = &self.backend_state else { return };
-        let LoadKind::Diff { before, .. } = &bs.kind else { return };
-        let kind = LoadKind::Diff { before: before.clone(), tab };
+        let LoadKind::Diff { before, files, .. } = &bs.kind else { return };
+        let kind = LoadKind::Diff { before: before.clone(), files: files.clone(), tab };
         let entry = bs.scene.current_entry().map(str::to_string);
         let (backend, source, path) = (bs.backend.clone(), bs.source.clone(), bs.path.clone());
         self.error = None;
@@ -747,15 +753,16 @@ impl RikuGuiApp {
         let fut = async move {
             let hint = Some(path.clone());
             let result = match &kind {
-                LoadKind::Single | LoadKind::Diff { tab: DiffTab::After, .. } => {
-                    backend.load_entry(source.as_ref().clone(), hint, entry, token).await
+                LoadKind::Single => backend.load_entry(source.as_ref().clone(), hint, entry, token).await,
+                LoadKind::Diff { files, tab: DiffTab::After, .. } => {
+                    backend.load_with(source.as_ref().clone(), hint, entry, files.after.clone(), token).await
                 }
-                LoadKind::Diff { before, tab: DiffTab::Before } => {
-                    backend.load_entry(before.as_ref().clone(), hint, entry, token).await
+                LoadKind::Diff { before, files, tab: DiffTab::Before } => {
+                    backend.load_with(before.as_ref().clone(), hint, entry, files.before.clone(), token).await
                 }
-                LoadKind::Diff { before, tab: DiffTab::Diff } => {
+                LoadKind::Diff { before, files, tab: DiffTab::Diff } => {
                     backend
-                        .load_diff(before.as_ref().clone(), source.as_ref().clone(), hint, entry, token)
+                        .load_diff_with(before.as_ref().clone(), source.as_ref().clone(), hint, entry, files.clone(), token)
                         .await
                 }
             };

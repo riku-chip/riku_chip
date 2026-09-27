@@ -95,6 +95,8 @@ fn print(report: &DoctorReport) {
     print_xschemrc(&report.xschemrc);
     print_pdk(&report.pdk);
     print_tools(&report.tools);
+    #[cfg(feature = "layout")]
+    print_magic();
     if !report.has_symbols {
         println!(
             "  [!]  Sin fuente de símbolos — los componentes se renderizarán como cajas vacías"
@@ -137,6 +139,19 @@ fn print_pdk(pdk: &PdkStatus) {
                 _ => println!("  [--]  $PDK_ROOT / $PDK: no configurados y no hay PDKs en /foss/pdks"),
             }
         }
+    }
+}
+
+/// Librerías `.mag` de los PDK instalados: de ahí salen las celdas que un
+/// layout de Magic usa y no están en el repo.
+#[cfg(feature = "layout")]
+fn print_magic() {
+    let libs = riku_mod_layout::mag::pdk_libraries();
+    if libs.is_empty() {
+        println!("  [--]  Magic: sin librerías .mag en el PDK (las celdas usadas deben estar en el repo o en $RIKU_MAG_PATH)");
+    } else {
+        let list: Vec<String> = libs.iter().map(|(tech, n)| format!("{tech} ({n})")).collect();
+        println!("  [ok]  Magic: librerías .mag en {}", list.join(", "));
     }
 }
 

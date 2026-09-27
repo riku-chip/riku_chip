@@ -1,10 +1,11 @@
 //! Diff de alto nivel sobre GDSII. Encapsula gdstk_rs y devuelve un reporte
 //! de dominio Miku sin filtrar tipos del parser.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use gdstk_rs::{sniff_format, Cell, GdsTag, Library, OwnedPolygon};
 use rayon::prelude::*;
+use viewer_core::FileSource;
 
 use crate::hier_walk::{Origin, OriginPath, Origins};
 use crate::prints::{layer_prints, pair_prints, tree_prints, xor_layer, LayerPrints, PairPrints};
@@ -53,6 +54,9 @@ pub struct GdsGeomDiff {
     /// reference inmediata (fase 1).
     pub origin_path: OriginPath,
     pub layer: LayerKey,
+    /// Nombre de la capa si el archivo lo da (Magic, LAYERNAME de OASIS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_name: Option<String>,
     pub added_polygons: usize,
     pub removed_polygons: usize,
     pub added_area_um2: f64,
@@ -87,7 +91,7 @@ pub struct GdsDiffReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GdsError {
-    #[error("{side}: no es un layout GDSII ni OASIS")]
+    #[error("{side}: no es un layout GDSII, OASIS ni Magic")]
     NotGdsii { side: &'static str },
     #[error("{side}: no se pudo leer el layout: {msg}")]
     Parse { side: &'static str, msg: String },
@@ -114,20 +118,112 @@ impl Default for DiffConfig {
     }
 }
 
-/// `true` si el contenido es un layout legible: GDSII (record HEADER) u
-/// OASIS (firma `%SEMI-OASIS\r\n`).
+/// `true` si el contenido es un layout legible: GDSII (record HEADER),
+/// OASIS (firma `%SEMI-OASIS\r\n`) o Magic (primera línea `magic`).
 pub fn is_layout(content: &[u8]) -> bool {
     sniff_format(content).is_some()
 }
 
+/// Lee un layout sin acceso a otros archivos: un `.mag` busca sus
+/// sub-celdas solo en el PDK (ver [`diff_layout_sides`] para el resto).
 fn parse_side(content: &[u8], side: &'static str) -> Result<Library, GdsError> {
     if !is_layout(content) {
         return Err(GdsError::NotGdsii { side });
+    }
+    if crate::mag::is_magic(content) {
+        let sources = crate::mag::collect(content, "layout.mag", None).map_err(|msg| GdsError::Parse { side, msg })?;
+        return Ok(crate::mag::build(&sources).0);
     }
     Library::from_bytes_any(content).map_err(|e| GdsError::Parse {
         side,
         msg: e.to_string(),
     })
+}
+
+/// Un lado de un diff: el contenido del archivo y los otros archivos de su
+/// versión (para las sub-celdas de un `.mag`). `files = None` = solo el PDK.
+#[derive(Clone, Copy)]
+pub struct LayoutSide<'a> {
+    pub bytes: &'a [u8],
+    pub files: Option<&'a dyn FileSource>,
+}
+
+/// Lo leído de un lado antes de armar la `Library`: los bytes de un
+/// GDSII/OASIS, o todos los archivos de una jerarquía Magic.
+enum Read<'a> {
+    Bytes(&'a [u8]),
+    Magic(gdstk_rs::magic::MagSources),
+}
+
+impl Read<'_> {
+    fn inputs(&self) -> Vec<&[u8]> {
+        match self {
+            Read::Bytes(b) => vec![b],
+            Read::Magic(s) => crate::mag::cache_inputs(s),
+        }
+    }
+
+    /// `Library` y avisos para el usuario.
+    fn library(&self, side: &'static str) -> Result<(Library, Vec<String>), GdsError> {
+        match self {
+            Read::Bytes(b) => parse_side(b, side).map(|l| (l, Vec::new())),
+            Read::Magic(s) => {
+                let (lib, info) = crate::mag::build(s);
+                Ok((lib, crate::mag::notices(&info)))
+            }
+        }
+    }
+}
+
+/// Diff de un archivo de layout entre dos versiones, con acceso a los otros
+/// archivos de cada una: un `.mag` resuelve sus sub-celdas en su misma
+/// versión (ver `mag`). `path` es la ruta del archivo relativa a la raíz de
+/// `files`. GDSII y OASIS van como [`diff_gds_cached`].
+///
+/// La cache usa como clave todos los archivos leídos: editar una sub-celda
+/// cambia el resultado aunque el archivo principal sea el mismo.
+pub fn diff_layout_sides(
+    a: LayoutSide<'_>,
+    b: LayoutSide<'_>,
+    path: &str,
+    cfg: &DiffConfig,
+    cache: &crate::DiffCache,
+) -> Result<GdsDiffReport, GdsError> {
+    if !crate::mag::is_magic(a.bytes) && !crate::mag::is_magic(b.bytes) {
+        return diff_gds_cached(a.bytes, b.bytes, cfg, cache);
+    }
+    fn read<'a>(s: LayoutSide<'a>, path: &str, side: &'static str) -> Result<Option<Read<'a>>, GdsError> {
+        if s.bytes.is_empty() {
+            Ok(None)
+        } else if crate::mag::is_magic(s.bytes) {
+            crate::mag::collect(s.bytes, path, s.files)
+                .map(|m| Some(Read::Magic(m)))
+                .map_err(|msg| GdsError::Parse { side, msg })
+        } else {
+            Ok(Some(Read::Bytes(s.bytes)))
+        }
+    }
+    let (ra, rb) = rayon::join(|| read(a, path, "A"), || read(b, path, "B"));
+    let (ra, rb) = (ra?, rb?);
+    let mut inputs: Vec<&[u8]> = vec![b"A"];
+    inputs.extend(ra.iter().flat_map(Read::inputs));
+    inputs.push(b"B");
+    inputs.extend(rb.iter().flat_map(Read::inputs));
+    let params = format!("cosmetic={}", cfg.cosmetic_threshold_um2);
+    cache
+        .get_or_compute("report", &inputs, &params, || {
+            let build = |r: &Option<Read<'_>>, side| r.as_ref().map(|r| r.library(side)).transpose();
+            let (la, lb) = rayon::join(|| build(&ra, "A"), || build(&rb, "B"));
+            let (la, lb) = (la?, lb?);
+            let mut report = diff_libraries(la.as_ref().map(|l| &l.0), lb.as_ref().map(|l| &l.0), cfg);
+            for (label, side) in [("antes", &la), ("después", &lb)] {
+                if let Some((_, notes)) = side {
+                    report.warnings.extend(notes.iter().map(|n| format!("{label}: {n}")));
+                }
+            }
+            Ok(report)
+        })
+        .map(|(r, _)| r)
 }
 
 /// Area absoluta de un poligono via shoelace. Coords ya en espacio de usuario
@@ -214,23 +310,45 @@ pub fn diff_gds_with_config(
     };
     let (lib_a, lib_b) = rayon::join(|| parse_opt(a, "A"), || parse_opt(b, "B"));
     let (lib_a, lib_b) = (lib_a?, lib_b?);
+    Ok(diff_libraries(lib_a.as_ref(), lib_b.as_ref(), cfg))
+}
 
+/// Diff de dos librerías ya leídas (`None` = el archivo no existía de ese
+/// lado): el cuerpo de [`diff_gds_with_config`], para cualquier formato.
+/// Los cambios llevan el nombre de su capa si el archivo lo da.
+pub fn diff_libraries(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
+    let mut report = diff_libraries_unnamed(lib_a, lib_b, cfg);
+    let names: HashMap<LayerKey, String> = lib_a
+        .into_iter()
+        .chain(lib_b)
+        .flat_map(|l| l.layer_names())
+        .map(|(t, n)| (LayerKey::from(t), n))
+        .collect();
+    if !names.is_empty() {
+        for g in &mut report.geometry {
+            g.layer_name = names.get(&g.layer).cloned();
+        }
+    }
+    report
+}
+
+fn diff_libraries_unnamed(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
     // unit es metros/unit. Para µm: factor = unit / 1e-6.
     // Si A y B difieren en unit, usamos el de B (lado "after").
-    let unit_factor = lib_b.as_ref().or(lib_a.as_ref()).map_or(1.0, |l| l.unit() / 1e-6);
+    let unit_factor = lib_b.or(lib_a).map_or(1.0, |l| l.unit() / 1e-6);
 
     let mut report = GdsDiffReport::default();
 
-    let names = |l: &Option<Library>| -> BTreeSet<String> {
-        l.as_ref().map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+    let names = |l: Option<&Library>| -> BTreeSet<String> {
+        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
     };
-    let (names_a, names_b) = (names(&lib_a), names(&lib_b));
+    let (names_a, names_b) = (names(lib_a), names(lib_b));
 
     report.cells_removed = names_a.difference(&names_b).cloned().collect();
     report.cells_added = names_b.difference(&names_a).cloned().collect();
 
     let (Some(lib_a), Some(lib_b)) = (lib_a, lib_b) else {
-        return Ok(report);
+        return report;
     };
 
     let (only_a, only_b) = (names_a.difference(&names_b).cloned().collect(), names_b.difference(&names_a).cloned().collect());
@@ -270,7 +388,7 @@ pub fn diff_gds_with_config(
         report.geometry.extend(group_instances(geometry, cfg));
     }
 
-    Ok(report)
+    report
 }
 
 /// Poligonos del XOR de una capa, en coordenadas de la cell comparada
@@ -462,6 +580,7 @@ fn diff_layer(
             instance_at_um,
             instances: usize::from(flattened),
             layer: key,
+            layer_name: None,
             added_polygons: acc.added.len(),
             removed_polygons: acc.removed.len(),
             added_area_um2: added_area,

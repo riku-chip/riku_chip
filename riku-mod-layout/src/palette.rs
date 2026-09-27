@@ -162,6 +162,142 @@ pub fn detect_pdk(path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
         .map_or(Pdk::Generic, |(_, pdk)| pdk)
 }
 
+// ---- Capas de Magic ----
+
+/// Plano de una capa de Magic y, si es un contacto, el plano de su residuo
+/// de arriba (tabla generada de los `.tech`, ver `magic_layers_generated.rs`).
+fn magic_row(pdk: Pdk, name: &str) -> Option<(&'static str, &'static str)> {
+    let table = match pdk {
+        Pdk::Sky130 => crate::magic_layers_generated::SKY130_MAGIC,
+        Pdk::Gf180 => crate::magic_layers_generated::GF180_MAGIC,
+        Pdk::Ihp => crate::magic_layers_generated::IHP_MAGIC,
+        Pdk::Generic => return None,
+    };
+    let i = table.binary_search_by(|r| r.0.cmp(name)).ok()?;
+    Some((table[i].1, table[i].2))
+}
+
+/// PDK de un layout de Magic: el que conoce más nombres de sus capas.
+/// `Generic` si ninguno conoce alguno.
+pub fn magic_pdk<'a>(names: impl IntoIterator<Item = &'a str>) -> Pdk {
+    let names: Vec<&str> = names.into_iter().collect();
+    [Pdk::Sky130, Pdk::Gf180, Pdk::Ihp]
+        .into_iter()
+        .map(|pdk| (names.iter().filter(|n| magic_row(pdk, n).is_some()).count(), pdk))
+        .filter(|(n, _)| *n > 0)
+        // En empate gana el primero (SKY130), que tiene la mayoría de los `.mag`.
+        .fold(None, |best: Option<(usize, Pdk)>, c| match best {
+            Some(b) if b.0 >= c.0 => Some(b),
+            _ => Some(c),
+        })
+        .map_or(Pdk::Generic, |(_, pdk)| pdk)
+}
+
+/// Capa GDS del PDK que se dibuja como la capa de Magic `name` (en el plano
+/// `plane`; `upper` = plano de arriba si es un contacto): da su color y su
+/// lugar en el apilado.
+fn magic_equivalent(pdk: Pdk, name: &str, plane: &str, upper: &str) -> Option<&'static str> {
+    let poly = name.contains("poly") || name.contains("pres");
+    let gate = ["fet", "mos", "transistor", "var"].iter().any(|k| name.contains(k));
+    let tap = ["sub", "nsd", "psd", "tap"].iter().any(|k| name.contains(k));
+    let nwell = name.starts_with("nw") || name.starts_with("nwell");
+    let metal = |p: &str| p.strip_prefix("metal").and_then(|n| n.parse::<u32>().ok());
+    match pdk {
+        Pdk::Sky130 => Some(match (upper, plane) {
+            ("locali", _) => "licon1",
+            ("metal1", _) => "mcon",
+            ("metal2", _) => "via",
+            ("metal3", _) => "via2",
+            ("metal4", _) => "via3",
+            ("metal5", _) => "via4",
+            (_, "dwell") => "dnwell",
+            (_, "well") => if nwell { "nwell" } else { "pwell" },
+            (_, "active") if poly || gate => "poly",
+            (_, "active") if tap => "tap",
+            (_, "active") => "diff",
+            (_, "locali") => "li1",
+            (_, "cap1") => "met3",
+            (_, "cap2") => "met4",
+            (_, p) => match metal(p)? {
+                1 => "met1",
+                2 => "met2",
+                3 => "met3",
+                4 => "met4",
+                _ => "met5",
+            },
+        }),
+        Pdk::Gf180 => Some(match (upper, plane) {
+            ("metal1", _) => "Contact",
+            ("metal2", _) => "Via1",
+            ("metal3", _) => "Via2",
+            ("metal4", _) => "Via3",
+            ("metal5", _) => "Via4",
+            (_, "dwell") => "DNWELL",
+            (_, "well") => if nwell { "Nwell" } else { "LVPWELL" },
+            (_, "active") if poly || gate => "Poly2",
+            (_, "active") => "COMP",
+            (_, p) => match metal(p)? {
+                1 => "Metal1",
+                2 => "Metal2",
+                3 => "Metal3",
+                4 => "Metal4",
+                _ => "Metal5",
+            },
+        }),
+        Pdk::Ihp => Some(match (upper, plane) {
+            ("metal1", _) => "Cont",
+            ("metal2", _) => "Via1",
+            ("metal3", _) => "Via2",
+            ("metal4", _) => "Via3",
+            ("metal5", _) => "Via4",
+            ("metal6", _) => "TopVia1",
+            ("metal7", _) => "TopVia2",
+            (_, "dwell") => "nBuLay",
+            (_, "well") => if nwell { "NWell" } else { "PWell" },
+            (_, "active") if poly || gate => "GatPoly",
+            (_, "active") => "Activ",
+            (_, "mimcap") => "MIM",
+            (_, p) => match metal(p)? {
+                1 => "Metal1",
+                2 => "Metal2",
+                3 => "Metal3",
+                4 => "Metal4",
+                5 => "Metal5",
+                6 => "TopMetal1",
+                _ => "TopMetal2",
+            },
+        }),
+        Pdk::Generic => None,
+    }
+}
+
+/// Estilo de una capa de Magic: color y apilado de su equivalente GDS en el
+/// PDK (`metal1` → met1, `viali` → mcon, `ndiffc` → licon1). Las
+/// obstrucciones (`obsm1`), bloqueos y comentarios van solo con contorno.
+/// Una capa que el PDK no conoce toma un color de la paleta genérica y va
+/// arriba de todo. `name` de la spec queda en `None`: el nombre que se
+/// muestra es el de Magic.
+pub fn magic_layer_spec(name: &str, tag: GdsTag, pdk: Pdk) -> LayerSpec {
+    let found = magic_row(pdk, name).and_then(|(plane, upper)| {
+        let equivalent = magic_equivalent(pdk, name, plane, upper)?;
+        let (rank, l) = pdk_table(pdk)?.iter().enumerate().find(|(_, l)| l.name == equivalent)?;
+        Some((rank, l, plane))
+    });
+    match found {
+        Some((rank, l, plane)) => {
+            let outline = name.starts_with("obs") || matches!(plane, "block" | "comment");
+            let role = if outline { LayerRole::Outline } else { l.role };
+            LayerSpec { name: None, color: l.color, role, rank: rank as u32 }
+        }
+        None => LayerSpec {
+            name: None,
+            color: color_for_tag(tag, Pdk::Generic),
+            role: LayerRole::Device,
+            rank: pdk_table(pdk).map_or(0, |t| t.len() as u32),
+        },
+    }
+}
+
 pub(crate) struct PdkLayer {
     tag: (u32, u32),
     name: &'static str,
@@ -308,6 +444,60 @@ const IHP_LAYERS: &[PdkLayer] = &[
     pl(189, 4, "prBoundary.boundary", rgb(0x99, 0x00, 0xe6), O),
     pl(63, 0, "TEXT", rgb(0xff, 0xff, 0xff), O),
 ];
+
+#[cfg(test)]
+mod magic_tests {
+    use super::*;
+
+    fn spec(name: &str, pdk: Pdk) -> LayerSpec {
+        magic_layer_spec(name, GdsTag { layer: 1 << 30, datatype: 0 }, pdk)
+    }
+
+    fn color_of(pdk: Pdk, pdk_name: &str) -> Color {
+        pdk_table(pdk).unwrap().iter().find(|l| l.name == pdk_name).unwrap().color
+    }
+
+    #[test]
+    fn magic_layers_take_the_color_of_their_gds_equivalent() {
+        let s = Pdk::Sky130;
+        for (magic, gds) in [
+            ("metal1", "met1"),
+            ("m1", "met1"),
+            ("viali", "mcon"),
+            ("ndiffc", "licon1"),
+            ("polycont", "licon1"),
+            ("locali", "li1"),
+            ("poly", "poly"),
+            ("nmos", "poly"),
+            ("ndiff", "diff"),
+            ("psubdiff", "tap"),
+            ("nwell", "nwell"),
+            ("pwell", "pwell"),
+            ("via1", "via"),
+            ("metal5", "met5"),
+        ] {
+            assert_eq!(spec(magic, s).color, color_of(s, gds), "{magic} → {gds}");
+        }
+        assert_eq!(spec("metal1", Pdk::Gf180).color, color_of(Pdk::Gf180, "Metal1"));
+        assert_eq!(spec("ndiffc", Pdk::Gf180).color, color_of(Pdk::Gf180, "Contact"));
+        assert_eq!(spec("ndiff", Pdk::Ihp).color, color_of(Pdk::Ihp, "Activ"));
+        // Apilado: pozos abajo, metales arriba.
+        assert!(spec("nwell", s).rank < spec("ndiff", s).rank);
+        assert!(spec("locali", s).rank < spec("metal1", s).rank);
+        assert_eq!(spec("nwell", s).role, LayerRole::Well);
+        assert_eq!(spec("obsm1", s).role, LayerRole::Outline);
+        // Desconocida: color genérico, arriba de todo.
+        let unknown = spec("frobnicate", s);
+        assert!(unknown.rank >= spec("metal5", s).rank);
+    }
+
+    #[test]
+    fn the_pdk_is_the_one_that_knows_the_layers() {
+        assert_eq!(magic_pdk(["locali", "viali", "metal1"]), Pdk::Sky130);
+        assert_eq!(magic_pdk(["metal1", "ndiff"]), Pdk::Sky130, "empate: SKY130");
+        assert_eq!(magic_pdk(["frobnicate"]), Pdk::Generic);
+    }
+}
 
 #[cfg(test)]
 mod tests {

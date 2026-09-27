@@ -128,7 +128,12 @@ fn summarize_change<R: GitRepository + ?Sized>(
         },
     };
 
-    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level)
+    // Las sub-celdas (Magic) salen de HEAD antes y del disco después.
+    let files = riku_kernel::DiffFiles::new(
+        crate::core::git::files::commit_files(repo, "HEAD"),
+        crate::core::git::files::workdir_files(workdir),
+    );
+    pipeline::summarize(module.as_ref(), &content_before, &content_after, &change.path, level, &files)
 }
 
 fn read_workdir(workdir: Option<&Path>, rel_path: &str) -> io::Result<Vec<u8>> {

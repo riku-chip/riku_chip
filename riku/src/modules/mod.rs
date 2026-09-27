@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(r.for_path("a/b/amp.sch").map(|m| m.info().format), Some(FileFormat::Xschem));
         assert_eq!(r.for_path("chip.OAS").map(|m| m.info().format), Some(FileFormat::Gds));
         assert!(r.for_path("notas.txt").is_none());
-        let mut ext = vec!["sch", "gds", "oas"];
+        let mut ext = vec!["sch", "gds", "oas", "mag"];
         if cfg!(feature = "spice") {
             ext.push("raw");
         }

@@ -53,7 +53,8 @@ pub fn analyze_diff_with_repo<R: GitRepository + ?Sized>(
     let content_a = blob_io::read_blob_lenient(repo, commit_a, file_path, &mut warnings)?.unwrap_or_default();
     let content_b = blob_io::read_blob_lenient(repo, commit_b, file_path, &mut warnings)?.unwrap_or_default();
 
-    let mut report = module.diff(&content_a, &content_b, file_path, opts);
+    let files = crate::core::git::files::between(repo, Some(commit_a), Some(commit_b));
+    let mut report = module.diff_with(&content_a, &content_b, file_path, opts, &files);
     report.warnings.extend(warnings);
     Ok(report)
 }

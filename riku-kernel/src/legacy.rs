@@ -113,7 +113,7 @@ fn entry(c: &Change) -> LegacyEntry {
         ),
         Element::Whole => ("layout".to_string(), None, Some(values(|d| d.after.as_ref()))),
         Element::Cell { name } => (format!("cell:{}", renamed(name)), None, None),
-        Element::Geometry { cell, via, .. } => {
+        Element::Geometry { cell, layer, datatype, via, .. } => {
             let mut after = values(|d| d.after.as_ref());
             if let Some(b) = c.location {
                 after.insert(
@@ -133,7 +133,12 @@ fn entry(c: &Change) -> LegacyEntry {
             }
             after.insert("origin_path".into(), origin.join("/"));
             after.insert("flattened".into(), via.is_some().to_string());
-            (c.element.name(), None, Some(after))
+            // v1 nombra la capa por número aunque el archivo le dé nombre.
+            let name = match via {
+                Some(v) => format!("{cell}:L{layer}/{datatype}:{}", v.path.join("/")),
+                None => format!("{cell}:L{layer}/{datatype}"),
+            };
+            (name, None, Some(after))
         }
     };
     LegacyEntry { kind, element, before, after, cosmetic: c.cosmetic, position_changed: c.position_changed }

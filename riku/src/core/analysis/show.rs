@@ -107,7 +107,8 @@ fn show_file<R: GitRepository + ?Sized>(
                 None => Vec::new(),
             };
             let after = blob_io::read_blob_lenient(repo, oid, &path, &mut warnings)?.unwrap_or_default();
-            let mut report = module.diff(&before, &after, &path, opts);
+            let files = crate::core::git::files::between(repo, parent, Some(oid));
+            let mut report = module.diff_with(&before, &after, &path, opts, &files);
             report.warnings.extend(warnings);
             Some(report)
         }

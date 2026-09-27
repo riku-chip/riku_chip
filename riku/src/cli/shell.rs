@@ -90,7 +90,7 @@ impl ShellContext {
         for entry in &entries {
             let path = entry.path();
             let openable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                ["sch", "sym", "gds", "oas"].iter().any(|o| e.eq_ignore_ascii_case(o))
+                ["sch", "sym", "gds", "oas", "mag"].iter().any(|o| e.eq_ignore_ascii_case(o))
             });
             if openable {
                 let in_git = self
@@ -228,7 +228,7 @@ pub(super) fn run_shell() -> Result<(), String> {
 fn print_shell_help() {
     println!();
     println!("  Navegación:");
-    println!("    ls [ruta]                                     listar .sch, .sym, .gds y .oas");
+    println!("    ls [ruta]                                     listar .sch, .sym, .gds, .oas y .mag");
     println!("    cd <ruta>                                     cambiar directorio");
     println!();
     println!("  Git:");
@@ -242,12 +242,12 @@ fn print_shell_help() {
     println!(
         "                                                    historial con resumen semántico por commit"
     );
-    println!("    diff <commit_a> <commit_b> <archivo>          diff semántico (.sch, .gds, .oas)");
+    println!("    diff <commit_a> <commit_b> <archivo>          diff semántico (.sch, .gds, .oas, .mag)");
     println!("    diff ... --format visual                      diff en el visor");
     println!("    show <commit> [archivo]                       cambios de un commit respecto a su padre");
     println!();
     println!("  Visor:");
-    println!("    open [archivo]                                abrir el visor (.sch, .gds, .oas)");
+    println!("    open [archivo]                                abrir el visor (.sch, .gds, .oas, .mag)");
     println!();
     println!("  Entorno:");
     println!("    doctor                                        verificar PDK y repo");

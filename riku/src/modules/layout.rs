@@ -5,10 +5,10 @@
 use std::sync::Arc;
 
 use riku_mod_layout::{
-    diff_gds_cached, DiffCache, DiffConfig, GdsError, GdsGeomDiff,
+    diff_layout_sides, DiffCache, DiffConfig, GdsError, GdsGeomDiff, LayoutSide,
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
-use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
+use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
 use viewer_core::ViewerBackend;
 
 use crate::core::domain::models::{Bounds, Change, ChangeKind, Element, FileChange, FileFormat, Via};
@@ -35,7 +35,7 @@ fn geom_change(g: &GdsGeomDiff) -> Change {
         cell: g.cell.clone(),
         layer: g.layer.layer,
         datatype: g.layer.datatype,
-        layer_name: None,
+        layer_name: g.layer_name.clone(),
         via,
     };
     let mut c = Change::new(kind, element)
@@ -51,7 +51,7 @@ fn geom_change(g: &GdsGeomDiff) -> Change {
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
         GdsError::NotGdsii { side } => format!(
-            "{path_hint} ({side}): no es un layout GDSII ni OASIS, se omite el diff."
+            "{path_hint} ({side}): no es un layout GDSII, OASIS ni Magic, se omite el diff."
         ),
         GdsError::Parse { side, msg } => format!(
             "{path_hint} ({side}): no se pudo leer el layout: {msg}"
@@ -59,7 +59,8 @@ fn translate_error(e: GdsError, path_hint: &str) -> String {
     }
 }
 
-/// Módulo de layouts: GDSII y OASIS (motor: gdstk vía riku-mod-layout).
+/// Módulo de layouts: GDSII, OASIS y Magic (motor: gdstk vía riku-mod-layout).
+/// Un `.mag` lee sus sub-celdas de la misma versión (`diff_with`) y del PDK.
 pub struct LayoutModule {
     /// Cache en disco del reporte (solo layouts grandes; ver `DiffCache`).
     cache: DiffCache,
@@ -81,9 +82,9 @@ impl FormatModule for LayoutModule {
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "layout".into(),
-            version: "riku-mod-layout (gdstk cxx)".into(),
+            version: "riku-mod-layout (gdstk cxx; Magic en Rust)".into(),
             format: FileFormat::Gds,
-            extensions: vec![".gds".to_string(), ".oas".to_string()],
+            extensions: vec![".gds".to_string(), ".oas".to_string(), ".mag".to_string()],
             available: true,
         }
     }
@@ -93,6 +94,17 @@ impl FormatModule for LayoutModule {
     }
 
     fn diff(&self, content_a: &[u8], content_b: &[u8], path_hint: &str, opts: &DiffOptions) -> FileChange {
+        self.diff_with(content_a, content_b, path_hint, opts, &DiffFiles::default())
+    }
+
+    fn diff_with(
+        &self,
+        content_a: &[u8],
+        content_b: &[u8],
+        path_hint: &str,
+        opts: &DiffOptions,
+        files: &DiffFiles,
+    ) -> FileChange {
         let mut report = FileChange::new(FileFormat::Gds);
 
         let cfg = DiffConfig {
@@ -100,7 +112,9 @@ impl FormatModule for LayoutModule {
         };
         let off = DiffCache::disabled();
         let cache = if opts.use_cache { &self.cache } else { &off };
-        let r = match diff_gds_cached(content_a, content_b, &cfg, cache) {
+        let a = LayoutSide { bytes: content_a, files: files.before.as_deref() };
+        let b = LayoutSide { bytes: content_b, files: files.after.as_deref() };
+        let r = match diff_layout_sides(a, b, path_hint, &cfg, cache) {
             Ok(r) => r,
             Err(e) => {
                 report.warnings.push(translate_error(e, path_hint));

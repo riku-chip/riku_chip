@@ -22,7 +22,7 @@ use super::Cli;
 /// Comandos propios del shell (además de los subcomandos de la CLI).
 const SHELL_COMMANDS: &[&str] = &["cd", "ls", "help", "exit"];
 /// Archivos que tiene sentido pasar a diff / log / open.
-const FILE_EXTENSIONS: &[&str] = &["sch", "sym", "gds", "oas"];
+const FILE_EXTENSIONS: &[&str] = &["sch", "sym", "gds", "oas", "mag"];
 /// Commits recientes ofrecidos como candidatos.
 const RECENT_COMMITS: usize = 20;
 
