@@ -157,7 +157,7 @@ La columna izquierda del visor mide ~200 px y ya cambia de contenido según el m
 - `summaries: false` da el mismo grafo que con resúmenes.
 - Capturas sobre Xvfb con `xt.py`: el repo de Riku y el clon de gdstk (merges anidados), en claro y oscuro; abrir un archivo desde el historial muestra su diff.
 
-### 4.8 Criterios de diseño (guías de Apple: *Designing Fluid Interfaces*, *Principles of Great Design*)
+### 4.7 Criterios de diseño (guías de Apple: *Designing Fluid Interfaces*, *Principles of Great Design*)
 
 El visor ya los sigue (`gui/motion.rs`: resortes críticamente amortiguados que parten del valor en pantalla, inercia con la proyección de Apple, **Reduce motion** en Ajustes). El panel reusa esas piezas; no se agrega otro sistema de animación.
 
@@ -200,7 +200,7 @@ El visor ya los sigue (`gui/motion.rs`: resortes críticamente amortiguados que 
 
 **Proceso:** prototipo interactivo antes de pulir. En 7.3b, capturas en claro y oscuro y una grabación cuadro a cuadro del abrir/cerrar y de ↑↓ rápido, para revisar que el movimiento no salte ni se atrase.
 
-### 4.9 Pasos
+### 4.8 Pasos
 
 | Paso | Qué | Listo cuando |
 |---|---|---|
@@ -225,7 +225,7 @@ El visor ya los sigue (`gui/motion.rs`: resortes críticamente amortiguados que 
 |---|---|---|---|---|
 | 7.1 | Motor de carriles, orden topológico y reescritura de padres con `--paths` | `core/analysis/graph.rs`, `core/git/commit_log.rs` | S | Tests de propiedades verdes en los DAG sintéticos y en los 722 commits de gdstk |
 | 7.2 | `riku log --graph` (Unicode, ASCII, colores, JSON) | `cli/format/log_text.rs`, `cli/mod.rs` | S | Salidas esperadas; `log` sin `--graph` idéntico |
-| 7.3 | Panel **History** abajo en el visor (ver §4.7: 7.3a–d) | `gui/history_view.rs`, `gui/app.rs`, `locales/gui.yml`, `LogOptions::summaries` | M | Grafo con curvas, clic → cambios → diff visual; capturas en claro y oscuro |
+| 7.3 | Panel **History** abajo en el visor (ver §4.8: 7.3a–d) | `gui/history_view.rs`, `gui/app.rs`, `locales/gui.yml`, `LogOptions::summaries` | M | Grafo con curvas, clic → cambios → diff visual; capturas en claro y oscuro |
 | 7.4 | (Opcional) TUI con `ratatui` sobre el mismo motor | `cli/tui.rs` | M | Si hace falta usar Riku sin escritorio |
 
 ---
