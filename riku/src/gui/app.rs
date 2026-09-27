@@ -318,14 +318,16 @@ impl RikuGuiApp {
         // Modo diff: commits pasados desde el CLI
         if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
             let repo = launch.repo.as_deref().unwrap_or(Path::new("."));
-            app.diff_ctx = Some(DiffContext {
-                commit_a: ca.clone(),
-                commit_b: cb.clone(),
-                file: file.clone(),
-                from_history: false,
-            });
             match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone()) {
-                Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
+                Ok(()) => {
+                    app.status = format!("Diff {} → {}", ca, cb);
+                    app.diff_ctx = Some(DiffContext {
+                        commit_a: ca.clone(),
+                        commit_b: cb.clone(),
+                        file: file.clone(),
+                        from_history: false,
+                    });
+                }
                 Err(e) => app.fail(&tr!("error.diff"), e),
             }
         } else if let Some(path) = app.selected_path.clone() {
@@ -349,6 +351,16 @@ impl RikuGuiApp {
         self.toasts.push(kind, text, self.now);
     }
 
+    /// Descarta la carga en vuelo: cuando llegue no debe pisar lo que se
+    /// abrió después (una vista de ondas, un error, otro diff).
+    fn cancel_pending(&mut self) {
+        if let Some(tok) = self.pending_token.take() {
+            tok.cancel();
+        }
+        self.pending_load = None;
+        self.loading_path = None;
+    }
+
     /// Error: queda en la barra de estado y en un mensaje que no se va solo.
     fn fail(&mut self, what: &str, e: impl std::fmt::Display) {
         let msg = format!("{what}: {e}");
@@ -366,9 +378,12 @@ impl RikuGuiApp {
     }
 
     fn open_path(&mut self, path: &Path) {
+        self.cancel_pending();
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
         self.backend_state = None;
+        // Un archivo suelto no es parte de un diff.
+        self.diff_ctx = None;
         self.remember_recent(path);
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
@@ -417,6 +432,7 @@ impl RikuGuiApp {
         use crate::core::domain::ports::GitRepository;
         use crate::core::git::git_service::GitService;
 
+        self.cancel_pending();
         let svc = GitService::open(repo).map_err(|e| e.to_string())?;
         let file_str = file.to_string_lossy().to_string();
         // Si falta de un lado se compara contra vacío: todo cuenta como
@@ -470,6 +486,11 @@ impl RikuGuiApp {
             .cloned()
             .ok_or_else(|| tr!("error.no_viewer", file = file_str))?;
 
+        // Una vista de ondas abierta taparía el diff pedido.
+        #[cfg(feature = "spice")]
+        {
+            self.wave = None;
+        }
         self.selected_path = Some(file.to_path_buf());
         // Otros archivos de cada commit, para los formatos que los necesitan.
         // Contra el disco, las sub-celdas también salen del disco.
@@ -579,10 +600,14 @@ impl RikuGuiApp {
         let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
         let parent = parent.unwrap_or_default();
         let file = PathBuf::from(&path);
-        self.diff_ctx = Some(DiffContext { commit_a: parent.clone(), commit_b: commit.clone(), file: file.clone(), from_history: true });
         self.selected_path = Some(repo.join(&path));
+        // El contexto (la ruta sobre el lienzo) solo si la carga arrancó: si
+        // no, quedaría el de un diff que no se ve.
         match self.load_backend_diff(&repo, &parent, &commit, &file, None) {
-            Ok(()) => self.status = format!("Diff {} → {} · {path}", short_hash(&parent), short_hash(&commit)),
+            Ok(()) => {
+                self.status = format!("Diff {} → {} · {path}", short_hash(&parent), short_hash(&commit));
+                self.diff_ctx = Some(DiffContext { commit_a: parent, commit_b: commit, file, from_history: true });
+            }
             Err(e) => self.fail(&tr!("error.diff"), e),
         }
     }
@@ -658,6 +683,7 @@ impl RikuGuiApp {
     /// Abre un `.raw` en la vista de formas de onda. `true` si se pudo.
     #[cfg(feature = "spice")]
     fn open_raw(&mut self, path: &Path) -> bool {
+        self.cancel_pending();
         match read_raw(path) {
             Ok(file) => {
                 let view = WaveView::single(file, path.to_path_buf(), &self.wave_exprs);

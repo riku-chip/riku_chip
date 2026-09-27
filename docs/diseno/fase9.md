@@ -130,3 +130,4 @@ Cada paso con la verificación completa: suite con `-D warnings`, combinaciones 
 | B4 | Hecho | `read_ascii`: más valores que variables en un punto es error, no pánico |
 | B5 | Hecho | gdstk_rust: un aviso del lector (códigos 1-8) devuelve la `Library` y `read_warning()`; riku lo muestra como aviso (qué celdas faltan) en el diff y en el visor |
 | B6 | Hecho | `diff_set::token_files`: el visor contra `:worktree` lee las sub-celdas del disco |
+| B7 | Hecho | `cancel_pending()` al empezar toda carga (abrir, diff, `.raw`); el diff saca la vista de ondas; `diff_ctx` se limpia al abrir un archivo y se fija solo si la carga arrancó. Verificado compilando y con la suite (el visor no tiene tests de estado); el arreglo de raíz es el `enum Content` de 9.3 |
