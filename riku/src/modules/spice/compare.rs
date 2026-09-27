@@ -117,16 +117,23 @@ pub fn compare_plot(a: Option<&Plot>, b: Option<&Plot>, tol: Tolerance) -> PlotD
     fn series<'a>(p: &'a Plot, v: &'a Variable) -> (&'a [f64], &'a [f64]) {
         (p.x().map_or(&[][..], |x| &x.values[..]), &v.values[..])
     }
+    // Señales por nombre (sin distinguir mayúsculas, gana la primera):
+    // buscar recorriendo el otro lado era O(n²) con miles de señales.
+    let by_name = |p: Option<&'_ Plot>| -> std::collections::HashMap<String, usize> {
+        p.map(|p| p.signals().iter().enumerate().rev().map(|(i, v)| (v.name.to_ascii_lowercase(), i)).collect())
+            .unwrap_or_default()
+    };
+    let (in_a, in_b) = (by_name(a), by_name(b));
     let mut signals = Vec::new();
     if let Some(pb) = b {
         for sb in pb.signals() {
-            let sa = a.and_then(|pa| pa.signal(&sb.name).map(|sa| series(pa, sa)));
+            let sa = a.zip(in_a.get(&sb.name.to_ascii_lowercase())).map(|(pa, &i)| series(pa, &pa.signals()[i]));
             signals.push(compare_series(&name, &sb.name, sb.unit(complex), x_unit, sa, Some(series(pb, sb)), tol));
         }
     }
     if let Some(pa) = a {
         for sa in pa.signals() {
-            if b.and_then(|pb| pb.signal(&sa.name)).is_none() {
+            if !in_b.contains_key(&sa.name.to_ascii_lowercase()) {
                 signals.push(compare_series(&name, &sa.name, sa.unit(complex), x_unit, Some(series(pa, sa)), None, tol));
             }
         }
