@@ -452,6 +452,11 @@ impl ViewerBackend for GdsBackend {
             scene.current_entry = Some(cell.name().to_string());
             scene.entries = entries;
             // Índice espacial (culling y nivel de detalle): aquí, fuera del hilo de la UI.
+            // Es lo más caro de la carga: si ya la cancelaron (otra celda,
+            // otro archivo), no se arma.
+            if token.is_cancelled() {
+                return Err(ViewerError::Cancelled);
+            }
             scene.build_index();
             release_free_memory();
             Ok(scene)
@@ -521,14 +526,16 @@ impl ViewerBackend for GdsBackend {
                 a.as_ref().and_then(|s| s.info.as_ref()),
                 b.as_ref().and_then(|s| s.info.as_ref()),
             );
-            build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff).map(|mut s| {
-                let cell = s.current_entry.clone();
-                s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
-                s.notices.extend(notices);
-                s.build_index();
-                release_free_memory();
-                s
-            })
+            let mut s = build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff)?;
+            let cell = s.current_entry.clone();
+            s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
+            s.notices.extend(notices);
+            if token.is_cancelled() {
+                return Err(ViewerError::Cancelled);
+            }
+            s.build_index();
+            release_free_memory();
+            Ok(s)
         })
         .await??;
 
