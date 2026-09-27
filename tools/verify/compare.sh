@@ -16,7 +16,7 @@ mkdir -p "$OUT"
 
 echo "Compilando verify_dump..." >&2
 (cd "$ROOT/riku-mod-layout" && cargo build -q --release --example verify_dump)
-DUMP="${CARGO_TARGET_DIR:-$ROOT/riku-mod-layout/target}/release/examples/verify_dump"
+DUMP="${CARGO_TARGET_DIR:-$ROOT/target}/release/examples/verify_dump"
 
 status=0
 compare() { # nombre, archivo riku, archivo klayout

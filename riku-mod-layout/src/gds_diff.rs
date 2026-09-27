@@ -1066,4 +1066,38 @@ mod tests {
         assert!((sum_area_um2(&add, 1.0) - sum_area_um2(&full.added, 1.0)).abs() < 1e-9);
         assert!((sum_area_um2(&rem, 1.0) - sum_area_um2(&full.removed, 1.0)).abs() < 1e-9);
     }
+
+    /// `gds_with` más un PATH de ancho 200 en la capa 5 (que no tiene
+    /// polígonos), antes del ENDSTR de `TOP`.
+    fn with_path(mut gds: Vec<u8>, pts: &[(i32, i32)]) -> Vec<u8> {
+        let mut p = Vec::new();
+        let mut rec = |kind: u16, data: Vec<u8>| {
+            p.extend_from_slice(&((4 + data.len()) as u16).to_be_bytes());
+            p.extend_from_slice(&kind.to_be_bytes());
+            p.extend(data);
+        };
+        rec(0x0900, vec![]);
+        rec(0x0D02, 5i16.to_be_bytes().to_vec());
+        rec(0x0E02, 0i16.to_be_bytes().to_vec());
+        rec(0x0F03, 200i32.to_be_bytes().to_vec());
+        rec(0x1003, pts.iter().flat_map(|(x, y)| [x.to_be_bytes(), y.to_be_bytes()].concat()).collect());
+        rec(0x1100, vec![]);
+        // Los últimos 8 bytes son ENDSTR y ENDLIB.
+        let at = gds.len() - 8;
+        gds.splice(at..at, p);
+        gds
+    }
+
+    #[test]
+    fn change_in_a_layer_drawn_only_with_paths_is_reported() {
+        let square = sq(0);
+        let base = gds_with(&[&square[..]]);
+        let a = with_path(base.clone(), &[(0, 5000), (5000, 5000)]);
+        let b = with_path(base, &[(0, 5000), (6000, 5000)]);
+        let r = diff_gds(&a, &b).expect("diff");
+        let layers: Vec<LayerKey> = r.geometry.iter().map(|g| g.layer).collect();
+        assert_eq!(layers, vec![LayerKey { layer: 5, datatype: 0 }], "{:?}", r.geometry);
+        let added: f64 = r.geometry.iter().map(|g| g.added_area_um2).sum();
+        assert!((added - 1.0 * 0.2).abs() < 1e-9, "añadido {added}");
+    }
 }

@@ -1,6 +1,6 @@
 # Fase 6: rendimiento con layouts grandes y multinúcleo
 
-Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-26): **6.1, 6.2 y 6.5.a hechos**; faltan 6.3, 6.4, 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
+Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-26): **6.1, 6.2, 6.3 y 6.5.a hechos**; faltan 6.4, 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
 
 ---
 
@@ -130,22 +130,52 @@ Revisión del C++ (lo que usa Riku):
 3. **Test concurrente:** 12 hilos que aplanan y hacen XOR sobre la misma librería (con paths), muchas rondas, comparando contra el resultado secuencial. Corre en la CI de gdstk-rs con el toolchain estable. ThreadSanitizer queda como job aparte y opcional: necesita nightly (`-Zsanitizer=thread`) **y** compilar el C++ de gdstk con `-fsanitize=thread`; el contenedor solo tiene el toolchain estable y no tiene valgrind, así que se hace en el runner de GitHub.
 4. **Memoria que no baja** (2,5 GB tras liberar las huellas): verificado en `shims.cpp` que `FlattenedPolygonsHandle` libera cada polígono al soltarse, así que no es una fuga evidente. Lo más probable es el allocator de glibc reteniendo arenas fragmentadas por millones de asignaciones chicas. Plan: `malloc_trim(0)` desde el shim al terminar un aplanado grande y medir con `profile_diff`; si no baja, probar `heaptrack` en el runner.
 
+**Revisión para implementar (2026-09-26, después de 6.1):**
+- **Qué se marca `Send`/`Sync`:** en Rust, `Cell<'a>`, `Polygon<'a>` y los demás guardan `&'a ffi::XxxHandle`, y los tipos opacos de `cxx` no son `Sync`. No alcanza con `Library`: se declara `unsafe impl Send + Sync` en el bridge para los handles de solo lectura (`LibraryHandle`, `CellHandle`, `ReferenceHandle`, `PolygonHandle`, `LabelHandle`, `FlexPathHandle`, `RobustPathHandle`, `RepetitionHandle`, `FlattenedPolygonsHandle`, `TopLevelView`) y `Send` para `XorSplitHandle`. Con eso, los wrappers heredan todo solos.
+- **Otros caminos que llegan a `FlexPath::to_polygons`:** `Cell::bounding_box` y `Reference::bounding_box` (usan `const_cast` en el shim) y `write_gds`/`write_oas`. La normalización al cargar los cubre a todos.
+- **`as_flexpath_mut`** (`shims.cpp`) no lo usa ninguna función expuesta: se borra, para que no quede una puerta a escribir desde `&self`.
+- **Test de la normalización:** un GDS con `PATH` que tenga puntos repetidos. El aplanado debe dar lo mismo antes y después de normalizar, y lo mismo en 12 hilos que en uno.
+
 ### 4.4 Paralelismo del diff (`riku-mod-layout`, con `rayon`)
 
-Sobre 4.1 y 4.3:
+**Medición después de 6.1** (layout de 42 MB, sin cambios reales, 1 núcleo): `riku diff` tarda **5,9 s** y ocupa **1,7 GB**.
 
-| Nivel | Qué se reparte | Nota |
+| Etapa | Tiempo | Nota |
 |---|---|---|
-| Lectura | A y B a la vez (`rayon::join`) | 0,5 → 0,25 s |
-| Huella de celdas | cada celda común | la top domina (3,8 s de 4,2 s); el resto es chico |
-| Capas | aplanar + huella (+ XOR si cambió) de cada capa de cada celda que cambió | la unidad de trabajo fina: (celda, capa) |
-| XOR grande | cuadrantes (4.5) | solo si la capa cambió y es pesada |
+| Leer A y B | 0,47 s | |
+| Aplanar las 28 celdas, A y B | 2,6 s | la top sola: 2,17 s (12,4 millones de polígonos) |
+| Huellas (`canonical_points` + hash + orden) | ~2,7 s | un `Vec` nuevo por polígono, 13,8 millones de veces |
+| XOR | 0 | ninguna capa difiere |
 
-- **Presupuesto de memoria:** cada tarea (celda, capa) estima su tamaño (polígonos propios × referencias, o el conteo aplanado de la huella de celda, que ya se calculó) y pide ese cupo a un semáforo de bytes antes de aplanar. Por defecto el cupo total es el 50 % de la RAM libre (`/proc/meminfo`). Las tareas grandes esperan su turno; las chicas llenan los huecos.
-- **Orden:** las tareas más grandes primero (la cola larga queda con tareas chicas y los núcleos no se quedan ociosos al final).
-- **Resultado determinista:** se recolecta por (celda, capa) y se ordena como hoy antes de agrupar instancias, así la salida no depende del orden en que terminen los hilos.
-- **Cache (`diff_cache.rs`):** el archivo temporal se llama `tmp<pid>`, así que dos hilos que guardan la misma clave lo pisarían. Pasa a `tmp<pid>-<contador atómico>`.
-- **Estimado:** de ~12 s (4.1) a **~4–6 s**, con el piso en la huella de la celda top y en aplanar la capa 6/0.
+Con un cambio real en las capas 6/0 y 19/0 son **16 s**. Lo extra es volver a aplanar esas capas, volver a hashearlas en `xor_layer` y hacer el XOR local.
+
+**Hallazgo:** después de 6.1 el piso ya no es el XOR sino **aplanar y hashear la top**. Además, `layer_prints` aplana toda la celda y la guarda entera (≈ 180 B por polígono, ~2,2 GB) para quedarse con 8 B por polígono.
+
+**Diseño:**
+
+| # | Qué | Cómo | Ganancia estimada |
+|---|---|---|---|
+| a | Leer A y B a la vez | `rayon::join` | 0,47 → 0,25 s |
+| b | **Huella por pedazos** | `Cell::get_polygons` es, en el C++, lo propio de la celda más `Reference::get_polygons` de cada referencia. `layer_prints` hace lo mismo en pedazos: lo propio (`depth(0)`) y cada referencia, en paralelo. Cada pedazo se aplana, se hashea y se suelta. Al final se juntan los vectores por capa y se ordenan (`par_sort_unstable`) | aplanar + huellas: 5,3 → ~0,6 s; pico de memoria de ~2,2 GB a lo que haya en vuelo |
+| c | Sin asignación por polígono | `canonical_points` escribe en un buffer reutilizado por hilo | ~2× en las huellas, aun en un núcleo |
+| d | Celdas y lados A/B en paralelo | `par_iter` sobre las celdas comunes; A y B de cada una con `join` | rayon anida sin sobresuscribir |
+| e | Capas que difieren, en paralelo | `par_iter` sobre esas capas: aplanar filtrado + `xor_layer` | caso con cambios: 16 → ~4–5 s |
+
+- **Correctitud de (b):** el multiconjunto de polígonos es el mismo que el de `get_polygons()` completo, porque el C++ hace exactamente eso. Un test compara la huella por pedazos con la huella entera en los fixtures y en los tres PDKs.
+- **Referencia gigante:** si una sola referencia concentra casi todo (un macro que es el 90 % del chip), ese pedazo queda en un hilo. Primero se mide cómo se reparten las referencias de la top. Si hace falta, se parte también dentro del macro, lo que exige componer transformaciones y queda fuera de este paso.
+- **Presupuesto de memoria (solo para e):** la huella ya dice cuántos polígonos tiene cada capa de cada lado. Cada tarea pide `(nA + nB) × 180 B` a un semáforo de bytes antes de aplanar; el cupo total es el 50 % de `MemAvailable` (`/proc/meminfo`). Las tareas grandes van primero; una tarea más grande que todo el cupo corre sola, para no trabarse.
+- **Salida determinista:** `par_iter` sobre las capas en orden, y `collect` conserva ese orden. Después se agrupan las instancias como hoy.
+- **Cache (`diff_cache.rs`):** el archivo temporal pasa de `tmp<pid>` a `tmp<pid>-<contador atómico>`.
+- **Pool:** uno global. `riku` lo configura al arrancar con `--jobs N` o `RIKU_JOBS`; `riku-mod-layout` solo usa `rayon` y no fija tamaños. `RIKU_JOBS=1` sirve de salida de emergencia.
+- **Visor:** `diff_cell_as` pasa por `diff_one_cell` y se beneficia solo. La carga de la escena (`scene.rs`, `get_polygons` de toda la celda) puede usar los mismos pedazos más adelante.
+
+**Objetivos revisados:** O1 ya se cumple en un núcleo. Nuevos: sin cambios, **< 2 s** y **< 1 GB**; con el cambio en 6/0 y 19/0, **< 6 s**; salida idéntica (`riku_phase1_regress.sh`, `compare.sh --xor`).
+
+**Orden de implementación, midiendo cada paso con `profile_diff` y `/usr/bin/time`:**
+1. 6.3 en gdstk_rust: normalización, `Send`/`Sync`, test concurrente. Commit ahí y actualización del submódulo.
+2. (b) y (c) todavía en un núcleo, con el test de igualdad. Ahí se ve la baja de memoria.
+3. `rayon`: (a), (b) y (d) en paralelo.
+4. (e) con el presupuesto de memoria, `--jobs`/`RIKU_JOBS` y el arreglo de la cache.
 
 ### 4.5 XOR de una capa que cambió: primero por huellas, cuadrantes como respaldo
 
@@ -199,7 +229,7 @@ Umbral inicial: más de 100 mil polígonos propios en un lado.
 | 6.1 | Huella por capa | `riku-mod-layout` | S | O1 en un núcleo (< 30 s) y O2 |
 | 6.2 | Índice espacial, LOD y triangulación en cache — **hecho** (4.2: 11 GB → 2,5 GB, 600 ms → 2 ms) | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
 | 6.3 | gdstk-rs seguro entre hilos + memoria | `external/gdstk` | M | O5; la RAM baja al liberar |
-| 6.4 | `rayon` en el diff + presupuesto de memoria + cache | `riku-mod-layout` | M | O1 con 12 núcleos (< 10 s) y O2 |
+| 6.4 | Huella por pedazos + `rayon` en el diff + presupuesto de memoria + cache | `riku-mod-layout`, `riku` (`--jobs`) | M | sin cambios < 2 s y < 1 GB; con cambios < 6 s; O2 |
 | 6.5.a | Diferencia por huellas con recorte local | `riku-mod-layout` | S | capa cambiada con pocos cambios: XOR en ms; áreas iguales a KLayout |
 | 6.5.b | XOR por cuadrantes (respaldo) | `riku-mod-layout`, `external/gdstk` | M | O4 y áreas iguales a KLayout |
 | 6.6 | `log`/`show`/`status` en paralelo | `riku/src/core/analysis` | S | salida idéntica; `log -n 200` < 1 s |
@@ -253,8 +283,14 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 | Paso | Estado | Notas |
 |---|---|---|
 | 6.1 + 6.5.a | Hecho (2026-09-26) | `gds_diff.rs`: la huella de celda pasa a ser **por capa** (`layer_prints`, una sola pasada de aplanado) y se reutiliza para saltar las capas iguales. Las capas que difieren van a `xor_layer`: empareja los polígonos idénticos de A y B (hash + vértices), y si lo común es mayoría hace el XOR solo de lo propio más los comunes que lo tocan (`XOR(A' ∪ Cl, B' ∪ Cl)`, grilla de bboxes); si no, el XOR de la capa entera como antes. Resultado en el layout de 42 MB: **~22 min → 6,4 s** (1,7 GB), igual a KLayout (área de diferencia 0; KLayout tarda 26 s). Con un cambio real en las capas 6/0 (4,8 millones de polígonos) y 19/0: **16 s**, áreas idénticas a KLayout. `riku-mod-layout` sube a 0.2.0 (invalida la cache). 54 tests; regresión y `compare.sh --xor` idénticos |
+| 6.3 | Hecho (2026-09-26) | `gdstk_rust` `3ff9daf`. `finish_load` (shims.cpp), al leer GDS/OASIS: borra una vez los puntos repetidos de cada `FlexPath` (copia de `remove_overlapping_points`, que en gdstk es privada) y calcula las capas de `Library::layers()`. `unsafe impl Send + Sync` para los handles del bridge, con el porqué. Se borró `as_flexpath_mut`. `tests/concurrency.rs`: 12 hilos × 40 rondas aplanan, piden bbox, capas y XOR (jerarquía SREF/AREF y paths con puntos repetidos) y dan lo mismo que un hilo. CI de gdstk_rust: job no bloqueante con ThreadSanitizer. Regresión, `compare.sh` (tres PDKs) y `compare.sh --xor` idénticos |
 
-**Diferencias con el plan:**
+**Diferencias con el plan (6.1 + 6.5.a):**
 - **Hizo falta tocar gdstk-rs** (el plan decía que no): no había una booleana sobre listas de polígonos. Se agregó `xor_split_owned` (`gdstk_rust` `3746c63`), con dos tests que la comparan contra `xor_split_flat`.
 - **La causa real del caso de 42 MB no era Clipper sino la huella.** B es una reexportación de A: los mismos polígonos escritos con otro vértice de inicio o sentido de giro. Con la huella por vértices literales, ninguna capa coincidía (0 gemelos en 4,8 millones en la 6/0). La huella usa ahora la **forma canónica** de cada polígono (`canonical_points`: cuantizado, sin puntos repetidos ni el de cierre, antihorario, empezando por el vértice menor). Con la regla nonzero de gdstk, esa normalización no cambia la región: dos polígonos con la misma forma canónica cubren exactamente lo mismo. Con ella, el 100 % de los polígonos tiene su gemelo y el diff ni siquiera llega al XOR.
 - Los "6 polígonos de diferencia" que el XOR completo reportaba en la capa 8/0 eran restos del redondeo de Clipper entre dos escrituras distintas de la misma geometría: KLayout mide área 0 y la forma canónica empareja los 9.252 polígonos.
+
+**Diferencias con el plan (6.3):**
+- **Había otra escritura:** la cache perezosa de `Library::layers()` (`mutable` en `LibraryHandle::Impl`) se llenaba en la primera llamada; dos hilos a la vez la corrompían. Ahora se calcula al cargar.
+- **Bug encontrado de paso:** `Library::layers()` solo miraba los polígonos, y el diff recorre esas capas; un cambio en una capa dibujada solo con paths no se reportaba. Ahora incluye las capas de los paths (test `change_in_a_layer_drawn_only_with_paths_is_reported`).
+- **Memoria que no baja (`malloc_trim`):** pasa a 6.4. La huella por pedazos ya evita aplanar la celda entera; se mide ahí si todavía hace falta.
