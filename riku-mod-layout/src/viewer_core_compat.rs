@@ -660,6 +660,7 @@ fn build_diff_scene(
     let mut names = lib_a.map(layer_names).unwrap_or_default();
     names.extend(lib_b.map(layer_names).unwrap_or_default());
     scene.changes = change_items(&diff, pdk, unit_factor, &names);
+    scene.notices.extend(diff.failure_notes(&name));
     scene.changes.extend(cell_presence_items(&changed));
 
     let relevant = diff.geometry.iter().filter(|g| !g.cosmetic).count();

@@ -455,25 +455,28 @@ fn diff_libraries_unnamed(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg:
     // jerarquica tienen el mismo aplanado: ni se aplanan.
     let common: Vec<&String> = names_a.intersection(&names_b).collect();
     let (tree_a, tree_b) = rayon::join(|| tree_prints(&lib_a), || tree_prints(&lib_b));
-    let per_cell: Vec<Vec<GdsGeomDiff>> = common
+    let per_cell: Vec<(Vec<GdsGeomDiff>, Vec<String>)> = common
         .par_iter()
         .map(|name| {
             if tree_a.same(&tree_b, name) {
-                return Vec::new();
+                return Default::default();
             }
             let (Some(ca), Some(cb)) = (lib_a.find_cell(name), lib_b.find_cell(name)) else {
-                return Vec::new();
+                return Default::default();
             };
             // Geometria aplanada identica: el XOR daria vacio, no hace falta.
             let prints = pair_prints(&ca, &cb, Some((&tree_a, &tree_b)));
             if prints.same() {
-                return Vec::new();
+                return Default::default();
             }
-            diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg, Some(&prints)).geometry
+            let d = diff_one_cell(name, Some(&ca), Some(&cb), &layers, unit_factor, cfg, Some(&prints));
+            let notes = d.failure_notes(name);
+            (d.geometry, notes)
         })
         .collect();
-    for geometry in per_cell {
+    for (geometry, notes) in per_cell {
         report.geometry.extend(group_instances(geometry, cfg));
+        report.warnings.extend(notes);
     }
 
     report
@@ -496,6 +499,19 @@ pub struct LayerPolygons {
 pub struct CellDiff {
     pub geometry: Vec<GdsGeomDiff>,
     pub polygons: Vec<LayerPolygons>,
+    /// Capas donde falló la operación booleana (Clipper): su diff puede
+    /// estar incompleto.
+    pub failed_layers: Vec<LayerKey>,
+}
+
+impl CellDiff {
+    /// Un aviso por capa con el XOR fallido.
+    pub fn failure_notes(&self, cell: &str) -> Vec<String> {
+        self.failed_layers
+            .iter()
+            .map(|k| format!("{cell}, capa {}/{}: falló la operación booleana (Clipper); el cambio de esa capa puede estar incompleto", k.layer, k.datatype))
+            .collect()
+    }
 }
 
 /// Diff de la cell `name` entre dos libraries. Un lado `None` (archivo que
@@ -576,14 +592,19 @@ fn diff_one_cell(
     // Las instancias de cada lado, para atribuir los poligonos del XOR; se
     // arman una vez por cell (la primera capa que las necesita).
     let origins = (std::sync::OnceLock::new(), std::sync::OnceLock::new());
-    let per_layer: Vec<Option<(Vec<GdsGeomDiff>, LayerPolygons)>> = keys
+    let per_layer: Vec<(Option<(Vec<GdsGeomDiff>, LayerPolygons)>, bool)> = keys
         .par_iter()
         .map(|key| diff_layer(name, ca, cb, **key, unit_factor, cfg, prints, &origins))
         .collect();
     let mut out = CellDiff::default();
-    for (geometry, polygons) in per_layer.into_iter().flatten() {
-        out.geometry.extend(geometry);
-        out.polygons.push(polygons);
+    for ((diff, failed), key) in per_layer.into_iter().zip(&keys) {
+        if failed {
+            out.failed_layers.push(**key);
+        }
+        if let Some((geometry, polygons)) = diff {
+            out.geometry.extend(geometry);
+            out.polygons.push(polygons);
+        }
     }
     out
 }
@@ -597,10 +618,10 @@ fn diff_layer(
     cfg: &DiffConfig,
     prints: Option<&PairPrints>,
     origins: &(std::sync::OnceLock<Origins>, std::sync::OnceLock<Origins>),
-) -> Option<(Vec<GdsGeomDiff>, LayerPolygons)> {
+) -> (Option<(Vec<GdsGeomDiff>, LayerPolygons)>, bool) {
     // Aplanado con depth=-1 + filtro por (layer, dt): atravesamos SREF/AREF y
-    // no perdemos cambios en sub-cells.
-    let (added, removed) = match (ca, cb) {
+    // no perdemos cambios en sub-cells. `failed`: Clipper falló.
+    let (added, removed, failed) = match (ca, cb) {
         (Some(ca), Some(cb)) => {
             let t = std::time::Instant::now();
             let own;
@@ -628,12 +649,12 @@ fn diff_layer(
             }
             out
         }
-        (None, Some(cb)) => (flat_layer(cb, &key), Vec::new()),
-        (Some(ca), None) => (Vec::new(), flat_layer(ca, &key)),
-        (None, None) => (Vec::new(), Vec::new()),
+        (None, Some(cb)) => (flat_layer(cb, &key), Vec::new(), false),
+        (Some(ca), None) => (Vec::new(), flat_layer(ca, &key), false),
+        (None, None) => (Vec::new(), Vec::new(), false),
     };
     if added.is_empty() && removed.is_empty() {
-        return None;
+        return (None, failed);
     }
 
     // Bucketear cada poligono por instancia de origen. Para `added`
@@ -678,7 +699,7 @@ fn diff_layer(
             flattened,
         });
     }
-    Some((geometry, LayerPolygons { layer: key, added, removed }))
+    (Some((geometry, LayerPolygons { layer: key, added, removed })), failed)
 }
 
 #[derive(Default)]
@@ -1179,7 +1200,7 @@ mod tests {
         let (fa, fb) = (ca.get_polygons().with_filter(1, 0).build(), cb.get_polygons().with_filter(1, 0).build());
         let full = gdstk_rs::xor_split_flat(&fa, &fb);
         let key = LayerKey { layer: 1, datatype: 0 };
-        let (add, rem) = xor_layer(&ca, &cb, key, &pair_prints(&ca, &cb, None));
+        let (add, rem, _) = xor_layer(&ca, &cb, key, &pair_prints(&ca, &cb, None));
         assert!((sum_area_um2(&add, 1.0) - sum_area_um2(&full.added, 1.0)).abs() < 1e-9);
         assert!((sum_area_um2(&rem, 1.0) - sum_area_um2(&full.removed, 1.0)).abs() < 1e-9);
     }

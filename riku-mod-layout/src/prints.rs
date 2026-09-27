@@ -439,12 +439,15 @@ fn pick_own(pieces: &Pieces<'_>, which: &[usize], own: &[u64]) -> (Vec<OwnedPoly
 /// los gemelos son comunes enteros. Para `Cl` se recorren los pedazos sin
 /// gemelo de A y, de los gemelos, solo las referencias cuyo bbox toca la
 /// zona del cambio. Nunca se guarda la capa entera.
-pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &PairPrints) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>) {
+///
+/// El tercer valor es `true` si Clipper falló en algún cuadrante: el
+/// resultado puede estar incompleto.
+pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &PairPrints) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, bool) {
     let empty = Vec::new();
     let (pa, pb) = (pair.a.get(&key).unwrap_or(&empty), pair.b.get(&key).unwrap_or(&empty));
     let (own_a, own_b) = multiset_diff(pa, pb);
     if own_a.is_empty() && own_b.is_empty() {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), false);
     }
     // Si la capa se regeneró entera, lo propio es casi todo: que no se junten
     // varias de esas a la vez.
@@ -487,7 +490,7 @@ pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &Pair
     let t_local = t.elapsed();
     let (n_a, n_b, n_local, n_scan) = (a_own.len(), b_own.len(), local.len(), scan.len());
     let side = |own: Vec<OwnedPolygon>| -> Vec<OwnedPolygon> { own.into_iter().chain(local.iter().cloned()).collect() };
-    let (added, removed, leaves) = tiled_xor(&side(a_own), &side(b_own), key, LEAF_POLYGONS);
+    let (added, removed, leaves, failed) = tiled_xor(&side(a_own), &side(b_own), key, LEAF_POLYGONS);
     if profile {
         eprintln!(
             "[xor] {}/{}: propios {n_a} + {n_b} en {:.2?} · comunes cerca {n_local} (de {n_scan} pedazos) en {:.2?} · clipper {:.2?} en {leaves} cuadrantes",
@@ -498,7 +501,7 @@ pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &Pair
             t.elapsed() - t_local
         );
     }
-    (added, removed)
+    (added, removed, failed)
 }
 
 /// Polígonos por cuadrante del XOR: con menos, una sola llamada a Clipper.
@@ -516,11 +519,12 @@ const MAX_DEPTH: u32 = 8;
 /// 124 mil) una llamada tarda 358 s y 256 cuadrantes, 4,9 s.
 ///
 /// Un polígono de diferencia que cruza un borde de cuadrante sale partido;
-/// las áreas y los bbox no cambian. Devuelve también la cantidad de hojas.
-fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, usize) {
+/// las áreas y los bbox no cambian. Devuelve también la cantidad de hojas
+/// y si Clipper falló en alguna.
+fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, usize, bool) {
     if a.len() + b.len() <= 2 * leaf {
         let split = xor_split_owned(a, b, key.into());
-        return (split.added, split.removed, 1);
+        return (split.added, split.removed, 1, split.error.is_some());
     }
     let (ba, bb): (Vec<[f64; 4]>, Vec<[f64; 4]>) = (a.iter().map(owned_bbox).collect(), b.iter().map(owned_bbox).collect());
     let bounds = ba.iter().chain(&bb).fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |r, x| {
@@ -530,21 +534,23 @@ fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize)
     let sides = Sides { a: &ba, b: &bb, leaf };
     sides.split(bounds, (0..a.len() as u32).collect(), (0..b.len() as u32).collect(), 0, &mut leaves);
     let n = leaves.len();
-    let parts: Vec<(Vec<OwnedPolygon>, Vec<OwnedPolygon>)> = leaves
+    let parts: Vec<(Vec<OwnedPolygon>, Vec<OwnedPolygon>, bool)> = leaves
         .par_iter()
         .map(|(rect, ia, ib)| {
             let pick = |polys: &[OwnedPolygon], idx: &[u32]| -> Vec<OwnedPolygon> { idx.iter().map(|&i| polys[i as usize].clone()).collect() };
             let split = xor_split_owned(&pick(a, ia), &pick(b, ib), key.into());
             let cut = |v: Vec<OwnedPolygon>| -> Vec<OwnedPolygon> { v.iter().filter_map(|p| clip_to_rect(p, rect)).collect() };
-            (cut(split.added), cut(split.removed))
+            let failed = split.error.is_some();
+            (cut(split.added), cut(split.removed), failed)
         })
         .collect();
-    let (mut added, mut removed) = (Vec::new(), Vec::new());
-    for (x, y) in parts {
+    let (mut added, mut removed, mut failed) = (Vec::new(), Vec::new(), false);
+    for (x, y, f) in parts {
         added.extend(x);
         removed.extend(y);
+        failed |= f;
     }
-    (added, removed, n)
+    (added, removed, n, failed)
 }
 
 /// Los bbox de los polígonos de cada lado, para armar el quadtree.
@@ -935,7 +941,8 @@ mod tests {
         }
         let key = LayerKey { layer: 1, datatype: 0 };
         let whole = xor_split_owned(&a, &b, key.into());
-        let (added, removed, leaves) = tiled_xor(&a, &b, key, 50);
+        let (added, removed, leaves, failed) = tiled_xor(&a, &b, key, 50);
+        assert!(!failed && whole.error.is_none());
         assert!(leaves > 16, "{leaves} hojas");
         assert!((area(&added) - area(&whole.added)).abs() < 1e-9, "{} vs {}", area(&added), area(&whole.added));
         assert!((area(&removed) - area(&whole.removed)).abs() < 1e-9, "{} vs {}", area(&removed), area(&whole.removed));

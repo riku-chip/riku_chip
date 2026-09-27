@@ -185,6 +185,8 @@ struct LayerPolygonsDto {
 pub struct CellDiffDto {
     geometry: Vec<GdsGeomDiff>,
     polygons: Vec<LayerPolygonsDto>,
+    #[serde(default)]
+    failed_layers: Vec<LayerKey>,
 }
 
 fn poly_to_dto(p: &OwnedPolygon) -> PolyDto {
@@ -208,6 +210,7 @@ impl From<&CellDiff> for CellDiffDto {
                     removed: l.removed.iter().map(poly_to_dto).collect(),
                 })
                 .collect(),
+            failed_layers: d.failed_layers.clone(),
         }
     }
 }
@@ -225,6 +228,7 @@ impl From<CellDiffDto> for CellDiff {
                     removed: l.removed.into_iter().map(poly_from_dto).collect(),
                 })
                 .collect(),
+            failed_layers: d.failed_layers,
         }
     }
 }
