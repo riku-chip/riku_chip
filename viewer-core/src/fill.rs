@@ -44,8 +44,14 @@ pub fn triangulate(points: &[(f64, f64)]) -> Vec<usize> {
     if pts.len() < 3 {
         return Vec::new();
     }
-    let flat: Vec<f64> = pts.iter().flat_map(|&(x, y)| [x, y]).collect();
-    earcutr::earcut(&flat, &[], 2).unwrap_or_default()
+    // Un `Earcut` por hilo: reusa sus buffers entre polígonos (el índice
+    // triangula millones, en paralelo).
+    thread_local! {
+        static EARCUT: std::cell::RefCell<earcut::Earcut<f64>> = std::cell::RefCell::new(earcut::Earcut::new());
+    }
+    let mut out: Vec<usize> = Vec::new();
+    EARCUT.with_borrow_mut(|e| e.earcut(pts.iter().map(|&(x, y)| [x, y]), &[], &mut out));
+    out
 }
 
 /// GDS (y muchos formatos) repiten el primer vértice al final para cerrar.
