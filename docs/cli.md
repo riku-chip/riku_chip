@@ -302,7 +302,7 @@ riku diff amp.sch -f png       # y cómo se ve (imprime la ruta de la imagen)
 | `RIKU_LANG` | Idioma de la CLI y del visor: `en` (por defecto) o `es`. En el visor también se elige en Settings → Language |
 | `RIKU_NO_CACHE=1` | Sin cache de diffs de layouts |
 | `RIKU_MAG_PATH=dir1:dir2` | Directorios extra donde buscar las celdas `.mag` que usa un layout de Magic (antes que el PDK) |
-| `RIKU_MAG_LAMBDA=µm` | Lambda de Magic, si la tecnología del `.mag` no es SKY130, GF180 ni IHP |
+| `RIKU_MAG_LAMBDA=µm` | Lambda de Magic, si el `.tech` de la tecnología del `.mag` no está en `$PDK_ROOT` |
 | `RIKU_JOBS=N` | Hilos para el trabajo pesado (igual que `--jobs N`, que vale en cualquier comando); por defecto, los núcleos disponibles. `RIKU_JOBS=1` deja todo en un hilo |
 | `RIKU_PROFILE=1` | El visor imprime el tiempo de cada cuadro ([`gui.md`](gui.md)); el diff de layouts, el tiempo de cada capa que difiere (polígonos propios, comunes cercanos y Clipper) |
 | `RIKU_LOD_PX` | Lado de los texels del nivel de detalle del visor, en píxeles (1 por defecto) |

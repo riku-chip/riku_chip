@@ -8,6 +8,7 @@ mod hier_walk;
 mod labels;
 pub mod mag;
 mod palette;
+pub mod pdk_tech;
 mod prints;
 mod palette_generated;
 mod magic_layers_generated;

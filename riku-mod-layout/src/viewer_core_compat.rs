@@ -30,7 +30,8 @@ use viewer_core::{
 
 use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
 use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
-use crate::palette::{detect_pdk, layer_spec, magic_layer_spec, magic_pdk, LayerRole, LayerSpec};
+use crate::palette::{detect_pdk, layer_spec_in, magic_layer_spec_in, magic_pdk, LayerRole, LayerSpec};
+use crate::pdk_tech::{self, Tech};
 use crate::style::Pdk;
 
 pub struct GdsBackend {
@@ -118,8 +119,29 @@ fn fill_alpha(role: LayerRole) -> u8 {
 /// GDS en el PDK (`magic_layer_spec`) y se muestran con su nombre.
 struct LayerKeys {
     keys: BTreeMap<(u32, u32), Layer>,
-    pdk: Pdk,
+    pdk: ScenePdk,
     names: LayerNames,
+}
+
+/// PDK de una escena: el que riku trae compilado (`Generic` si no es uno de
+/// ellos) y el instalado que mejor conoce sus capas, leído del disco.
+#[derive(Clone, Copy)]
+struct ScenePdk {
+    pdk: Pdk,
+    tech: Option<&'static Tech>,
+}
+
+impl ScenePdk {
+    fn spec(self, tag: GdsTag) -> LayerSpec {
+        layer_spec_in(tag, self.pdk, self.tech)
+    }
+
+    fn name(self) -> String {
+        match (self.pdk, self.tech) {
+            (Pdk::Generic, Some(t)) => t.name.clone(),
+            (pdk, _) => pdk_name(pdk).to_string(),
+        }
+    }
 }
 
 /// Nombre de cada capa con nombre (Magic) de una `Library`.
@@ -131,10 +153,15 @@ fn layer_names(lib: &Library) -> LayerNames {
 
 /// PDK de una escena: por los nombres de Magic si los hay, si no por la ruta
 /// y las capas.
-fn scene_pdk(names: &LayerNames, path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
+fn scene_pdk(names: &LayerNames, path_hint: Option<&str>, tags: &[GdsTag]) -> ScenePdk {
+    if names.is_empty() {
+        let tuples: Vec<(u32, u32)> = tags.iter().map(|&t| tag_tuple(t)).collect();
+        return ScenePdk { pdk: detect_pdk(path_hint, tags), tech: pdk_tech::for_tags(&tuples) };
+    }
+    let tech = pdk_tech::for_magic(names.values().map(String::as_str));
     match magic_pdk(names.values().map(String::as_str)) {
-        Pdk::Generic => detect_pdk(path_hint, tags),
-        pdk => pdk,
+        Pdk::Generic => ScenePdk { pdk: detect_pdk(path_hint, tags), tech },
+        pdk => ScenePdk { pdk, tech },
     }
 }
 
@@ -156,8 +183,8 @@ impl LayerKeys {
 
     fn spec(&self, tag: GdsTag) -> LayerSpec {
         match self.names.get(&tag_tuple(tag)) {
-            Some(name) => magic_layer_spec(name, tag, self.pdk),
-            None => layer_spec(tag, self.pdk),
+            Some(name) => magic_layer_spec_in(name, tag, self.pdk.pdk, self.pdk.tech),
+            None => self.pdk.spec(tag),
         }
     }
 
@@ -250,7 +277,7 @@ fn label_element(label: crate::labels::FlatLabel, layer: Layer, text_size: f64) 
 ///
 /// Los polígonos aplanados por gdstk pasan directo a elementos de la escena
 /// (sin una lista intermedia: en el chip de 42 MB eran ~330 MB de pico).
-fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, Pdk) {
+fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, ScenePdk) {
     let flat = cell.get_polygons().build();
     let labels = crate::labels::flatten_labels(lib, cell);
     let tags: BTreeSet<(u32, u32)> = flat
@@ -309,7 +336,7 @@ fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Optio
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
-        ("PDK".into(), pdk_name(keys.pdk).into()),
+        ("PDK".into(), keys.pdk.name()),
         ("Polígonos".into(), polygons.to_string()),
         ("Etiquetas".into(), labels.to_string()),
         ("Capas".into(), scene.layers.len().to_string()),
@@ -770,7 +797,7 @@ fn build_diff_scene(
 
 /// Un item por (capa, origen): relevantes primero y, dentro de cada grupo,
 /// los de mayor area.
-fn change_items(diff: &CellDiff, pdk: Pdk, unit_factor: f64, names: &LayerNames) -> Vec<ChangeItem> {
+fn change_items(diff: &CellDiff, pdk: ScenePdk, unit_factor: f64, names: &LayerNames) -> Vec<ChangeItem> {
     let mut geo: Vec<&crate::GdsGeomDiff> = diff.geometry.iter().collect();
     geo.sort_by(|a, b| {
         let area = |g: &crate::GdsGeomDiff| g.added_area_um2 + g.removed_area_um2;
@@ -779,7 +806,7 @@ fn change_items(diff: &CellDiff, pdk: Pdk, unit_factor: f64, names: &LayerNames)
     geo.into_iter()
         .map(|g| {
             let tag = GdsTag { layer: g.layer.layer, datatype: g.layer.datatype };
-            let layer = layer_label(tag, &layer_spec(tag, pdk), names.get(&tag_tuple(tag)).map(String::as_str));
+            let layer = layer_label(tag, &pdk.spec(tag), names.get(&tag_tuple(tag)).map(String::as_str));
             // Un item por instancia: la posicion distingue las copias.
             let label = match (g.origin_path.get(1), g.instance_at_um) {
                 (Some(sub), Some((x, y))) => format!("{layer} · en {sub} @ ({x:.2}, {y:.2})"),

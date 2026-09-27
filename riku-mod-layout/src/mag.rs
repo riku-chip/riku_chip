@@ -28,9 +28,13 @@ pub fn is_magic(content: &[u8]) -> bool {
 }
 
 /// Lambda (µm) de una tecnología de Magic: el `scalefactor` de la sección
-/// `cifoutput` de su archivo `.tech`. `$RIKU_MAG_LAMBDA` lo fuerza.
+/// `cifoutput` de su archivo `.tech`, leído del PDK instalado. Sin el PDK,
+/// los valores conocidos de SKY130, GF180 e IHP. `$RIKU_MAG_LAMBDA` lo fuerza.
 pub fn lambda_um(tech: Option<&str>) -> (f64, Option<String>) {
     if let Some(v) = std::env::var("RIKU_MAG_LAMBDA").ok().and_then(|v| v.parse::<f64>().ok()) {
+        return (v, None);
+    }
+    if let Some(v) = tech.and_then(crate::pdk_tech::by_name).and_then(|t| t.lambda_um) {
         return (v, None);
     }
     let t = tech.unwrap_or("").to_ascii_lowercase();
@@ -40,17 +44,11 @@ pub fn lambda_um(tech: Option<&str>) -> (f64, Option<String>) {
         (0.01, None)
     } else {
         let name = tech.unwrap_or("(sin tech)");
-        (0.01, Some(format!("tecnología de Magic {name} desconocida: se usa lambda = 0.01 µm (RIKU_MAG_LAMBDA lo cambia)")))
+        (0.01, Some(format!("tecnología de Magic {name} desconocida y sin su .tech en $PDK_ROOT: se usa lambda = 0.01 µm (RIKU_MAG_LAMBDA lo cambia)")))
     }
 }
 
-/// Raíz de los PDK: `$PDK_ROOT`, o `/foss/pdks` si existe.
-fn pdk_root() -> Option<PathBuf> {
-    std::env::var_os("PDK_ROOT")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .or_else(|| Some(PathBuf::from("/foss/pdks")).filter(|p| p.is_dir()))
-}
+use crate::pdk_tech::pdk_root;
 
 /// Tecnologías del PDK con librerías `.mag` (`libs.ref/*/mag`) y cuántas
 /// librerías tiene cada una, para `riku doctor`.
