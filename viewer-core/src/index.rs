@@ -177,6 +177,9 @@ pub struct SceneIndex {
     summary: [Vec<u8>; 2],
     fill: Vec<Fill>,
     triangles: HashMap<u32, Box<[u32]>>,
+    /// Único por índice armado: identifica la escena en cachés de la UI (la
+    /// dirección de memoria no sirve, una escena nueva puede reusarla).
+    id: u64,
 }
 
 impl std::fmt::Debug for SceneIndex {
@@ -305,7 +308,9 @@ impl SceneIndex {
             (bb, width, fill, tris)
         });
 
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let mut index = SceneIndex {
+            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             x0,
             y0,
             side,
@@ -664,6 +669,12 @@ impl SceneIndex {
         (f, self.triangles.get(&(i as u32)).map(|t| &t[..]))
     }
 
+    /// Identificador único de este índice (para cachés que duran más que la
+    /// escena, como las texturas de la pirámide).
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Lado menor del bbox del elemento `i` (0 si no tiene): el ancho de un cable.
     pub fn min_size(&self, i: usize) -> f64 {
         self.width.get(i).map_or(0.0, |w| f64::from(*w))
@@ -701,6 +712,17 @@ mod tests {
 
     fn query(bbox: BoundingBox, px_world: f64, lod: bool) -> LodQuery {
         LodQuery { bbox, px_world, lod, block_px: BLOCK_PX, min_text_px: 0.0, budget: 0 }
+    }
+
+    #[test]
+    fn each_index_has_its_own_id() {
+        // La UI guarda texturas por escena: dos escenas no comparten id
+        // aunque una reuse la memoria de la otra.
+        let els = vec![rect(0.0, 0.0, 1.0, 1)];
+        let bb = scene(&els);
+        let a = SceneIndex::build(&els, &bb, &|_| false).id();
+        let b = SceneIndex::build(&els, &bb, &|_| false).id();
+        assert_ne!(a, b);
     }
 
     #[test]

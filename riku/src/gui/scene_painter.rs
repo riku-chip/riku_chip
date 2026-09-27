@@ -415,7 +415,8 @@ struct CoverageTextures {
 
 #[derive(Clone, PartialEq)]
 struct CoverageKey {
-    scene: usize,
+    /// `SceneIndex::id` de la escena.
+    scene: u64,
     level: usize,
     span: usize,
     hidden: Vec<Layer>,
@@ -444,7 +445,7 @@ fn paint_coverage(
     let Some(view) = index.coverage(level, span) else { return };
     let mut hidden_sorted: Vec<Layer> = hidden.iter().copied().collect();
     hidden_sorted.sort_unstable();
-    let key = CoverageKey { scene: index as *const SceneIndex as usize, level, span, hidden: hidden_sorted, dark: theme.dark };
+    let key = CoverageKey { scene: index.id(), level, span, hidden: hidden_sorted, dark: theme.dark };
     let id = egui::Id::new("riku-coverage-textures");
     let ctx = painter.ctx();
     let mut cache: CoverageTextures = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
@@ -859,12 +860,19 @@ mod tests {
         let Some(path) = std::env::var_os("RIKU_BIG_A") else { return };
         let bytes = std::fs::read(path).unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let scene = rt
-            .block_on(riku_mod_layout::GdsBackend::new().load_entry(bytes, Some("big.gds".into()), None, Default::default()))
-            .unwrap();
+        let backend = riku_mod_layout::GdsBackend::new();
+        let single = rt.block_on(backend.load_entry(bytes.clone(), Some("big.gds".into()), None, Default::default())).unwrap();
+        // Diff contra `$RIKU_BIG_B` si está (fantasmas y marcas del diff).
+        let diff = std::env::var_os("RIKU_BIG_B").map(|b| {
+            let after = std::fs::read(b).unwrap();
+            rt.block_on(backend.load_diff(bytes.clone(), after, Some("big.gds".into()), None, Default::default())).unwrap()
+        });
         let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0));
         let ctx = egui::Context::default();
-        for (name, zoom) in [("encuadrado", 1.0), ("x10", 10.0), ("x100", 100.0)] {
+        let views = [("encuadrado", 1.0), ("x10", 10.0), ("x100", 100.0)];
+        let cases = views.iter().map(|&(n, z)| (n, z, &single)).chain(diff.iter().flat_map(|d| views.iter().map(move |&(n, z)| (n, z, d))));
+        for (i, (name, zoom, scene)) in cases.enumerate() {
+            let name = if i < views.len() { name.to_string() } else { format!("diff {name}") };
             let mut vp = Viewport::default();
             fit_scene(&mut vp, scene.as_ref(), rect);
             zoom_at_screen(&mut vp, zoom, rect.center(), rect);
