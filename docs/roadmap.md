@@ -17,6 +17,7 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | 6 | Rendimiento con layouts grandes y multinúcleo — [`diseno/fase6.md`](diseno/fase6.md) | hecha |
 | 7 | Grafo del historial: `riku log --graph` (Unicode, colores) y panel **Historial** en el visor — [`diseno/fase7.md`](diseno/fase7.md) | hecha: motor, `log --graph` y panel **History** del visor |
 | 8 | Módulo Magic (`.mag`): lector en gdstk-rs, jerarquía entre archivos del mismo commit, capas con nombre, puertos — [`diseno/fase8.md`](diseno/fase8.md) | hecha: igual a KLayout 0.30.12 en 8 jerarquías de los PDK; los 9 281 `.mag` de los PDK se leen |
+| 9 | Revisión del proyecto: 10 bugs, rendimiento (CPU/RAM, índices y grafo de celdas), estructura (SOLID sin sobreingeniería, microkernel) y librerías — [`diseno/fase9.md`](diseno/fase9.md) | plan |
 | — | Módulo `spice`: diff de formas de onda de ngspice (`.raw`) en la CLI y vista de curvas en el visor ([`spice.md`](spice.md)) | hecho |
 
 Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migracion_microkernel.md).
