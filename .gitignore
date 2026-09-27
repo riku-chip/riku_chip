@@ -7,6 +7,9 @@ gdsdk/
 # Local config
 .gitignore
 CLAUDE.md
+# Skills de agentes instaladas en el entorno de cada uno
+.agents/
+skills-lock.json
 
 # Python
 __pycache__/
