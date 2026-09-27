@@ -80,6 +80,36 @@ Lo que quedó sin hacer, con el porqué, para retomarlo cuando haga falta:
 
 ## 9.3 Estructura (SOLID sin sobreingeniería)
 
+### Mapa: qué hace riku hoy, por dónde
+
+| Qué | CLI | Visor (`riku gui`) |
+|---|---|---|
+| Ver un archivo | `riku open archivo` | Panel **Proyecto** (árbol de la carpeta), recientes, arrastrar a la ventana |
+| Cambios sin commitear | `riku status` | — (falta) |
+| Diff de un archivo entre versiones | `riku diff [A] [B] archivo` (`-f visual` abre el visor) | Solo desde **History** (commit contra su padre) o lanzado desde la CLI |
+| Diff de todo el repo | `riku diff [A] [B]` | — |
+| Qué cambió un commit | `riku show` | **History**: elegir un commit muestra sus archivos |
+| Historial | `riku log [--graph]` | **History** (tecla H) con el grafo |
+| Exportar imagen | `riku render` (PNG/SVG, de Carlos) | — |
+| Diagnóstico (PDK, formatos) | `riku doctor` | — |
+| Elegir carpeta / repo | `riku gui /ruta` (al abrir) | — (falta: hoy no se puede cambiar adentro) |
+| Comparar ondas con otro `.raw` | — | Vista de ondas: **Comparar con…** |
+
+### Visor: pantalla de inicio y paridad con la CLI (pedido del usuario)
+
+`riku gui` debe bastar para trabajar sin la terminal: abrir la ventana y elegir ahí qué hacer.
+
+- **Inicio** (cuando no hay nada abierto; reemplaza "Abre un diseño"):
+  - **Proyecto:** la carpeta actual y el repo Git detectado (rama, cambios sin commitear); **Abrir carpeta…** con un selector propio en egui (navegar carpetas o pegar una ruta: sin diálogos nativos, que en Linux dependen de GTK o de un portal y no andan en el contenedor ni por WSLg); **carpetas recientes**. Sin repo, abre igual y History dice "sin repositorio Git".
+  - **Acciones:** *Cambios sin commitear* (lo de `status`: cada archivo abre su diff contra `HEAD`), *Historial* (abre History), *Comparar…* (archivo + versión A + versión B: rama, tag, commit o el disco), *Abrir archivo*, *Diagnóstico* (lo de `doctor`: PDK, formatos).
+  - **Recientes** (archivos), como hoy.
+- **En un archivo abierto:** *Exportar imagen* (lo de `render`) y *Comparar con…* (otra versión del mismo archivo), no solo en las ondas.
+- **Cambiar de carpeta** recarga el árbol, vuelve a detectar el repo y pasa History al nuevo.
+
+Va en la 9.3 porque se apoya en el corte del visor (`Content`, `loader.rs`): con el estado ordenado, el inicio es un `Content::Home` más, no otro caso suelto en `app.rs`.
+
+### Cortes de estructura
+
 Solo cortes que se pagan solos:
 
 - **Núcleo: un solo flujo `diff_pair`.** `log`, `status`, `show` y `diff_set` repiten "leer antes/después, armar `DiffFiles`, `diff_with`, juntar avisos", cada uno con su política (silent/lenient/propagar): de ahí B2 y B3. Generalizar `Side`/`read_side`/`sources` de `diff_set` a `Version { Rev, WorkTree, Absent }` + ruta por lado, y `diff_pair(repo, workdir, module, before, after, opts) -> FileChange` con una sola política. Sin traits nuevos (M; −80 líneas y 3 bugs). `commit_diff::analyze_diff*` es código muerto; `diff_set::analyze_all` va en secuencia mientras `show` va en paralelo.
@@ -93,6 +123,17 @@ Solo cortes que se pagan solos:
   - `FormatModule::extensions() -> &'static [&'static str]` para `handles_path`; `info()` queda para `doctor`.
 - **Contratos:** los métodos de carga crecen por acumulación (`load`, `load_entry`, `load_with`, `load_diff`, `load_diff_with`). No tocarlos (rompería a Carlos); **regla para adelante:** el próximo parámetro va en un `LoadRequest` con un método por defecto, no en un sexto método. `FileFormat` es un enum cerrado en el kernel: aceptable con 3 formatos; aclararlo en `arquitectura.md`. `legacy.rs` (v1) mete convenciones de layout/xschem en el kernel: moverlo a `cli/format` cuando se quite la v1 (`summary/build.rs:62` todavía depende de él).
 - Otros: la GUI depende de `cli::format` (`eng`, `format_timestamp`) → módulo de utilidades compartido; `GitRepository` es ancho (`get_commits` legado, defaults vacíos que esconden implementaciones faltantes); `show.rs:84` convierte errores pasando por texto; el shell parte con `split_whitespace` (rompe `--expr "gain = v(out)/v(in)"`, un ejemplo de la ayuda, y rutas con espacios) → `shlex`; rutas relativas: una sola `to_repo_path(cwd, workdir, f)` para CLI y shell (`riku diff amp.sch` desde `repo/sub` busca en la raíz); `diff`/`show` en JSON siempre indentados (sin `--compact`); comentarios "Miku" en gdstk_rust (`lib.rs:3,950,1253,1475`, `shims.cpp:376`); `min_size` no hace lo que dice su doc (`index.rs:161, 667`); `files.rs:94` doc engañosa sobre `..`.
+
+### Orden de trabajo de 9.3
+
+1. **Visor por dentro:** `content.rs` (`enum Content { Home, Scene, Wave }`), `loader.rs`, `canvas.rs`, `details_panel.rs`; `spice` fuera de `app.rs`. Sin cambios visibles (verificar con capturas).
+2. **Inicio y carpeta:** `Content::Home`, selector de carpeta, carpetas recientes, cambio de repo en History.
+3. **Acciones desde el inicio:** cambios sin commitear, comparar, diagnóstico, exportar imagen. Usan el mismo núcleo que la CLI (`status`, `diff_set`, `doctor`, `render`), sin duplicar lógica.
+4. **Núcleo:** `diff_pair` (un solo flujo para `log`, `status`, `show`, `diff_set`) y quitar `commit_diff` muerto.
+5. **Layouts:** `source.rs` (CLI y visor comparten la cache; `RIKU_MAG_LAMBDA` en la clave), `diff_scene.rs`, API pública cerrada.
+6. **Microkernel y el resto:** `Registry::extensions()`, claves de Xschem fuera del núcleo, `shlex` en el shell, rutas relativas, utilidades compartidas CLI/visor.
+
+Cada paso con la verificación completa y, en los del visor, capturas en Xvfb.
 
 ## 9.4 Librerías
 
