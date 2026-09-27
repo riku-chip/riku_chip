@@ -44,7 +44,6 @@ Fases 0–5: plan en [`archivo/plan_migracion_microkernel.md`](archivo/plan_migr
 | Pestaña **Before** de una celda renombrada | Busca el nombre nuevo en la versión A, donde no existe (la vista **Diff** sí compara bien) | `gui/app.rs` (`select_diff_tab`), `GdsBackend::load_entry` | S |
 | Renombres con cambios | Solo se detectan renombres puros; una celda renombrada que además cambió sale como baja + alta | `gds_diff.rs` (`detect_renames`): emparejar por bbox y huellas en común | M |
 | Zoom cercano en zonas muy densas | Con píxeles más chicos que la celda más fina de la pirámide y cientos de miles de elementos a la vista, se dibuja todo uno a uno (~45 ms por cuadro) | `viewer-core/src/index.rs`: pirámide más fina con bitsets dispersos | M |
-| Windows estable | El job de la CI pasa, pero es no bloqueante; falta documentar la instalación (vcpkg + DLLs) | `ci.yml`, `external/gdstk/rust/build.rs` | M |
 
 ### Baja
 

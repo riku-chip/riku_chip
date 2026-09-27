@@ -14,7 +14,7 @@ cargo install --path riku         # instalarlo en ~/.cargo/bin
 
 Es un workspace: un `Cargo.lock` y un `target/` para `riku`, `riku-kernel`, `riku-mod-layout` y `viewer-core`. Los submódulos (`external/`) entran como dependencias por path.
 
-**Windows** compila en la CI (VS 2022 + vcpkg `zlib qhull`, job no bloqueante) pero no es una plataforma soportada: con MSVC 2019 local falla el linker de gdstk-rs.
+**Windows** no es una plataforma soportada ni se prueba en la CI: con MSVC 2019 local falla el linker de gdstk-rs.
 
 ## Tests
 
@@ -33,7 +33,6 @@ Los fixtures de layouts (`riku-mod-layout/tests/fixtures/*.gds`, `.oas`) se gene
 |---|---|
 | `test (linux)` | tests del workspace con `-D warnings`; compila cada combinación de features; verifica con `cargo tree` que `riku-kernel` no dependa de ningún motor |
 | `xschem-viewer-rust (viewer-core-compat)` | el crate de Carlos compila contra el `viewer-core` actual |
-| `windows (no bloqueante)` | tests en Windows con VS 2022 y vcpkg |
 
 ## Release (`.github/workflows/release.yml`)
 

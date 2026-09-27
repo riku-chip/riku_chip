@@ -63,26 +63,3 @@ jobs:
       - name: cargo check
         working-directory: external/xschem-viewer-rust
         run: cargo check --features viewer-core-compat
-
-  # Exploratorio (ver docs/roadmap.md, "Windows estable"): no bloquea el merge
-  # hasta que pase de forma estable. gdstk-rs busca zlib y qhull en vcpkg.
-  windows:
-    name: windows (no bloqueante)
-    runs-on: windows-latest
-    continue-on-error: true
-    env:
-      VCPKG_DEFAULT_TRIPLET: x64-windows
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - name: zlib y qhull (vcpkg)
-        shell: pwsh
-        run: |
-          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-          "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin" >> $env:GITHUB_PATH
-          vcpkg install zlib:x64-windows qhull:x64-windows
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo test (workspace)
-        run: cargo test --workspace --locked
