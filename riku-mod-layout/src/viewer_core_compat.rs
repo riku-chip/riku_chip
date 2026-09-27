@@ -37,16 +37,57 @@ use crate::style::Pdk;
 pub struct GdsBackend {
     /// Cache del diff (celdas cambiadas y XOR) para layouts grandes.
     cache: DiffCache,
+    /// Las últimas bibliotecas leídas: cambiar de celda o de pestaña no
+    /// vuelve a leer el archivo.
+    libs: Arc<LibCache>,
 }
 
 impl GdsBackend {
     pub fn new() -> Self {
-        Self { cache: DiffCache::from_env() }
+        Self::with_cache(DiffCache::from_env())
     }
 
     /// Backend con una cache concreta (tests, o `DiffCache::disabled()`).
     pub fn with_cache(cache: DiffCache) -> Self {
-        Self { cache }
+        Self { cache, libs: Arc::default() }
+    }
+}
+
+/// Bibliotecas GDSII/OASIS ya leídas, por contenido (hash y largo), las
+/// [`LIB_CACHE`] más recientes: un par de diff. Leer el chip de 42 MB lleva
+/// 1–3 s y antes se repetía en cada clic de celda. Magic no entra: sus
+/// sub-celdas pueden cambiar sin que cambie el archivo principal.
+#[derive(Default)]
+struct LibCache(std::sync::Mutex<std::collections::VecDeque<(u64, usize, Arc<Library>, Vec<String>)>>);
+
+const LIB_CACHE: usize = 2;
+
+impl LibCache {
+    fn get_or_read(
+        &self,
+        bytes: &[u8],
+        read: impl FnOnce() -> VcResult<(Library, Vec<String>)>,
+    ) -> VcResult<(Arc<Library>, Vec<String>)> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut h);
+        let key = (h.finish(), bytes.len());
+        {
+            let mut libs = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(i) = libs.iter().position(|(k, n, ..)| (*k, *n) == key) {
+                let hit = libs.remove(i).expect("índice válido");
+                let out = (hit.2.clone(), hit.3.clone());
+                libs.push_front(hit);
+                return Ok(out);
+            }
+        }
+        // Se lee sin el candado: otra carga puede seguir mientras tanto.
+        let (lib, notes) = read()?;
+        let lib = Arc::new(lib);
+        let mut libs = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        libs.push_front((key.0, key.1, lib.clone(), notes.clone()));
+        libs.truncate(LIB_CACHE);
+        Ok((lib, notes))
     }
 }
 
@@ -351,8 +392,9 @@ impl ViewerBackend for GdsBackend {
         if token.is_cancelled() {
             return Err(ViewerError::Cancelled);
         }
+        let libs = self.libs.clone();
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
-            let side = read_side(&content, path_hint.as_deref(), files.as_deref(), "")?;
+            let side = read_side(&content, path_hint.as_deref(), files.as_deref(), "", &libs)?;
             let notices = side.notices;
             let lib = side.lib;
 
@@ -423,10 +465,11 @@ impl ViewerBackend for GdsBackend {
             return Err(ViewerError::Cancelled);
         }
         let cache = self.cache.clone();
+        let libs = self.libs.clone();
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
             let path = path_hint.as_deref();
             let read = |bytes: &[u8], files: &Option<Arc<dyn FileSource>>, label: &'static str| {
-                if bytes.is_empty() { Ok(None) } else { read_side(bytes, path, files.as_deref(), label).map(Some) }
+                if bytes.is_empty() { Ok(None) } else { read_side(bytes, path, files.as_deref(), label, &libs).map(Some) }
             };
             let (a, b) = rayon::join(|| read(&before, &files.before, "antes"), || read(&after, &files.after, "después"));
             let (a, b) = (a?, b?);
@@ -448,8 +491,8 @@ impl ViewerBackend for GdsBackend {
                 }
             }
             let diff = CachedDiff { cache: &cache, inputs };
-            let lib_a = a.as_ref().map(|s| &s.lib);
-            let lib_b = b.as_ref().map(|s| &s.lib);
+            let lib_a = a.as_ref().map(|s| &*s.lib);
+            let lib_b = b.as_ref().map(|s| &*s.lib);
             let ports = crate::mag::port_changes(
                 a.as_ref().and_then(|s| s.info.as_ref()),
                 b.as_ref().and_then(|s| s.info.as_ref()),
@@ -497,7 +540,7 @@ fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
 /// Un lado leído: la `Library`, los avisos para el usuario y, si es Magic,
 /// los archivos de su jerarquía (para la clave de la cache).
 struct ReadSide {
-    lib: Library,
+    lib: Arc<Library>,
     notices: Vec<String>,
     sources: Option<MagSources>,
     info: Option<gdstk_rs::magic::MagInfo>,
@@ -505,7 +548,13 @@ struct ReadSide {
 
 /// GDSII/OASIS de sus bytes; Magic con sus sub-celdas (`files`, el disco si
 /// la ruta es absoluta, y el PDK). `label` va en los mensajes de error.
-fn read_side(bytes: &[u8], path_hint: Option<&str>, files: Option<&dyn FileSource>, label: &str) -> VcResult<ReadSide> {
+fn read_side(
+    bytes: &[u8],
+    path_hint: Option<&str>,
+    files: Option<&dyn FileSource>,
+    label: &str,
+    libs: &LibCache,
+) -> VcResult<ReadSide> {
     let err = |e: String| {
         let side = if label.is_empty() { String::new() } else { format!(" ({label})") };
         ViewerError::Parse(format!("layout{side}: {e}"))
@@ -515,11 +564,14 @@ fn read_side(bytes: &[u8], path_hint: Option<&str>, files: Option<&dyn FileSourc
         let sources = crate::mag::collect(bytes, path, files).map_err(err)?;
         let (lib, info) = crate::mag::build(&sources);
         let notices = crate::mag::notices(&info);
-        return Ok(ReadSide { lib, notices, sources: Some(sources), info: Some(info) });
+        return Ok(ReadSide { lib: Arc::new(lib), notices, sources: Some(sources), info: Some(info) });
     }
-    let lib = Library::from_bytes_any(bytes).map_err(|e| err(e.to_string()))?;
-    crate::gds_diff::check_acyclic(&lib).map_err(err)?;
-    let notices = crate::gds_diff::read_notes(&lib);
+    let (lib, notices) = libs.get_or_read(bytes, || {
+        let lib = Library::from_bytes_any(bytes).map_err(|e| err(e.to_string()))?;
+        crate::gds_diff::check_acyclic(&lib).map_err(err)?;
+        let notices = crate::gds_diff::read_notes(&lib);
+        Ok((lib, notices))
+    })?;
     Ok(ReadSide { lib, notices, sources: None, info: None })
 }
 
@@ -1181,5 +1233,59 @@ port 1 nsew signal {class}
         let same = diff(Some("hier_inv_a.gds"), "hier_inv_a.gds", None).await;
         assert!(same.entries().iter().all(|e| e.change.is_none()));
         assert_eq!(meta(&same, "Área"), "", "sin cambios no hay fila de área");
+    }
+
+    #[test]
+    fn libraries_are_read_once_per_content() {
+        let cache = LibCache::default();
+        let reads = std::cell::Cell::new(0);
+        let read = |bytes: &[u8]| {
+            cache.get_or_read(bytes, || {
+                reads.set(reads.get() + 1);
+                Ok((Library::from_bytes(&fixture("hier_inv_a.gds")).unwrap(), Vec::new()))
+            })
+        };
+        let first = read(b"A").unwrap().0;
+        assert!(Arc::ptr_eq(&first, &read(b"A").unwrap().0), "mismo contenido: la misma Library");
+        assert_eq!(reads.get(), 1);
+        read(b"B").unwrap();
+        read(b"C").unwrap();
+        // Solo guarda las dos más recientes: A se volvió a leer.
+        read(b"A").unwrap();
+        assert_eq!(reads.get(), 4);
+    }
+
+    /// Cambiar de celda en el diff del chip de 42 MB. Con los archivos en
+    /// `$RIKU_BIG_A`/`$RIKU_BIG_B` (p. ej. /tmp/big_a.gds y big_b.gds).
+    #[tokio::test]
+    #[ignore = "necesita $RIKU_BIG_A y $RIKU_BIG_B"]
+    async fn cell_switch_on_a_big_diff() {
+        let (Some(a), Some(b)) = (std::env::var_os("RIKU_BIG_A"), std::env::var_os("RIKU_BIG_B")) else { return };
+        let (a, b) = (std::fs::read(a).unwrap(), std::fs::read(b).unwrap());
+        let rss = || -> u64 {
+            std::fs::read_to_string("/proc/self/status").ok().and_then(|s| {
+                s.lines().find(|l| l.starts_with("VmRSS")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+            }).unwrap_or(0) / 1024
+        };
+        let r0 = rss();
+        let one = Library::from_bytes(&a).unwrap();
+        eprintln!("[P5] una Library en memoria: {} MB", rss().saturating_sub(r0));
+        drop(one);
+        let backend = GdsBackend::with_cache(DiffCache::disabled());
+        let load = |entry: Option<String>| {
+            backend.load_diff(a.clone(), b.clone(), Some("big.gds".into()), entry, CancellationToken::new())
+        };
+        let t = std::time::Instant::now();
+        let scene = load(None).await.unwrap();
+        eprintln!("[P5] primera carga: {:?}", t.elapsed());
+        let other = scene.entries().iter().map(|e| e.id.clone()).find(|id| Some(id.as_str()) != scene.current_entry()).unwrap();
+        let t = std::time::Instant::now();
+        load(Some(other.clone())).await.unwrap();
+        eprintln!("[P5] otra celda: {:?}", t.elapsed());
+        // Lo mismo sin las bibliotecas en memoria (como antes).
+        let fresh = GdsBackend::with_cache(DiffCache::disabled());
+        let t = std::time::Instant::now();
+        fresh.load_diff(a.clone(), b.clone(), Some("big.gds".into()), Some(other), CancellationToken::new()).await.unwrap();
+        eprintln!("[P5] otra celda, releyendo: {:?}", t.elapsed());
     }
 }
