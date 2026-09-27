@@ -8,11 +8,15 @@
 use eframe::egui;
 
 mod app;
+mod canvas;
+mod content;
+mod details_panel;
 mod entry_picker;
 mod history;
 pub(crate) use crate::i18n;
 mod label_layout;
 mod launch;
+mod loader;
 mod motion;
 mod polygon_fill;
 mod project;

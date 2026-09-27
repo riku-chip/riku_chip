@@ -18,7 +18,8 @@ use eframe::egui::{self, Color32, RichText};
 use egui_plot::{GridMark, Legend, Line, LineStyle, Plot, PlotPoints};
 
 use crate::cli::format::diff_text::eng;
-use crate::gui::app::DiffTab;
+use crate::gui::content::DiffTab;
+use crate::gui::project::ProjectEntry;
 use crate::gui::theme::space;
 use crate::gui::tr;
 use crate::modules::spice::compare::{self, interp, PlotDiff, SignalDiff, Status, Tolerance};
@@ -88,6 +89,24 @@ impl WaveView {
     pub fn single(file: RawFile, path: PathBuf, exprs: &[String]) -> Self {
         let label = file_label(&path);
         Self::build(None, file, String::new(), label, Some(path), exprs)
+    }
+
+    /// Dos versiones leídas de Git (o del disco): vacío = el archivo no
+    /// existía de ese lado. `who_a`/`who_b` nombran cada lado en los errores.
+    pub fn compare_bytes(
+        before: &[u8],
+        after: &[u8],
+        (who_a, label_a): (&str, String),
+        (who_b, label_b): (&str, String),
+        exprs: &[String],
+    ) -> Result<Self, String> {
+        let parse = |bytes: &[u8], who: &str| -> Result<RawFile, String> {
+            if bytes.is_empty() {
+                return Ok(RawFile { plots: Vec::new() });
+            }
+            raw::parse(bytes).map_err(|e| format!("{who}: {e}"))
+        };
+        Ok(Self::compare(parse(before, who_a)?, parse(after, who_b)?, label_a, label_b, None, exprs))
     }
 
     /// Dos versiones: `before` (A) y `after` (B).
@@ -463,6 +482,31 @@ struct Trace {
     color: Color32,
     width: f32,
     dashed: bool,
+}
+
+/// `true` si la ruta es una simulación de ngspice (`.raw`).
+pub fn is_raw(path: &std::path::Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("raw"))
+}
+
+pub fn read_raw(path: &std::path::Path) -> Result<RawFile, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    raw::parse(&bytes).map_err(|e| e.to_string())
+}
+
+/// Archivos `.raw` del árbol de proyecto (candidatos para comparar).
+pub fn raw_files(tree: &ProjectEntry) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![tree];
+    while let Some(e) = stack.pop() {
+        match e {
+            ProjectEntry::Directory { children, .. } => stack.extend(children.iter()),
+            ProjectEntry::File { path, .. } if is_raw(path) => out.push(path.clone()),
+            ProjectEntry::File { .. } => {}
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Nodos internos de dispositivos y subcircuitos (`v(m.xm1.m…#body)`,

@@ -126,7 +126,7 @@ Solo cortes que se pagan solos:
 
 ### Orden de trabajo de 9.3
 
-1. **Visor por dentro:** `content.rs` (`enum Content { Home, Scene, Wave }`), `loader.rs`, `canvas.rs`, `details_panel.rs`; `spice` fuera de `app.rs`. Sin cambios visibles (verificar con capturas).
+1. ✅ **Visor por dentro** (hecho): `app.rs` (1 709 líneas) pasó a `app/mod.rs` (estado, arranque, atajos, `ui`, 440), `app/panels.rs` (las zonas de la ventana, 470) y `app/loading.rs` (abrir, recargar, recibir cargas, 320), más `content.rs` (`enum Content { Empty, Scene, Wave }` + `DiffContext`, que viaja con la carga y se fija al llegar), `loader.rs` (carga en segundo plano), `canvas.rs` (gestos y pintado) y `details_panel.rs`. Lo de `spice` salió de `app` a `wave_view.rs` (`is_raw`, `read_raw`, `raw_files`, `compare_bytes`). Capturas antes/después iguales salvo el ancho guardado de los paneles. **Siguiente:** agregar `Content::Home` en el paso 2.
 2. **Inicio y carpeta:** `Content::Home`, selector de carpeta, carpetas recientes, cambio de repo en History.
 3. **Acciones desde el inicio:** cambios sin commitear, comparar, diagnóstico, exportar imagen. Usan el mismo núcleo que la CLI (`status`, `diff_set`, `doctor`, `render`), sin duplicar lógica.
 4. **Núcleo:** `diff_pair` (un solo flujo para `log`, `status`, `show`, `diff_set`) y quitar `commit_diff` muerto.
@@ -207,3 +207,4 @@ Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLay
 | Costo de un commit en `log` | Hecho | `max()` de los archivos en vez de `sum()`: se comparan de a uno, así que la suma sobreestimaba la memoria y armaba tandas más chicas. `RIKU_PROFILE` no se tocó: se lee una vez por capa, cuesta nanosegundos |
 | `group_instances` y cables de Xschem | Hecho | Los dos O(n²) que quedaban: agrupar cambios por (celda, capa, sub-cell) con un mapa, y buscar los cables de B por sus extremos en una grilla de celdas de la tolerancia `NEAR`. Mismo resultado (tests existentes + cables invertidos y dentro de la tolerancia) |
 | Diezmado de ondas por rango visible | Hecho | `Curve` guarda la serie completa y su versión reducida: entera o casi, la reducida; al acercarse, el tramo visible (búsqueda binaria) con dos puntos por píxel. Zoom al 1 % de una curva de 10⁶ puntos: de ~40 puntos en pantalla a ~1600, pico incluido. RAM: solo las curvas que se muestran guardan la serie (las demás se sueltan). Un barrido que va hacia atrás usa siempre la reducida |
+| 9.3 paso 1: visor por dentro | Hecho | Ver "Orden de trabajo de 9.3". De paso: el panel History mostraba `3 signals_added` (los conteos de señales que agregó `7f5a4bc` no tenían texto corto): ahora usa el de la CLI si falta |

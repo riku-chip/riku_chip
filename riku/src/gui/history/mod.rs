@@ -720,8 +720,15 @@ fn counts_text(s: &FileSummary) -> String {
         .map(|(k, v)| {
             let key = format!("history.count.{k}");
             let label = tr!(&key);
-            // Una clave sin traducción vuelve tal cual: se muestra la clave.
-            if label.contains("history.count.") { format!("{v} {k}") } else { format!("{v} {label}") }
+            // Una clave sin texto corto vuelve tal cual: se usa el de la CLI
+            // (cubre los conteos nuevos, como las señales) y, si tampoco
+            // hay, la clave.
+            let label = if label.contains("history.count.") {
+                crate::core::analysis::summary::label_for(k, *v).unwrap_or_else(|| k.clone())
+            } else {
+                label
+            };
+            format!("{v} {label}")
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -759,6 +766,18 @@ mod tests {
             assert!(theme::contrast(lane_color(l, true), bg_dark) >= 3.0, "oscuro {l}");
             assert!(theme::contrast(lane_color(l, false), bg_light) >= 3.0, "claro {l}");
         }
+    }
+
+    #[test]
+    fn counts_without_a_short_text_use_the_cli_label() {
+        // Las señales no tienen texto corto en History: sale el de la CLI
+        // (en el idioma que esté activo), no la clave cruda.
+        let mut f = FileSummary::unknown("tb.raw");
+        f.category = SummaryCategory::Semantic;
+        f.counts.insert("signals_added".into(), 3);
+        let cli = crate::core::analysis::summary::label_for("signals_added", 3).unwrap();
+        assert_eq!(counts_text(&f), format!("3 {cli}"));
+        assert!(!counts_text(&f).contains("signals_added"));
     }
 
     #[test]
