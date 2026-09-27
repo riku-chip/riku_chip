@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 mod commands;
 mod dispatch;
 mod doctor;
-mod format;
+pub(crate) mod format;
 mod gui;
 mod shell;
 mod shell_complete;

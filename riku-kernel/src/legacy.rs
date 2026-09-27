@@ -100,6 +100,11 @@ fn entry(c: &Change) -> LegacyEntry {
             (c.kind != ChangeKind::Removed).then(|| values(|d| d.after.as_ref())),
         ),
         Element::Net { name } => (format!("net:{name}"), None, None),
+        Element::Signal { name, .. } => (
+            format!("signal:{name}"),
+            (c.kind != ChangeKind::Added).then(|| values(|d| d.before.as_ref())),
+            (c.kind != ChangeKind::Removed).then(|| values(|d| d.after.as_ref())),
+        ),
         Element::Whole => ("layout".to_string(), None, Some(values(|d| d.after.as_ref()))),
         Element::Cell { name } => (format!("cell:{}", renamed(name)), None, None),
         Element::Geometry { cell, via, .. } => {

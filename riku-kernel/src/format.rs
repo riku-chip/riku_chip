@@ -9,6 +9,8 @@ pub enum FileFormat {
     Xschem,
     /// Layouts: GDSII y OASIS.
     Gds,
+    /// Resultados de simulación SPICE (`.raw` de ngspice): formas de onda.
+    Waveform,
     #[default]
     Unknown,
 }
@@ -18,6 +20,7 @@ impl fmt::Display for FileFormat {
         f.write_str(match self {
             Self::Xschem => "xschem",
             Self::Gds => "gds",
+            Self::Waveform => "waveform",
             Self::Unknown => "unknown",
         })
     }

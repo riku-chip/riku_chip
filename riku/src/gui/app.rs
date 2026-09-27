@@ -20,11 +20,13 @@ use crate::gui::scene_painter::{
 };
 use crate::gui::theme::{space, CanvasTheme};
 use crate::gui::toast::{ToastKind, Toasts};
+#[cfg(feature = "spice")]
+use crate::gui::wave_view::{self, WaveView};
 
 // ─── Estado del schematic ─────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DiffTab {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DiffTab {
     Before,
     After,
     Diff,
@@ -131,6 +133,9 @@ pub struct RikuGuiApp {
     pending_load: Option<Promise<Result<LoadedScene, String>>>,
     /// Token de cancelación de la carga en vuelo.
     pending_token: Option<CancellationToken>,
+    /// Formas de onda (`.raw`): no pasan por `ViewerBackend`, tienen su vista.
+    #[cfg(feature = "spice")]
+    wave: Option<WaveView>,
 
     // ─── Preferencias (persisten entre sesiones) ────────────────────────────
     /// Dibujar etiquetas de texto en el lienzo.
@@ -238,8 +243,11 @@ impl RikuGuiApp {
         // Los módulos del ejecutable deciden qué formatos se pueden abrir.
         let modules = crate::modules::registry();
         let backends: Vec<Arc<dyn ViewerBackend>> = modules.viewers();
-        let openable: Vec<String> =
+        #[allow(unused_mut)]
+        let mut openable: Vec<String> =
             backends.iter().flat_map(|b| b.info().extensions.iter().map(|e| e.to_string())).collect();
+        #[cfg(feature = "spice")]
+        openable.push("raw".to_string());
         let project_tree = ProjectEntry::build(&project_root, show_all_files, &openable);
 
         let mut app = Self {
@@ -247,7 +255,7 @@ impl RikuGuiApp {
             project_tree,
             selected_path,
             diff_ctx: None,
-            status: String::from("Listo — abre un .sch, .gds u .oas del panel Proyecto"),
+            status: String::from("Listo — abre un .sch, .gds, .oas o .raw del panel Proyecto"),
             error: None,
             runtime,
             backends,
@@ -255,6 +263,8 @@ impl RikuGuiApp {
             backend_state: None,
             pending_load: None,
             pending_token: None,
+            #[cfg(feature = "spice")]
+            wave: None,
             show_labels,
             show_all_files,
             reduce_motion,
@@ -339,7 +349,7 @@ impl RikuGuiApp {
             self.status = format!("Cargando {} …", path.display());
         } else if self.error.is_none() {
             self.status = format!("{} — formato no soportado aún", path.display());
-            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym, .gds y .oas)"));
+            self.notify(ToastKind::Warning, format!("{name}: formato no soportado (se abren .sch, .sym, .gds, .oas y .raw)"));
         }
     }
 
@@ -347,6 +357,13 @@ impl RikuGuiApp {
     /// elige una sub-vista (celda GDS) o `None` para la de por defecto.
     /// Retorna `true` si algún backend aceptó el archivo (la carga queda en vuelo).
     fn load_via_backend(&mut self, path: &Path, entry: Option<String>) -> bool {
+        #[cfg(feature = "spice")]
+        {
+            if is_raw(path) {
+                return self.open_raw(path);
+            }
+            self.wave = None;
+        }
         let content = match std::fs::read(path) {
             Ok(c) => c,
             Err(e) => {
@@ -381,6 +398,29 @@ impl RikuGuiApp {
             Err(crate::core::domain::git_types::GitError::BlobNotFound { .. }) => Vec::new(),
             Err(e) => return Err(format!("{commit_a}: {e}")),
         };
+
+        #[cfg(feature = "spice")]
+        if is_raw(file) {
+            use crate::modules::spice::raw;
+            let parse = |bytes: &[u8], commit: &str| -> Result<raw::RawFile, String> {
+                if bytes.is_empty() {
+                    return Ok(raw::RawFile { plots: Vec::new() });
+                }
+                raw::parse(bytes).map_err(|e| format!("{commit}: {e}"))
+            };
+            let view = WaveView::compare(
+                parse(&before, commit_a)?,
+                parse(&after, commit_b)?,
+                short_hash(commit_a),
+                short_hash(commit_b),
+                None,
+            );
+            self.status = view.summary();
+            self.selected_path = Some(file.to_path_buf());
+            self.backend_state = None;
+            self.wave = Some(view);
+            return Ok(());
+        }
 
         let backend = self.backends.iter()
             .find(|b| b.accepts(&after, Some(&file_str)))
@@ -432,6 +472,10 @@ impl RikuGuiApp {
                 parts.push(tab_label(tab).to_string());
             }
         }
+        #[cfg(feature = "spice")]
+        if let Some(w) = self.wave.as_ref().filter(|w| w.is_diff()) {
+            parts.push(tab_label(w.tab).to_string());
+        }
         parts
     }
 
@@ -443,7 +487,7 @@ impl RikuGuiApp {
             ui.add_space((ui.available_height() * 0.22).max(space::L));
             ui.label(RichText::new("Abre un diseño").size(22.0).strong());
             ui.add_space(space::XS);
-            ui.label(RichText::new("Elige un .sch, .gds u .oas en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
+            ui.label(RichText::new("Elige un .sch, .gds, .oas o .raw en el panel Proyecto, o arrastra un archivo a la ventana.").weak());
             ui.add_space(space::L);
 
             let recent: Vec<&String> = self.recent.iter().filter(|p| Path::new(p).is_file()).collect();
@@ -544,8 +588,75 @@ impl RikuGuiApp {
         }
     }
 
+    /// Abre un `.raw` en la vista de formas de onda. `true` si se pudo.
+    #[cfg(feature = "spice")]
+    fn open_raw(&mut self, path: &Path) -> bool {
+        match read_raw(path) {
+            Ok(file) => {
+                let view = WaveView::single(file, path.to_path_buf());
+                self.status = view.summary();
+                self.backend_state = None;
+                self.wave = Some(view);
+                true
+            }
+            Err(e) => {
+                self.fail(&format!("No se pudo leer {}", path.display()), e);
+                false
+            }
+        }
+    }
+
+    /// Atiende lo que pidió la vista de formas de onda (comparar con otro archivo).
+    #[cfg(feature = "spice")]
+    fn handle_wave_request(&mut self) {
+        let Some(view) = self.wave.as_mut() else { return };
+        let Some(req) = view.request.take() else { return };
+        let Some(path) = view.path.clone() else { return };
+        match req {
+            wave_view::Request::CompareWith(other) => match (read_raw(&other), read_raw(&path)) {
+                (Ok(a), Ok(b)) => {
+                    let label = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let view = WaveView::compare(a, b, label(&other), label(&path), Some(path.clone()));
+                    self.status = view.summary();
+                    self.wave = Some(view);
+                }
+                (Err(e), _) | (_, Err(e)) => self.fail("No se pudo comparar", e),
+            },
+            wave_view::Request::StopComparing => {
+                self.open_raw(&path);
+            }
+        }
+    }
+
+    /// Selector Diff / Before / After de una comparación de formas de onda.
+    /// Cambiar de vista no recarga nada: la vista ya tiene las dos versiones.
+    #[cfg(feature = "spice")]
+    fn show_wave_tabs(&mut self, ui: &mut egui::Ui) -> bool {
+        let Some(w) = self.wave.as_mut().filter(|w| w.is_diff()) else { return false };
+        ui.heading("Vistas");
+        if let Some(p) = &self.selected_path {
+            ui.label(RichText::new(p.file_name().unwrap_or_default().to_string_lossy().as_ref())
+                .color(egui::Color32::from_gray(180)));
+        }
+        ui.label(RichText::new(format!("{} → {}", w.label_a, w.label_b)).small().color(egui::Color32::from_gray(140)));
+        ui.separator();
+        for (tab, label, hint) in [
+            (DiffTab::Diff, "Diff", "B continua sobre A punteada, con el error B − A debajo"),
+            (DiffTab::Before, "Before", "Solo la versión anterior (A)"),
+            (DiffTab::After, "After", "Solo la versión nueva (B)"),
+        ] {
+            ui.radio_value(&mut w.tab, tab, label).on_hover_text(hint);
+        }
+        true
+    }
+
     /// Relee el archivo del disco conservando la sub-vista actual.
     fn reload_backend(&mut self) {
+        #[cfg(feature = "spice")]
+        if let Some(path) = self.wave.as_ref().filter(|w| !w.is_diff()).and_then(|w| w.path.clone()) {
+            self.open_raw(&path);
+            return;
+        }
         let Some(bs) = &self.backend_state else { return };
         // En diff los bytes vienen de git, no del disco.
         if matches!(bs.kind, LoadKind::Diff { .. }) {
@@ -817,6 +928,14 @@ impl eframe::App for RikuGuiApp {
             .resizable(true)
             .default_size(200.0)
             .show_inside(ui, |ui| {
+                // Formas de onda comparadas: mismas vistas que los demás formatos.
+                // Entre commits reemplazan al árbol; comparando dos archivos del
+                // proyecto, el árbol sigue abajo para abrir otro.
+                #[cfg(feature = "spice")]
+                let wave_tabs = self.show_wave_tabs(ui);
+                #[cfg(not(feature = "spice"))]
+                let wave_tabs = false;
+
                 // Modo diff: selector de vistas (Diff/Before/After); cada una es otra carga.
                 if let (Some(ctx), Some(current)) = (self.diff_ctx.as_ref(), self.backend_diff_tab()) {
                     ui.heading("Vistas");
@@ -835,7 +954,10 @@ impl eframe::App for RikuGuiApp {
                         self.select_diff_tab(tab);
                     }
                     self.show_entry_picker(ui);
-                } else {
+                } else if !(wave_tabs && self.diff_ctx.is_some()) {
+                    if wave_tabs {
+                        ui.separator();
+                    }
                     // Modo archivo único: árbol de proyecto
                     ui.heading("Proyecto");
                     let root = self.project_root.display().to_string();
@@ -843,7 +965,7 @@ impl eframe::App for RikuGuiApp {
                         .on_hover_text(&root);
                     if ui
                         .checkbox(&mut self.show_all_files, "Todos los archivos")
-                        .on_hover_text("Sin marcar: solo .sch, .sym, .gds y .oas (lo que se puede abrir)")
+                        .on_hover_text("Sin marcar: solo .sch, .sym, .gds, .oas y .raw (lo que se puede abrir)")
                         .changed()
                     {
                         self.refresh_tree();
@@ -880,6 +1002,12 @@ impl eframe::App for RikuGuiApp {
                 }
                 ui.add_space(space::XS);
 
+                #[cfg(feature = "spice")]
+                if let Some(view) = self.wave.as_mut() {
+                    let candidates = raw_files(&self.project_tree);
+                    wave_view::show_details(ui, view, &candidates);
+                    return;
+                }
                 if let Some(bs) = &mut self.backend_state {
                     render_backend_details(ui, bs);
                 } else {
@@ -909,6 +1037,13 @@ impl eframe::App for RikuGuiApp {
                     }
                 });
                 ui.add_space(space::XS);
+            }
+
+            // Formas de onda: su propia vista (ejes, unidades, A vs B).
+            #[cfg(feature = "spice")]
+            if let Some(view) = self.wave.as_mut() {
+                wave_view::show_plot(ui, view);
+                return;
             }
 
             // Escena cargada por el backend del formato (todos los formatos).
@@ -1058,6 +1193,9 @@ impl eframe::App for RikuGuiApp {
             }
         });
 
+        #[cfg(feature = "spice")]
+        self.handle_wave_request();
+
         // Archivo arrastrado sobre la ventana: indicar que se puede soltar.
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             drop_hint(&ctx);
@@ -1076,6 +1214,33 @@ impl eframe::App for RikuGuiApp {
             }
         }
     }
+}
+
+#[cfg(feature = "spice")]
+fn is_raw(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("raw"))
+}
+
+#[cfg(feature = "spice")]
+fn read_raw(path: &Path) -> Result<crate::modules::spice::raw::RawFile, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    crate::modules::spice::raw::parse(&bytes).map_err(|e| e.to_string())
+}
+
+/// Archivos `.raw` del árbol de proyecto (candidatos para comparar).
+#[cfg(feature = "spice")]
+fn raw_files(tree: &ProjectEntry) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![tree];
+    while let Some(e) = stack.pop() {
+        match e {
+            ProjectEntry::Directory { children, .. } => stack.extend(children.iter()),
+            ProjectEntry::File { path, .. } if is_raw(path) => out.push(path.clone()),
+            ProjectEntry::File { .. } => {}
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Velo sobre toda la ventana mientras se arrastra un archivo encima.

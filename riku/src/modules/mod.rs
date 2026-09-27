@@ -3,16 +3,18 @@
 //! **Único lugar que sabe qué formatos existen.** El núcleo (`log`, `status`,
 //! diff de commits), la CLI y el visor reciben el [`Registry`] que arma
 //! [`registry`] y no nombran ningún formato. Cada módulo se compila con su
-//! feature de Cargo (`xschem`, `layout`), así se puede armar un `riku` con
+//! feature de Cargo (`xschem`, `layout`, `spice`), así se puede armar un `riku` con
 //! solo algunos formatos.
 
-#[cfg(any(feature = "xschem", feature = "layout"))]
+#[cfg(any(feature = "xschem", feature = "layout", feature = "spice"))]
 use std::sync::Arc;
 
 use riku_kernel::Registry;
 
 #[cfg(feature = "layout")]
 pub mod layout;
+#[cfg(feature = "spice")]
+pub mod spice;
 #[cfg(feature = "xschem")]
 pub mod xschem;
 #[cfg(all(feature = "xschem", feature = "gui"))]
@@ -28,6 +30,8 @@ pub fn registry() -> Registry {
     r.add(Arc::new(xschem::XschemModule::new()));
     #[cfg(feature = "layout")]
     r.add(Arc::new(layout::LayoutModule::new()));
+    #[cfg(feature = "spice")]
+    r.add(Arc::new(spice::WaveformModule::new()));
     r
 }
 
@@ -47,6 +51,10 @@ mod tests {
         assert_eq!(r.for_path("a/b/amp.sch").map(|m| m.info().format), Some(FileFormat::Xschem));
         assert_eq!(r.for_path("chip.OAS").map(|m| m.info().format), Some(FileFormat::Gds));
         assert!(r.for_path("notas.txt").is_none());
-        assert_eq!(r.extensions(), vec!["sch", "gds", "oas"]);
+        let mut ext = vec!["sch", "gds", "oas"];
+        if cfg!(feature = "spice") {
+            ext.push("raw");
+        }
+        assert_eq!(r.extensions(), ext);
     }
 }

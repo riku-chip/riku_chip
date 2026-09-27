@@ -123,6 +123,9 @@ pub enum Element {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         via: Option<Via>,
     },
+    /// Señal de una simulación (`v(out)`, `i(vdd)`) dentro de un análisis
+    /// (`Transient Analysis`).
+    Signal { plot: String, name: String },
 }
 
 impl Element {
@@ -131,6 +134,7 @@ impl Element {
         match self {
             Self::Component { name } | Self::Net { name } | Self::Cell { name } => name.clone(),
             Self::Whole => "(archivo)".into(),
+            Self::Signal { name, .. } => name.clone(),
             Self::Geometry { cell, layer, datatype, via } => match via {
                 Some(v) => format!("{cell}:L{layer}/{datatype}:{}", v.path.join("/")),
                 None => format!("{cell}:L{layer}/{datatype}"),

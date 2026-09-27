@@ -17,6 +17,8 @@ mod project;
 mod scene_painter;
 mod theme;
 mod toast;
+#[cfg(feature = "spice")]
+mod wave_view;
 
 /// `true` si hay un servidor gráfico al que conectarse (X11 o Wayland).
 pub fn has_display() -> bool {

@@ -56,6 +56,7 @@ fn print_change(c: &Change) {
     println!("  {} {}", marker_for_change(c.kind), display_name(c));
     match &c.element {
         Element::Geometry { .. } => print_geometry(c),
+        Element::Signal { .. } => print_signal(c),
         Element::Component { .. } => match c.kind {
             ChangeKind::Modified | ChangeKind::Renamed => print_param_diff(c),
             ChangeKind::Added => {
@@ -85,6 +86,41 @@ fn print_geometry(c: &Change) {
     if let Some(b) = c.location {
         println!("      bbox: ({:.3}, {:.3}) → ({:.3}, {:.3}) µm", b.min_x, b.min_y, b.max_x, b.max_y);
     }
+}
+
+/// Señal de simulación: error máximo (y dónde), RMS y porcentaje del rango.
+fn print_signal(c: &Change) {
+    let text = |k: &str| c.after(k).map(Value::to_string).unwrap_or_default();
+    let num = |k: &str| c.after(k).and_then(Value::as_f64);
+    let plot = text("plot");
+    match c.kind {
+        ChangeKind::Added => println!("      nueva en {plot}"),
+        ChangeKind::Removed => println!("      ya no está en {plot}"),
+        _ => match (num("max_abs_diff"), num("at")) {
+            (Some(max), Some(at)) => {
+                let unit = text("unit");
+                println!(
+                    "      Δmáx {} en {} · RMS {} · {:.2} % del rango  ({plot})",
+                    eng(max, &unit),
+                    eng(at, &text("x_unit")),
+                    eng(num("rms_diff").unwrap_or(0.0), &unit),
+                    num("rel_diff").unwrap_or(0.0) * 100.0
+                );
+            }
+            _ => println!("      {}  ({plot})", text("note")),
+        },
+    }
+}
+
+/// Número con prefijo de ingeniería: `0.0123 V` → `12.3 mV`. Los dB van tal cual.
+pub(crate) fn eng(v: f64, unit: &str) -> String {
+    if unit == "dB" || v == 0.0 || !v.is_finite() {
+        return format!("{v:.3} {unit}").trim_end().to_string();
+    }
+    const PREFIXES: [(f64, &str); 9] =
+        [(1e9, "G"), (1e6, "M"), (1e3, "k"), (1.0, ""), (1e-3, "m"), (1e-6, "µ"), (1e-9, "n"), (1e-12, "p"), (1e-15, "f")];
+    let (scale, p) = PREFIXES.iter().find(|(s, _)| v.abs() >= *s).copied().unwrap_or((1e-15, "f"));
+    format!("{:.3} {p}{unit}", v / scale).trim_end().to_string()
 }
 
 fn print_param_diff(c: &Change) {
