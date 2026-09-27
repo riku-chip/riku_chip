@@ -6,6 +6,7 @@ mod gds_diff;
 mod hier_walk;
 mod labels;
 mod palette;
+mod prints;
 mod palette_generated;
 mod scene;
 mod style;

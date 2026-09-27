@@ -15,10 +15,14 @@ Un esquemático se compara semánticamente (componentes, nets). Un layout es geo
 
 ### Cómo evita el trabajo inútil
 
-1. **Huella por capa:** al aplanar cada celda se calcula un hash de cada polígono en **forma canónica** (vértices cuantizados, sin repetidos, sentido antihorario, empezando por el menor). Dos capas con la misma huella son iguales aunque el archivo las escriba distinto (reexportadas por otra herramienta): se saltan sin XOR.
-2. **XOR solo de lo que cambió:** en una capa distinta, los polígonos idénticos de A y B se emparejan; Clipper recibe solo los propios de cada lado y los comunes que los tocan (`xor_split_owned` de gdstk-rs). El resultado es el mismo que el del XOR completo.
+1. **Huella jerárquica** (`prints.rs`, un árbol de Merkle sobre la jerarquía, como los árboles de Git): la de una celda combina el hash de su geometría propia con, por cada instancia, la huella jerárquica de la celda instanciada y su transformación. Dos celdas con la misma huella jerárquica aplanan a lo mismo: se descartan sin aplanar nada (solo se leen los polígonos propios de cada celda).
+2. **Instancias gemelas:** en una celda que difiere, cada instancia se empareja con su gemela de la otra versión (misma celda según la huella jerárquica, misma transformación). Las gemelas se cancelan; solo se aplanan las que no tienen gemela y la geometría propia.
+3. **Huella por capa:** de lo que queda, un hash de cada polígono en **forma canónica** (vértices cuantizados, sin repetidos, sentido antihorario, empezando por el menor), agrupado por capa. Dos capas con la misma huella son iguales aunque el archivo las escriba distinto (reexportadas por otra herramienta): se saltan sin XOR.
+4. **XOR solo de lo que cambió:** en una capa distinta, los hashes que sobran de cada lado son los polígonos propios; Clipper recibe esos y los comunes que los tocan (`xor_split_owned` de gdstk-rs), que salen de las instancias sin gemela y de las gemelas cuyo bbox toca la zona del cambio. El resultado es el mismo que el del XOR completo.
 
-Un `user_project_wrapper` de 42 MB (IHP, 6,2 millones de polígonos) pasó de no terminar en 45 minutos a **6,4 s** (sin cambios reales) o **16 s** (con un cambio en capas de millones de polígonos), con áreas idénticas a KLayout. Diseño y mediciones en [`diseno/fase6.md`](diseno/fase6.md).
+Todo se aplana **por pedazos** (lo propio de la celda y cada instancia por separado): cada pedazo se usa y se suelta, así nunca está un chip entero aplanado en memoria. Los pedazos, las capas y las celdas se reparten entre los núcleos (`--jobs N` o `RIKU_JOBS`, por defecto todos; ver [`cli.md`](cli.md)).
+
+Un `user_project_wrapper` de 42 MB (IHP, 6,2 millones de polígonos) pasó de no terminar en 45 minutos a **1,4–2,3 s** (sin cambios reales, con cambios en la top o dentro de una sub-celda) y **4,7–7 s** si se mueve la instancia de un pad (74 mil polígonos corridos: el peor caso de Clipper; KLayout tarda 211 s), siempre con menos de 1 GB y áreas idénticas a KLayout. Diseño y mediciones en [`diseno/fase6.md`](diseno/fase6.md).
 
 ## El visor
 

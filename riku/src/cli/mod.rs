@@ -37,6 +37,11 @@ pub enum OutputFormat {
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
+    /// Hilos para el trabajo pesado (diff de layouts, carga del visor). Por
+    /// defecto, los núcleos disponibles (también: RIKU_JOBS). Se fija al
+    /// arrancar; en el shell no cambia.
+    #[arg(long, global = true, value_name = "N")]
+    pub(crate) jobs: Option<usize>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -160,7 +165,9 @@ pub(crate) enum Commands {
 pub fn run() -> ExitCode {
     use dispatch::Outcome;
 
-    let Some(cmd) = Cli::parse().command else {
+    let cli = Cli::parse();
+    configure_threads(cli.jobs);
+    let Some(cmd) = cli.command else {
         return shell_to_exit(shell::run_shell());
     };
 
@@ -180,6 +187,18 @@ pub fn run() -> ExitCode {
             eprintln!("{err}");
             ExitCode::from(if ci_codes { 2 } else { 1 })
         }
+    }
+}
+
+/// Un solo pool de hilos para todo el proceso: `--jobs N`, si no
+/// `RIKU_JOBS`, si no los núcleos disponibles (lo que elige `rayon`). Los
+/// diffs anidados (log → commits → celdas → pedazos) lo comparten sin crear
+/// más hilos que núcleos. `RIKU_JOBS=1` deja todo en un hilo.
+fn configure_threads(jobs: Option<usize>) {
+    let n = jobs.or_else(|| std::env::var("RIKU_JOBS").ok()?.trim().parse().ok()).filter(|&n| n > 0);
+    if let Some(n) = n {
+        // Solo falla si el pool ya existe (no pasa: es lo primero que se hace).
+        let _ = rayon::ThreadPoolBuilder::new().num_threads(n).build_global();
     }
 }
 

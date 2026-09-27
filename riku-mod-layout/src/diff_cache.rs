@@ -111,8 +111,11 @@ impl DiffCache {
         if std::fs::create_dir_all(dir).is_err() {
             return;
         }
-        // Escribir aparte y renombrar: otro proceso nunca lee una entrada a medias.
-        let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+        // Escribir aparte y renombrar: otro proceso nunca lee una entrada a
+        // medias. El contador separa a dos hilos del mismo proceso.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("tmp{}-{seq}", std::process::id()));
         if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, path).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }

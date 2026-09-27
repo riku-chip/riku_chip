@@ -71,9 +71,9 @@ Por defecto van las tres. `--no-default-features` da un `riku` solo de terminal;
 
 ## Rendimiento
 
-- **Diff de layouts:** huella por capa en forma canónica y XOR solo de lo que cambió ([`layouts.md`](layouts.md)).
+- **Diff de layouts:** huella jerárquica (árbol de Merkle sobre la jerarquía), instancias gemelas, huella por capa en forma canónica y XOR solo de lo que cambió, aplanando por pedazos ([`layouts.md`](layouts.md)).
 - **Visor:** cada backend arma un `SceneIndex` al cargar (grillas por tamaño, relleno triangulado una vez, pirámide de cobertura). Por cuadro se consulta solo lo visible; si pasa de 60 000 elementos, lo diminuto se pinta como una imagen por capa ([`gui.md`](gui.md)).
-- Hilos: `rayon` para cálculo (un hilo del sistema por núcleo), `tokio` para la carga asíncrona del visor. Lo que falta paralelizar está en [`roadmap.md`](roadmap.md).
+- Hilos: un solo pool de `rayon` para el cálculo (un hilo del sistema por núcleo, o `--jobs N`/`RIKU_JOBS`; lo configura `riku` al arrancar), compartido por el diff y el índice del visor; `tokio` para la carga asíncrona del visor. `gdstk-rs` se lee desde varios hilos a la vez (`Library` es `Send + Sync`). Lo que falta paralelizar está en [`roadmap.md`](roadmap.md).
 
 ## Por qué así
 

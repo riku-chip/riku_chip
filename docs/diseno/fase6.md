@@ -1,6 +1,6 @@
 # Fase 6: rendimiento con layouts grandes y multinúcleo
 
-Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-26): **6.1, 6.2, 6.3 y 6.5.a hechos**; faltan 6.4, 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
+Diseño basado en mediciones reales, no en suposiciones. Primero el algoritmo (lo que más rinde, en un solo núcleo), después los núcleos. Estado (2026-09-27): **6.1, 6.2, 6.3, 6.4 y 6.5.a hechos**; faltan 6.5.b y 6.6 (resumen en [`../roadmap.md`](../roadmap.md)).
 
 ---
 
@@ -307,6 +307,7 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 |---|---|---|
 | 6.1 + 6.5.a | Hecho (2026-09-26) | `gds_diff.rs`: la huella de celda pasa a ser **por capa** (`layer_prints`, una sola pasada de aplanado) y se reutiliza para saltar las capas iguales. Las capas que difieren van a `xor_layer`: empareja los polígonos idénticos de A y B (hash + vértices), y si lo común es mayoría hace el XOR solo de lo propio más los comunes que lo tocan (`XOR(A' ∪ Cl, B' ∪ Cl)`, grilla de bboxes); si no, el XOR de la capa entera como antes. Resultado en el layout de 42 MB: **~22 min → 6,4 s** (1,7 GB), igual a KLayout (área de diferencia 0; KLayout tarda 26 s). Con un cambio real en las capas 6/0 (4,8 millones de polígonos) y 19/0: **16 s**, áreas idénticas a KLayout. `riku-mod-layout` sube a 0.2.0 (invalida la cache). 54 tests; regresión y `compare.sh --xor` idénticos |
 | 6.3 | Hecho (2026-09-26) | `gdstk_rust` `3ff9daf`. `finish_load` (shims.cpp), al leer GDS/OASIS: borra una vez los puntos repetidos de cada `FlexPath` (copia de `remove_overlapping_points`, que en gdstk es privada) y calcula las capas de `Library::layers()`. `unsafe impl Send + Sync` para los handles del bridge, con el porqué. Se borró `as_flexpath_mut`. `tests/concurrency.rs`: 12 hilos × 40 rondas aplanan, piden bbox, capas y XOR (jerarquía SREF/AREF y paths con puntos repetidos) y dan lo mismo que un hilo. CI de gdstk_rust: job no bloqueante con ThreadSanitizer. Regresión, `compare.sh` (tres PDKs) y `compare.sh --xor` idénticos |
+| 6.4 | Hecho (2026-09-27) | `prints.rs`: huella jerárquica (árbol de Merkle), instancias gemelas, aplanado por pedazos en paralelo y XOR por huellas; `hier_walk::Origins`; `--jobs`/`RIKU_JOBS` en `riku`; cache con archivo temporal por hilo. Resultado y diferencias con el diseño al final |
 
 **Diferencias con el plan (6.1 + 6.5.a):**
 - **Hizo falta tocar gdstk-rs** (el plan decía que no): no había una booleana sobre listas de polígonos. Se agregó `xor_split_owned` (`gdstk_rust` `3746c63`), con dos tests que la comparan contra `xor_split_flat`.
@@ -317,3 +318,21 @@ Verificado leyendo `external/gdstk` (C++ y gdstk-rs), `riku-mod-layout`, `viewer
 - **Había otra escritura:** la cache perezosa de `Library::layers()` (`mutable` en `LibraryHandle::Impl`) se llenaba en la primera llamada; dos hilos a la vez la corrompían. Ahora se calcula al cargar.
 - **Bug encontrado de paso:** `Library::layers()` solo miraba los polígonos, y el diff recorre esas capas; un cambio en una capa dibujada solo con paths no se reportaba. Ahora incluye las capas de los paths (test `change_in_a_layer_drawn_only_with_paths_is_reported`).
 - **Memoria que no baja (`malloc_trim`):** pasa a 6.4. La huella por pedazos ya evita aplanar la celda entera; se mide ahí si todavía hace falta.
+
+**Resultado de 6.4** (2026-09-27, layout de 42 MB, i7-1255U, `--jobs 1` / `--jobs 12`; salida y áreas idénticas a KLayout con `compare.sh --xor` en los tres casos con cambios):
+
+| Caso | Antes de 6.4 | 1 hilo | 12 hilos |
+|---|---|---|---|
+| Sin cambios reales (reexportado) | 5,5 s · 1,7 GB | 1,39 s · 0,41 GB | 1,45 s · 0,59 GB |
+| Un polígono nuevo en 6/0 y 19/0 de la top | 14,6 s · 2,9 GB | 2,34 s · 0,40 GB | 1,78 s · 0,59 GB |
+| Un rectángulo en una sub-celda con 3 instancias | — | 1,91 s · 0,41 GB | 1,61 s · 0,63 GB |
+| Una instancia de pad movida 1 µm | horas (no terminaba) | 7,22 s · 0,61 GB | 4,65 s · 0,78 GB |
+| Librería SKY130 (437 celdas), una celda cambiada | 0,12 s | 0,15 s | 0,10 s |
+
+**Diferencias con el diseño (6.4):**
+- **Lo que más rindió no fueron los hilos sino el grafo de la jerarquía.** Se agregó una **huella jerárquica** (`tree_prints`, un árbol de Merkle: geometría propia + huella de cada hija + transformación de cada instancia), que descarta las celdas iguales sin aplanarlas, y el **emparejamiento de instancias gemelas** (`pair_prints`): en una celda que difiere, las instancias con la misma hija y la misma transformación en A y en B se cancelan y no se aplanan. La huella por capa y el XOR se calculan solo sobre lo que queda; para los comunes cercanos se recorren además las gemelas cuyo bbox toca la zona del cambio.
+- **Sí hay que volver a hashear la capa que difiere** (el diseño decía que no): para saber qué polígonos son los propios. Lo caro de antes (6 s en la 6/0) era un `HashMap` con una lista por hash, comparar vértices recalculando la forma canónica y los bboxes de todo; eso se eliminó.
+- **Se quitó el respaldo de XOR de la capa entera:** con instancias gemelas no es equivalente (las gemelas pueden tapar diferencias), y el XOR local da lo mismo. El presupuesto de memoria queda para lo propio (capas regeneradas enteras).
+- **Bug de rendimiento previo encontrado:** atribuir cada polígono del XOR a su instancia (`origin_of_polygon`) pedía a gdstk el bbox de cada referencia por cada polígono, y gdstk lo recalcula recorriendo todo el subárbol: con una instancia movida (147 mil polígonos) tardaba horas. Ahora `Origins` los calcula una vez por celda.
+- **Sin umbrales de "celda chica":** el costo de repartir es de microsegundos (librería SKY130: 0,10–0,15 s contra 0,12 s de antes).
+- **Hilos:** en esta CPU (2 núcleos rápidos + 8 lentos) suman poco una vez que el algoritmo evita el trabajo; ayudan en el caso pesado (instancia movida: 7,2 → 4,7 s, dominado por Clipper en la 6/0). Ese caso es el candidato para 6.5.b (XOR por cuadrantes).
