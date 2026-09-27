@@ -17,6 +17,7 @@ use std::sync::Arc;
 use crate::bbox::BoundingBox;
 use crate::diff::{Annotation, ChangeItem, ChangeKind};
 use crate::element::{DrawElement, Layer};
+use crate::index::SceneIndex;
 use crate::paint::LayerPaint;
 use crate::viewport::YAxis;
 
@@ -81,6 +82,9 @@ pub struct Scene {
     /// Avisos para el usuario sobre esta escena (p. ej. símbolos que no se
     /// pudieron resolver).
     pub notices: Vec<String>,
+    /// Índice espacial (culling, nivel de detalle, relleno precalculado).
+    /// `None` hasta llamar a [`Scene::build_index`]; `push` lo descarta.
+    pub index: Option<Arc<SceneIndex>>,
 }
 
 impl Default for Scene {
@@ -105,10 +109,12 @@ impl Scene {
             ghost: Vec::new(),
             annotations: Vec::new(),
             notices: Vec::new(),
+            index: None,
         }
     }
 
     pub fn push(&mut self, el: DrawElement) {
+        self.index = None;
         self.bbox.expand(&el.bounding_box());
         self.elements.push(el);
     }
@@ -119,6 +125,15 @@ impl Scene {
 
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
+    }
+
+    /// Arma el índice de los elementos actuales (ver [`SceneIndex`]). Los
+    /// backends lo llaman al terminar la escena, fuera del hilo de la UI.
+    pub fn build_index(&mut self) {
+        // Capas de solo contorno (relleno transparente): la pirámide marca sus bordes.
+        let layers = &self.layers;
+        let outline = |l: Layer| layers.get(&l).is_some_and(|p| p.fill.a == 0);
+        self.index = Some(Arc::new(SceneIndex::build(&self.elements, &self.bbox, &outline)));
     }
 }
 
@@ -203,6 +218,14 @@ pub trait RenderableScene: Send + Sync {
     /// El callback debe retornar `true` para continuar o `false` para detener
     /// la iteración (útil para cancelación cooperativa desde el renderer).
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool);
+
+    /// Índice espacial y los elementos a los que se refieren sus índices, si
+    /// la escena lo tiene (ver [`Scene::build_index`]). Con él, el consumidor
+    /// puede consultar solo lo visible y usar el relleno precalculado. Por
+    /// defecto `None`: se usa [`Self::visit`].
+    fn indexed(&self) -> Option<(&SceneIndex, &[DrawElement])> {
+        None
+    }
 }
 
 impl RenderableScene for Scene {
@@ -260,6 +283,10 @@ impl RenderableScene for Scene {
 
     fn notices(&self) -> &[String] {
         &self.notices
+    }
+
+    fn indexed(&self) -> Option<(&SceneIndex, &[DrawElement])> {
+        self.index.as_deref().map(|i| (i, &self.elements[..]))
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {

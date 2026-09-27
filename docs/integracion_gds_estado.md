@@ -138,7 +138,7 @@ Todos corren en la CI (GitHub Actions) con cada push y cada PR, con `-D warnings
 
 | Crate | Tests | Cubren |
 |---|---|---|
-| `viewer-core` | 9 | eje Y, fit, hit-test y área de primitivas, contrato por defecto de `load_entry`/`load_diff` |
+| `viewer-core` | 24 | índice espacial (culling, pirámide de cobertura, cables finos, presupuesto, picking, relleno en cache), eje Y, fit, hit-test y área de primitivas, contrato por defecto de `load_entry`/`load_diff` |
 | `riku-mod-layout` | 54 | diff por celda y jerárquico, un item por instancia (SREF y AREF), renombres, OASIS contra GDS, cache (aciertos, corrupción, límite, escena idéntica), lados vacíos, `changed_cells`, escena de diff, paletas curadas y generadas, detección de PDK, labels jerárquicos, anchors, catálogo de celdas |
 | `riku` (visor, `src/gui`) | 43 | transformaciones y zoom, relleno cóncavo, selector y filtros, tooltip, encuadre de cambios, colocación y prioridad de etiquetas, contraste por tema, springs e inercia, fundido de tema, mensajes, filtro del árbol |
 | `riku` | 87 | incluye `tests/gds_e2e.rs`: repo git real → `GitService` → `GdsDriver`, y el binario `riku diff -f json` (áreas, bbox absoluto, archivo nuevo, versiones idénticas, OASIS igual a GDS); renombres e instancias en el driver; autocompletado del shell |

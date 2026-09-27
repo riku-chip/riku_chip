@@ -24,6 +24,7 @@ Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual`
 | Encuadrar todo | botón **Encuadrar** o **F** (animado) |
 | Mostrar/ocultar textos | botón **Etiquetas** o **L** |
 | Sin animaciones ni inercia | **Ajustes → Reducir movimiento** (se recuerda) |
+| Dibujar cada polígono aunque sea diminuto | desmarcar **Ajustes → Simplificar al alejar** (se recuerda; más lento en layouts grandes) |
 | Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
 | Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
 | Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo `.sch`, `.sym`, `.gds`) |
@@ -46,14 +47,15 @@ src/
 ├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
 │                     fit/zoom, hit-test y tooltip
 ├── motion.rs         springs interrumpibles e inercia de la vista
-├── polygon_fill.rs   relleno de polígonos cóncavos (earcut)
+├── polygon_fill.rs   relleno de polígonos en escenas sin índice
 ├── entry_picker.rs   selector de celdas con buscador y filtros
 ├── label_layout.rs   colocación de etiquetas sin solaparse
 ├── theme.rs          colores por tema, tipografía y escala de espaciado
 └── toast.rs          mensajes temporales (estado, completado, aviso, error)
 ```
 
-- **Dos rutas de render.** Xschem conserva su painter propio. Todo lo demás (GDS) llega como `Arc<dyn RenderableScene>` desde un `ViewerBackend` de `viewer-core`; la GUI no conoce tipos de gdstk.
+- **Una sola ruta de render.** Esquemáticos y layouts llegan como `Arc<dyn RenderableScene>` desde el `ViewerBackend` de su módulo (`viewer-core`); la GUI no conoce tipos de gdstk ni de Xschem.
+- **Layouts grandes** (`viewer_core::index`). Al cargar, el backend arma un índice de la escena (en paralelo): bbox de cada elemento, grillas por tamaño, triangulación de los cóncavos y una pirámide de cobertura por capa. En cada cuadro se consulta solo lo visible. Si eso no pasa de 60 000 elementos se dibuja todo como siempre; si pasa, lo que mide pocos píxeles o menos de un píxel de ancho se pinta como una imagen por capa (una textura por nivel, en cache) y el resto uno a uno, con los rellenos de cada capa juntos en una malla. Un layout de 42 MB (6,2 millones de polígonos) pasó de 11 GB y ~600 ms por cuadro a 2,5 GB y ~2 ms. `RIKU_PROFILE=1` imprime el tiempo de cada cuadro, los elementos dibujados y el nivel usado; `RIKU_LOD_PX` ajusta el lado de los texels (1 px por defecto).
 - **Cargas async.** Runtime Tokio con `poll-promise`; una carga nueva cancela la anterior (`CancellationToken`) y la escena actual sigue visible hasta que llega la nueva.
 - **Coordenadas.** Mundo (Y-up en GDS) → vista (Y-down, relativa al panel, donde vive el `Viewport`) → pantalla. `ScreenXform` concentra las tres para que dibujo, culling, fit, zoom y hit-test usen la misma cuenta.
 - **Etiquetas legibles** (`label_layout.rs`). Tamaño fijo en pantalla (10–14 px); se ocultan si el zoom es tan lejano que serían ruido. Las del mismo punto se fusionan (`VPB · VPWR`). Cada una es una pastilla con halo, desplazada del anclaje (marcado con un punto) para no tapar el pin; si choca, prueba otras posiciones y, si no entra, se omite y la barra de estado lo avisa.

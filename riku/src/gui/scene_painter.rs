@@ -21,6 +21,8 @@ use viewer_core::{
     bbox::BoundingBox,
     diff::{Annotation, AnnotationShape, ChangeKind},
     element::{DrawElement, HAlign, Layer, VAlign},
+    fill::strip_closing_point,
+    index::{Fill, LodQuery, SceneIndex},
     paint::Rgba,
     scene::{RenderableScene, TextStyle},
     viewport::{screen_to_world, world_to_screen, Viewport, YAxis},
@@ -124,14 +126,25 @@ pub fn pick_at<'a>(
     hidden: &HashSet<Layer>,
 ) -> Option<&'a DrawElement> {
     let (mut filled, mut outline) = (None, None);
-    // bbox puntual: el culling de la escena descarta casi todo sin probarlo.
-    scene.visit(&BoundingBox::point(x, y), &mut |el| {
+    let mut consider = |el: &'a DrawElement| {
         if !hidden.contains(&el.layer()) && el.contains_point(x, y) {
             let see_through = scene.layer_paint(el.layer()).is_some_and(|p| p.fill.a == 0);
             if see_through { outline = Some(el) } else { filled = Some(el) }
         }
-        true
-    });
+    };
+    match scene.indexed() {
+        // Con índice: solo los elementos cuyo bbox contiene el punto.
+        Some((index, elements)) => {
+            for i in index.candidates_at(x, y) {
+                consider(&elements[i as usize]);
+            }
+        }
+        // bbox puntual: el culling de la escena descarta casi todo sin probarlo.
+        None => scene.visit(&BoundingBox::point(x, y), &mut |el| {
+            consider(el);
+            true
+        }),
+    }
     filled.or(outline)
 }
 
@@ -183,6 +196,10 @@ pub struct PaintOptions {
     pub theme: CanvasTheme,
     /// Mostrar etiquetas de texto.
     pub labels: bool,
+    /// Resumir en bloques lo menor a un píxel (escenas con índice).
+    pub lod: bool,
+    /// Lado máximo de un bloque, en píxeles.
+    pub block_px: f64,
 }
 
 /// Qué pasó al pintar, para informar en la barra de estado.
@@ -190,6 +207,9 @@ pub struct PaintOptions {
 pub struct PaintStats {
     /// Etiquetas visibles que no se dibujaron por falta de lugar.
     pub labels_hidden: usize,
+    /// Elementos dibujados uno a uno y nivel de la pirámide usado (si hubo).
+    pub elements: usize,
+    pub lod_level: Option<usize>,
 }
 
 /// Alto de las etiquetas en pantalla. Se deriva del tamaño en el mundo pero
@@ -261,10 +281,231 @@ pub fn paint_scene(
         }
         true
     };
-    scene.visit(&xf.visible_world_bbox(), &mut visitor);
+    let (mut drawn, mut lod_level) = (0, None);
+    match scene.indexed() {
+        Some((index, elements)) => {
+            let q = LodQuery {
+                bbox: xf.visible_world_bbox(),
+                px_world: 1.0 / vp.scale.max(f64::MIN_POSITIVE),
+                lod: opts.lod,
+                block_px: opts.block_px,
+                budget: viewer_core::index::BUDGET,
+                // Etiquetas ilegibles u ocultas: ni se entregan. El texto de un
+                // esquemático se dibuja siempre (con un mínimo de tamaño).
+                min_text_px: match (drawn_text, opts.labels) {
+                    (true, _) => 0.0,
+                    (false, true) => f64::from(LABEL_MIN_NATURAL_PX),
+                    (false, false) => f64::INFINITY,
+                },
+            };
+            let vis = index.visible(elements, &q, &|l| hidden.contains(&l));
+            (drawn, lod_level) = (vis.elements.len(), vis.level);
+            if let Some(level) = vis.level {
+                paint_coverage(&painter, &xf, scene, index, level, vis.span, hidden, &theme);
+            }
+            let mut batch = LayerBatch::default();
+            for &i in &vis.elements {
+                let el = &elements[i as usize];
+                if let DrawElement::Polygon { points, layer, filled: true } = el {
+                    batch.polygon(&painter, &xf, vp.scale, scene, &theme, index, i as usize, points, *layer);
+                    continue;
+                }
+                batch.flush(&painter);
+                visitor(el);
+            }
+            batch.flush(&painter);
+        }
+        None => scene.visit(&xf.visible_world_bbox(), &mut |el| {
+            drawn += 1;
+            visitor(el)
+        }),
+    }
     paint_annotations(&painter, &xf, scene.annotations(), &theme);
 
-    PaintStats { labels_hidden: paint_labels(&painter, labels, rect, &theme) }
+    PaintStats { labels_hidden: paint_labels(&painter, labels, rect, &theme), elements: drawn, lod_level }
+}
+
+/// Un polígono de menos de estos píxeles se dibuja sin contorno: con el
+/// relleno alcanza para verlo, y el contorno es lo que más cuesta teselar.
+const OUTLINE_MIN_PX: f64 = 6.0;
+
+/// Rellenos consecutivos de una misma capa acumulados en una sola malla (y
+/// sus contornos aparte, encima): egui recibe una o dos formas por tramo de
+/// capa en vez de una por polígono.
+#[derive(Default)]
+struct LayerBatch {
+    layer: Option<Layer>,
+    mesh: egui::Mesh,
+    lines: Vec<Shape>,
+}
+
+impl LayerBatch {
+    #[allow(clippy::too_many_arguments)]
+    fn polygon(
+        &mut self,
+        painter: &egui::Painter,
+        xf: &ScreenXform,
+        scale: f64,
+        scene: &dyn RenderableScene,
+        theme: &CanvasTheme,
+        index: &SceneIndex,
+        i: usize,
+        points: &[(f64, f64)],
+        layer: Layer,
+    ) {
+        if self.layer != Some(layer) {
+            self.flush(painter);
+            self.layer = Some(layer);
+        }
+        let (fill, stroke_color) = layer_colors(scene, layer);
+        let (fill, stroke_color) = theme.layer_colors(fill, stroke_color);
+        let stroke = Stroke::new(1.0_f32, stroke_color);
+        let pts: Vec<Pos2> = strip_closing_point(points).iter().map(|(x, y)| xf.to_screen(*x, *y)).collect();
+        if pts.len() < 2 {
+            return;
+        }
+        // Por el lado menor: un cable largo de menos de 6 px de ancho no lo lleva.
+        let outline = fill.a() == 0 || index.min_size(i) * scale >= OUTLINE_MIN_PX;
+        if fill.a() > 0 {
+            let base = self.mesh.vertices.len() as u32;
+            match index.fill(i) {
+                (Fill::Convex, _) => {
+                    for p in &pts {
+                        self.mesh.colored_vertex(*p, fill);
+                    }
+                    for k in 1..pts.len() as u32 - 1 {
+                        self.mesh.add_triangle(base, base + k, base + k + 1);
+                    }
+                }
+                (Fill::Triangles, Some(tris)) => {
+                    for p in &pts {
+                        self.mesh.colored_vertex(*p, fill);
+                    }
+                    for t in tris.chunks_exact(3) {
+                        self.mesh.add_triangle(base + t[0], base + t[1], base + t[2]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if outline {
+            self.lines.push(Shape::closed_line(pts, stroke));
+        }
+    }
+
+    fn flush(&mut self, painter: &egui::Painter) {
+        if !self.mesh.is_empty() {
+            painter.add(Shape::mesh(std::mem::take(&mut self.mesh)));
+        }
+        if !self.lines.is_empty() {
+            painter.extend(std::mem::take(&mut self.lines));
+        }
+        self.layer = None;
+    }
+}
+
+/// Texturas de la pirámide ya compuestas, por escena, nivel, capas ocultas y
+/// tema. Viven en la memoria de egui: se arman una vez y cada cuadro solo
+/// pinta un rectángulo con la imagen.
+#[derive(Clone, Default)]
+struct CoverageTextures {
+    entries: Vec<(CoverageKey, egui::TextureHandle)>,
+}
+
+#[derive(Clone, PartialEq)]
+struct CoverageKey {
+    scene: usize,
+    level: usize,
+    span: usize,
+    hidden: Vec<Layer>,
+    dark: bool,
+}
+
+/// Cuántos niveles se guardan (el actual y los vecinos, para acercar y
+/// alejar sin recomponer).
+const COVERAGE_CACHE: usize = 3;
+
+/// Pinta el nivel `level` de la pirámide: lo que mide menos de unas celdas,
+/// como una imagen con el color de cada capa (su relleno, o su contorno
+/// en capas de solo contorno, cuyos bordes marca la pirámide), en el orden
+/// de pintado de la escena.
+#[allow(clippy::too_many_arguments)]
+fn paint_coverage(
+    painter: &egui::Painter,
+    xf: &ScreenXform,
+    scene: &dyn RenderableScene,
+    index: &SceneIndex,
+    level: usize,
+    span: usize,
+    hidden: &HashSet<Layer>,
+    theme: &CanvasTheme,
+) {
+    let Some(view) = index.coverage(level, span) else { return };
+    let mut hidden_sorted: Vec<Layer> = hidden.iter().copied().collect();
+    hidden_sorted.sort_unstable();
+    let key = CoverageKey { scene: index as *const SceneIndex as usize, level, span, hidden: hidden_sorted, dark: theme.dark };
+    let id = egui::Id::new("riku-coverage-textures");
+    let ctx = painter.ctx();
+    let mut cache: CoverageTextures = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
+    let texture = match cache.entries.iter().position(|(k, _)| *k == key) {
+        Some(pos) => cache.entries[pos].1.clone(),
+        None => {
+            let flip = scene.y_axis() == YAxis::Up;
+            let image = coverage_image(&view, scene, hidden, theme, flip);
+            // Al achicar, promedio (lineal); al agrandar un texel de varios
+            // píxeles, bordes nítidos (nearest) en vez de borrosos.
+            let options = egui::TextureOptions {
+                magnification: egui::TextureFilter::Nearest,
+                minification: egui::TextureFilter::Linear,
+                ..egui::TextureOptions::LINEAR
+            };
+            let tex = ctx.load_texture(format!("riku-coverage-{level}-{span}"), image, options);
+            cache.entries.push((key, tex.clone()));
+            if cache.entries.len() > COVERAGE_CACHE {
+                drop(cache.entries.remove(0));
+            }
+            ctx.data_mut(|d| d.insert_temp(id, cache));
+            tex
+        }
+    };
+    let b = view.bbox();
+    let rect = Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y));
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    painter.image(texture.id(), rect, uv, Color32::WHITE);
+}
+
+/// Imagen de `n × n` de un nivel de la pirámide. La fila 0 es la de menor Y
+/// del mundo, salvo con `flip` (Y hacia arriba: la fila 0 va arriba).
+fn coverage_image(
+    view: &viewer_core::index::CoverageView<'_>,
+    scene: &dyn RenderableScene,
+    hidden: &HashSet<Layer>,
+    theme: &CanvasTheme,
+    flip: bool,
+) -> egui::ColorImage {
+    let n = view.n;
+    let mut pixels = vec![Color32::TRANSPARENT; n * n];
+    for layer in view.layers() {
+        if hidden.contains(&layer.layer) {
+            continue;
+        }
+        let (fill, stroke) = layer_colors(scene, layer.layer);
+        let (fill, stroke) = theme.layer_colors(fill, stroke);
+        let color = if fill.a() > 0 { fill } else { stroke.gamma_multiply(0.7) };
+        for (cx, cy) in layer.cells() {
+            let row = if flip { n - 1 - cy } else { cy };
+            let p = &mut pixels[row * n + cx];
+            *p = over(color, *p);
+        }
+    }
+    egui::ColorImage::new([n, n], pixels)
+}
+
+/// `src` sobre `dst` (colores premultiplicados, como `Color32`).
+fn over(src: Color32, dst: Color32) -> Color32 {
+    let k = 255 - u16::from(src.a());
+    let mix = |s: u8, d: u8| (u16::from(s) + (u16::from(d) * k + 127) / 255).min(255) as u8;
+    Color32::from_rgba_premultiplied(mix(src.r(), dst.r()), mix(src.g(), dst.g()), mix(src.b(), dst.b()), mix(src.a(), dst.a()))
 }
 
 /// Coloca y dibuja las etiquetas: punto en el anclaje exacto y pastilla con

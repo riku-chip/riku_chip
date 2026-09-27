@@ -216,7 +216,7 @@ Umbral inicial: más de 100 mil polígonos propios en un lado.
 | Paso | Qué | Dónde | Esfuerzo | Listo cuando |
 |---|---|---|---|---|
 | 6.1 | Huella por capa | `riku-mod-layout` | S | O1 en un núcleo (< 30 s) y O2 |
-| 6.2 | Índice espacial, LOD y triangulación en cache | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
+| 6.2 | Índice espacial, LOD y triangulación en cache — **hecho** (ver `diseno_fase6_2_visor.md`: 11 GB → 2,5 GB, 600 ms → 2 ms) | `viewer-core`, backends, visor | L | O3; CI del crate de Carlos en verde |
 | 6.3 | gdstk-rs seguro entre hilos + memoria | `external/gdstk` | M | O5; la RAM baja al liberar |
 | 6.4 | `rayon` en el diff + presupuesto de memoria + cache | `riku-mod-layout` | M | O1 con 12 núcleos (< 10 s) y O2 |
 | 6.5.a | Diferencia por huellas con recorte local | `riku-mod-layout` | S | capa cambiada con pocos cambios: XOR en ms; áreas iguales a KLayout |

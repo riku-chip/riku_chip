@@ -354,6 +354,7 @@ Para GDS además:
 - **Tooltip** con capa, tamaño y área del polígono bajo el cursor.
 - **Etiquetas legibles**: tamaño fijo en pantalla, fusionadas si comparten punto, sin solaparse.
 - Polígonos cóncavos (earcut) y labels de toda la jerarquía con su anchor.
+- **Layouts grandes fluidos:** índice espacial y nivel de detalle (lo que mide menos de unos píxeles se pinta como imagen por capa). Un layout de 42 MB abre con 2,5 GB y dibuja el chip completo en ~2 ms por cuadro. Se puede desactivar en **Ajustes → Simplificar al alejar**.
 
 Usabilidad general:
 

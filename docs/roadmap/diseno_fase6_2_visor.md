@@ -180,3 +180,31 @@ Esfuerzo total: L (tres commits, uno por paso a–c).
 | Un elemento enorme en miles de celdas infla la grilla | Los que tocan más de 64 celdas van a `large` |
 | `f32` en los bboxes deja fuera algo por redondeo | Redondeo hacia afuera (`min` hacia abajo, `max` hacia arriba) |
 | Mallas gigantes en zoom medio (muchos elementos de 2–10 px) | Cada malla se corta en trozos de 64 k vértices (límite práctico de egui) |
+
+---
+
+## Avance
+
+| Paso | Estado | Notas |
+|---|---|---|
+| a–c | Hecho (2026-09-26) | `viewer-core/src/index.rs` (`SceneIndex`) y `fill.rs` (convexidad y earcut, movidos desde el visor). `Scene` gana `index` y `build_index()`; `RenderableScene` gana `indexed()` con valor por defecto. Los dos backends arman el índice en su hilo de carga (en paralelo con `rayon`, feature `parallel`). El painter usa la consulta, junta los rellenos consecutivos de una capa en una malla y pinta la pirámide como textura. Picking por la grilla. |
+
+**Medido** (Xvfb, render por software):
+
+| | Antes | Después |
+|---|---|---|
+| Layout de 42 MB, chip completo: preparar el cuadro | 560–660 ms | **2,3 ms** (11 411 elementos uno a uno) |
+| Layout de 42 MB: RAM del visor | 11 GB | **2,5 GB** |
+| Layout de 42 MB: armar escena + índice | 4,4 s | 5,3 s |
+| Layout de 8 MB (2,6 millones), chip completo | 130–170 ms, 2,1 GB | **1,3–2,1 ms, 1,2 GB** |
+| Esquemático y celda `dfxtp_1` | — | capturas **idénticas** en tres zooms (≤ 0,1 % de píxeles, el mismo ruido que la referencia contra sí misma); RAM igual |
+
+**Diferencias con el plan** (salieron de medir):
+- **La pirámide se pinta como textura, no como rectángulos.** Con bloques-rectángulo seguían siendo 150–350 mil formas por cuadro. Ahora es una imagen por nivel (capas compuestas en su orden de pintado, cache de 3), un solo rectángulo por cuadro; al agrandar un texel se usa filtro *nearest*.
+- **Resumir solo si hace falta.** Si lo visible cabe en `BUDGET` (60 000) se dibuja todo como siempre: los esquemáticos y las celdas no cambian ni un píxel. Si no cabe, hay **dos pirámides** (resumen de lo menor a 4 o a 16 celdas); se prueba la de 16 antes de agrandar el texel.
+- **Cables largos y finos.** El lado mayor no alcanza: el ruteo son polígonos largos de menos de un píxel de ancho. Se usa el ancho `2·área/perímetro` (sirve también para cables con curvas) y esos se marcan en la pirámide siguiendo sus bordes; los polígonos chicos, por las celdas cuyo centro cae dentro (rectángulos: su bbox, exacto). Las capas de solo contorno se marcan por sus bordes.
+- **Etiquetas ilegibles u ocultas** no salen de la consulta (`min_text_px`): eran 260 mil por cuadro en el layout de 8 MB.
+- **Grillas del tamaño justo:** una cubeta con pocos elementos no reserva millones de celdas (el esquemático volvió a su RAM de antes).
+- Arreglo colateral: con cuadros lentos, varias pulsaciones de **+**/**−** caían en el mismo cuadro y se perdían; ahora se cuentan todas (`num_presses`).
+
+**Límite conocido:** zoom cercano sobre una zona muy densa (px menor que la celda más fina de la pirámide, `lado/2048`, con cientos de miles de elementos a la vista): se dibuja todo uno a uno, ~45 ms por cuadro con el layout de 8 MB. Una pirámide más fina necesitaría bitsets dispersos por mosaico; queda anotado.

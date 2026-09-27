@@ -139,6 +139,13 @@ pub struct RikuGuiApp {
     show_all_files: bool,
     /// Sin animaciones ni inercia (accesibilidad: movimiento reducido).
     reduce_motion: bool,
+    /// Resumir en bloques lo menor a un píxel al alejarse (layouts grandes).
+    simplify: bool,
+    /// Lado máximo de un bloque de nivel de detalle, en píxeles
+    /// (`RIKU_LOD_PX` para ajustarlo; por defecto `viewer_core::index::BLOCK_PX`).
+    block_px: f64,
+    /// `RIKU_PROFILE`: imprimir tiempos de pintado por cuadro.
+    profile: bool,
 
     // ─── Lectura del lienzo para la barra de estado (frame anterior) ────────
     /// Posición del cursor en coordenadas de mundo, si está sobre el lienzo.
@@ -169,6 +176,7 @@ pub struct RikuGuiApp {
 const PREF_LABELS: &str = "riku.show_labels";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
+const PREF_SIMPLIFY: &str = "riku.simplify";
 const PREF_RECENT: &str = "riku.recent_files";
 /// Cuántos archivos recientes se recuerdan.
 const MAX_RECENT: usize = 6;
@@ -215,6 +223,7 @@ impl RikuGuiApp {
         let show_labels = pref(PREF_LABELS, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
+        let simplify = pref(PREF_SIMPLIFY, true);
         let recent: Vec<String> = cc.storage.and_then(|s| eframe::get_value(s, PREF_RECENT)).unwrap_or_default();
 
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
@@ -249,6 +258,13 @@ impl RikuGuiApp {
             show_labels,
             show_all_files,
             reduce_motion,
+            simplify,
+            profile: std::env::var_os("RIKU_PROFILE").is_some(),
+            block_px: std::env::var("RIKU_LOD_PX")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|v: &f64| *v > 0.0)
+                .unwrap_or(viewer_core::index::BLOCK_PX),
             cursor_world: None,
             px_world: None,
             labels_hidden: 0,
@@ -481,8 +497,10 @@ impl RikuGuiApp {
             (
                 i.key_pressed(egui::Key::F),
                 i.key_pressed(egui::Key::L),
-                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
-                i.key_pressed(egui::Key::Minus),
+                // Todas las pulsaciones del cuadro: con un layout pesado, varias
+                // caen en el mismo y no deben perderse.
+                i.num_presses(egui::Key::Plus) + i.num_presses(egui::Key::Equals),
+                i.num_presses(egui::Key::Minus),
             )
         });
         if fit {
@@ -495,8 +513,9 @@ impl RikuGuiApp {
             self.notify(ToastKind::Info, msg);
         }
         if let Some(bs) = self.backend_state.as_mut() {
-            let step = 1.25;
-            let factor = if zoom_in { Some(step) } else if zoom_out { Some(1.0 / step) } else { None };
+            let step: f64 = 1.25;
+            let presses = zoom_in as i32 - zoom_out as i32;
+            let factor = (presses != 0).then(|| step.powi(presses));
             if let Some(f) = factor {
                 bs.pending_zoom = Some(bs.pending_zoom.unwrap_or(1.0) * f);
             }
@@ -663,6 +682,7 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_LABELS, &self.show_labels);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
+        eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
         eframe::set_value(storage, PREF_RECENT, &self.recent);
     }
 
@@ -739,6 +759,10 @@ impl eframe::App for RikuGuiApp {
                     ui.menu_button("Ajustes", |ui| {
                         ui.checkbox(&mut self.reduce_motion, "Reducir movimiento")
                             .on_hover_text("Sin animaciones al encuadrar ni inercia al soltar un arrastre");
+                        ui.checkbox(&mut self.simplify, "Simplificar al alejar").on_hover_text(
+                            "En layouts grandes, lo que mide menos de un píxel se dibuja como bloques del color de su \
+                             capa. Al acercarse aparece todo. Desactivarlo dibuja cada polígono (más lento)",
+                        );
                         ui.separator();
                         ui.label(RichText::new("Atajos").strong());
                         for (k, what) in [
@@ -985,12 +1009,27 @@ impl eframe::App for RikuGuiApp {
                         ctx.request_repaint();
                     }
                     let hidden = bs.hidden_keys();
-                    let opts = PaintOptions { theme: CanvasTheme::from_visuals(ui.visuals()), labels: self.show_labels };
+                    let opts = PaintOptions {
+                        theme: CanvasTheme::from_visuals(ui.visuals()),
+                        labels: self.show_labels,
+                        lod: self.simplify,
+                        block_px: self.block_px,
+                    };
+                    let t_paint = std::time::Instant::now();
                     let stats = ui
                         .scope_builder(egui::UiBuilder::new().max_rect(response.rect), |ui| {
                             paint_scene(ui, bs.scene.as_ref(), &bs.viewport, &hidden, opts)
                         })
                         .inner;
+                    if self.profile {
+                        eprintln!(
+                            "PROFILE paint_scene {:.1} ms · entre cuadros {:.1} ms · {} elementos · nivel {:?}",
+                            t_paint.elapsed().as_secs_f64() * 1e3,
+                            ctx.input(|i| i.unstable_dt) as f64 * 1e3,
+                            stats.elements,
+                            stats.lod_level
+                        );
+                    }
                     // Para la barra de estado (se muestra en el próximo frame).
                     self.labels_hidden = stats.labels_hidden;
                     self.px_world = Some(1.0 / bs.viewport.scale);

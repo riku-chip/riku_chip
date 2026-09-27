@@ -332,6 +332,8 @@ impl ViewerBackend for GdsBackend {
             scene.metadata.insert(1, ("Celdas".into(), format!("{tops} top / {} total", entries.len())));
             scene.current_entry = Some(cell.name().to_string());
             scene.entries = entries;
+            // Índice espacial (culling y nivel de detalle): aquí, fuera del hilo de la UI.
+            scene.build_index();
             Ok(scene)
         })
         .await??;
@@ -368,7 +370,10 @@ impl ViewerBackend for GdsBackend {
                 return Err(ViewerError::Cancelled);
             }
             let diff = CachedDiff { cache: &cache, before: &before, after: &after };
-            build_diff_scene(lib_a.as_ref(), lib_b.as_ref(), entry.as_deref(), path_hint.as_deref(), &diff)
+            build_diff_scene(lib_a.as_ref(), lib_b.as_ref(), entry.as_deref(), path_hint.as_deref(), &diff).map(|mut s| {
+                s.build_index();
+                s
+            })
         })
         .await??;
 

@@ -86,7 +86,14 @@ async fn run_blocking(
     if token.is_cancelled() {
         return Err(ViewerError::Cancelled);
     }
-    let scene = tokio::task::spawn_blocking(f).await??;
+    // Índice espacial (culling, picking) en el mismo hilo de carga.
+    let scene = tokio::task::spawn_blocking(move || {
+        f().map(|mut s| {
+            s.build_index();
+            s
+        })
+    })
+    .await??;
     if token.is_cancelled() {
         return Err(ViewerError::Cancelled);
     }

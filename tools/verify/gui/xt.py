@@ -11,7 +11,8 @@ from PIL import Image
 x11 = ctypes.CDLL("libX11.so.6"); xt = ctypes.CDLL("libXtst.so.6")
 x11.XOpenDisplay.restype = ctypes.c_void_p
 x11.XStringToKeysym.restype = ctypes.c_ulong
-dpy = ctypes.c_void_p(x11.XOpenDisplay(b":0"))
+import os
+dpy = ctypes.c_void_p(x11.XOpenDisplay(os.environ.get("DISPLAY", ":0").encode()))
 win = sys.argv[1]
 def origin():
     out = subprocess.check_output(["xwininfo", "-id", win]).decode()
