@@ -1,7 +1,7 @@
 //! Diff de alto nivel sobre GDSII. Encapsula gdstk_rs y devuelve un reporte
 //! de dominio Miku sin filtrar tipos del parser.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use gdstk_rs::{sniff_format, Cell, GdsTag, Library, OwnedPolygon};
 use rayon::prelude::*;
@@ -319,7 +319,29 @@ pub fn diff_gds_with_config(
     };
     let (lib_a, lib_b) = rayon::join(|| parse_opt(a, "A"), || parse_opt(b, "B"));
     let (lib_a, lib_b) = (lib_a?, lib_b?);
-    Ok(diff_libraries(lib_a.as_ref(), lib_b.as_ref(), cfg))
+    let mut report = diff_libraries(lib_a.as_ref(), lib_b.as_ref(), cfg);
+    for (label, lib) in [("antes", &lib_a), ("después", &lib_b)] {
+        report.warnings.extend(lib.iter().flat_map(read_notes).map(|n| format!("{label}: {n}")));
+    }
+    Ok(report)
+}
+
+/// El aviso del lector de gdstk, si hubo (el archivo se leyó igual). Una
+/// referencia a una celda que no está (típico de un stream-out parcial o de
+/// celdas de otra biblioteca) dice cuáles: esas instancias no se comparan.
+pub fn read_notes(lib: &Library) -> Vec<String> {
+    let Some(code) = lib.read_warning() else { return Vec::new() };
+    if code != gdstk_rs::ErrorCode::MissingReference {
+        return vec![format!("el lector de GDS avisó: {}", code.as_str())];
+    }
+    let cells: HashSet<&str> = lib.cells().map(|c| c.name()).collect();
+    let missing: BTreeSet<&str> = lib
+        .cells()
+        .flat_map(|c| c.references().map(|r| r.cell_name()).collect::<Vec<_>>())
+        .filter(|n| !cells.contains(n))
+        .collect();
+    let list: Vec<&str> = missing.into_iter().collect();
+    vec![format!("instancias de celdas que no están en el archivo (no se comparan): {}", list.join(", "))]
 }
 
 /// Diff de dos librerías ya leídas (`None` = el archivo no existía de ese
@@ -750,6 +772,18 @@ mod tests {
             .join("tests")
             .join("proof_lib.gds");
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    #[test]
+    fn a_reference_to_a_cell_outside_the_file_is_a_warning() {
+        // TOP con un rectángulo y una SREF a IO_PAD, que no está en el
+        // archivo. Antes gdstk lo daba como error y no se podía comparar.
+        let gds = fixture_bytes("missing_ref.gds");
+        let r = diff_gds(&[], &gds).expect("un aviso no impide comparar");
+        assert_eq!(r.cells_added, vec!["TOP".to_string()]);
+        assert!(diff_gds(&gds, &gds).unwrap().geometry.is_empty(), "contra sí mismo no cambia nada");
+        assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
+        assert!(r.warnings[0].starts_with("después:") && r.warnings[0].contains("IO_PAD"), "{:?}", r.warnings);
     }
 
     fn fixture_bytes(name: &str) -> Vec<u8> {

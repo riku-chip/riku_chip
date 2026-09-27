@@ -518,7 +518,8 @@ fn read_side(bytes: &[u8], path_hint: Option<&str>, files: Option<&dyn FileSourc
         return Ok(ReadSide { lib, notices, sources: Some(sources), info: Some(info) });
     }
     let lib = Library::from_bytes_any(bytes).map_err(|e| err(e.to_string()))?;
-    Ok(ReadSide { lib, notices: Vec::new(), sources: None, info: None })
+    let notices = crate::gds_diff::read_notes(&lib);
+    Ok(ReadSide { lib, notices, sources: None, info: None })
 }
 
 /// Colores del overlay de diff. Relleno semitransparente para ver la capa
