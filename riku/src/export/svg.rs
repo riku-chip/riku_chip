@@ -370,7 +370,7 @@ mod tests {
         let mut s = Scene::new();
         s.push(DrawElement::Line { x1: 0.0, y1: 0.0, x2: 10.0, y2: 0.0, layer: 1 });
         s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 5.0, layer: 7, filled: true });
-        s.layers.insert(7, LayerPaint { name: "met1".into(), fill: Rgba::new(10, 20, 30, 90), stroke: Rgba::new(10, 20, 30, 255) });
+        s.layers.insert(7, LayerPaint { name: "met1".into(), fill: Rgba::new(10, 20, 30, 90), stroke: Rgba::new(10, 20, 30, 255), hidden: false });
         s.annotations.push(Annotation {
             kind: ChangeKind::Added,
             cosmetic: false,

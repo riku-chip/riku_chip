@@ -47,6 +47,7 @@ Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la difer
 | Mostrar u ocultar textos | **Etiquetas** o **L** |
 | Qué capa es cada color | **Leyenda** o **G**: las capas de lo que está a la vista, abajo a la izquierda (con el zoom lejos, las del archivo) |
 | Resaltar una capa | pasar el cursor por su nombre en **Capas** o en la leyenda (el resto se atenúa); un clic la deja resaltada, otro clic o **Esc** la suelta |
+| Ver los transistores | **Capas → Transistores** (oculta al abrir): cada compuerta en amarillo con su modelo, W y L; en **Resumen**, cuántos hay ("4 (2 N, 2 P)"). Se reconocen con las reglas del PDK (SKY130, GF180MCU, IHP), en GDS, OASIS y Magic; en una celda de más de 2 millones de polígonos, no (abrir una sub-celda) |
 | Info de un polígono | dejar el cursor encima: capa, tamaño, área |
 | Coordenadas y escala | barra de estado: `x`, `y` y tamaño de 1 px |
 | Abrir un archivo | panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** |

@@ -164,6 +164,7 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
         scene.push(el);
     }
     let labels = labels_count;
+    let transistors = add_devices(&mut scene, lib, cell, path_hint, polygons, text_size);
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
@@ -176,7 +177,71 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
             format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height()),
         ),
     ];
+    if let Some(summary) = transistors {
+        scene.metadata.push(("Transistores".into(), summary));
+    }
     (scene, keys)
+}
+
+/// Nombre de la capa con los transistores reconocidos.
+pub(crate) const DEVICE_LAYER: &str = "Transistores";
+
+/// Hasta cuántos polígonos se reconocen transistores al abrir una celda: una
+/// celda más grande (un chip entero) tardaría segundos y mucha memoria en
+/// aplanar difusión, poly y marcadores; se reconocen en sus sub-celdas.
+const DEVICE_MAX_POLYGONS: usize = 2_000_000;
+
+/// La capa "Transistores" (oculta al abrir): la compuerta de cada uno y una
+/// etiqueta con su tipo, W y L. Devuelve el resumen para el panel
+/// ("12 (8 N, 4 P)"), si hay transistores o si la celda es muy grande.
+fn add_devices(scene: &mut VcScene, lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>, polygons: usize, text_size: f64) -> Option<String> {
+    let rules = crate::devices::rules_for_library(lib, path_hint)?;
+    if polygons > DEVICE_MAX_POLYGONS {
+        return Some("no se reconocen en una celda tan grande: abrí una sub-celda".into());
+    }
+    let devices = crate::devices::cell_devices(lib, cell, rules);
+    if devices.is_empty() {
+        return None;
+    }
+    let layer = scene.layers.keys().max().map_or(0, |k| k + 1);
+    scene.layers.insert(
+        layer,
+        viewer_core::paint::LayerPaint {
+            name: DEVICE_LAYER.into(),
+            fill: viewer_core::paint::Rgba::new(255, 200, 0, 70),
+            stroke: viewer_core::paint::Rgba::new(255, 200, 0, 255),
+            hidden: true,
+        },
+    );
+    let (mut n, mut p) = (0, 0);
+    for d in &devices {
+        let model = d.model.rsplit("__").next().unwrap_or(&d.model);
+        let low = model.to_ascii_lowercase();
+        if low.contains("nfet") || low.contains("nmos") {
+            n += 1;
+        } else if low.contains("pfet") || low.contains("pmos") {
+            p += 1;
+        }
+        let points = d.gate.points.iter().map(|q| (q.x, q.y)).collect();
+        scene.push(DrawElement::Polygon { points, layer, filled: true });
+        scene.push(DrawElement::Text {
+            x: d.at.0,
+            y: d.at.1,
+            content: format!("{model} · W {:.2} · L {:.2}", d.w_um, d.l_um),
+            size: text_size,
+            angle_deg: 0.0,
+            h_align: viewer_core::element::HAlign::Middle,
+            v_align: viewer_core::element::VAlign::Middle,
+            layer,
+        });
+    }
+    let rest = devices.len() - n - p;
+    let mut summary = format!("{} ({n} N, {p} P", devices.len());
+    if rest > 0 {
+        summary.push_str(&format!(", {rest} otros"));
+    }
+    summary.push(')');
+    Some(summary)
 }
 
 /// Devuelve al sistema la memoria libre del heap. Armar una escena grande
@@ -820,6 +885,20 @@ port 1 nsew signal {class}
         assert_eq!(overlay_count(&second, "Δ añadido"), 6);
         assert_eq!(first.entries(), second.entries());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn transistors_are_a_hidden_layer_with_their_summary() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/GDS/sram_16x8_sky130.gds");
+        let bytes = std::fs::read(path).expect("sram");
+        let h = GdsBackend::new().load(bytes, Some("sram_16x8_sky130.gds".into()), CancellationToken::new()).await.expect("carga");
+        let layer = h.layer_list().into_iter().find(|(_, p)| p.name == DEVICE_LAYER).expect("capa de transistores");
+        assert!(layer.1.hidden, "oculta al abrir");
+        // La misma cuenta que KLayout (tools/verify/devices).
+        assert!(meta(&h, "Transistores").starts_with("2271 ("), "{}", meta(&h, "Transistores"));
+        // Otros layouts sin reglas de PDK: ni capa ni resumen.
+        let plain = diff(None, "hier_inv_a.gds", None).await;
+        assert!(plain.layer_list().iter().all(|(_, p)| p.name != DEVICE_LAYER));
     }
 
     #[tokio::test]

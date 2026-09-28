@@ -80,7 +80,7 @@ mod tests {
 
     fn paint(name: &str) -> LayerPaint {
         let c = Rgba { r: 1, g: 2, b: 3, a: 255 };
-        LayerPaint { name: name.into(), fill: c, stroke: c }
+        LayerPaint { name: name.into(), fill: c, stroke: c, hidden: false }
     }
 
     #[test]

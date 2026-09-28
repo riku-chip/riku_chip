@@ -36,4 +36,8 @@ pub struct LayerPaint {
     pub fill: Rgba,
     /// Contorno (y color de líneas/texto de la capa).
     pub stroke: Rgba,
+    /// Oculta al abrir la escena (una capa de ayuda, como los transistores
+    /// reconocidos): el usuario la prende desde el panel de capas.
+    #[serde(default)]
+    pub hidden: bool,
 }

@@ -5,7 +5,7 @@ Hoy Riku muestra y compara **capas**: dice cuánta área de `poly` cambió, no q
 | Nivel | Qué | Estado |
 |---|---|---|
 | 1. Leer el dibujo | Leyenda y resaltar una capa | Hecho ([`gui.md`](gui.md#controles)) |
-| 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | **Diseño abajo** |
+| 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | Reconocer y mostrar: hecho (fases 2.1–2.5). Comparar: en curso |
 | 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | Idea |
 | 4. LVS | Layout contra esquemático, con el resultado en el visor | Idea |
 | 5. Chequeos eléctricos | ERC, antena, parásitos, post-layout | Idea |

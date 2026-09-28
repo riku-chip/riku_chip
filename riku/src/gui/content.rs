@@ -120,6 +120,8 @@ impl SceneState {
                 ..p
             },
             None => SceneState {
+                // Las capas de ayuda (transistores) empiezan ocultas.
+                hidden_layers: loaded.scene.layer_list().into_iter().filter(|(_, p)| p.hidden).map(|(_, p)| p.name.clone()).collect(),
                 scene: loaded.scene,
                 viewport: Viewport::default(),
                 backend: loaded.backend,
@@ -127,7 +129,6 @@ impl SceneState {
                 path: loaded.path,
                 needs_fit: true,
                 fitted_size: None,
-                hidden_layers: HashSet::new(),
                 layer_focus: None,
                 layer_hover_panel: None,
                 layer_hover_legend: None,

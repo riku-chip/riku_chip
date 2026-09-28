@@ -96,7 +96,7 @@ fn gds_tag((layer, datatype): (u32, u32)) -> GdsTag {
 fn layer_paint(tag: GdsTag, spec: LayerSpec, magic_name: Option<&str>) -> LayerPaint {
     let c = spec.color;
     let stroke = Rgba::new(c.r, c.g, c.b, 255);
-    LayerPaint { name: layer_label(tag, &spec, magic_name), fill: stroke.with_alpha(fill_alpha(spec.role)), stroke }
+    LayerPaint { name: layer_label(tag, &spec, magic_name), fill: stroke.with_alpha(fill_alpha(spec.role)), stroke, hidden: false }
 }
 
 pub(crate) fn layer_label(tag: GdsTag, spec: &LayerSpec, magic_name: Option<&str>) -> String {

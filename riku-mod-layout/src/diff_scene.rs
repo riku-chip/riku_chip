@@ -141,11 +141,11 @@ pub(crate) fn build_diff_scene(
     let (k_removed, k_added) = (next, next.saturating_add(1));
     scene.layers.insert(
         k_removed,
-        LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1 },
+        LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1, hidden: false },
     );
     scene.layers.insert(
         k_added,
-        LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1 },
+        LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1, hidden: false },
     );
     let polygon = |p: &gdstk_rs::OwnedPolygon, layer| DrawElement::Polygon {
         points: p.points.iter().map(|q| (q.x, q.y)).collect(),

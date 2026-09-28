@@ -830,6 +830,7 @@ mod tests {
             name: "met1 68/20".into(),
             fill: Rgba::new(0, 0, 255, 90),
             stroke: Rgba::new(0, 0, 255, 255),
+            hidden: false,
         });
         s
     }
@@ -878,6 +879,7 @@ mod tests {
             name: "prBoundary".into(),
             fill: Rgba::new(150, 0, 230, 0),
             stroke: Rgba::new(150, 0, 230, 255),
+            hidden: false,
         });
         let none = HashSet::new();
         assert_eq!(pick_at(&scene, (1.0, 1.0), &none).map(|e| e.layer()), Some(2));
@@ -924,6 +926,7 @@ mod tests {
             name: "met1 68/20".into(),
             fill: Rgba::new(60, 130, 240, 90),
             stroke: Rgba::new(60, 130, 240, 255),
+            hidden: false,
         });
         let (fill, stroke) = layer_colors(&scene, 1);
         assert!(fill.a() < 255 && stroke.a() == 255);

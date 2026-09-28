@@ -206,7 +206,7 @@ fn layer_paint(layer: Layer) -> LayerPaint {
         _ => ("", (160, 160, 160)),
     };
     let name = if name.is_empty() { format!("capa {layer}") } else { name.to_string() };
-    LayerPaint { name, fill: Rgba::new(r, g, b, 77), stroke: Rgba::new(r, g, b, 255) }
+    LayerPaint { name, fill: Rgba::new(r, g, b, 77), stroke: Rgba::new(r, g, b, 255), hidden: false }
 }
 
 fn layer_of(l: i32) -> Layer {
