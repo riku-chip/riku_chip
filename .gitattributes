@@ -4,3 +4,12 @@
 # Scripts que corren en Linux (contenedor iic-osic-tools): siempre LF.
 *.sh text eol=lf
 *.desktop text eol=lf
+# Proyectos de ejemplo (`riku demo`): bundles de Git, binarios.
+*.bundle binary
+# Fuentes de los demos y de Xschem: se usan en Linux tal cual, siempre LF.
+tools/demos/** text eol=lf
+tools/demos/**/*.gds binary
+*.sch text eol=lf
+*.sym text eol=lf
+*.py text eol=lf
+xschemrc text eol=lf

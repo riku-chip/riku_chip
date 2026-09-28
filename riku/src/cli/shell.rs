@@ -354,6 +354,11 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
             *repo = ctx.resolve_repo(std::mem::take(repo));
             *file = ctx.resolve_file(file);
         }
+        Commands::Demo { dir, .. } => {
+            if let Some(d) = dir.as_mut().filter(|d| d.is_relative()) {
+                *d = ctx.cwd.join(&*d);
+            }
+        }
         Commands::Gui { .. } | Commands::Completions { .. } => {}
     }
 }

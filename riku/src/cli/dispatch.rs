@@ -174,6 +174,8 @@ impl Commands {
             })
             .map(Outcome::from),
 
+            Commands::Demo { name, dir, list } => super::demo::run(name, dir, list).map(|_| Outcome::Ok),
+
             Commands::Completions { shell } => {
                 use clap::CommandFactory;
                 let mut cmd = super::Cli::command();

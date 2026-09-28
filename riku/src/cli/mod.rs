@@ -15,6 +15,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::i18n::tr;
 
 mod commands;
+mod demo;
 mod dispatch;
 pub(crate) mod doctor;
 pub(crate) mod format;
@@ -217,6 +218,15 @@ pub(crate) enum Commands {
         paths: Vec<String>,
         #[arg(long, help = tr!("help.status_ci"))]
         ci: bool,
+    },
+    #[command(about = tr!("help.demo"), after_help = tr!("help.examples_demo"))]
+    Demo {
+        #[arg(help = tr!("help.demo_name"))]
+        name: Option<String>,
+        #[arg(long, value_name = "DIR", help = tr!("help.demo_dir"))]
+        dir: Option<PathBuf>,
+        #[arg(long, help = tr!("help.demo_list"))]
+        list: bool,
     },
     #[command(about = tr!("help.completions"))]
     Completions {
