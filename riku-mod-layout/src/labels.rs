@@ -28,7 +28,7 @@ const MAX_DEPTH: usize = 64;
 
 /// Transformacion afin 2D: `x' = a·x + b·y + tx`, `y' = c·x + d·y + ty`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Affine {
+pub(crate) struct Affine {
     a: f64,
     b: f64,
     c: f64,
@@ -38,17 +38,17 @@ struct Affine {
 }
 
 impl Affine {
-    const IDENTITY: Self = Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+    pub(crate) const IDENTITY: Self = Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
 
     /// Transformacion de una instancia: reflexion X → escala → rotacion → traslacion.
-    fn reference(origin: Point2D, rotation: f64, magnification: f64, x_reflection: bool) -> Self {
+    pub(crate) fn reference(origin: Point2D, rotation: f64, magnification: f64, x_reflection: bool) -> Self {
         let (s, c) = rotation.sin_cos();
         let m = magnification;
         let r = if x_reflection { -1.0 } else { 1.0 };
         Self { a: m * c, b: -m * s * r, c: m * s, d: m * c * r, tx: origin.x, ty: origin.y }
     }
 
-    fn apply(&self, p: Point2D) -> Point2D {
+    pub(crate) fn apply(&self, p: Point2D) -> Point2D {
         Point2D { x: self.a * p.x + self.b * p.y + self.tx, y: self.c * p.x + self.d * p.y + self.ty }
     }
 
@@ -66,7 +66,7 @@ impl Affine {
 }
 
 /// Offsets de repeticion de un elemento; sin repeticion, un unico `(0, 0)`.
-fn offsets(count: u64, at: impl Fn(u64) -> Point2D) -> Vec<Point2D> {
+pub(crate) fn offsets(count: u64, at: impl Fn(u64) -> Point2D) -> Vec<Point2D> {
     if count == 0 {
         vec![Point2D { x: 0.0, y: 0.0 }]
     } else {

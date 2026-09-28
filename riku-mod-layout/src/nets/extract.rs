@@ -153,6 +153,20 @@ impl Pieces {
 /// conduce, es sustrato o lo excluye; `devices`: los transistores del nivel
 /// 2; `unit_um`: µm por unidad de las coordenadas.
 pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, labels: &[NetLabel], devices: Vec<Device>, unit_um: f64) -> Netlist {
+    build_with(rules, regions, labels, devices, unit_um, false)
+}
+
+/// Como [`build`]; con `all_nets`, también las redes sin terminal ni
+/// etiqueta (sus pedazos hacen falta para comparar una ventana, ver
+/// [`super::diff::pieces_changed`]).
+pub(crate) fn build_with(
+    rules: &DeviceRules,
+    regions: Vec<(String, Vec<OwnedPolygon>)>,
+    labels: &[NetLabel],
+    devices: Vec<Device>,
+    unit_um: f64,
+    all_nets: bool,
+) -> Netlist {
     let mut uf = UnionFind(Vec::new());
     let mut pieces = Pieces { by_type: HashMap::new() };
     let mut order: Vec<String> = Vec::new();
@@ -329,6 +343,7 @@ pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, lab
         .copied()
         .chain(label_nodes.iter().flatten().copied())
         .chain(resistors.iter().flat_map(|(_, e)| e[..2].to_vec()))
+        .chain((0..substrate).filter(|_| all_nets))
         .map(|n| uf.find(n))
         .collect();
     used.sort_unstable();

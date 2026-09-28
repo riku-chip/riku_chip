@@ -216,6 +216,57 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
     out
 }
 
+/// Si la conectividad cambió entre dos netlists recortadas a unas ventanas
+/// (ver `nets::context`), sin depender de etiquetas ni transistores, que en
+/// una ventana chica puede no haber: cada pedazo de un lado cuyo punto
+/// interior cae en un pedazo del mismo tipo del otro lado une sus dos redes.
+/// Si alguna red de un lado queda unida a más de una del otro, cambió.
+pub fn pieces_changed(a: &Netlist, b: &Netlist) -> bool {
+    use crate::devices::extract::{interior_point, Grid};
+    use std::collections::HashMap;
+    fn grids(nl: &Netlist) -> HashMap<&str, (Grid, Vec<usize>)> {
+        let mut by: HashMap<&str, (Vec<gdstk_rs::OwnedPolygon>, Vec<usize>)> = HashMap::new();
+        for p in &nl.pieces {
+            let e = by.entry(p.magic.as_str()).or_default();
+            e.0.push(p.poly.clone());
+            e.1.push(p.net);
+        }
+        by.into_iter().map(|(t, (polys, nets))| (t, (Grid::new(polys), nets))).collect()
+    }
+    let (ga, gb) = (grids(a), grids(b));
+    let na = a.nets.len();
+    let mut parent: Vec<usize> = (0..na + b.nets.len()).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    let mut join = |x: usize, y: usize| {
+        let (rx, ry) = (find(&mut parent, x), find(&mut parent, y));
+        if rx != ry {
+            parent[rx.max(ry)] = rx.min(ry);
+        }
+    };
+    for (from, to, flip) in [(a, &gb, false), (b, &ga, true)] {
+        for p in &from.pieces {
+            let (Some(pt), Some((grid, nets))) = (interior_point(&p.poly.points), to.get(p.magic.as_str())) else { continue };
+            if let Some(i) = grid.find(pt.0, pt.1) {
+                let other = nets[i as usize];
+                if flip { join(other, na + p.net) } else { join(p.net, na + other) }
+            }
+        }
+    }
+    let mut count: HashMap<usize, (usize, usize)> = HashMap::new();
+    for n in 0..parent.len() {
+        let r = find(&mut parent, n);
+        let e = count.entry(r).or_default();
+        if n < na { e.0 += 1 } else { e.1 += 1 }
+    }
+    count.values().any(|&(x, y)| x > 1 || y > 1)
+}
+
 /// Las redes de una celda en los dos lados, si no es demasiado grande
 /// (`max_polygons` aplanados); `None` si lo es.
 #[allow(clippy::too_many_arguments)]

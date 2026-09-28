@@ -336,6 +336,110 @@ fn net_changes(
             None => {}
         }
     }
+    // Los ancestros de lo que cambió: solo alrededor del cambio (ver
+    // `nets::context`).
+    let unit_um = lb.unit() / 1e-6;
+    let mut via: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for g in report.geometry.iter().filter(|g| !own_change(g) && relevant(&g.layer)) {
+        if let Some(child) = g.origin_path.get(1) {
+            via.entry(g.cell.clone()).or_default().insert(child.clone());
+        }
+    }
+    // Las ventanas de una celda que cambió y que otras usan: sus polígonos
+    // del XOR (lo que cambió de verdad, no su caja), con 50 nm de margen para
+    // que un toque en el borde caiga adentro.
+    let children: BTreeSet<&String> = via.values().flatten().collect();
+    let margin = 0.05 / unit_um;
+    let cfg = DiffConfig::default();
+    let xor: Vec<(String, Vec<[f64; 4]>, BTreeSet<LayerKey>)> = cells
+        .keys()
+        .filter(|c| children.iter().any(|k| k.as_str() == **c))
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|&&c| {
+            let d = diff_cell(Some(la), Some(lb), c, &cfg);
+            let changed: Vec<&LayerPolygons> = d.polygons.iter().filter(|lp| relevant(&lp.layer)).collect();
+            let boxes = changed
+                .iter()
+                .flat_map(|lp| lp.added.iter().chain(&lp.removed))
+                .map(|p| {
+                    let b = crate::devices::extract::bbox(p);
+                    [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin]
+                })
+                .collect();
+            (c.to_string(), boxes, changed.iter().map(|lp| lp.layer.clone()).collect())
+        })
+        .collect();
+    let own: HashMap<String, Vec<[f64; 4]>> = xor.iter().map(|(c, b, _)| (c.clone(), b.clone())).collect();
+    // Los tipos a mirar en las ventanas: los de las capas que cambiaron y los
+    // que conducen con ellos (sus contactos y vías). Un cambio en metal2 solo
+    // une o separa redes por metal2 y sus vías.
+    let changed: BTreeSet<LayerKey> = xor.iter().flat_map(|(_, _, l)| l.iter().cloned()).collect();
+    let mut window_types: Vec<String> = types
+        .iter()
+        .filter(|t| {
+            let base = rules.base_layers(t);
+            changed.iter().any(|k| {
+                base.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
+                    || magic.get(&(k.layer, k.datatype)).is_some_and(|n| rules.canonical(n) == t.as_str())
+            })
+        })
+        .cloned()
+        .collect();
+    for (a, b) in &rules.connect {
+        if a.iter().chain(b).any(|t| window_types.contains(t)) {
+            for t in a.iter().chain(b) {
+                if t != "space" && !window_types.contains(t) {
+                    window_types.push(t.clone());
+                }
+            }
+        }
+    }
+    let windows = crate::nets::context::windows(lb, &own, &via);
+    let inherited: Vec<&String> = via.keys().filter(|c| !cells.contains_key(c.as_str())).collect();
+    let found: Vec<(&String, Vec<crate::nets::NetChange>, bool)> = inherited
+        .par_iter()
+        .filter_map(|&c| {
+            let w = windows.get(c).filter(|w| !w.is_empty())?;
+            let (ca, cb) = (la.find_cell(c)?, lb.find_cell(c)?);
+            let max = crate::devices::MAX_POLYGONS;
+            if crate::devices::flat_polygon_estimate(la, &ca).max(crate::devices::flat_polygon_estimate(lb, &cb)) > max {
+                return None;
+            }
+            let window = Some((w.as_slice(), window_types.as_slice()));
+            let (a, b) = rayon::join(
+                || crate::nets::cell_nets_in(la, &ca, rules, info.0, window),
+                || crate::nets::cell_nets_in(lb, &cb, rules, info.1, window),
+            );
+            let w_um: Vec<[f64; 4]> = w.iter().map(|b| b.map(|v| v * unit_um)).collect();
+            if !crate::nets::pieces_changed(&a, &b) {
+                return None;
+            }
+            use crate::nets::NetChangeKind::{Open, Short};
+            let near = crate::nets::net_changes(c, &a, &b, unit_um, &w_um);
+            // Confirmar con la celda entera (el recorte puede partir una red).
+            match crate::nets::cell_net_changes(la, lb, c, rules, max, info, &w_um) {
+                Some(full) => Some((c, full.into_iter().filter(|n| matches!(n.kind, Open | Short)).collect(), true)),
+                None => Some((c, near, false)),
+            }
+        })
+        .collect();
+    // El mismo corto se ve en cada ancestro de donde aparece: se informa solo
+    // en la celda más baja.
+    let mut with: BTreeSet<String> = report.nets.iter().map(|n| n.cell.clone()).collect();
+    with.extend(found.iter().filter(|(_, v, _)| !v.is_empty()).map(|(c, _, _)| (*c).clone()));
+    fn below(c: &str, via: &HashMap<String, BTreeSet<String>>, with: &BTreeSet<String>, depth: usize) -> bool {
+        depth < 64 && via.get(c).is_some_and(|kids| kids.iter().any(|k| with.contains(k) || below(k, via, with, depth + 1)))
+    }
+    for (c, v, confirmed) in found {
+        if below(c, &via, &with, 0) {
+            continue;
+        }
+        if !confirmed && !v.is_empty() {
+            report.warnings.push(format!("{}: redes comparadas solo cerca del cambio", v[0].cell));
+        }
+        report.nets.extend(v);
+    }
     if !skipped.is_empty() {
         report.warnings.push(format!(
             "redes no comparadas en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
@@ -1137,6 +1241,18 @@ mod tests {
         let n = &r.nets[0];
         assert_eq!((n.kind, n.before.clone(), n.after.len()), (NetChangeKind::Open, vec!["VGND".to_string()], 2));
         assert!(nand2_diff("nand2_a.gds", "nand2_b.gds").nets.is_empty(), "un transistor más angosto no cambia las redes");
+    }
+
+    #[test]
+    fn a_short_that_appears_only_in_the_parent_is_found() {
+        use crate::nets::NetChangeKind;
+        // El metal1 de PAD se ensancha y toca el de TOP (gen_context.py):
+        // el cambio es de PAD, el corto aparece recién en TOP.
+        let r = nand2_diff("context_a.gds", "context_b.gds");
+        assert_eq!(r.nets.len(), 1, "{:?}", r.nets);
+        let n = &r.nets[0];
+        assert_eq!((n.cell.as_str(), n.kind, n.before.clone()), ("TOP", NetChangeKind::Short, vec!["A".to_string(), "B".into()]));
+        assert!(r.warnings.iter().all(|w| !w.contains("solo cerca")), "confirmado con la celda entera: {:?}", r.warnings);
     }
 
     #[test]
