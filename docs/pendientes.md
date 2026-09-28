@@ -4,6 +4,12 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 
 **Estado:** última versión [v0.2.1](https://github.com/riku-chip/riku_chip/releases/tag/v0.2.1). Revisado 2026-09-28.
 
+## Arreglos chicos
+
+| Qué | Dónde | Esf. |
+|---|---|---|
+| Un GDS con un nombre de celda que no es UTF-8 (p. ej. Latin-1) aborta Riku entero: `rust::Str` lanza `std::invalid_argument` en el shim y cruza el FFI (`terminate`). Convertir con pérdida, como ya hace `Label::text` | `external/gdstk/rust/src/shims.cpp` (`cell_name`, `reference_cell_name`, `library_name`, `gds_info_cell_name`) | S |
+
 ## Mejoras
 
 | Qué | Por qué | Esf. |
