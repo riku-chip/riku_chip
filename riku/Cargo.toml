@@ -1,6 +1,6 @@
 [package]
 name = "riku"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "VCS semantico para diseno de chips"
 authors = ["euler <carlos.cuevaleon@gmail.com>", "Adriel2503 <Adriel2503@users.noreply.github.com>"]
