@@ -148,34 +148,76 @@ fn actions_card(ui: &mut egui::Ui, input: &HomeInput<'_>, action: &mut Option<Ho
         let gap = ui.spacing().item_spacing.x;
         let w = ((ui.available_width() - 2.0 * gap) / 3.0).floor();
         let w = if w < 180.0 { ui.available_width() } else { w };
+        let no_repo = tr!("home.needs_repo");
+        let buttons = [
+            (has_repo, tr!("history.title"), tr!("home.history_hint"), no_repo.clone(), HomeAction::History),
+            (has_repo, tr!("home.compare"), tr!("home.compare_hint"), no_repo, HomeAction::Compare),
+            (true, tr!("home.doctor"), tr!("home.doctor_hint"), String::new(), HomeAction::Doctor),
+        ];
+        // Todos del alto del más alto: una ayuda que ocupa dos líneas en una
+        // ventana angosta no desalinea la fila.
+        let h = buttons.iter().map(|(_, t, hint, _, _)| action_height(ui, w, t, hint)).fold(0.0_f32, f32::max);
         ui.horizontal_wrapped(|ui| {
-            let no_repo = tr!("home.needs_repo");
-            if big_button(ui, w, has_repo, tr!("history.title"), tr!("home.history_hint"), &no_repo) {
-                *action = Some(HomeAction::History);
-            }
-            if big_button(ui, w, has_repo, tr!("home.compare"), tr!("home.compare_hint"), &no_repo) {
-                *action = Some(HomeAction::Compare);
-            }
-            if big_button(ui, w, true, tr!("home.doctor"), tr!("home.doctor_hint"), "") {
-                *action = Some(HomeAction::Doctor);
+            for (enabled, title, hint, disabled_hint, act) in buttons {
+                if big_button(ui, [w, h], enabled, &title, &hint, &disabled_hint) {
+                    *action = Some(act);
+                }
             }
         });
     });
 }
 
-/// Botón de acción con título y una línea que dice qué hace.
-fn big_button(ui: &mut egui::Ui, width: f32, enabled: bool, title: String, hint: String, disabled_hint: &str) -> bool {
-    let mut job = egui::text::LayoutJob::default();
+/// Márgenes internos de un botón de acción.
+const PAD: egui::Vec2 = egui::vec2(12.0, 9.0);
+
+/// Título y ayuda de un botón, ya armados para el ancho `w` (la ayuda se
+/// ajusta en varias líneas si no entra; el título se corta con "…").
+fn action_texts(ui: &egui::Ui, w: f32, title: &str, hint: &str) -> (std::sync::Arc<egui::Galley>, std::sync::Arc<egui::Galley>) {
+    let wrap = w - 2.0 * PAD.x;
+    let title = egui::WidgetText::from(RichText::new(title).strong()).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        wrap,
+        egui::TextStyle::Body,
+    );
+    let hint = egui::WidgetText::from(RichText::new(hint).small()).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Wrap),
+        wrap,
+        egui::TextStyle::Small,
+    );
+    (title, hint)
+}
+
+fn action_height(ui: &egui::Ui, w: f32, title: &str, hint: &str) -> f32 {
+    let (t, h) = action_texts(ui, w, title, hint);
+    2.0 * PAD.y + t.size().y + 3.0 + h.size().y
+}
+
+/// Botón de acción: título arriba y qué hace debajo, alineados a la
+/// izquierda. Dibujado a mano: el botón de egui centra el bloque de texto.
+fn big_button(ui: &mut egui::Ui, size: [f32; 2], enabled: bool, title: &str, hint: &str, disabled_hint: &str) -> bool {
+    let (title_g, hint_g) = action_texts(ui, size[0], title, hint);
+    let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(size[0], size[1]), sense);
+    let style = if enabled { *ui.style().interact(&resp) } else { ui.visuals().widgets.noninteractive };
     let v = ui.visuals();
-    let body = egui::TextStyle::Body.resolve(ui.style());
-    let small = egui::TextStyle::Small.resolve(ui.style());
-    job.append(&title, 0.0, egui::TextFormat::simple(body, v.strong_text_color()));
-    job.append(&format!("\n{hint}"), 0.0, egui::TextFormat::simple(small, v.weak_text_color()));
-    job.halign = egui::Align::LEFT;
-    let button = egui::Button::new(job).wrap_mode(egui::TextWrapMode::Wrap);
-    let resp = ui.add_enabled_ui(enabled, |ui| ui.add_sized([width, 58.0], button)).inner;
-    let resp = if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp.on_disabled_hover_text(disabled_hint) };
-    resp.clicked()
+    ui.painter().rect(rect, style.corner_radius, style.weak_bg_fill, style.bg_stroke, egui::StrokeKind::Inside);
+    let (title_color, hint_color) = if enabled {
+        (v.strong_text_color(), v.weak_text_color())
+    } else {
+        (v.weak_text_color(), v.weak_text_color().gamma_multiply(0.6))
+    };
+    let top = rect.min + PAD;
+    let title_h = title_g.size().y;
+    ui.painter().galley(top, title_g, title_color);
+    ui.painter().galley(top + egui::vec2(0.0, title_h + 3.0), hint_g, hint_color);
+    if enabled {
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    } else {
+        resp.on_hover_text(disabled_hint);
+        false
+    }
 }
 
 /// Cambios sin commitear (lo de `riku status`): cada uno abre su diff

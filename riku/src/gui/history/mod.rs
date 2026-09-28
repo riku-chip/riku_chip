@@ -718,12 +718,13 @@ pub(crate) fn counts_text(s: &FileSummary) -> String {
     s.counts
         .iter()
         .map(|(k, v)| {
-            let key = format!("history.count.{k}");
+            // Singular con 1 ("1 modificado"), plural con el resto.
+            let key = if *v == 1 { format!("history.count_one.{k}") } else { format!("history.count.{k}") };
             let label = tr!(&key);
             // Una clave sin texto corto vuelve tal cual: se usa el de la CLI
             // (cubre los conteos nuevos, como las señales) y, si tampoco
             // hay, la clave.
-            let label = if label.contains("history.count.") {
+            let label = if label.contains("history.count") {
                 crate::core::analysis::summary::label_for(k, *v).unwrap_or_else(|| k.clone())
             } else {
                 label
@@ -778,6 +779,17 @@ mod tests {
         let cli = crate::core::analysis::summary::label_for("signals_added", 3).unwrap();
         assert_eq!(counts_text(&f), format!("3 {cli}"));
         assert!(!counts_text(&f).contains("signals_added"));
+    }
+
+    #[test]
+    fn one_change_is_singular() {
+        let mut f = FileSummary::unknown("a.sch");
+        f.category = SummaryCategory::Semantic;
+        f.counts.insert("nets_added".into(), 1);
+        f.counts.insert("components_modified".into(), 2);
+        let (one, many) = (tr!("history.count_one.nets_added"), tr!("history.count.components_modified"));
+        assert_ne!(one, tr!("history.count.nets_added"), "el singular tiene su propio texto");
+        assert_eq!(counts_text(&f), format!("2 {many}, 1 {one}"));
     }
 
     #[test]
