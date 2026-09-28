@@ -89,7 +89,7 @@ Cómo se llega a comparar un chip de 42 MB (6,2 millones de polígonos) en 1,4�
 ## CI y release
 
 - **CI** (`.github/workflows/ci.yml`): tests del workspace con `-D warnings`, cada combinación de features, `riku-kernel` sin motores, y el crate de Carlos (`viewer-core-compat`) contra el `viewer-core` actual.
-- **Release** (`release.yml`, con cada tag `v*`): binario estático (solo depende de glibc) en Ubuntu 22.04, pruebas de humo, y publica `riku-<versión>-linux-x86_64.tar.gz` (con `install.sh`), `riku_<versión>-1_amd64.deb` y `SHA256SUMS`.
+- **Release** (`release.yml`, con cada tag `v*`): primero la CI entera sobre ese commit (si falla, no se publica nada); después el binario estático (solo depende de glibc) en Ubuntu 22.04, pruebas de humo, y publica `riku-<versión>-linux-x86_64.tar.gz` (con `install.sh`), `riku_<versión>-1_amd64.deb` y `SHA256SUMS`.
 - **Publicar:** subir `version` en `riku/Cargo.toml`, commitear, `git tag -a vX.Y.Z -m "Riku X.Y.Z" && git push origin vX.Y.Z`, y escribir las notas en GitHub (lo incompatible primero). **Actions → Release → Run workflow** lo prueba sin publicar.
 
 ## Traducciones

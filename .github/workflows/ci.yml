@@ -5,9 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # El Release la corre antes de compilar: no se publica con tests en rojo.
+  workflow_call:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Llamada desde el Release, `github.workflow` es "Release": no se cancelan entre sí.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

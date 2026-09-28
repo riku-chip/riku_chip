@@ -4,6 +4,9 @@ name: Release
 # riku-<versión>-linux-x86_64.tar.gz, riku_<versión>_amd64.deb y
 # SHA256SUMS en GitHub Releases. Con workflow_dispatch solo deja los
 # artefactos en el run, sin publicar.
+#
+# Antes corre la CI entera sobre el mismo commit (tests, combinaciones de
+# features, el crate de Carlos): si algo falla, no se compila ni se publica.
 
 on:
   push:
@@ -14,7 +17,11 @@ permissions:
   contents: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   linux:
+    needs: ci
     # 22.04 (glibc 2.35): el binario corre en Ubuntu 22.04+, Debian 12+,
     # Fedora 36+ y el contenedor iic-osic-tools.
     runs-on: ubuntu-22.04
