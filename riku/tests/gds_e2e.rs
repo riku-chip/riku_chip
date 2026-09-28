@@ -231,6 +231,36 @@ fn cli_json_v2_has_typed_changes() {
     assert_eq!(top["location"]["min_x"].as_f64(), Some(12.0));
 }
 
+/// `riku log` y `riku status` en JSON hablan v2: el mismo elemento tipado
+/// que `riku diff -f json`, en `details` (`--detail`) y en `full_report`
+/// (`--full`).
+#[test]
+fn cli_log_and_status_json_are_v2() {
+    let r = gds_repo();
+    let run = |args: &[&str]| -> Value {
+        let out = Command::new(env!("CARGO_BIN_EXE_riku")).args(args).arg("--repo").arg(&r.path).output().expect("riku");
+        // `status` sale con 1 si hay cambios funcionales (su código de CI).
+        assert!(matches!(out.status.code(), Some(0 | 1)), "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).expect("JSON")
+    };
+    let typed = |c: &Value| c["element"]["type"].as_str().is_some();
+
+    let log = run(&["log", "--json", "--full"]);
+    assert_eq!(log["schema"], "riku-log/v2");
+    let files: Vec<&Value> = log["commits"].as_array().unwrap().iter().flat_map(|c| c["files"].as_array().into_iter().flatten()).collect();
+    let f = files.iter().find(|f| f["path"] == r.file).expect("layout.gds en el log");
+    assert!(f["details"].as_array().unwrap().iter().all(typed), "{f}");
+    assert!(f["full_report"]["changes"].as_array().unwrap().iter().all(typed), "{f}");
+
+    // Un cambio sin commitear: el disco vuelve a la versión A.
+    std::fs::write(r.path.join(r.file), fixture("hier_inv_a.gds")).unwrap();
+    let status = run(&["status", "--json", "--detail"]);
+    assert_eq!(status["schema"], "riku-status/v2");
+    let f = &status["files"][0];
+    assert_eq!(f["path"], r.file);
+    assert!(!f["details"].as_array().unwrap().is_empty() && f["details"].as_array().unwrap().iter().all(typed), "{f}");
+}
+
 /// `riku diff --ci` (y `show --ci`): 0 sin cambios, 1 con cambios, 2 si un
 /// lado no se pudo leer. Antes un GDS roto salía como "sin cambios" y 0.
 #[test]

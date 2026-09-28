@@ -285,6 +285,45 @@ mod tests {
         assert_eq!(v["schema"], "riku-status/v2");
     }
 
+    /// El JSON de `status` habla la misma forma tipada que `riku diff -f json`
+    /// (v2) y se puede volver a leer: elemento tipado, renombre, parámetros
+    /// sin la ubicación y `full_report` con los cambios tipados.
+    #[test]
+    fn json_v2_tipado_y_se_puede_leer_de_vuelta() {
+        use crate::core::analysis::summary::DetailLevel;
+        use riku_kernel::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
+        let t = |s: &str| Some(Value::Text(s.into()));
+        let mut renamed = Change::new(ChangeKind::Renamed, Element::Component { name: "vin_diff".into() })
+            .with_detail("W", t("4u"), t("8u"))
+            .with_placement("x", t("10"), t("20"));
+        renamed.renamed_from = Some("vin".into());
+        let mut fc = FileChange::new(FileFormat::Xschem);
+        fc.changes = vec![renamed, Change::new(ChangeKind::Added, Element::Net { name: "vbias".into() })];
+        let report = StatusReport {
+            branch: None,
+            files: vec![FileSummary::from_report_with(&fc, "a.sch", DetailLevel::Completo)],
+            warnings: vec![],
+        };
+        let v = serde_json::to_value(EnvelopedStatusReport::from(&report)).unwrap();
+        assert_eq!(v["schema"], "riku-status/v2");
+        let d = &v["files"][0]["details"];
+        assert_eq!(d[0]["element"], serde_json::json!({ "type": "component", "name": "vin_diff" }));
+        assert_eq!(d[0]["renamed_from"], "vin");
+        assert_eq!(d[0]["params"], serde_json::json!({ "W": "4u → 8u" }), "sin la ubicación (x)");
+        assert_eq!(d[1]["element"]["type"], "net");
+        let full = &v["files"][0]["full_report"];
+        assert_eq!(full["changes"][0]["element"]["type"], "component");
+        let placement: Vec<&serde_json::Value> =
+            full["changes"][0]["details"].as_array().unwrap().iter().filter(|d| d["placement"] == true).collect();
+        assert_eq!(placement.len(), 1, "la ubicación va marcada en el reporte completo");
+
+        // Un consumidor en Rust lo lee de vuelta tal cual.
+        let back: StatusReport = serde_json::from_value(v).unwrap();
+        let f = &back.files[0];
+        assert_eq!(f.details[0].label(), "vin → vin_diff");
+        assert_eq!(f.full_report.as_ref(), Some(&fc));
+    }
+
     #[test]
     fn json_contiene_claves_principales() {
         let report = fixture_report();
