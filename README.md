@@ -50,14 +50,14 @@ Desde [Releases](https://github.com/riku-chip/riku_chip/releases), con el instal
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh                  # la última versión
-curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.1.0     # una versión concreta
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.2.0     # una versión concreta
 curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sudo sh -s -- latest --system   # en /usr/local/bin
 ```
 
-A mano, con el `.tar.gz` o el `.deb` de una versión (cambiar `0.1.0` por la que se quiera; la lista está en [Releases](https://github.com/riku-chip/riku_chip/releases)):
+A mano, con el `.tar.gz` o el `.deb` de una versión (cambiar `0.2.0` por la que se quiera; la lista está en [Releases](https://github.com/riku-chip/riku_chip/releases)):
 
 ```bash
-V=0.1.0
+V=0.2.0
 curl -fLO https://github.com/riku-chip/riku_chip/releases/download/v$V/riku-$V-linux-x86_64.tar.gz
 tar xf riku-$V-linux-x86_64.tar.gz && ./riku-$V-linux-x86_64/install.sh          # o --system
 # o el .deb:
@@ -65,7 +65,7 @@ curl -fLO https://github.com/riku-chip/riku_chip/releases/download/v$V/riku_$V-1
 sudo apt install ./riku_$V-1_amd64.deb
 ```
 
-Con la CLI de GitHub: `gh release download -R riku-chip/riku_chip` (la última) o `gh release download v0.1.0 -R riku-chip/riku_chip`. Para desinstalar: `install.sh --uninstall` (el del paquete descargado) o `sudo apt remove riku`.
+Con la CLI de GitHub: `gh release download -R riku-chip/riku_chip` (la última) o `gh release download v0.2.0 -R riku-chip/riku_chip`. Para desinstalar: `install.sh --uninstall` (el del paquete descargado) o `sudo apt remove riku`.
 
 Desde el código (ver [`docs/desarrollo.md`](docs/desarrollo.md)):
 
