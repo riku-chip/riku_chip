@@ -71,6 +71,7 @@ Cambios : 3
 | [`docs/formatos.md`](docs/formatos.md) | Qué compara cada formato: Xschem, layouts (GDS/OASIS/Magic) y simulaciones |
 | [`docs/desarrollo.md`](docs/desarrollo.md) | Compilar, probar, arquitectura, reglas del proyecto y publicar |
 | [`docs/pendientes.md`](docs/pendientes.md) | Lo que falta: pendientes, ideas y limitaciones |
+| [`docs/electrico.md`](docs/electrico.md) | De las capas a lo eléctrico: dispositivos, redes, LVS (diseño) |
 
 **Estado:** alpha. Los tres tipos de archivo funcionan de punta a punta; los layouts de millones de polígonos se comparan en segundos y con menos de 1 GB. Para contribuir: `cargo test --workspace` en verde y commits `tipo(alcance): …`.
 

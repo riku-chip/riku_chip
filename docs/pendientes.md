@@ -46,19 +46,7 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 - **Artefactos derivados viejos** después de un merge (un `.gds` más viejo que su `.mag`, un `.spice` más viejo que su `.sch`): avisar sin bloquear. Pide declarar en `.riku.toml` qué es fuente y qué derivado.
 - **Comandos:** `blame --semantic` (quién tocó por última vez un componente o celda), `log --cell`/`--component` y `log --sim-metric` (una medida a lo largo del historial).
 
-**Entender el layout y su parte eléctrica** (hoy el visor muestra capas; quien no sabe de layouts no ve transistores ni redes). Cada nivel se apoya en el anterior:
-
-1. ~~**Leer el dibujo**~~: hecho (leyenda y resaltar una capa, ver [`gui.md`](gui.md#controles)).
-2. **Dispositivos** (M–L): reconocer transistores donde el poly cruza la difusión, con su tipo (N o P, por el pozo y el implante), W y L, y marcarlos en el visor. En el diff, cambios de dispositivo ("M3: W 0,42 → 0,84 µm") en vez de solo área por capa. Las reglas de cada PDK están en sus decks de extracción (Magic `.tech`, LVS de KLayout).
-3. **Conectividad** (L): unir las capas por contactos y vías para armar las redes del layout, y comparar redes entre versiones: una red que se partió (abierto) o dos que se unieron (corto). Es lo que un diff de área no ve.
-4. **LVS** (M, con herramientas externas): layout contra esquemático en cada commit (el flujo de *Verificación en CI*, abajo). Riku mostraría el resultado junto al diff: qué dispositivos o redes no coinciden y dónde están en el layout.
-5. **Chequeos eléctricos** (L, con herramientas externas):
-   - **ERC:** compuertas o pines sin conectar, pozos sin polarizar;
-   - **antena:** reglas de antena del PDK (van en el deck de DRC);
-   - **parásitos (PEX):** R y C extraídas (Magic `ext2spice` con `cthresh`/`rthresh`) y su diferencia entre commits: "la red `out` subió 12 fF";
-   - **post-layout:** simular la netlist extraída y comparar las `.meas` con la de antes (*Regresión de `.meas`*, abajo).
-
-Los niveles 1–3 son de Riku (Rust, sin herramientas externas); el 4 y el 5 orquestan Netgen, Magic o KLayout y muestran sus resultados.
+**De las capas a lo eléctrico:** dispositivos (nivel 2, con diseño), conectividad, LVS y chequeos eléctricos, en [`electrico.md`](electrico.md).
 
 **Verificación en CI:**
 - **DRC por diferencia** entre base y head: `klayout -b -r script.drc` y leer el `.lyrdb` (`ReportDatabase`). Bloquear solo si suben las violaciones, así se toleran las que ya había.
