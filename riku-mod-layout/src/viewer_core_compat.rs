@@ -22,7 +22,7 @@ use viewer_core::{
     bbox::BoundingBox as VcBBox,
     element::{DrawElement, HAlign, Layer, VAlign},
     error::{Result as VcResult, ViewerError},
-    scene::{Scene as VcScene, SceneHandle, ViewEntry},
+    scene::{EntryLink, Scene as VcScene, SceneHandle, ViewEntry},
     viewport::YAxis,
     CancellationToken,
 };
@@ -123,6 +123,24 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
     scene.y_axis = YAxis::Up;
     scene.world_unit = Some(unit_label(lib.unit()));
     scene.layers = keys.paints();
+    // Instancias de sub-celdas del archivo: doble clic en el visor para entrar.
+    for r in cell.references() {
+        let name = r.cell_name();
+        // Primero que la celda exista: el bbox de una referencia a una celda
+        // que no está en el archivo lee un puntero nulo en gdstk.
+        if lib.find_cell(name).is_none() {
+            continue;
+        }
+        let b = r.bbox();
+        let finite = [b.min_x, b.min_y, b.max_x, b.max_y].iter().all(|v| v.is_finite());
+        if finite && b.max_x >= b.min_x {
+            scene.links.push(EntryLink {
+                bbox: VcBBox { min_x: b.min_x, min_y: b.min_y, max_x: b.max_x, max_y: b.max_y },
+                entry: name.to_string(),
+                label: name.to_string(),
+            });
+        }
+    }
     // Sembrar el bbox con el de la cell aunque algún polígono no contribuya
     // (Scene::push lo expandirá igualmente con cada elemento).
     let cb = cell.bbox();
@@ -763,6 +781,17 @@ port 1 nsew signal {class}
             .load(bytes, hint.map(str::to_string), CancellationToken::new())
             .await
             .expect("load")
+    }
+
+    #[tokio::test]
+    async fn las_instancias_de_sub_celdas_son_vinculos() {
+        let h = load(fixture("hier_inv_a.gds"), None).await;
+        let links = h.links();
+        assert!(!links.is_empty(), "la top instancia sub-celdas");
+        let l = &links[0];
+        assert!(h.entries().iter().any(|e| e.id == l.entry), "cada vínculo lleva a una celda del archivo");
+        let (x, y) = ((l.bbox.min_x + l.bbox.max_x) / 2.0, (l.bbox.min_y + l.bbox.max_y) / 2.0);
+        assert_eq!(viewer_core::link_at(links, x, y).map(|l| l.entry.as_str()), Some(l.entry.as_str()));
     }
 
     #[tokio::test]

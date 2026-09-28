@@ -29,7 +29,7 @@ pub(crate) struct CanvasOptions {
 }
 
 /// Lecturas del lienzo para la barra de estado.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Readout {
     /// Posición del cursor en coordenadas de mundo, si está sobre el lienzo.
     pub cursor_world: Option<(f64, f64)>,
@@ -37,6 +37,9 @@ pub(crate) struct Readout {
     pub px_world: Option<f64>,
     /// Etiquetas omitidas por solaparse.
     pub labels_hidden: usize,
+    /// Doble clic en una instancia: la entrada (sub-celda o sub-esquemático)
+    /// a abrir.
+    pub enter: Option<String>,
 }
 
 /// Dibuja la escena en todo el espacio disponible y atiende los gestos.
@@ -189,6 +192,18 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
     if let Some(net) = &bs.net_focus {
         paint_net(&ui.painter_at(response.rect), &xf, net, ui.visuals());
     }
+    // Doble clic en una instancia de una sub-celda o de un sub-esquemático:
+    // entrar (la más interna, si se anidan).
+    let scene = bs.scene.clone();
+    let link_under = |pos: egui::Pos2| {
+        let (x, y) = xf.to_world(pos);
+        viewer_core::link_at(scene.links(), x, y)
+    };
+    let enter = response
+        .double_clicked()
+        .then(|| response.interact_pointer_pos())
+        .flatten()
+        .and_then(|pos| link_under(pos).map(|l| l.entry.clone()));
     if opts.legend {
         crate::gui::legend::show(ui, response.rect, bs, &stats);
     } else {
@@ -198,12 +213,16 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
         cursor_world: response.hover_pos().map(|p| xf.to_world(p)),
         px_world: Some(1.0 / bs.viewport.scale),
         labels_hidden: stats.labels_hidden,
+        enter,
     };
     // Tooltip con capa/área del polígono bajo el cursor (no mientras se
     // arrastra: estorba al hacer pan).
     if let Some(pos) = response.hover_pos().filter(|_| !response.dragged()) {
-        if let Some(info) = hover_info(bs.scene.as_ref(), &bs.viewport, response.rect, pos, &hidden) {
-            response.on_hover_text_at_pointer(info);
+        let info = hover_info(bs.scene.as_ref(), &bs.viewport, response.rect, pos, &hidden);
+        let hint = link_under(pos).map(|l| crate::gui::tr!("canvas.enter", what = l.label));
+        let text: Vec<String> = info.into_iter().chain(hint).collect();
+        if !text.is_empty() {
+            response.on_hover_text_at_pointer(text.join("\n"));
         }
     }
     readout

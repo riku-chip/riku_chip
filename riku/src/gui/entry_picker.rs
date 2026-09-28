@@ -62,14 +62,17 @@ pub fn show(
             .hint_text(tr!("cells.search"))
             .desired_width(f32::INFINITY),
     );
-    ui.checkbox(state.only_roots, tr!("cells.only_top"));
+    // Con una sola raíz (una jerarquía), filtrar por raíces dejaría solo esa.
+    if roots > 1 {
+        ui.checkbox(state.only_roots, tr!("cells.only_top"));
+    }
     if changed > 0 {
         ui.checkbox(state.only_changed, tr!("cells.only_changed", count = changed));
     }
 
     let filter = Filter {
         query: state.query,
-        only_roots: *state.only_roots,
+        only_roots: *state.only_roots && roots > 1,
         only_changed: *state.only_changed && changed > 0,
     };
     let visible = filter_entries(entries, filter);

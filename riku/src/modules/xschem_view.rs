@@ -16,15 +16,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use viewer_core::{
     Annotation, AnnotationShape, BackendInfo, BoundingBox, CancellationToken, ChangeItem, ChangeKind as VcKind,
-    DrawElement as Vc, HAlign, Layer, LayerPaint, Rgba, Scene, SceneHandle, TextStyle, VAlign, ViewerBackend,
-    ViewerError, YAxis,
+    DrawElement as Vc, EntryLink, HAlign, Layer, LayerPaint, Rgba, Scene, SceneHandle, TextStyle, VAlign, ViewEntry,
+    ViewerBackend, ViewerError, YAxis,
 };
 use xschem_viewer::{DrawElement as X, HAlign as XH, LineDirection, ResolvedScene, VBaseline};
 
 use super::xschem::{is_xschem, render_options_for, XschemModule};
+use super::xschem_hier as hier;
 use super::xschem_pdk::{installed_pdks, pdk_root, PdkSource};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
-use riku_kernel::{DiffOptions, FormatModule};
+use riku_kernel::{DiffFiles, DiffOptions, DiskFiles, FileSource, FormatModule};
 
 /// Capa sintética de los marcadores de símbolo faltante.
 const MISSING_LAYER: Layer = 100;
@@ -50,12 +51,41 @@ impl ViewerBackend for XschemViewer {
     async fn load(
         &self,
         content: Vec<u8>,
-        _path_hint: Option<String>,
+        path_hint: Option<String>,
+        token: CancellationToken,
+    ) -> viewer_core::Result<SceneHandle> {
+        self.load_entry(content, path_hint, None, token).await
+    }
+
+    /// Un archivo suelto: sus sub-esquemáticos salen del disco, junto a él.
+    async fn load_entry(
+        &self,
+        content: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> viewer_core::Result<SceneHandle> {
+        self.load_with(content, path_hint, entry, None, token).await
+    }
+
+    /// `entry`: un sub-esquemático de la jerarquía (su ruta), o `None` para
+    /// la raíz. `files`: los archivos de la misma versión; sin ellos, el disco.
+    async fn load_with(
+        &self,
+        content: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        files: Option<Arc<dyn FileSource>>,
         token: CancellationToken,
     ) -> viewer_core::Result<SceneHandle> {
         run_blocking(token, move || {
-            let (rs, pdk) = resolve(&content)?;
-            Ok(scene_from(&rs, &pdk))
+            let (top, files) = version(path_hint.as_deref(), files);
+            let h = hier::collect(&content, &top, files.as_deref());
+            let current = pick(entry, &h, None)?;
+            let (rs, pdk) = resolve_in(&h.nodes[&current].bytes, &current, files.as_ref())?;
+            let mut scene = scene_from(&rs, &pdk);
+            add_hierarchy(&mut scene, None, &h, None, &current, &rs);
+            Ok(scene)
         })
         .await
     }
@@ -65,17 +95,123 @@ impl ViewerBackend for XschemViewer {
         before: Vec<u8>,
         after: Vec<u8>,
         path_hint: Option<String>,
-        _entry: Option<String>,
+        entry: Option<String>,
+        token: CancellationToken,
+    ) -> viewer_core::Result<SceneHandle> {
+        self.load_diff_with(before, after, path_hint, entry, DiffFiles::default(), token).await
+    }
+
+    /// Diff de la raíz o de un sub-esquemático (`entry`), cada versión con
+    /// sus archivos. La lista de jerarquía marca qué cambió, también por dentro.
+    async fn load_diff_with(
+        &self,
+        before: Vec<u8>,
+        after: Vec<u8>,
+        path_hint: Option<String>,
+        entry: Option<String>,
+        files: DiffFiles,
         token: CancellationToken,
     ) -> viewer_core::Result<SceneHandle> {
         run_blocking(token, move || {
-            let (b, pdk) = resolve(&after)?;
-            let a = if before.is_empty() { None } else { Some(resolve(&before)?.0) };
-            let path = path_hint.unwrap_or_else(|| "archivo.sch".into());
-            let report = XschemModule::new().diff(&before, &after, &path, &DiffOptions::default());
-            Ok(diff_scene(a.as_ref(), &b, &pdk, &report))
+            let top = path_hint.unwrap_or_else(|| "archivo.sch".into());
+            let ha = hier::collect(&before, &top, files.before.as_deref());
+            let hb = hier::collect(&after, &top, files.after.as_deref());
+            let changed = hier::changes(&ha, &hb);
+            let current = pick(entry, &hb, Some(&ha))?;
+            let bytes = |h: &hier::Hierarchy| h.nodes.get(&current).map(|n| n.bytes.clone()).unwrap_or_default();
+            let (a, b) = (bytes(&ha), bytes(&hb));
+            let report = XschemModule::new().diff_with(&a, &b, &current, &DiffOptions::default(), &files);
+            let mut scene = if b.is_empty() {
+                // Un sub-esquemático que ya no está: cómo era, con aviso.
+                let (ra, pdk) = resolve_in(&a, &current, files.before.as_ref())?;
+                let mut scene = scene_from(&ra, &pdk);
+                scene.notices.push(format!("{current} no está en la versión nueva: se muestra cómo era."));
+                add_hierarchy(&mut scene, Some(&ha), &hb, Some(&changed), &current, &ra);
+                return Ok(scene);
+            } else {
+                let (rb, pdk) = resolve_in(&b, &current, files.after.as_ref())?;
+                let ra = if a.is_empty() { None } else { Some(resolve_in(&a, &current, files.before.as_ref())?.0) };
+                let mut scene = diff_scene(ra.as_ref(), &rb, &pdk, &report);
+                add_hierarchy(&mut scene, Some(&ha), &hb, Some(&changed), &current, &rb);
+                scene
+            };
+            scene.current_entry = Some(current);
+            Ok(scene)
         })
         .await
+    }
+}
+
+/// La raíz de la jerarquía y de dónde se leen sus sub-esquemáticos. Sin
+/// archivos de la versión, el disco: la carpeta del archivo, si existe.
+fn version(path_hint: Option<&str>, files: Option<Arc<dyn FileSource>>) -> (String, Option<Arc<dyn FileSource>>) {
+    let hint = path_hint.unwrap_or("archivo.sch");
+    if files.is_some() {
+        return (hint.to_string(), files);
+    }
+    let path = std::path::Path::new(hint);
+    match (path.parent().filter(|d| path.is_file() && d.is_dir()), path.file_name()) {
+        (Some(dir), Some(name)) => {
+            let disk: Arc<dyn FileSource> = Arc::new(DiskFiles::new(dir.to_path_buf()));
+            (name.to_string_lossy().into_owned(), Some(disk))
+        }
+        _ => (hint.to_string(), None),
+    }
+}
+
+/// El esquemático a mostrar: `entry` si está en la jerarquía (de alguna de
+/// las dos versiones), o la raíz.
+fn pick(entry: Option<String>, h: &hier::Hierarchy, other: Option<&hier::Hierarchy>) -> viewer_core::Result<String> {
+    match entry {
+        None => Ok(h.top.clone()),
+        Some(e) if h.nodes.contains_key(&e) || other.is_some_and(|o| o.nodes.contains_key(&e)) => Ok(e),
+        Some(e) => Err(ViewerError::Backend(format!("{e} no está en la jerarquía de {}", h.top))),
+    }
+}
+
+/// Lista de jerarquía (raíz primero, marcada con lo que cambió) y los
+/// vínculos de las instancias de `current` a sus sub-esquemáticos (doble
+/// clic para entrar). `a`: la jerarquía anterior, en un diff.
+fn add_hierarchy(
+    scene: &mut Scene,
+    a: Option<&hier::Hierarchy>,
+    b: &hier::Hierarchy,
+    changed: Option<&BTreeMap<String, ChangeKind>>,
+    current: &str,
+    rs: &ResolvedScene,
+) {
+    let mut paths: BTreeSet<&String> = b.nodes.keys().collect();
+    paths.extend(a.iter().flat_map(|a| a.nodes.keys()));
+    if paths.len() > 1 {
+        let kind = |p: &str| {
+            changed.and_then(|c| c.get(p)).map(|k| match k {
+                ChangeKind::Added => VcKind::Added,
+                ChangeKind::Removed => VcKind::Removed,
+                ChangeKind::Modified | ChangeKind::Renamed => VcKind::Modified,
+            })
+        };
+        let mut entries: Vec<ViewEntry> = paths
+            .into_iter()
+            .map(|p| ViewEntry { id: p.clone(), is_root: *p == b.top, size: None, change: kind(p), renamed_from: None })
+            .collect();
+        entries.sort_by(|x, y| y.is_root.cmp(&x.is_root).then_with(|| x.id.cmp(&y.id)));
+        scene.entries = entries;
+        scene.metadata.push(("Jerarquía".into(), format!("{} esquemáticos", scene.entries.len())));
+    }
+    scene.current_entry = Some(current.to_string());
+    let node = b.nodes.get(current).or_else(|| a.and_then(|a| a.nodes.get(current)));
+    for sub in node.iter().flat_map(|n| n.children.iter()) {
+        let mut bbox = BoundingBox::empty();
+        for vc in rs.elements_of(&sub.instance).flat_map(convert) {
+            bbox.expand(&vc.bounding_box());
+        }
+        if bbox.width().is_finite() && bbox.width() >= 0.0 {
+            scene.links.push(EntryLink {
+                bbox,
+                entry: sub.schematic.clone(),
+                label: format!("{} ({})", sub.instance, sub.schematic),
+            });
+        }
     }
 }
 
@@ -102,10 +238,25 @@ async fn run_blocking(
 
 /// Parsea y resuelve un esquemático (símbolos de `.xschemrc` y del PDK, que
 /// se detecta por sus símbolos si `$PDK` no está definida).
+#[cfg(test)]
 fn resolve(content: &[u8]) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
+    resolve_in(content, "", None)
+}
+
+/// Como [`resolve`]; los símbolos del proyecto (`amp.sym` junto al
+/// esquemático `path`) salen primero de `files`, la misma versión: en el
+/// diff de dos commits, cada lado con sus propios símbolos.
+fn resolve_in(content: &[u8], path: &str, files: Option<&Arc<dyn FileSource>>) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
     let text = std::str::from_utf8(content).map_err(|e| ViewerError::Parse(format!("no es UTF-8: {e}")))?;
     let parsed = xschem_viewer::parser::parse(text).map_err(|e| ViewerError::Parse(e.to_string()))?;
-    let (opts, pdk) = render_options_for(text);
+    let (mut opts, pdk) = render_options_for(text);
+    if let Some(files) = files.cloned() {
+        let from = path.to_string();
+        opts = opts.with_symbol_lookup(Arc::new(move |sym: &str| {
+            let found = hier::find(sym, &from, files.as_ref(), false)?;
+            files.read(&found).and_then(|b| String::from_utf8(b).ok())
+        }));
+    }
     Ok((xschem_viewer::SceneBuilder::new(&opts).build(&parsed), pdk))
 }
 
@@ -437,15 +588,16 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
 
 /// `W: 1u → 2u · L: …` con los parámetros que cambiaron (sin posición).
 fn param_changes(c: &Change) -> String {
+    let inside = c.after(super::xschem::INSIDE_KEY).map(|v| format!("cambió por dentro: {v}"));
     let changed: BTreeMap<&str, String> = c
         .params()
-        .filter(|d| d.changed())
+        .filter(|d| d.changed() && d.key != super::xschem::INSIDE_KEY)
         .map(|d| {
             let show = |v: &Option<riku_kernel::Value>| v.as_ref().map_or("—".to_string(), |v| v.to_string());
             (d.key.as_str(), format!("{} → {}", show(&d.before), show(&d.after)))
         })
         .collect();
-    changed.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join(" · ")
+    inside.into_iter().chain(changed.iter().map(|(k, v)| format!("{k}: {v}"))).collect::<Vec<_>>().join(" · ")
 }
 
 /// Distancia bajo la cual dos coordenadas son la misma.
@@ -458,6 +610,64 @@ fn near(a: f64, b: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Una versión en memoria: top.sch usa amp.sch (x1), que usa un resistor.
+    struct Mem(HashMap<&'static str, Vec<u8>>);
+
+    impl FileSource for Mem {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+    }
+
+    const TOP: &str = "v {xschem version=3.4.5 file_version=1.2}
+C {amp.sym} 0 0 0 0 {name=x1}
+N 0 0 100 0 {lab=out}
+";
+
+    fn project(r: &str) -> Arc<dyn FileSource> {
+        let amp = format!("v {{xschem version=3.4.5 file_version=1.2}}
+C {{res.sym}} 0 0 0 0 {{name=R1 value={r}}}
+");
+        let sym = "v {xschem version=3.4.5 file_version=1.2}
+L 4 -20 0 20 0 {}
+B 5 -22.5 -2.5 -17.5 2.5 {name=in dir=in}
+";
+        Arc::new(Mem(HashMap::from([("top.sch", TOP.as_bytes().to_vec()), ("amp.sch", amp.into_bytes()), ("amp.sym", sym.as_bytes().to_vec())])))
+    }
+
+    fn block<T>(f: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    }
+
+    #[test]
+    fn la_jerarquia_se_lista_y_se_entra_a_un_sub_esquematico() {
+        let v = XschemViewer;
+        let top = block(v.load_with(TOP.into(), Some("top.sch".into()), None, Some(project("1k")), Default::default())).unwrap();
+        let ids: Vec<&str> = top.entries().iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["top.sch", "amp.sch"], "la raíz primero");
+        assert_eq!(top.current_entry(), Some("top.sch"));
+        assert_eq!(top.links().iter().map(|l| (l.entry.as_str(), l.label.as_str())).collect::<Vec<_>>(), [("amp.sch", "x1 (amp.sch)")]);
+
+        let amp = block(v.load_with(TOP.into(), Some("top.sch".into()), Some("amp.sch".into()), Some(project("1k")), Default::default())).unwrap();
+        assert_eq!(amp.current_entry(), Some("amp.sch"));
+        assert!(block(v.load_with(TOP.into(), Some("top.sch".into()), Some("otro.sch".into()), Some(project("1k")), Default::default())).is_err());
+    }
+
+    #[test]
+    fn el_diff_marca_el_sub_esquematico_y_su_padre() {
+        let v = XschemViewer;
+        let files = DiffFiles::new(Some(project("1k")), Some(project("2k")));
+        let top = block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), None, files.clone(), Default::default())).unwrap();
+        let change = |id: &str| top.entries().iter().find(|e| e.id == id).and_then(|e| e.change);
+        assert_eq!(change("amp.sch"), Some(VcKind::Modified));
+        assert_eq!(change("top.sch"), Some(VcKind::Modified), "por dentro");
+        assert!(top.changes().iter().any(|c| c.label.contains("x1") && c.detail.contains("cambió por dentro: amp.sch")), "{:?}", top.changes());
+
+        let amp = block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), Some("amp.sch".into()), files, Default::default())).unwrap();
+        assert_eq!(amp.current_entry(), Some("amp.sch"));
+        assert!(amp.changes().iter().any(|c| c.label.contains("R1")), "el diff de amp.sch: {:?}", amp.changes());
+    }
 
     const A: &str = "v {xschem version=3.4.5 file_version=1.2}\n\
 N 0 0 100 0 {lab=vin}\n\

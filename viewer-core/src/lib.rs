@@ -41,7 +41,7 @@ pub use error::{Result, ViewerError};
 pub use files::{DiffFiles, DiskFiles, FileSource};
 pub use index::{CoverageLayer, CoverageView, Fill, LodQuery, SceneIndex, Visible};
 pub use paint::{LayerPaint, Rgba};
-pub use scene::{NetHit, NetProbe, RenderableScene, Scene, SceneHandle, TextStyle, ViewEntry};
+pub use scene::{link_at, EntryLink, NetHit, NetProbe, RenderableScene, Scene, SceneHandle, TextStyle, ViewEntry};
 pub use viewport::{screen_to_world, world_to_screen, Viewport, YAxis};
 
 // Re-export del token para que los backends no necesiten depender explícitamente

@@ -173,7 +173,11 @@ fn print_signal(c: &Change) {
 
 
 fn print_param_diff(c: &Change) {
-    let mut details: Vec<_> = c.params().collect();
+    // Un sub-esquemático que cambió (por sí mismo o por dentro).
+    if let Some(inside) = c.after("inside") {
+        println!("      {}", tr!("diff.inside", path = inside));
+    }
+    let mut details: Vec<_> = c.params().filter(|d| d.key != "inside").collect();
     details.sort_by(|a, b| a.key.cmp(&b.key));
     for d in details {
         let key = &d.key;

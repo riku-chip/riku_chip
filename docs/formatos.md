@@ -10,9 +10,11 @@ Se leen con [`xschem-viewer-rust`](https://github.com/carloscl03/xschem-viewer-r
 - **Nets** añadidas y eliminadas.
 - **Cosmético:** si todo se movió igual (Move All) o un componente solo cambió de lugar. La posición, el giro y el espejo no cuentan como parámetros.
 - **Archivo nuevo o borrado:** todo aparece añadido o eliminado.
+- **Jerarquía:** una instancia cuyo símbolo tiene su `.sch` en el proyecto (el del atributo `schematic=`, o `amp.sym` → `amp.sch`, junto al esquemático o desde la raíz del repo) es un sub-esquemático. Si cambió en la misma versión, por sí mismo o por dentro, la instancia sale modificada: `~ x1 · cambió por dentro: amp.sch → mirror.sch`. Si todo lo que cambió adentro es cosmético (un Move All), la marca también es cosmética. Los símbolos del PDK no tienen `.sch` en el proyecto: son hojas.
 
 **Símbolos y PDK.** Para dibujar y conectar pines hacen falta los `.sym`. Riku los busca en este orden (solo rutas que existen):
 
+0. **El proyecto:** un símbolo junto al esquemático o desde la raíz del repo, **de la misma versión** (en un diff entre commits, cada lado con sus símbolos).
 1. **`.xschemrc`** del directorio actual o de `~`: `set PDK_ROOT` + `set PDK`, `set XSCHEM_SHAREDIR`, `append XSCHEM_LIBRARY_PATH`.
 2. **Variables:** `$PDK_ROOT`/`$PDK` → `$PDK_ROOT/$PDK/libs.tech/xschem`; `$TOOLS` → `$TOOLS/xschem/share/xschem/xschem_library/devices`. En iic-osic-tools, `sak-pdk sky130A` las define.
 3. **Detección:** sin `$PDK`, Riku elige entre los PDK instalados (`$PDK_ROOT` o `/foss/pdks`) el que tiene los símbolos que usa el esquemático. Si mezcla PDKs los carga todos; en un empate prefiere `sky130A`, `gf180mcuD` e `ihp-sg13g2`.

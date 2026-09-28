@@ -371,6 +371,9 @@ impl RikuGuiApp {
             };
             if let Some(bs) = self.content.scene_mut() {
                 self.readout = canvas::show(ui, bs, opts);
+                if let Some(entry) = self.readout.enter.take() {
+                    self.select_entry(&entry);
+                }
                 return;
             }
 

@@ -40,6 +40,27 @@ pub struct ViewEntry {
     pub renamed_from: Option<String>,
 }
 
+/// Zona del dibujo que lleva a otra entrada del mismo archivo: una instancia
+/// de una sub-celda en un layout o de un sub-esquemático. El visor la abre
+/// con doble clic.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntryLink {
+    /// Dónde está la instancia, en coordenadas de mundo.
+    pub bbox: BoundingBox,
+    /// La entrada que abre (un id de [`ViewEntry`]).
+    pub entry: String,
+    /// Cómo nombrarla (`x1 (amp.sch)`, `inv_0`).
+    pub label: String,
+}
+
+/// El vínculo más chico que contiene `(x, y)` (el más interno, si se anidan).
+pub fn link_at(links: &[EntryLink], x: f64, y: f64) -> Option<&EntryLink> {
+    links
+        .iter()
+        .filter(|l| l.bbox.contains(x, y))
+        .min_by(|a, b| (a.bbox.width() * a.bbox.height()).total_cmp(&(b.bbox.width() * b.bbox.height())))
+}
+
 /// Cómo se dibujan los `DrawElement::Text` de una escena.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextStyle {
@@ -87,6 +108,8 @@ pub struct Scene {
     pub entries: Vec<ViewEntry>,
     /// Entrada que representa esta escena, si el archivo tiene varias.
     pub current_entry: Option<String>,
+    /// Instancias que llevan a otra entrada (doble clic para entrar).
+    pub links: Vec<EntryLink>,
     /// Cambios respecto a otra versión (solo en escenas de diff).
     pub changes: Vec<ChangeItem>,
     /// Unidad de las coordenadas de mundo (`"µm"` en GDS), para mostrar
@@ -125,6 +148,7 @@ impl Scene {
             metadata: Vec::new(),
             entries: Vec::new(),
             current_entry: None,
+            links: Vec::new(),
             changes: Vec::new(),
             world_unit: None,
             text_style: TextStyle::Labels,
@@ -200,6 +224,11 @@ pub trait RenderableScene: Send + Sync {
     }
 
     /// Sub-vista que muestra esta escena. Por defecto ninguna.
+    /// Instancias que llevan a otra entrada (ver [`EntryLink`]).
+    fn links(&self) -> &[EntryLink] {
+        &[]
+    }
+
     fn current_entry(&self) -> Option<&str> {
         None
     }
@@ -288,6 +317,10 @@ impl RenderableScene for Scene {
 
     fn current_entry(&self) -> Option<&str> {
         self.current_entry.as_deref()
+    }
+
+    fn links(&self) -> &[EntryLink] {
+        &self.links
     }
 
     fn changes(&self) -> &[ChangeItem] {
@@ -423,5 +456,22 @@ mod net_tests {
         assert_eq!(scene.net_at(2.0, 0.5, Some(7)), None);
         // Un clon comparte la sonda.
         assert!(scene.clone().net_at(0.5, 0.5, Some(7)).is_some());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_vinculo_mas_interno_gana() {
+        let bb = |x0, y0, x1, y1| BoundingBox { min_x: x0, min_y: y0, max_x: x1, max_y: y1 };
+        let links = vec![
+            EntryLink { bbox: bb(0.0, 0.0, 100.0, 100.0), entry: "grande".into(), label: String::new() },
+            EntryLink { bbox: bb(10.0, 10.0, 20.0, 20.0), entry: "chico".into(), label: String::new() },
+        ];
+        assert_eq!(link_at(&links, 15.0, 15.0).map(|l| l.entry.as_str()), Some("chico"));
+        assert_eq!(link_at(&links, 50.0, 50.0).map(|l| l.entry.as_str()), Some("grande"));
+        assert!(link_at(&links, 150.0, 50.0).is_none());
     }
 }
