@@ -34,7 +34,7 @@ Un solo ejecutable, `riku` (CLI, shell y visor), para Linux x86_64 con glibc 2.3
 curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh   # en ~/.local/bin
 ```
 
-`sh -s -- v0.2.1` instala una versión concreta y `sudo sh -s -- latest --system` la deja en `/usr/local/bin`. También están el `.tar.gz` y el `.deb` en [Releases](https://github.com/riku-chip/riku_chip/releases). Para compilar desde el código, ver [`docs/desarrollo.md`](docs/desarrollo.md).
+`sh -s -- v0.1.0` instala una versión concreta y `sudo sh -s -- latest --system` la deja en `/usr/local/bin`. También están el `.tar.gz` y el `.deb` en [Releases](https://github.com/riku-chip/riku_chip/releases). Para compilar desde el código, ver [`docs/desarrollo.md`](docs/desarrollo.md).
 
 ## Primeros pasos
 

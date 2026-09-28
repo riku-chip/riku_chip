@@ -2,7 +2,7 @@
 
 Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 días, **L** = varios días. Lo hecho no se lista: está en el código y en la historia de Git (la documentación de diseño de las fases 6–9 y la investigación inicial quedaron en el tag [`docs-historia`](https://github.com/riku-chip/riku_chip/tree/docs-historia)).
 
-**Estado:** última versión [v0.2.1](https://github.com/riku-chip/riku_chip/releases/tag/v0.2.1). Revisado 2026-09-28.
+**Estado:** última versión [v0.1.0](https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0) (las versiones se reiniciaron el 2026-09-28). Revisado 2026-09-28.
 
 ## En curso: demos y README
 

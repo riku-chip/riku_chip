@@ -1,6 +1,6 @@
 name: Release
 
-# Un tag v* (p. ej. v0.2.0) compila el ejecutable único de Linux y publica
+# Un tag v* (p. ej. v0.1.0) compila el ejecutable único de Linux y publica
 # riku-<versión>-linux-x86_64.tar.gz, riku_<versión>_amd64.deb y
 # SHA256SUMS en GitHub Releases. Con workflow_dispatch solo deja los
 # artefactos en el run, sin publicar.
