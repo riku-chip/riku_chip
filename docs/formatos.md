@@ -28,8 +28,8 @@ Todo vive en `riku-mod-layout`, sobre [`gdstk_rust`](https://github.com/Adriel25
 - **Renombres:** una celda que desaparece y otra con la misma geometría que aparece son un renombre (`INV → INV_X1`). Solo renombres puros; si hay varias candidatas, no se adivina.
 - **Librerías:** se marca qué celdas cambiaron, incluidos cambios heredados de sub-celdas; el visor puede filtrar "solo con cambios".
 - **Capas con nombre:** si el OASIS nombra sus capas (LAYERNAME), o en Magic, los cambios llevan el nombre (`layer_name`).
-- **Transistores:** en las celdas que cambiaron, los transistores que se agregaron, se quitaron o cambiaron de modelo, W o L: `~ nand2_1:sky130_fd_pr__nfet_01v8 @ (0.490, 0.657)` · `w_um: 0.650 → 0.460`. Se reconocen con las reglas del `.tech` de Magic del PDK (SKY130, GF180MCU, IHP), en GDS, OASIS y Magic; una celda de más de 2 millones de polígonos no se compara (se avisa: se comparan sus sub-celdas). Cómo se reconocen y cómo se verificó: [`electrico.md`](electrico.md).
-- **Abiertos y cortos:** en las celdas con cambios en una capa que conduce, las redes que se partieron o se unieron, con dónde: `! nand2_1:net:B = Y` · `corto (redes unidas): B, Y → B = Y`. Las redes se comparan por sus etiquetas y por los terminales de los transistores; una red sin etiqueta se nombra por un transistor que toca (`s de nfet_01v8 en (0.49, 0.56)`). Van primero y en JSON con `"severity": "error"`.
+- **Transistores:** en las celdas que cambiaron, los transistores que se agregaron, se quitaron o cambiaron de modelo, W o L: `~ nand2_1:sky130_fd_pr__nfet_01v8 @ (0.490, 0.657)` · `w_um: 0.650 → 0.460`. Ver [Transistores y redes](#transistores-y-redes).
+- **Abiertos y cortos:** en las celdas con cambios en una capa que conduce, las redes que se partieron o se unieron, con dónde: `! nand2_1:net:B = Y` · `corto (redes unidas): B, Y → B = Y`. Una red sin etiqueta se nombra por un transistor que toca (`s de nfet_01v8 en (0.49, 0.56)`). Van primero y en JSON con `"severity": "error"`.
 - **Cosmético:** un cambio con área total bajo `--cosmetic-threshold-um2` (0,01 µm² por defecto, debajo del piso DRC de SKY130/GF180).
 - **Errores:** un layout roto, truncado o con un ciclo de celdas es un error del archivo, no "sin cambios". Las referencias a celdas que no están se avisan y el resto se compara.
 - **Cache:** en layouts de más de 1 MiB el resultado se guarda en `~/.cache/riku/diff` (tope 512 MiB). `--no-cache` o `RIKU_NO_CACHE=1` la desactivan.
@@ -48,11 +48,32 @@ Magic guarda **una celda por archivo** y sus capas son **lógicas y con nombre**
 
 Verificado contra KLayout 0.30.12 (las versiones anteriores ignoran `magscale`): mismos polígonos y área por capa en 8 jerarquías de SKY130 y GF180; los 9 281 `.mag` de los PDK se leen sin errores.
 
+### Transistores y redes
+
+En un layout de **SKY130, GF180MCU o IHP SG13G2** (GDS, OASIS o Magic), Riku reconoce los transistores y los resistores, y arma las redes: qué metal, poly y difusión están unidos por contactos y vías. No hay tablas por PDK escritas a mano: todo sale del `.tech` de Magic del PDK instalado (`$PDK_ROOT`), o de una copia compilada si no está (`tools/palettes/gen_devices.py` → `devices_generated.rs`).
+
+| Del `.tech` | Para qué |
+|---|---|
+| `cifinput` (primer estilo) | de qué capas GDS sale cada tipo de Magic (`nfet` = `DIFF` y `POLY` y `NSDM`, sin `PSDM`…), con `grow`/`shrink`; y en qué capas van las etiquetas y los pines (`labels LIPIN port`) |
+| `extract`: `device` | el modelo SPICE de cada transistor o resistor, según W y L (`w<0.42` → `special_nfet_01v8`), y los tipos de fuente, drenaje y cuerpo; `substrate`, qué es el sustrato |
+| `contact`, `connect`, `aliases` | qué capas une cada contacto y qué tipos conducen juntos cuando se tocan |
+| `types` | los nombres de cada tipo (un `.mag` puede usar cualquiera) |
+
+- **Transistores:** cada compuerta (difusión ∩ poly) es un finger; su tipo es la regla que cumple en un punto interior. W y L, como KLayout: fuente y drenaje son las dos regiones de difusión que toca la compuerta, `W` = el borde con ellas / 2 y `L` = área / W; una compuerta que no separa exactamente dos regiones no es un transistor. En Magic, los transistores ya vienen pintados como capas.
+- **Redes:** cada tipo se evalúa como región con su regla (con `grow`/`shrink`, y en el orden de pintado de Magic: en un plano, un tipo posterior tapa al anterior). Los pedazos de tipos que `connect` une y que se tocan son la misma red; el sustrato es una red aunque no esté dibujado. Una etiqueta nombra la red en la que cae; es pin si cae sobre un polígono de pin (o, en Magic, si tiene `port`).
+- **Resistores:** el cuerpo entre sus dos terminales (`device resistor`); los de modelo `None` (metal en IHP) son cortos. Diodos y capacitores todavía no.
+- **Diff:** los transistores de A y B se emparejan por posición (uno contiene el punto del otro) y se comparan modelo, W y L. Las redes se comparan por lo que existe en los dos lados (las etiquetas y los terminales de los transistores emparejados): una red de A repartida en varias de B es un **abierto**; varias de A en una de B, un **corto**; la misma con otra etiqueta, un renombre. Solo en las celdas con cambios en una capa de las reglas.
+- **Límites:** una celda de más de 2 millones de polígonos aplanados (un chip entero) no se analiza; se avisa y se comparan sus sub-celdas. Tiempos: una celda estándar, milisegundos; la SRAM de `examples/GDS/` (2 271 transistores, 976 redes), 2 s.
+- **Verificado** ([`desarrollo.md`](desarrollo.md#verificación)): los transistores, iguales a la netlist del PDK en todas las celdas estándar de SKY130 (437) y en todas menos una de GF180MCU e IHP; las redes, con Netgen como un LVS: GF180MCU 219 de 219, SKY130 422 de 427, IHP 68 de 73. En todas las diferencias, Magic extrae lo mismo que Riku: es la netlist del PDK la que no coincide con su layout.
+- **Magic cuenta más transistores en la SRAM** (720 `special_pfet_latch` contra 360): los de más tienen L = 0,025 µm y fuente y drenaje en la misma red, la línea de palabra pisando un borde de difusión. Riku y KLayout no los cuentan.
+
 ### En el visor
 
 - **Estilo por PDK**, agnóstico: color, nombre y orden de apilado salen del `.lyp` del PDK instalado (`$PDK_ROOT`, `/foss/pdks`, `$PDKPATH`); SKY130, GF180MCU e IHP SG13G2 tienen además tablas curadas, que se usan también sin el PDK instalado. Rol de cada capa: dispositivo (relleno), pozo (tinte tenue), implantes, marcadores y pines (solo contorno).
 - **Selector de celdas** con buscador y filtros; `riku gui archivo.gds --cell NOMBRE` abre una celda.
-- **Diff:** **Diff** muestra la versión "después" atenuada con lo añadido en verde y lo eliminado en rojo; **Before** y **After**, cada versión. En **Detalles → Cambios**, un clic encuadra el cambio.
+- **Diff:** **Diff** muestra la versión "después" atenuada con lo añadido en verde y lo eliminado en rojo; **Before** y **After**, cada versión. En **Detalles → Cambios**, un clic encuadra el cambio; los abiertos y cortos van primero, en rojo.
+- **Transistores y redes:** la capa **Transistores** (oculta al abrir), la red en el tooltip, y un clic en un polígono resalta su red entera (ver [`gui.md`](gui.md#controles)).
+- **Cómo se elige el estilo:** de más a menos prioridad, las tablas curadas de SKY130, GF180MCU e IHP (`palette.rs`, en orden de apilado); el `.lyp` del PDK instalado (sin PDK, `palette_generated.rs` de `tools/palettes/gen_palettes.py`); y la paleta genérica con el rol por la convención de datatypes. Las capas de Magic toman el estilo de su capa GDS equivalente (`magic_layers_generated.rs`, o el `cifoutput` del `.tech`). Un PDK nuevo se dibuja sin recompilar.
 
 ## Simulaciones de ngspice (`.raw`)
 

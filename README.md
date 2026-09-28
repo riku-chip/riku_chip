@@ -14,7 +14,7 @@ Revisa cambios en esquemáticos, layouts y simulaciones al nivel del circuito, n
 Un `git diff` sobre un esquemático de Xschem muestra coordenadas; sobre un GDS, `Binary files differ`. Riku lee las versiones del historial de Git y dice lo que importa:
 
 - **Esquemáticos (Xschem):** componentes añadidos, eliminados, renombrados o con otro valor; nets conectadas o desconectadas; si fue solo un reordenamiento visual.
-- **Layouts (GDS, OASIS, Magic):** qué área cambió, en qué capa y celda, y si viene de una sub-celda instanciada. En Magic, con capas por nombre, sub-celdas del mismo commit y puertos.
+- **Layouts (GDS, OASIS, Magic):** qué área cambió, en qué capa y celda, y si viene de una sub-celda instanciada. En Magic, con capas por nombre, sub-celdas del mismo commit y puertos. En SKY130, GF180MCU e IHP, además, qué transistores cambiaron de modelo, W o L, y qué redes se **abrieron o se cortaron**.
 - **Simulaciones (ngspice `.raw`):** qué señales cambiaron y cuánto, separando el ruido numérico.
 
 Todo en la terminal (texto o JSON para scripts y CI) y en un **visor** de escritorio con las versiones antes/después. No hace falta tener Xschem, KLayout ni Magic instalados.
@@ -22,8 +22,8 @@ Todo en la terminal (texto o JSON para scripts y CI) y en un **visor** de escrit
 | Formato | Extensión | Diff | Visor |
 |---|---|---|:-:|
 | Xschem | `.sch` (`.sym` solo en el visor) | semántico | ✓ |
-| GDSII / OASIS | `.gds`, `.oas` | geométrico (XOR) | ✓ |
-| Magic | `.mag` | geométrico y puertos, con la jerarquía del mismo commit | ✓ |
+| GDSII / OASIS | `.gds`, `.oas` | geométrico (XOR); transistores y redes con el PDK | ✓ |
+| Magic | `.mag` | geométrico, puertos, transistores y redes, con la jerarquía del mismo commit | ✓ |
 | ngspice | `.raw` | formas de onda, con tolerancia | ✓ (curvas) |
 
 ## Instalación
@@ -68,10 +68,9 @@ Cambios : 3
 |---|---|
 | [`docs/cli.md`](docs/cli.md) | Comandos, JSON, códigos de salida, `.riku.toml` |
 | [`docs/gui.md`](docs/gui.md) | El visor |
-| [`docs/formatos.md`](docs/formatos.md) | Qué compara cada formato: Xschem, layouts (GDS/OASIS/Magic) y simulaciones |
-| [`docs/desarrollo.md`](docs/desarrollo.md) | Compilar, probar, arquitectura, reglas del proyecto y publicar |
-| [`docs/pendientes.md`](docs/pendientes.md) | Lo que falta: pendientes, ideas y limitaciones |
-| [`docs/electrico.md`](docs/electrico.md) | De las capas a lo eléctrico: dispositivos, redes, LVS (diseño) |
+| [`docs/formatos.md`](docs/formatos.md) | Qué compara cada formato: Xschem, layouts (GDS/OASIS/Magic, con transistores y redes) y simulaciones |
+| [`docs/desarrollo.md`](docs/desarrollo.md) | Compilar, probar, verificar (KLayout, Magic, Netgen), arquitectura, reglas y publicar |
+| [`docs/pendientes.md`](docs/pendientes.md) | Lo que falta: pendientes, ideas (LVS, chequeos eléctricos) y limitaciones |
 
 **Estado:** alpha. Los tres tipos de archivo funcionan de punta a punta; los layouts de millones de polígonos se comparan en segundos y con menos de 1 GB. Para contribuir: `cargo test --workspace` en verde y commits `tipo(alcance): …`.
 

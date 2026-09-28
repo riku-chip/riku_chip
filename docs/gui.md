@@ -48,6 +48,8 @@ Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la difer
 | Qué capa es cada color | **Leyenda** o **G**: las capas de lo que está a la vista, abajo a la izquierda (con el zoom lejos, las del archivo) |
 | Resaltar una capa | pasar el cursor por su nombre en **Capas** o en la leyenda (el resto se atenúa); un clic la deja resaltada, otro clic o **Esc** la suelta |
 | Ver los transistores | **Capas → Transistores** (oculta al abrir): cada compuerta en amarillo con su modelo, W y L; en **Resumen**, cuántos hay ("4 (2 N, 2 P)"). Se reconocen con las reglas del PDK (SKY130, GF180MCU, IHP), en GDS, OASIS y Magic; en una celda de más de 2 millones de polígonos, no (abrir una sub-celda) |
+| Ver una red | pasar el cursor por un polígono: el tooltip suma `red: Y` (una red sin etiqueta se nombra por un transistor que toca); **clic** en el polígono resalta la red entera en amarillo y atenúa el resto (la barra de estado dice cuántos polígonos tiene); otro clic o **Esc** la suelta. En **Resumen**, `Redes: 8 (7 con nombre)`. Con las mismas reglas del PDK que los transistores |
+| Abiertos y cortos (diff) | primero en **Cambios**, en rojo y con `!` (`corto · B = Y`, `B, Y → B = Y`), con un recuadro sobre el layout; un clic encuadra dónde está |
 | Info de un polígono | dejar el cursor encima: capa, tamaño, área |
 | Coordenadas y escala | barra de estado: `x`, `y` y tamaño de 1 px |
 | Abrir un archivo | panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** |

@@ -46,11 +46,14 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 - **Artefactos derivados viejos** después de un merge (un `.gds` más viejo que su `.mag`, un `.spice` más viejo que su `.sch`): avisar sin bloquear. Pide declarar en `.riku.toml` qué es fuente y qué derivado.
 - **Comandos:** `blame --semantic` (quién tocó por última vez un componente o celda), `log --cell`/`--component` y `log --sim-metric` (una medida a lo largo del historial).
 
-**De las capas a lo eléctrico:** dispositivos (nivel 2, con diseño), conectividad, LVS y chequeos eléctricos, en [`electrico.md`](electrico.md).
+**Lo eléctrico** (transistores, resistores, redes, abiertos y cortos ya están: [`formatos.md`](formatos.md#transistores-y-redes)):
+- **LVS en cada commit** (M): layout contra esquemático con la netlist que extrae Riku (o Magic `extract all` + `ext2spice lvs`) y `xschem --netlist`, comparadas con `netgen -batch lvs … <pdk>_setup.tcl out.json`. Mostrar qué dispositivos o redes no coinciden y **dónde están en el layout**; en CI, bloquear un PASS → FAIL (un FAIL → FAIL es aviso). Pendiente: ver si el LVS de KLayout está a la par de Netgen.
+- **Chequeos eléctricos** (L), con herramientas externas y su diferencia entre commits: ERC (compuertas o pines sin conectar, pozos sin polarizar), antena (las reglas del deck de DRC del PDK), parásitos (Magic `ext2spice` con `cthresh`/`rthresh`: "la red `out` subió 12 fF") y post-layout (simular la netlist extraída y comparar las `.meas`).
+- **Extracción jerárquica** (L): cada celda una vez, con sus pines hacia arriba (como KLayout), para analizar un chip entero; hoy el tope es 2 millones de polígonos aplanados por celda.
+- **Diodos y capacitores**, y los resistores en el diff (hoy están en la netlist, pero un resistor que cambia no se lista) (M).
 
 **Verificación en CI:**
 - **DRC por diferencia** entre base y head: `klayout -b -r script.drc` y leer el `.lyrdb` (`ReportDatabase`). Bloquear solo si suben las violaciones, así se toleran las que ya había.
-- **LVS entre commits:** Magic `extract all; ext2spice lvs` y `xschem --netlist`, después `netgen -batch lvs … <pdk>_setup.tcl out.json`. Bloquear PASS → FAIL; FAIL → FAIL es aviso. Pendiente: ver si el LVS de KLayout está a la par de Netgen.
 - **Regresión de `.meas`:** leer `nombre = valor` del log de ngspice y comparar con tolerancias, contra el padre o un nominal. Solo corridas de la misma fase (pre o post layout).
 - **Un comentario del PR que se actualiza**, marcado con `<!-- riku-ci -->`, y `ci init` con plantillas sobre la imagen de iic-osic-tools.
 - **Claves de caché de verificaciones:** versión de la herramienta, hash del PDK y, en LVS, el `setup.tcl`; nunca fechas de archivo. Una caché compartida (S3/R2) solo si hay equipo.
