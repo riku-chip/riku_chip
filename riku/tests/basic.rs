@@ -193,7 +193,7 @@ fn git_service_reads_commits_and_blobs() {
     let blob = svc.get_blob("HEAD", file_path).unwrap();
     assert!(String::from_utf8_lossy(&blob).contains("22k"));
 
-    let commits = svc.get_commits(Some(file_path)).unwrap();
+    let commits = commits_touching(&svc, file_path);
     assert_eq!(commits.len(), 2);
 }
 
@@ -516,4 +516,11 @@ fn log_limit_counts_only_the_commits_that_touch_the_paths() {
     assert_eq!(messages(&opts), ["a1", "a2"]);
     let opts = LogOptions { paths: vec!["a.sch".into()], limit: Some(1), skip_summaries: true, ..Default::default() };
     assert_eq!(messages(&opts).len(), 1);
+}
+
+/// Los commits que tocan `path`, más nuevo primero (lo que usa `riku log ARCHIVO`).
+fn commits_touching(svc: &GitService, path: &str) -> Vec<riku::core::domain::git_types::CommitInfo> {
+    let paths = [path.to_string()];
+    let query = riku::core::domain::git_types::LogQuery { paths: &paths, ..Default::default() };
+    GitRepository::get_commits_with_options(svc, &query).unwrap().into_iter().map(|c| c.info).collect()
 }

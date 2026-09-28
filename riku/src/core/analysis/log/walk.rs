@@ -223,7 +223,7 @@ mod tests {
     use super::super::types::EnvelopedLogReport;
     use super::*;
     use crate::core::domain::git_types::{
-        BranchInfo, ChangedFile, CommitInfo, GitError, WorkingChange,
+        BranchInfo, ChangedFile, CommitChanges, CommitInfo, GitError, WorkingChange,
     };
 
     struct MockRepo {
@@ -242,9 +242,6 @@ mod tests {
                     commit: commit_ish.to_string(),
                     path: file_path.to_string(),
                 })
-        }
-        fn get_commits(&self, _file_path: Option<&str>) -> Result<Vec<CommitInfo>, GitError> {
-            Ok(self.commits.iter().map(|c| c.info.clone()).collect())
         }
         fn get_changed_files(&self, a: &str, b: &str) -> Result<Vec<ChangedFile>, GitError> {
             Ok(self
@@ -267,6 +264,9 @@ mod tests {
         }
         fn refs_by_oid(&self) -> Result<std::collections::HashMap<String, Vec<String>>, GitError> {
             Ok(self.refs.clone())
+        }
+        fn commit_changes(&self, _: &str) -> Result<CommitChanges, GitError> {
+            unimplemented!("log no usa commit_changes")
         }
     }
 

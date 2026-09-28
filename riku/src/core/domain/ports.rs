@@ -3,18 +3,19 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::core::domain::git_types::{
-    BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
-    WorkingChange,
+    BranchInfo, ChangedFile, CommitChanges, CommitWithParents, GitError, LogQuery, WorkingChange,
 };
 
 /// Abre otra conexión al mismo repositorio. `git2::Repository` se puede
 /// mover entre hilos pero no compartir: cada hilo que lee Git usa la suya.
 pub type Reopener = Arc<dyn Fn() -> Result<Box<dyn GitRepository + Send>, GitError> + Send + Sync>;
 
+/// Lo que el núcleo le pide a Git. Sin implementaciones por defecto que
+/// devuelvan "vacío": un adaptador nuevo que olvide un método no compila (en
+/// vez de decir "sin cambios"). Los dos que sí tienen default responden
+/// "no sé", que es una respuesta válida.
 pub trait GitRepository {
     fn get_blob(&self, commit_ish: &str, file_path: &str) -> Result<Vec<u8>, GitError>;
-
-    fn get_commits(&self, file_path: Option<&str>) -> Result<Vec<CommitInfo>, GitError>;
 
     fn get_changed_files(
         &self,
@@ -22,58 +23,34 @@ pub trait GitRepository {
         commit_b: &str,
     ) -> Result<Vec<ChangedFile>, GitError>;
 
-    /// Cambios en working tree vs HEAD. Default `Ok(vec![])` para no romper
-    /// implementaciones existentes (mocks de tests, futuros adaptadores).
-    fn working_tree_changes(&self) -> Result<Vec<WorkingChange>, GitError> {
-        Ok(Vec::new())
-    }
+    /// Cambios en el working tree respecto a HEAD.
+    fn working_tree_changes(&self) -> Result<Vec<WorkingChange>, GitError>;
 
-    /// Información de la rama actual. Default `Ok(None)` para no forzar a
-    /// cada adapter a implementarlo si no aplica (repo en estado inicial).
-    fn current_branch(&self) -> Result<Option<BranchInfo>, GitError> {
-        Ok(None)
-    }
+    /// La rama actual; `None` con HEAD desacoplado o sin commits.
+    fn current_branch(&self) -> Result<Option<BranchInfo>, GitError>;
 
-    /// Versión enriquecida de `get_commits` con filtros y padres por commit.
-    /// Default delega a `get_commits` y sintetiza padres vacíos para no romper
-    /// adapters existentes; no filtra por `paths`.
+    /// Commits con sus padres, filtrados y limitados según `query`.
     fn get_commits_with_options(
         &self,
         query: &LogQuery<'_>,
-    ) -> Result<Vec<CommitWithParents>, GitError> {
-        let mut commits = self.get_commits(None)?;
-        if let Some(limit) = query.limit {
-            commits.truncate(limit);
-        }
-        Ok(commits
-            .into_iter()
-            .map(|info| CommitWithParents {
-                info,
-                parents: Vec::new(),
-            })
-            .collect())
-    }
+    ) -> Result<Vec<CommitWithParents>, GitError>;
 
-    /// Mapa `oid → [refs]` para anotar el log. Default vacío.
-    fn refs_by_oid(&self) -> Result<HashMap<String, Vec<String>>, GitError> {
-        Ok(HashMap::new())
-    }
+    /// Mapa `oid → [refs]` para anotar el log.
+    fn refs_by_oid(&self) -> Result<HashMap<String, Vec<String>>, GitError>;
 
     /// Un commit, sus padres y los archivos que cambió respecto al primero
-    /// (`riku show`). Default: error, para no forzar a los mocks.
-    fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError> {
-        Err(GitError::CommitNotFound(commit_ish.to_string()))
-    }
+    /// (`riku show`).
+    fn commit_changes(&self, commit_ish: &str) -> Result<CommitChanges, GitError>;
 
     /// Tamaño en bytes de un blob sin leerlo (para planificar la memoria de
-    /// los diffs en paralelo). `None` si no existe o no se sabe.
+    /// los diffs en paralelo). `None` si no existe o no se sabe: todo va en
+    /// una tanda.
     fn blob_size(&self, _commit_ish: &str, _file_path: &str) -> Option<u64> {
         None
     }
 
     /// Cómo abrir otra conexión a este repositorio desde otro hilo. `None`
-    /// (el default, p. ej. en los mocks de los tests): todo se hace en
-    /// secuencia con esta.
+    /// (p. ej. en los mocks de los tests): todo se hace en secuencia con esta.
     fn reopener(&self) -> Option<Reopener> {
         None
     }

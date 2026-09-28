@@ -87,7 +87,7 @@ pub fn read_disk(workdir: Option<&Path>, path: &str) -> Blob {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::domain::git_types::{ChangedFile, CommitInfo};
+    use crate::core::domain::git_types::{BranchInfo, ChangedFile, CommitChanges, CommitWithParents, LogQuery, WorkingChange};
     use std::collections::HashMap;
 
     /// Mock con respuestas configurables por (commit, path).
@@ -123,11 +123,23 @@ mod tests {
                 Some(Err(_)) | None => Err(GitError::CommitNotFound("mock-default".to_string())),
             }
         }
-        fn get_commits(&self, _: Option<&str>) -> Result<Vec<CommitInfo>, GitError> {
-            Ok(Vec::new())
-        }
         fn get_changed_files(&self, _: &str, _: &str) -> Result<Vec<ChangedFile>, GitError> {
             Ok(Vec::new())
+        }
+        fn working_tree_changes(&self) -> Result<Vec<WorkingChange>, GitError> {
+            unimplemented!("este test no lo usa")
+        }
+        fn current_branch(&self) -> Result<Option<BranchInfo>, GitError> {
+            unimplemented!("este test no lo usa")
+        }
+        fn get_commits_with_options(&self, _: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError> {
+            unimplemented!("este test no lo usa")
+        }
+        fn refs_by_oid(&self) -> Result<std::collections::HashMap<String, Vec<String>>, GitError> {
+            unimplemented!("este test no lo usa")
+        }
+        fn commit_changes(&self, _: &str) -> Result<CommitChanges, GitError> {
+            unimplemented!("este test no lo usa")
         }
     }
 

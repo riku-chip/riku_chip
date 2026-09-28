@@ -228,7 +228,7 @@ fn git_service_extracts_blob_from_10_commits() {
     }
 
     let svc = GitService::open(temp.path()).unwrap();
-    let commits = GitRepository::get_commits(&svc, Some(rel_path)).unwrap();
+    let commits = commits_touching(&svc, rel_path);
     assert_eq!(commits.len(), N_COMMITS);
 
     // Extraer blob de cada commit y parsear
@@ -258,7 +258,7 @@ fn git_service_log_semantic_across_revisions() {
     }
 
     let svc = GitService::open(temp.path()).unwrap();
-    let commits = GitRepository::get_commits(&svc, Some(rel_path)).unwrap();
+    let commits = commits_touching(&svc, rel_path);
 
     let mut semantic_changes = 0usize;
     for window in commits.windows(2) {
@@ -345,7 +345,7 @@ fn stress_gds_in_git_repo() {
     commit_file(&repo, rel_path, &content, "add gds");
 
     let svc = GitService::open(temp.path()).unwrap();
-    let commits = GitRepository::get_commits(&svc, Some(rel_path)).unwrap();
+    let commits = commits_touching(&svc, rel_path);
     assert_eq!(commits.len(), 1);
 
     let blob = GitRepository::get_blob(&svc, &commits[0].oid, rel_path).unwrap();
@@ -358,4 +358,11 @@ fn stress_gds_in_git_repo() {
         "stress_gds_in_git_repo: {} KB extraidos de git OK",
         blob.len() / 1024
     );
+}
+
+/// Los commits que tocan `path`, más nuevo primero (lo que usa `riku log ARCHIVO`).
+fn commits_touching(svc: &GitService, path: &str) -> Vec<riku::core::domain::git_types::CommitInfo> {
+    let paths = [path.to_string()];
+    let query = riku::core::domain::git_types::LogQuery { paths: &paths, ..Default::default() };
+    GitRepository::get_commits_with_options(svc, &query).unwrap().into_iter().map(|c| c.info).collect()
 }

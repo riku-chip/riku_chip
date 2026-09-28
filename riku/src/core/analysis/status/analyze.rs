@@ -125,7 +125,7 @@ mod tests {
     use super::super::types::EnvelopedStatusReport;
     use super::*;
     use crate::core::analysis::summary::SummaryCategory;
-    use crate::core::domain::git_types::{BranchInfo, ChangedFile, CommitInfo, GitError};
+    use crate::core::domain::git_types::{BranchInfo, ChangedFile, CommitChanges, CommitWithParents, GitError, LogQuery};
 
     /// Repo mock que solo provee working_tree_changes y get_blob — suficiente
     /// para ejercitar `analyze_with_options` sin tocar disco real.
@@ -145,9 +145,6 @@ mod tests {
                     path: file_path.to_string(),
                 })
         }
-        fn get_commits(&self, _file_path: Option<&str>) -> Result<Vec<CommitInfo>, GitError> {
-            Ok(Vec::new())
-        }
         fn get_changed_files(&self, _: &str, _: &str) -> Result<Vec<ChangedFile>, GitError> {
             Ok(Vec::new())
         }
@@ -156,6 +153,15 @@ mod tests {
         }
         fn current_branch(&self) -> Result<Option<BranchInfo>, GitError> {
             Ok(self.branch.clone())
+        }
+        fn get_commits_with_options(&self, _: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError> {
+            unimplemented!("status no recorre el historial")
+        }
+        fn refs_by_oid(&self) -> Result<std::collections::HashMap<String, Vec<String>>, GitError> {
+            unimplemented!("status no anota refs")
+        }
+        fn commit_changes(&self, _: &str) -> Result<CommitChanges, GitError> {
+            unimplemented!("status no mira commits")
         }
     }
 

@@ -2,35 +2,9 @@ use std::path::Path;
 
 use git2::{Commit, Repository};
 
-use crate::core::domain::git_types::{CommitInfo, CommitWithParents, GitError, LogQuery};
+use crate::core::domain::git_types::{CommitWithParents, GitError, LogQuery};
 use crate::core::git::helpers::{commit_info_from, resolve_commit};
 use crate::core::path_matcher::PathMatcher;
-
-pub(super) fn get_commits(
-    repo: &Repository,
-    file_path: Option<&str>,
-) -> Result<Vec<CommitInfo>, GitError> {
-    let head = repo
-        .head()?
-        .target()
-        .ok_or_else(|| GitError::CommitNotFound("HEAD".to_string()))?;
-    let mut walker = repo.revwalk()?;
-    walker.push(head)?;
-    walker.set_sorting(git2::Sort::TIME)?;
-
-    let mut results = Vec::new();
-    for oid in walker {
-        let oid = oid?;
-        let commit = repo.find_commit(oid)?;
-        if let Some(file_path) = file_path {
-            if !commit_touches(repo, &commit, |p| p == Path::new(file_path))? {
-                continue;
-            }
-        }
-        results.push(commit_info_from(&commit));
-    }
-    Ok(results)
-}
 
 pub(super) fn get_commits_with_options(
     repo: &Repository,

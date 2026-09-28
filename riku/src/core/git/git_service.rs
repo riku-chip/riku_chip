@@ -5,7 +5,7 @@ use std::sync::Arc;
 use git2::Repository;
 
 use crate::core::domain::git_types::{
-    BranchInfo, ChangedFile, CommitChanges, CommitInfo, CommitWithParents, GitError, LogQuery,
+    BranchInfo, ChangedFile, CommitChanges, CommitWithParents, GitError, LogQuery,
     WorkingChange,
 };
 use crate::core::domain::ports::{GitRepository, RepoRoot, Reopener};
@@ -40,10 +40,6 @@ impl RepoRoot for GitService {
 impl GitRepository for GitService {
     fn get_blob(&self, commit_ish: &str, file_path: &str) -> Result<Vec<u8>, GitError> {
         blob::get_blob(&self.repo, commit_ish, file_path)
-    }
-
-    fn get_commits(&self, file_path: Option<&str>) -> Result<Vec<CommitInfo>, GitError> {
-        commit_log::get_commits(&self.repo, file_path)
     }
 
     fn get_changed_files(
