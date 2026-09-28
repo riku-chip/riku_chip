@@ -249,9 +249,20 @@ pub fn diff_layout_sides(
 
 /// Transistores que cambiaron en cada celda con cambios de geometría (que
 /// exista en los dos lados); una celda demasiado grande queda en un aviso.
+/// Solo las celdas donde cambió alguna capa de las reglas (difusión, poly,
+/// implantes, pozos, o las de Magic de transistores y fuente/drenaje): si
+/// cambió solo metal, ningún transistor pudo cambiar, y no se aplana nada.
 fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffReport) {
     let Some(rules) = crate::devices::rules_for_library(lb, Some(path)) else { return };
-    let cells: BTreeSet<&str> = report.geometry.iter().map(|g| g.cell.as_str()).collect();
+    let used = rules.used_layers();
+    let magic: HashMap<(u32, u32), String> = lb.layer_names().into_iter().map(|(t, n)| ((t.layer, t.datatype), n)).collect();
+    let relevant = |k: &LayerKey| {
+        used.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
+            || magic.get(&(k.layer, k.datatype)).is_some_and(|n| {
+                rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n))
+            })
+    };
+    let cells: BTreeSet<&str> = report.geometry.iter().filter(|g| relevant(&g.layer)).map(|g| g.cell.as_str()).collect();
     let cells: Vec<&str> = cells.into_iter().collect();
     let found: Vec<(&str, Option<Vec<crate::devices::DeviceChange>>)> = cells
         .par_iter()
