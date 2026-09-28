@@ -27,8 +27,41 @@ enum Kind {
     Close,
 }
 
+/// Maximizada según el sistema o, si no lo dice (WSLg no lo informa), por
+/// ocupar el monitor entero.
 fn maximized(ctx: &egui::Context) -> bool {
-    ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false))
+    ctx.input(|i| {
+        let v = i.viewport();
+        v.maximized == Some(true) || v.fullscreen == Some(true) || fills_monitor(v.outer_rect.or(v.inner_rect), v.monitor_size)
+    })
+}
+
+/// El ancho entero del monitor y casi todo el alto (la barra de tareas
+/// queda afuera).
+fn fills_monitor(window: Option<Rect>, monitor: Option<egui::Vec2>) -> bool {
+    let (Some(w), Some(m)) = (window, monitor) else { return false };
+    w.width() >= m.x - 8.0 && w.height() >= m.y * 0.85
+}
+
+/// Tamaño al restaurar: más o menos la mitad de la pantalla, sin bajar del
+/// mínimo de la ventana. El guardado no sirve: si se cerró maximizada, es
+/// la pantalla entera.
+fn restored_size(monitor: egui::Vec2) -> egui::Vec2 {
+    (monitor * 0.6).max(vec2(900.0, 600.0)).min(monitor * 0.95)
+}
+
+/// Maximiza, o restaura a un tamaño menor y centrado.
+fn toggle_maximized(ctx: &egui::Context) {
+    if !maximized(ctx) {
+        ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
+        return;
+    }
+    ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+    if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
+        let size = restored_size(monitor);
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(size));
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(((monitor - size) * 0.5).to_pos2()));
+    }
 }
 
 /// Los tres botones, de derecha a izquierda (cerrar queda en la esquina).
@@ -42,7 +75,7 @@ pub(crate) fn controls(ui: &mut egui::Ui) {
     }
     let hint = if max { tr!("window.restore") } else { tr!("window.maximize") };
     if button(ui, Kind::Maximize, max).on_hover_text(hint).clicked() {
-        ctx.send_viewport_cmd(ViewportCommand::Maximized(!max));
+        toggle_maximized(&ctx);
     }
     if button(ui, Kind::Minimize, max).on_hover_text(tr!("window.minimize")).clicked() {
         ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
@@ -100,7 +133,7 @@ pub(crate) fn drag_area(ui: &mut egui::Ui, rect: Rect) {
     let resp = ui.interact(rect, egui::Id::new("window_drag"), Sense::click_and_drag());
     let ctx = ui.ctx();
     if resp.double_clicked() {
-        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized(ctx)));
+        toggle_maximized(ctx);
     } else if resp.drag_started_by(egui::PointerButton::Primary) {
         ctx.send_viewport_cmd(ViewportCommand::StartDrag);
     }
@@ -185,6 +218,18 @@ pub(crate) fn outline(ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maximizada_por_tamano_y_restaurada_a_la_mitad() {
+        let monitor = Some(vec2(1366.0, 768.0));
+        let full = Rect::from_min_size(pos2(0.0, 0.0), vec2(1366.0, 720.0));
+        assert!(fills_monitor(Some(full), monitor), "sin la barra de tareas");
+        assert!(!fills_monitor(Some(Rect::from_min_size(pos2(233.0, 84.0), vec2(900.0, 600.0))), monitor));
+        assert!(!fills_monitor(Some(full), None), "sin datos del monitor, no se adivina");
+        assert_eq!(restored_size(vec2(1366.0, 768.0)), vec2(900.0, 600.0), "el mínimo de la ventana");
+        assert!((restored_size(vec2(2560.0, 1440.0)) - vec2(1536.0, 864.0)).length() < 1e-3);
+        assert_eq!(restored_size(vec2(800.0, 600.0)), vec2(760.0, 570.0), "nunca más grande que la pantalla");
+    }
 
     #[test]
     fn esquinas_y_lados() {
