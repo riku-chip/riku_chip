@@ -11,7 +11,6 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 | Qué | Por qué | Esf. |
 |---|---|---|
 | Demo `inversor` en Magic y Xschem (el inversor de `demo_sky130A` de iic-osic-tools) | Mostrar Magic: capas por nombre, un cambio en el transistor visto desde la celda de arriba, un puerto que cambia de clase, un abierto | M |
-| README: una sección con cada comando (`status`, `diff` en texto/JSON/visual, `show`, `log --graph`, `open`, `render`, `doctor`, `demo`), para qué sirve y su salida real sacada de los demos | Hoy el README muestra pocos comandos y ejemplos de juguete | S |
 | Demo `chip` grande (la SRAM de 1 KB de OpenRAM de `sky130_sram_macros`, 10 MB) en un repo aparte, que `riku demo chip` clone | Ver el rendimiento con un diseño grande sin inflar el ejecutable | M |
 | `riku render` dibuja la capa "Transistores", que en el visor viene oculta | Respetar `LayerPaint::hidden` al exportar | S |
 
