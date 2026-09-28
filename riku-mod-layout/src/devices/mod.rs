@@ -2,9 +2,11 @@
 //! del `.tech` de Magic del PDK (ver `docs/electrico.md`).
 
 mod devices_generated;
+mod diff;
 mod extract;
 mod rules;
 
+pub use diff::{cell_device_changes, device_changes, flat_polygon_estimate, DeviceChange, DeviceDesc};
 pub use extract::{extract, extract_magic, Device, LayerPolys};
 pub use rules::{Cond, CondOp, DeviceRules, DeviceType, GdsLayer};
 
@@ -14,6 +16,11 @@ use std::sync::OnceLock;
 use gdstk_rs::{Cell, GdsTag, Library, OwnedPolygon};
 
 use crate::style::Pdk;
+
+/// Hasta cuántos polígonos (aplanados) se reconocen transistores en una
+/// celda: una más grande (un chip entero) tardaría segundos y mucha memoria
+/// en aplanar difusión, poly y marcadores; se reconocen en sus sub-celdas.
+pub const MAX_POLYGONS: u64 = 2_000_000;
 
 /// Las reglas para un layout: las del PDK instalado que reconoce sus capas
 /// o, si no hay, las de la tabla compilada del PDK que se detecta por la

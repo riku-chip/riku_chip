@@ -5,7 +5,7 @@ Hoy Riku muestra y compara **capas**: dice cuánta área de `poly` cambió, no q
 | Nivel | Qué | Estado |
 |---|---|---|
 | 1. Leer el dibujo | Leyenda y resaltar una capa | Hecho ([`gui.md`](gui.md#controles)) |
-| 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | Reconocer y mostrar: hecho (fases 2.1–2.5). Comparar: en curso |
+| 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | Hecho (fases 2.1–2.6); ver abajo |
 | 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | Idea |
 | 4. LVS | Layout contra esquemático, con el resultado en el visor | Idea |
 | 5. Chequeos eléctricos | ERC, antena, parásitos, post-layout | Idea |
@@ -87,6 +87,12 @@ Solo se extraen dispositivos de las celdas que el diff ya marcó como cambiadas 
 | 2.6 | Diff: cambios de dispositivo en CLI, JSON y visor | M |
 
 En total, **L** (una a dos semanas). Cada fase se cierra con tests y un commit. La 2.1 a 2.4 no cambian nada visible; la 2.5 ya sirve sola.
+
+### Resultado
+
+- **Verificación** (`tools/verify/devices/`): SKY130 437 de 437 celdas estándar iguales a la netlist de referencia del PDK, en GDS y en `.mag`; GF180MCU 228 de 229 y IHP SG13G2 73 de 74 (las que difieren son de la netlist del PDK: Riku da lo mismo que el extractor de KLayout). La SRAM de `examples/GDS/`: 2271 transistores con W y L iguales a KLayout, en 0,24 s.
+- **Diferencias con el diseño:** una compuerta tiene que tocar exactamente dos regiones de fuente/drenaje, como en KLayout (descarta los roces del poly en una esquina de la difusión); el modelo puede depender de W y L (las condiciones de `device`, como `w<0.42` en SKY130); en Magic, los alias de `types` (`scnmos` = `scnfet`).
+- **Límite:** una celda de más de 2 millones de polígonos aplanados no se reconoce (un chip entero): se avisa y se comparan sus sub-celdas.
 
 ### Decisiones abiertas
 

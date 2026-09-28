@@ -250,6 +250,38 @@ fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem
 
 /// Un puerto de Magic que cambió, para la lista del visor (coordenadas en
 /// µm, las de la escena de un `.mag`).
+/// Un transistor que cambió, para la lista Cambios: "transistor
+/// nfet_01v8: W 0.42 → 0.84 µm"; un clic encuadra su compuerta.
+pub(crate) fn device_item(c: &crate::devices::DeviceChange) -> ChangeItem {
+    let short = |m: &str| m.rsplit("__").next().unwrap_or(m).to_string();
+    let size = |d: &crate::devices::DeviceDesc| format!("W {:.2} · L {:.2} µm", d.w_um, d.l_um);
+    let (kind, label, detail) = match (&c.before, &c.after) {
+        (None, Some(d)) => (ChangeKind::Added, format!("transistor {}", short(&d.model)), size(d)),
+        (Some(d), None) => (ChangeKind::Removed, format!("transistor {}", short(&d.model)), size(d)),
+        (Some(a), Some(b)) => {
+            let mut parts = Vec::new();
+            if a.model != b.model {
+                parts.push(format!("{} → {}", short(&a.model), short(&b.model)));
+            }
+            if (a.w_um - b.w_um).abs() > 5e-4 {
+                parts.push(format!("W {:.2} → {:.2}", a.w_um, b.w_um));
+            }
+            if (a.l_um - b.l_um).abs() > 5e-4 {
+                parts.push(format!("L {:.2} → {:.2}", a.l_um, b.l_um));
+            }
+            (ChangeKind::Modified, format!("transistor {}", short(&b.model)), parts.join(" · "))
+        }
+        (None, None) => (ChangeKind::Modified, "transistor".into(), String::new()),
+    };
+    let bbox = c.after.as_ref().or(c.before.as_ref()).map(|d| VcBBox {
+        min_x: d.bbox_um[0],
+        min_y: d.bbox_um[1],
+        max_x: d.bbox_um[2],
+        max_y: d.bbox_um[3],
+    });
+    ChangeItem { kind, label, detail, bbox, cosmetic: false }
+}
+
 pub(crate) fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
     let (kind, label) = match (&p.before, &p.after) {
         (None, Some(d)) => (ChangeKind::Added, format!("puerto {} ({})", p.name, d.class.as_deref().unwrap_or("—"))),

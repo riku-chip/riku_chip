@@ -28,6 +28,7 @@ Todo vive en `riku-mod-layout`, sobre [`gdstk_rust`](https://github.com/Adriel25
 - **Renombres:** una celda que desaparece y otra con la misma geometría que aparece son un renombre (`INV → INV_X1`). Solo renombres puros; si hay varias candidatas, no se adivina.
 - **Librerías:** se marca qué celdas cambiaron, incluidos cambios heredados de sub-celdas; el visor puede filtrar "solo con cambios".
 - **Capas con nombre:** si el OASIS nombra sus capas (LAYERNAME), o en Magic, los cambios llevan el nombre (`layer_name`).
+- **Transistores:** en las celdas que cambiaron, los transistores que se agregaron, se quitaron o cambiaron de modelo, W o L: `~ nand2_1:sky130_fd_pr__nfet_01v8 @ (0.490, 0.657)` · `w_um: 0.650 → 0.460`. Se reconocen con las reglas del `.tech` de Magic del PDK (SKY130, GF180MCU, IHP), en GDS, OASIS y Magic; una celda de más de 2 millones de polígonos no se compara (se avisa: se comparan sus sub-celdas). Cómo se reconocen y cómo se verificó: [`electrico.md`](electrico.md).
 - **Cosmético:** un cambio con área total bajo `--cosmetic-threshold-um2` (0,01 µm² por defecto, debajo del piso DRC de SKY130/GF180).
 - **Errores:** un layout roto, truncado o con un ciclo de celdas es un error del archivo, no "sin cambios". Las referencias a celdas que no están se avisan y el resto se compara.
 - **Cache:** en layouts de más de 1 MiB el resultado se guarda en `~/.cache/riku/diff` (tope 512 MiB). `--no-cache` o `RIKU_NO_CACHE=1` la desactivan.

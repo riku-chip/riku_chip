@@ -186,17 +186,12 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
 /// Nombre de la capa con los transistores reconocidos.
 pub(crate) const DEVICE_LAYER: &str = "Transistores";
 
-/// Hasta cuántos polígonos se reconocen transistores al abrir una celda: una
-/// celda más grande (un chip entero) tardaría segundos y mucha memoria en
-/// aplanar difusión, poly y marcadores; se reconocen en sus sub-celdas.
-const DEVICE_MAX_POLYGONS: usize = 2_000_000;
-
 /// La capa "Transistores" (oculta al abrir): la compuerta de cada uno y una
 /// etiqueta con su tipo, W y L. Devuelve el resumen para el panel
 /// ("12 (8 N, 4 P)"), si hay transistores o si la celda es muy grande.
 fn add_devices(scene: &mut VcScene, lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>, polygons: usize, text_size: f64) -> Option<String> {
     let rules = crate::devices::rules_for_library(lib, path_hint)?;
-    if polygons > DEVICE_MAX_POLYGONS {
+    if polygons as u64 > crate::devices::MAX_POLYGONS {
         return Some("no se reconocen en una celda tan grande: abrí una sub-celda".into());
     }
     let devices = crate::devices::cell_devices(lib, cell, rules);
@@ -464,6 +459,13 @@ impl ViewerBackend for GdsBackend {
             let mut s = build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff)?;
             let cell = s.current_entry.clone();
             s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
+            // Transistores que cambiaron en la celda abierta.
+            if let (Some(la), Some(lb), Some(name)) = (lib_a, lib_b, cell.as_deref()) {
+                if let Some(rules) = crate::devices::rules_for_library(lb, path) {
+                    let found = crate::devices::cell_device_changes(la, lb, name, rules, crate::devices::MAX_POLYGONS);
+                    s.changes.extend(found.unwrap_or_default().iter().map(crate::diff_scene::device_item));
+                }
+            }
             s.notices.extend(notices);
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
@@ -885,6 +887,15 @@ port 1 nsew signal {class}
         assert_eq!(overlay_count(&second, "Δ añadido"), 6);
         assert_eq!(first.entries(), second.entries());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn the_diff_lists_the_transistors_that_changed() {
+        let h = diff(Some("nand2_a.gds"), "nand2_b.gds", None).await;
+        let items: Vec<(&str, &str)> =
+            h.changes().iter().filter(|c| c.label.starts_with("transistor")).map(|c| (c.label.as_str(), c.detail.as_str())).collect();
+        assert_eq!(items, [("transistor nfet_01v8", "W 0.65 → 0.46"), ("transistor nfet_01v8", "W 0.65 → 0.46")]);
+        assert!(h.changes().iter().filter(|c| c.label.starts_with("transistor")).all(|c| c.bbox.is_some()), "un clic encuadra");
     }
 
     #[tokio::test]

@@ -105,7 +105,7 @@ Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nom
 }
 ```
 
-Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `error` no es `null` cuando el módulo no pudo comparar el archivo (un lado roto o ilegible): entonces `changes` viene vacío y no significa "sin cambios".
+Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`), `device` (transistor de un layout: `cell`, `model` y `at`, un punto de su compuerta en µm; sus `details` dicen `model`, `w_um` y `l_um`, antes y después; ver [`electrico.md`](electrico.md)) y `signal` (simulaciones). Pueden aparecer tipos nuevos sin que cambie la versión del schema: ignorar los que no se conocen. Los `details` llevan números reales, no texto. `error` no es `null` cuando el módulo no pudo comparar el archivo (un lado roto o ilegible): entonces `changes` viene vacío y no significa "sin cambios".
 
 **Visual** (`-f visual`): abre el visor con las vistas **Diff**, **Before** y **After** (ver [`gui.md`](gui.md)).
 

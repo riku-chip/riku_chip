@@ -150,6 +150,9 @@ pub enum Element {
     },
     /// Puerto de una celda de un layout (Magic: `port 1 nsew signal input`).
     Port { cell: String, name: String },
+    /// Transistor de una celda de un layout: su modelo y un punto dentro de
+    /// su compuerta (µm). Los `details` dicen `model`, `w_um` y `l_um`.
+    Device { cell: String, model: String, at: [f64; 2] },
     /// Señal de una simulación (`v(out)`, `i(vdd)`) dentro de un análisis
     /// (`Transient Analysis`).
     Signal { plot: String, name: String },
@@ -173,6 +176,7 @@ impl Element {
                 }
             }
             Self::Port { cell, name } => format!("{cell}:port:{name}"),
+            Self::Device { cell, model, at } => format!("{cell}:{model} @ ({:.3}, {:.3})", at[0], at[1]),
         }
     }
 }
@@ -321,6 +325,9 @@ mod tests {
         // Un JSON viejo, sin layer_name, se sigue leyendo.
         let old: Element = serde_json::from_str(r#"{"type":"geometry","cell":"A","layer":1,"datatype":0}"#).unwrap();
         assert!(matches!(old, Element::Geometry { layer_name: None, .. }));
+        let d = Element::Device { cell: "inv".into(), model: "sky130_fd_pr__nfet_01v8".into(), at: [1.2, 0.5] };
+        assert_eq!(serde_json::to_value(&d).unwrap()["type"], "device");
+        assert_eq!(d.name(), "inv:sky130_fd_pr__nfet_01v8 @ (1.200, 0.500)");
         let p = Element::Port { cell: "inv".into(), name: "A".into() };
         assert_eq!(p.name(), "inv:port:A");
         assert_eq!(serde_json::to_value(&p).unwrap()["type"], "port");

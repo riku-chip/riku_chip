@@ -219,7 +219,7 @@ fn area(pts: &[Point2D]) -> f64 {
 
 /// Par e impar: sirve también para los polígonos con agujeros que devuelve
 /// gdstk (unidos al borde por un corte que se recorre de ida y de vuelta).
-fn point_in(pts: &[Point2D], x: f64, y: f64) -> bool {
+pub(crate) fn point_in(pts: &[Point2D], x: f64, y: f64) -> bool {
     let n = pts.len();
     let mut inside = false;
     let mut j = n.wrapping_sub(1);

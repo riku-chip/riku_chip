@@ -69,7 +69,7 @@ fn print_change(c: &Change) {
     match &c.element {
         Element::Geometry { .. } => print_geometry(c),
         Element::Signal { .. } => print_signal(c),
-        Element::Port { .. } => print_port(c),
+        Element::Port { .. } | Element::Device { .. } => print_port(c),
         Element::Component { .. } => match c.kind {
             ChangeKind::Modified | ChangeKind::Renamed => print_param_diff(c),
             ChangeKind::Added => {

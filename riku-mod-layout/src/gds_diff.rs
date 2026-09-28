@@ -92,6 +92,10 @@ pub struct GdsDiffReport {
     /// Puertos que cambiaron (Magic).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<crate::mag::PortChange>,
+    /// Transistores que cambiaron, en las celdas con cambios de geometría
+    /// (ver `docs/electrico.md`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub devices: Vec<crate::devices::DeviceChange>,
     pub warnings: Vec<String>,
 }
 
@@ -235,9 +239,39 @@ pub fn diff_layout_sides(
                     report.warnings.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
                 }
             }
+            if let (Some(a), Some(b)) = (&la, &lb) {
+                device_changes(&a.lib, &b.lib, path, &mut report);
+            }
             Ok(report)
         })
         .map(|(r, _)| r)
+}
+
+/// Transistores que cambiaron en cada celda con cambios de geometría (que
+/// exista en los dos lados); una celda demasiado grande queda en un aviso.
+fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffReport) {
+    let Some(rules) = crate::devices::rules_for_library(lb, Some(path)) else { return };
+    let cells: BTreeSet<&str> = report.geometry.iter().map(|g| g.cell.as_str()).collect();
+    let cells: Vec<&str> = cells.into_iter().collect();
+    let found: Vec<(&str, Option<Vec<crate::devices::DeviceChange>>)> = cells
+        .par_iter()
+        .map(|&c| (c, crate::devices::cell_device_changes(la, lb, c, rules, crate::devices::MAX_POLYGONS)))
+        .collect();
+    let mut skipped = Vec::new();
+    for (cell, changes) in found {
+        match changes {
+            Some(v) => report.devices.extend(v),
+            None if la.find_cell(cell).is_some() && lb.find_cell(cell).is_some() => skipped.push(cell.to_string()),
+            None => {}
+        }
+    }
+    if !skipped.is_empty() {
+        report.warnings.push(format!(
+            "transistores no comparados en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
+            skipped.join(", "),
+            crate::devices::MAX_POLYGONS / 1_000_000
+        ));
+    }
 }
 
 fn side_error(e: ReadError, side: &'static str) -> GdsError {
@@ -1002,6 +1036,36 @@ mod tests {
 
         let d = diff_cell_as(Some(&a), "INV", Some(&b), "INV_X1", &DiffConfig::default());
         assert!(d.geometry.is_empty(), "{:?}", d.geometry);
+    }
+
+    #[test]
+    fn report_lists_transistors_whose_size_changed() {
+        // nand2_1 de SKY130 con la difusión N más baja (gen_nand2_devices.py):
+        // los dos nfet pasan de W 0,65 a 0,46 µm; los pfet no cambian.
+        let r = diff_layout_sides(
+            LayoutSide { bytes: &fixture_bytes("nand2_a.gds"), files: None },
+            LayoutSide { bytes: &fixture_bytes("nand2_b.gds"), files: None },
+            "nand2.gds",
+            &DiffConfig::default(),
+            &crate::DiffCache::disabled(),
+        )
+        .expect("diff");
+        assert_eq!(r.devices.len(), 2, "{:?}", r.devices);
+        for d in &r.devices {
+            let (a, b) = (d.before.as_ref().expect("antes"), d.after.as_ref().expect("después"));
+            assert_eq!((a.model.as_str(), b.model.as_str()), ("sky130_fd_pr__nfet_01v8", "sky130_fd_pr__nfet_01v8"));
+            assert!((a.w_um - 0.65).abs() < 1e-6 && (b.w_um - 0.46).abs() < 1e-6, "{d:?}");
+            assert!((b.l_um - 0.15).abs() < 1e-6);
+        }
+        let same = diff_layout_sides(
+            LayoutSide { bytes: &fixture_bytes("nand2_a.gds"), files: None },
+            LayoutSide { bytes: &fixture_bytes("nand2_a.gds"), files: None },
+            "nand2.gds",
+            &DiffConfig::default(),
+            &crate::DiffCache::disabled(),
+        )
+        .expect("diff");
+        assert!(same.devices.is_empty());
     }
 
     #[test]

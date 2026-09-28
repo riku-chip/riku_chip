@@ -80,6 +80,36 @@ fn port_change(p: &riku_mod_layout::mag::PortChange) -> Change {
     c
 }
 
+/// Un transistor que cambió: su modelo, W y L antes y después (solo lo que
+/// cambió, si es el mismo transistor).
+fn device_change(d: &riku_mod_layout::devices::DeviceChange) -> Change {
+    use riku_kernel::Value;
+    let kind = match (&d.before, &d.after) {
+        (None, _) => ChangeKind::Added,
+        (_, None) => ChangeKind::Removed,
+        _ => ChangeKind::Modified,
+    };
+    let shown = d.after.as_ref().or(d.before.as_ref()).expect("un lado al menos");
+    let mut c = Change::new(kind, Element::Device { cell: d.cell.clone(), model: shown.model.clone(), at: shown.at_um });
+    type Field = fn(&riku_mod_layout::devices::DeviceDesc) -> Value;
+    let fields: [(&str, Field); 3] =
+        [("model", |x| Value::Text(x.model.clone())), ("w_um", |x| x.w_um.into()), ("l_um", |x| x.l_um.into())];
+    for (key, get) in fields {
+        let (before, after) = (d.before.as_ref().map(get), d.after.as_ref().map(get));
+        let same = match (&before, &after) {
+            (Some(Value::Text(a)), Some(Value::Text(b))) => a == b,
+            (Some(a), Some(b)) => a.as_f64().zip(b.as_f64()).is_some_and(|(a, b)| (a - b).abs() <= 5e-4),
+            _ => false,
+        };
+        if kind != ChangeKind::Modified || !same {
+            c = c.with_detail(key, before, after);
+        }
+    }
+    let b = shown.bbox_um;
+    c.location = Some(Bounds { min_x: b[0], min_y: b[1], max_x: b[2], max_y: b[3] });
+    c
+}
+
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
         GdsError::NotGdsii { side } => format!(
@@ -171,6 +201,9 @@ impl FormatModule for LayoutModule {
         }
         for p in &r.ports {
             report.changes.push(port_change(p));
+        }
+        for d in &r.devices {
+            report.changes.push(device_change(d));
         }
         report.warnings.extend(r.warnings);
         report
