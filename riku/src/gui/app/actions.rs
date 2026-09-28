@@ -11,6 +11,7 @@ use poll_promise::Promise;
 use super::{short_hash, RikuGuiApp, MAX_RECENT};
 use crate::core::analysis::diff_pair::WORKTREE;
 use crate::core::analysis::status::{self, StatusOptions, StatusReport};
+use crate::gui::change_set::ChangeSet;
 use crate::gui::content::{Content, LoadKind};
 use crate::gui::dialogs::{CompareDialog, CompareOutcome, DoctorDialog};
 use crate::gui::folder_picker::{FolderPicker, Picked};
@@ -98,8 +99,30 @@ impl RikuGuiApp {
         self.status = tr!("status.folder", name = name);
     }
 
+    /// Abre la lista de lo que cambió de `from` a `to` (diff de todo el repo).
+    pub(super) fn open_change_set(&mut self, repo: &Path, from: &str, to: &str, ctx: &egui::Context) {
+        use crate::core::domain::ports::RepoRoot;
+        let root = crate::core::git::git_service::GitService::open(repo)
+            .ok()
+            .and_then(|s| s.root().map(Path::to_path_buf))
+            .unwrap_or_else(|| repo.to_path_buf());
+        self.change_set = Some(ChangeSet::start(root, from.to_string(), to.to_string(), ctx));
+        self.status = tr!("status.change_set", a = short_hash(from), b = short_hash(to));
+    }
+
+    /// Un archivo de la lista: su diff entre las dos versiones de la lista.
+    pub(super) fn open_change_set_file(&mut self, path: &str) {
+        let Some(cs) = &self.change_set else { return };
+        let (repo, a, b) = (cs.repo.clone(), cs.from.clone(), cs.to.clone());
+        match self.load_backend_diff(&repo, &a, &b, Path::new(path), None, false) {
+            Ok(()) => self.status = format!("Diff {} → {} · {path}", short_hash(&a), short_hash(&b)),
+            Err(e) => self.fail(&tr!("error.diff"), e),
+        }
+    }
+
     /// Vuelve a la pantalla de inicio (cierra lo que se estaba viendo).
     pub(super) fn go_home(&mut self) {
+        self.change_set = None;
         self.loader.cancel();
         self.content = Content::Home;
         self.diff = None;
@@ -135,6 +158,7 @@ impl RikuGuiApp {
 
     /// Un cambio sin commitear: el archivo en `HEAD` contra el disco.
     fn open_change(&mut self, rel: &str) {
+        self.change_set = None;
         let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
         match self.load_backend_diff(&repo, "HEAD", WORKTREE, Path::new(rel), None, false) {
             Ok(()) => self.status = format!("Diff HEAD → worktree · {rel}"),
@@ -173,9 +197,16 @@ impl RikuGuiApp {
                 Some(CompareOutcome::Go { file, a, b }) => {
                     self.compare = None;
                     let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
-                    match self.load_backend_diff(&repo, &a, &b, Path::new(&file), None, false) {
-                        Ok(()) => self.status = format!("Diff {} → {} · {file}", short_hash(&a), short_hash(&b)),
-                        Err(e) => self.fail(&tr!("error.diff"), e),
+                    match file {
+                        // Todos los archivos que cambiaron: la lista al costado.
+                        None => self.open_change_set(&repo, &a, &b, ctx),
+                        Some(file) => {
+                            self.change_set = None;
+                            match self.load_backend_diff(&repo, &a, &b, Path::new(&file), None, false) {
+                                Ok(()) => self.status = format!("Diff {} → {} · {file}", short_hash(&a), short_hash(&b)),
+                                Err(e) => self.fail(&tr!("error.diff"), e),
+                            }
+                        }
                     }
                 }
                 Some(CompareOutcome::Cancel) => self.compare = None,

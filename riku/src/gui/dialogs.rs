@@ -41,11 +41,13 @@ pub(crate) struct CompareDialog {
     /// Ramas y tags del repo, para elegir sin escribir.
     refs: Vec<String>,
     query: String,
+    /// Todos los archivos que cambiaron, no uno.
+    all: bool,
 }
 
-/// Qué pidió el usuario en "Comparar".
+/// Qué pidió el usuario en "Comparar". `file: None`: todos los que cambiaron.
 pub(crate) enum CompareOutcome {
-    Go { file: String, a: String, b: String },
+    Go { file: Option<String>, a: String, b: String },
     Cancel,
 }
 
@@ -54,7 +56,15 @@ impl CompareDialog {
     /// compara `HEAD` con el disco (lo que cambió sin commitear).
     pub(crate) fn new(files: Vec<String>, refs: Vec<String>, file: Option<String>) -> Self {
         let file = file.filter(|f| files.contains(f)).or_else(|| files.first().cloned()).unwrap_or_default();
-        Self { files, file, a: VersionInput::rev("HEAD"), b: VersionInput { disk: true, rev: String::new() }, refs, query: String::new() }
+        Self {
+            files,
+            file,
+            a: VersionInput::rev("HEAD"),
+            b: VersionInput { disk: true, rev: String::new() },
+            refs,
+            query: String::new(),
+            all: false,
+        }
     }
 
     pub(crate) fn show(&mut self, ctx: &egui::Context) -> Option<CompareOutcome> {
@@ -66,7 +76,10 @@ impl CompareDialog {
             ui.add_space(space::M);
 
             ui.label(RichText::new(tr!("compare.file")).strong());
-            if self.files.is_empty() {
+            ui.checkbox(&mut self.all, tr!("compare.all")).on_hover_text(tr!("compare.all_hint"));
+            if self.all {
+                // Sin archivo: la lista de todos los que cambiaron.
+            } else if self.files.is_empty() {
                 ui.label(RichText::new(tr!("compare.no_files")).weak());
             } else {
                 ui.add(egui::TextEdit::singleline(&mut self.query).hint_text(tr!("compare.filter")).desired_width(f32::INFINITY));
@@ -91,12 +104,13 @@ impl CompareDialog {
             });
 
             ui.add_space(space::M);
-            let ready = !self.file.is_empty() && (self.a.disk || !self.a.rev.trim().is_empty()) && (self.b.disk || !self.b.rev.trim().is_empty());
+            let ready = (self.all || !self.file.is_empty()) && (self.a.disk || !self.a.rev.trim().is_empty()) && (self.b.disk || !self.b.rev.trim().is_empty());
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let go = egui::Button::new(RichText::new(tr!("compare.go")).strong()).fill(ui.visuals().selection.bg_fill);
                     if ui.add_enabled(ready, go).clicked() {
-                        out = Some(CompareOutcome::Go { file: self.file.clone(), a: self.a.token(), b: self.b.token() });
+                        let file = (!self.all).then(|| self.file.clone());
+                        out = Some(CompareOutcome::Go { file, a: self.a.token(), b: self.b.token() });
                     }
                     if ui.button(tr!("picker.cancel")).clicked() {
                         out = Some(CompareOutcome::Cancel);

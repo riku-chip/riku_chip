@@ -93,6 +93,9 @@ pub struct RikuGuiApp {
     doctor: Option<crate::gui::dialogs::DoctorDialog>,
     /// Imagen que se está exportando (ruta del archivo al terminar).
     export_job: Option<poll_promise::Promise<Result<PathBuf, String>>>,
+    /// Diff de todo el repo: la lista de archivos que cambiaron entre dos
+    /// versiones, al costado (se cierra al abrir otra cosa).
+    change_set: Option<crate::gui::change_set::ChangeSet>,
 }
 
 /// Claves de persistencia (eframe storage).
@@ -219,10 +222,14 @@ impl RikuGuiApp {
             compare: None,
             doctor: None,
             export_job: None,
+            change_set: None,
         };
 
-        // Modo diff: commits pasados desde el CLI
-        if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
+        // Diff de todo el repo pasado desde el CLI (`riku diff A B -f visual`).
+        if let (None, Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
+            let repo = launch.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            app.open_change_set(&repo, ca, cb, &cc.egui_ctx);
+        } else if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
             let repo = launch.repo.as_deref().unwrap_or(Path::new("."));
             match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone(), false) {
                 Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
@@ -286,6 +293,15 @@ impl RikuGuiApp {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.history.toggle();
+        }
+        // ↑/↓ recorren la lista del diff de todo el repo (si History está
+        // abierto, son de History).
+        if !self.history.open {
+            let delta = ctx.input(|i| i.num_presses(egui::Key::ArrowDown) as i64 - i.num_presses(egui::Key::ArrowUp) as i64);
+            let next = self.change_set.as_mut().and_then(|cs| if delta != 0 { cs.step(delta) } else { None });
+            if let Some(path) = next {
+                self.open_change_set_file(&path);
+            }
         }
         let (fit, labels, zoom_in, zoom_out) = ctx.input(|i| {
             (
@@ -359,6 +375,9 @@ impl eframe::App for RikuGuiApp {
         // repaint para que el promise se consulte en el siguiente frame.
         self.poll_pending_load();
         self.poll_jobs(&ctx);
+        if let Some(cs) = &mut self.change_set {
+            cs.poll();
+        }
         if self.loader.busy() {
             ctx.request_repaint();
         }
@@ -453,7 +472,7 @@ fn drop_hint(ctx: &egui::Context, exts: &str) {
 
 // ─── Selector de vistas (modo diff) ──────────────────────────────────────────
 
-fn short_hash(s: &str) -> String {
+pub(crate) fn short_hash(s: &str) -> String {
     // Vacío: el "antes" del commit inicial.
     if s.is_empty() {
         "∅".to_string()

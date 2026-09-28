@@ -9,6 +9,7 @@ use eframe::egui;
 
 mod app;
 mod canvas;
+mod change_set;
 mod content;
 mod details_panel;
 mod dialogs;

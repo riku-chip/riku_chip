@@ -172,7 +172,7 @@ El lock pasó de 455 a 424 paquetes. Quedan duplicados que no dependen de nosotr
 
 Cuatro pendientes que quedaron de la 9.3. Orden propuesto: A → B → C → D (cada uno con su commit y su verificación).
 
-### A. `--compact` en `diff` y `show` (S)
+### ✅ A. `--compact` en `diff` y `show` (S)
 
 **Hoy:** `log` y `status` tienen `--compact`; `diff` (un archivo y todos), `diff -f json-v1` y `show` imprimen siempre indentado (`print_enveloped(&payload, true)`).
 
@@ -183,7 +183,7 @@ Cuatro pendientes que quedaron de la 9.3. Orden propuesto: A → B → C → D (
 
 **Verificación:** el JSON sin `--compact` idéntico al de hoy (15 casos de `p4_regress.sh`); con `--compact`, una línea que parsea igual (`jq -S` de las dos formas coincide).
 
-### B. `GitRepository` más angosto (S–M)
+### ✅ B. `GitRepository` más angosto (S–M)
 
 **Hoy:** 10 métodos; `get_commits` es legado (solo lo usan el default de `get_commits_with_options` y 4 tests); 5 defaults devuelven vacío o error (`working_tree_changes`, `current_branch`, `get_commits_with_options`, `refs_by_oid`, `commit_changes`) y esconden implementaciones que faltan: un adaptador nuevo compila y devuelve "sin cambios".
 
@@ -196,7 +196,7 @@ Cuatro pendientes que quedaron de la 9.3. Orden propuesto: A → B → C → D (
 
 **Verificación:** suite; `p4_regress.sh` igual.
 
-### C. Todo a v2: se borra la forma v1 (M)
+### ✅ C. Todo a v2: se borra la forma v1 (M)
 
 **Decisión (2026-09-27, pedido del usuario):** estandarizar en la forma tipada (v2) y borrar la v1. Nadie la consume: revisado el repo entero, el crate de Carlos (sus `nets_added`/`is_move_all` son tipos internos de su motor, no nuestro JSON) y `tools/` (no leen JSON).
 
@@ -230,7 +230,7 @@ Cuatro pendientes que quedaron de la 9.3. Orden propuesto: A → B → C → D (
 - **Texto:** `status`/`log` sin `--detail` salen iguales. Con `--detail`/`--full`, solo los nombres descritos arriba.
 - **CI:** la suite con `-D warnings` y el paso de humo de `release.yml`.
 
-### D. Diff de todo el repo en el visor (M)
+### ✅ D. Diff de todo el repo en el visor (M)
 
 **Hoy:** el visor compara un archivo a la vez (Comparar…, History, un cambio sin commitear). `riku diff A B -f visual` sin archivo da error ("necesita un archivo").
 
@@ -317,3 +317,4 @@ Verificación de 9.1 (2026-09-27): gdstk-rs, los 9 281 `.mag`, Magic contra KLay
 | 9.3 pasos 2 y 3: inicio y acciones | Hecho | Ver "Orden de trabajo de 9.3". Incluye el marco propio de la ventana. Suite con `-D warnings`, las combinaciones de features y `riku doctor` igual al anterior (texto y JSON) |
 | 9.3 paso 6: microkernel | Hecho | Ver "Orden de trabajo de 9.3". Suite con `-D warnings`, combinaciones de features; CLI igual al binario anterior en 15 casos salvo `"placement": true` en el JSON de un esquemático; rutas desde una subcarpeta y comillas del shell probadas en un repo real |
 | 9.4 librerías | Hecha | Ver "9.4 Librerías": git2 0.21, rustyline 18, egui/eframe 0.36 + egui_plot 0.37, earcut 0.4, rust-i18n 4.2.3; suite con `-D warnings` y combinaciones de features |
+| 9.6 pendientes chicos | Hechos | A `--compact` en `diff`/`show` (JSON igual, en una línea); B `GitRepository` sin `get_commits` ni defaults vacíos; C todo a v2 (sale `-f json-v1` y `legacy.rs`; `riku-status/v2`, `riku-log/v2`: mismos archivos, categorías y conteos); D diff de todo el repo en el visor (`gui/change_set.rs`: lista al instante, resúmenes en un hilo con cancelación, ↑/↓; `riku diff A B -f visual` y `riku show C -f visual` sin archivo). Suite con `-D warnings`; capturas en Xvfb |

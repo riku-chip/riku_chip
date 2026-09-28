@@ -52,7 +52,7 @@ Como `git diff`: sin `B` se compara contra el **working tree** (los archivos en 
 | `riku diff HEAD~1 HEAD` | todo lo que cambió entre dos commits |
 | `riku diff HEAD~1 HEAD amp.sch` | ese archivo entre dos commits |
 
-Un argumento es un archivo si algún módulo conoce su extensión o si existe en el disco; si no, es un commit (hash, rama, tag, `HEAD~2`). Sin archivo, la salida de texto es la de `riku show` por archivo (los que ningún módulo reconoce se listan al final) y `-f json` usa el schema `riku-diff-set/v1` (`from`, `to` y `files`, cada uno como en `riku-show/v1`). `-f visual` necesita un archivo; con el disco como `B`, el visor muestra `worktree`.
+Un argumento es un archivo si algún módulo conoce su extensión o si existe en el disco; si no, es un commit (hash, rama, tag, `HEAD~2`). Sin archivo, la salida de texto es la de `riku show` por archivo (los que ningún módulo reconoce se listan al final) y `-f json` usa el schema `riku-diff-set/v1` (`from`, `to` y `files`, cada uno como en `riku-show/v1`). `-f visual` sin archivo abre el visor con la lista de todos los que cambiaron (un clic abre el diff de cada uno; ver [`gui.md`](gui.md)); con el disco como `B`, el visor muestra `worktree`.
 
 **Esquemático, texto:**
 
@@ -132,7 +132,7 @@ riku show abc123 chip.gds -f json              # schema riku-show/v1
 riku show abc123 design/op_amp.sch -f visual   # el diff de ese commit en el visor
 ```
 
-El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final. Acepta las mismas opciones que `diff`; `-f visual` necesita el archivo.
+El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final. Acepta las mismas opciones que `diff`; `-f visual` sin archivo abre la lista de lo que cambió el commit (salvo en el commit inicial, que no tiene padre).
 
 Con `--compact`, el JSON de `diff` y `show` sale en una línea (como en `log` y `status`); sin él, indentado.
 

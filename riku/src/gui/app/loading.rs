@@ -16,6 +16,7 @@ use crate::gui::wave_view::{self, WaveView};
 
 impl RikuGuiApp {
     pub(super) fn open_path(&mut self, path: &Path) {
+        self.change_set = None;
         self.loader.cancel();
         self.selected_path = Some(path.to_path_buf());
         self.error = None;
@@ -203,6 +204,7 @@ impl RikuGuiApp {
     /// Abre en el lienzo lo que pidió el panel History.
     pub(super) fn handle_history_request(&mut self, req: HistoryRequest) {
         let HistoryRequest::OpenDiff { parent, commit, path } = req;
+        self.change_set = None;
         let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
         let parent = parent.unwrap_or_default();
         let file = PathBuf::from(&path);

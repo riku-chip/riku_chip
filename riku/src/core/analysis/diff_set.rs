@@ -175,8 +175,9 @@ fn diff_entry<R: GitRepository + ?Sized>(
     Ok(ShowFile { path, status: Some(status), old_path, change })
 }
 
-/// Rutas que cambiaron, con qué les pasó (ordenadas).
-fn changed_paths<R: GitRepository + ?Sized>(
+/// Rutas que cambiaron, con qué les pasó y su ruta anterior (ordenadas).
+/// Solo lee Git (y el disco contra el working tree): es rápido, no compara.
+pub fn changed_paths<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
     from: &Side,

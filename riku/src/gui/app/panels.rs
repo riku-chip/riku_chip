@@ -197,6 +197,18 @@ impl RikuGuiApp {
             .resizable(true)
             .default_size(200.0)
             .show(ui, |ui| {
+                // Diff de todo el repo: la lista arriba; debajo, las vistas del
+                // archivo abierto.
+                let mut req = None;
+                if let Some(cs) = self.change_set.as_mut() {
+                    req = cs.show(ui);
+                    ui.separator();
+                }
+                match req {
+                    Some(crate::gui::change_set::Request::Open(path)) => self.open_change_set_file(&path),
+                    Some(crate::gui::change_set::Request::Close) => self.change_set = None,
+                    None => {}
+                }
                 // Formas de onda comparadas: mismas vistas que los demás formatos.
                 // Entre commits reemplazan al árbol; comparando dos archivos del
                 // proyecto, el árbol sigue abajo para abrir otro.

@@ -52,11 +52,9 @@ pub(super) fn run_diff(
     }
 
     if matches!(format, OutputFormat::Visual) {
-        let Some(file) = file else {
-            return Err(tr!("err.visual_needs_file"));
-        };
+        // Sin archivo: el visor abre la lista de todos los que cambiaron.
         let exprs = config::options_for(&repo, overrides)?.expressions;
-        return present_visual(&repo, from.token(), to.token(), &file, &exprs).map(|_| Changes::Clean);
+        return present_visual(&repo, from.token(), to.token(), file.as_deref(), &exprs).map(|_| Changes::Clean);
     }
     // Flags > `.riku.toml` > cada módulo. El umbral cosmético y la cache los
     // usa el módulo de layouts; la tolerancia y las expresiones, el de
@@ -276,14 +274,15 @@ pub(super) fn run_show(
         return Ok(Changes::Clean);
     }
     if matches!(format, OutputFormat::Visual) {
-        let Some(file) = file_path else {
-            return Err(tr!("err.show_visual_needs_file"));
-        };
+        // Sin archivo: la lista de todo lo que cambió el commit.
         let changes = svc.commit_changes(commit).map_err(|e| e.to_string())?;
         let Some(parent) = changes.commit.parents.first() else {
-            return Err(tr!("err.initial_commit", commit = commit, file = file));
+            return Err(match file_path {
+                Some(file) => tr!("err.initial_commit", commit = commit, file = file),
+                None => tr!("err.show_visual_needs_file"),
+            });
         };
-        return present_visual(&repo, parent, &changes.commit.info.oid, file, &opts.expressions).map(|_| Changes::Clean);
+        return present_visual(&repo, parent, &changes.commit.info.oid, file_path, &opts.expressions).map(|_| Changes::Clean);
     }
 
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
@@ -318,7 +317,7 @@ fn present_visual(
     repo: &PathBuf,
     commit_a: &str,
     commit_b: &str,
-    file_path: &str,
+    file_path: Option<&str>,
     expressions: &[String],
 ) -> Result<(), String> {
     let repo_abs = repo.canonicalize().unwrap_or_else(|_| repo.clone());
@@ -329,8 +328,8 @@ fn present_visual(
         commit_a.into(),
         "--commit-b".into(),
         commit_b.into(),
-        file_path.into(),
     ];
+    extra_args.extend(file_path.map(Into::into));
     for e in expressions {
         extra_args.push("--expr".into());
         extra_args.push(e.into());

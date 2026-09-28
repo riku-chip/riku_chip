@@ -24,13 +24,17 @@ Lo que se ve sin nada abierto (y con el botón **Inicio**). Usa el mismo núcleo
 | **Proyecto:** la carpeta, su rama y cuántos archivos tienen cambios sin commitear; **Abrir carpeta…** y las carpetas recientes | `riku gui /ruta` |
 | **Cambios sin commitear:** cada archivo con su resumen; un clic abre su diff contra `HEAD` (Diff / Before / After) | `riku status`, `riku diff ARCHIVO -f visual` |
 | **Historial** | `riku log --graph` (panel History, **H**) |
-| **Comparar versiones…:** un archivo entre dos versiones (un commit, rama o tag, o el disco) | `riku diff A B ARCHIVO -f visual` |
+| **Comparar versiones…:** un archivo entre dos versiones (un commit, rama o tag, o el disco), o **todos los que cambiaron** | `riku diff A B [ARCHIVO] -f visual` |
 | **Diagnóstico:** repo, `.riku.toml`, PDK, símbolos, librerías de Magic y módulos | `riku doctor` |
 | **Archivos recientes** | — |
 
 **Abrir carpeta…** es un selector propio: se navega por las carpetas (las que son un repo llevan la marca `git`) o se pega una ruta y Enter. No usa el diálogo del sistema, que en Linux depende de GTK o de un portal y no anda en el contenedor ni por WSLg. Cambiar de carpeta recarga el árbol, vuelve a detectar el repo y pasa **History** al nuevo. Los cambios sin commitear se calculan en segundo plano la primera vez que se ve el inicio (con layouts grandes cuesta); **↻** los vuelve a revisar.
 
 Con un archivo o un diff abierto, **Comparar…** (barra superior) abre la misma ventana con ese archivo elegido, y **Exportar → PNG / SVG** guarda lo que se ve como imagen (lo de `riku render` y `riku diff -f png`) en `<temp>/riku/`; la ruta queda en el portapapeles.
+
+## Diff de todo el repo
+
+**Comparar versiones… → Todos los archivos que cambiaron**, `riku diff A B -f visual` (sin archivo) o `riku show COMMIT -f visual` (sin archivo) abren arriba del panel izquierdo la lista **Cambios A → B**: cada archivo con su estado (**A** añadido, **M** modificado, **D** borrado, **R** renombrado) y su resumen (como en `riku status`). La lista sale enseguida (solo lee Git); los resúmenes llegan después, de a uno, sin trabar el visor. Un clic abre el diff de ese archivo (Diff / Before / After) y la lista queda arriba; **↑/↓** pasan al anterior o al siguiente (si History está cerrado); **×** la cierra. Un archivo sin módulo se lista atenuado. Abrir otra cosa (un archivo del árbol, History, Inicio) cierra la lista.
 
 ## La ventana
 
