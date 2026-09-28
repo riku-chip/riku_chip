@@ -141,7 +141,7 @@ help.format_diff: "text, json (schema riku-diff/v2; riku-diff-set/v1 without a f
 help.cosmetic: "Area in µm² under which a layout change is cosmetic (sub-DRC). Default 0.01 µm² (below the DRC floor of PDKs like sky130 and gf180), or the one in .riku.toml. Other formats ignore it."
 help.tolerance: "Waveform tolerance: fraction of each signal's range (0.005) or percentage (0.5%). Default 0.1%, or the one in .riku.toml."
 help.no_cache: "Do not use or save the diff cache of large layouts (also RIKU_NO_CACHE=1)."
-help.expr: "Computed signal to compare besides the file's (repeatable), with ngspice syntax: --expr \"v(out)/v(in)\", --expr \"gain = db(v(out))\", --expr \"max(v(out))\". Simulation results (.raw) only; see docs/spice.md."
+help.expr: "Computed signal to compare besides the file's (repeatable), with ngspice syntax: --expr \"v(out)/v(in)\", --expr \"gain = db(v(out))\", --expr \"max(v(out))\". Simulation results (.raw) only; see docs/formatos.md."
 help.ci: "CI exit codes: 0 no changes or cosmetic only, 1 functional changes, 2 error."
 help.examples_diff: "Examples:\n  riku diff                          working tree against HEAD, every file\n  riku diff amp.sch                  that file, working tree against HEAD\n  riku diff main                     working tree against main\n  riku diff HEAD~1 HEAD              everything that changed between two commits\n  riku diff HEAD~1 HEAD top.gds -f json\n  riku diff v1 v2 tb.raw --expr \"gain = v(out)/v(in)\"\n  riku diff HEAD amp.sch -f visual   open the viewer (A = HEAD, B = disk)\n\nAn argument is a FILE if Riku knows its extension or it exists on disk;\notherwise it is a commit (hash, branch, tag, HEAD~2)."
 help.show: "Show the semantic changes of a commit against its parent."

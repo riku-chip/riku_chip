@@ -31,7 +31,15 @@ Los archivos quedan en `$OUT` (por defecto `/tmp/riku-verify`) para revisar dife
 
 Variables: `PDK_ROOT` (por defecto `/foss/pdks`), `OUT` y `CARGO_TARGET_DIR`.
 
-Resultado de referencia (2026-09-26): idéntico en `sky130_fd_sc_hd` (437 celdas), `gf180mcu_fd_sc_mcu7t5v0` (230) y `sg13g2_stdcell` (78), en ~30 s.
+Resultados de referencia (2026-09): idéntico a KLayout en todo.
+
+| Qué | Dónde |
+|---|---|
+| Geometría por celda: bbox, polígonos y área por capa, labels con posición | 437 celdas de `sky130_fd_sc_hd`, 230 de `gf180mcu_fd_sc_mcu7t5v0`, 78 de `sg13g2_stdcell` (~30 s) |
+| Lo mismo leyendo OASIS | `hier_inv_b.oas` |
+| XOR por capa | `inv_1` con met1 añadido, mcon borrado, poly movido 0,05 µm, licon movido 5 nm |
+| XOR jerárquico | met1 dentro de `inv_2` → `macro_sparecell`; AREF 3×2 |
+| Layout de 42 MB | reexportado sin cambios, y con cambios en las capas 6/0 y 19/0 |
 
 ## Magic (`mag/`)
 
@@ -45,6 +53,16 @@ tools/verify/mag/compare_mag.sh top.mag 0.01 DIR...     # una propia: lambda en 
 `mag/mag_bench.sh` mide el diff de una jerarquía real (la librería `sky130_fd_io` en un repo en `/tmp`, con una sub-celda editada y otra re-escrita en tiras): tiempo, memoria y cantidad de cambios.
 
 Hace falta **KLayout 0.30.12 o más nuevo** (0.30.4 y anteriores ignoran `magscale`): `python3 -m venv /tmp/kl && /tmp/kl/bin/pip install klayout==0.30.12` y `KLAYOUT_PY=/tmp/kl/bin/python`. Las capas que Riku deja fuera a propósito (`checkpaint`, `error_*`…) no cuentan como diferencia.
+
+## Medir (`riku-mod-layout/examples/`)
+
+- `profile_diff a.gds b.gds`: tiempo y memoria de cada etapa del diff (`SKIP_FP=1`, `PRINTS=1`, `CANON=1` para diagnósticos).
+- `profile_view layout.gds`: cuánto tarda el visor en armar la escena y el índice.
+- `profile_prints layout.gds [celda] [hilos]`: la huella por pedazos (reparto, tiempos, memoria, escalado por hilos).
+- `profile_xor a.gds b.gds <celda> <layer> <datatype>`: el XOR de una capa, entero y por cuadrantes (`SKIP_WHOLE=1` si el entero tarda minutos).
+- `verify_dump`: el volcado que usa `compare.sh`; `mag_area` (en `external/gdstk/rust/examples`), el de `compare_mag.sh`.
+
+Correrlos en release y sobre una copia en `/tmp`: un montaje lento distorsiona los tiempos.
 
 ## Comparación visual
 

@@ -1,127 +1,66 @@
-# El visor (`riku gui`)
+# El visor
 
-Visor de escritorio de Riku (egui/eframe), incluido en el ejecutable `riku` (feature `gui`, activada por defecto; el código vive en `riku/src/gui/`). Abre esquemáticos Xschem (`.sch`, `.sym`), layouts (`.gds`, `.oas`, `.mag` de Magic con su jerarquía) y simulaciones de ngspice (`.raw`, con su propia vista de curvas: [`spice.md`](spice.md)), y muestra el diff visual entre dos commits. Es de solo lectura: no edita los archivos.
-
-## Uso
+Visor de escritorio incluido en `riku`. Abre esquemáticos (`.sch`, `.sym`), layouts (`.gds`, `.oas`, `.mag`) y simulaciones (`.raw`), y muestra el diff visual entre versiones. Es de solo lectura. La interfaz está en inglés por defecto; **Settings → Language** (o `RIKU_LANG=es`) la pone en español, que es como se nombra acá.
 
 ```bash
-riku gui                                   # árbol del directorio actual
-riku gui archivo.sch
-riku gui layout.gds
-riku gui libreria.gds --cell NOMBRE        # abre una celda concreta
-riku gui --repo R --commit-a A --commit-b B archivo   # modo diff
-riku open archivo                          # igual, sin bloquear la terminal
+riku open                      # pantalla de inicio en la carpeta actual; la terminal queda libre
+riku gui                       # igual, en este proceso (la terminal queda ocupada)
+riku open amp.sch              # un archivo (también: riku gui chip.gds --cell INV)
+riku diff HEAD~3 HEAD -f visual          # la lista de todo lo que cambió
+riku diff HEAD~1 HEAD chip.gds -f visual # el diff de un archivo
 ```
 
-`riku gui` sin archivo abre la **pantalla de inicio** (ver abajo): desde ahí se hace todo sin la terminal. Normalmente el modo diff se abre desde la CLI: `riku diff A B archivo -f visual` o `riku show COMMIT archivo -f visual`. `open` y el modo visual relanzan el propio ejecutable como un proceso aparte (`riku gui …`), así la terminal y el shell quedan libres. Sin escritorio gráfico (`DISPLAY`/`WAYLAND_DISPLAY`), `riku gui` lo explica y la CLI sigue funcionando.
+Necesita un escritorio gráfico (`DISPLAY` o `WAYLAND_DISPLAY`); sin él, lo dice y la CLI sigue funcionando. El instalador deja además un acceso "Riku" en el menú de aplicaciones.
 
 ## Pantalla de inicio
 
-Lo que se ve sin nada abierto (y con el botón **Inicio**). Usa el mismo núcleo que la CLI:
+Lo que se ve sin nada abierto, y con el botón **Inicio**:
 
 | Qué | Equivale a |
 |---|---|
-| **Proyecto:** la carpeta, su rama y cuántos archivos tienen cambios sin commitear; **Abrir carpeta…** y las carpetas recientes | `riku gui /ruta` |
-| **Cambios sin commitear:** cada archivo con su resumen; un clic abre su diff contra `HEAD` (Diff / Before / After) | `riku status`, `riku diff ARCHIVO -f visual` |
-| **Historial** | `riku log --graph` (panel History, **H**) |
-| **Comparar versiones…:** un archivo entre dos versiones (un commit, rama o tag, o el disco), o **todos los que cambiaron** | `riku diff A B [ARCHIVO] -f visual` |
-| **Diagnóstico:** repo, `.riku.toml`, PDK, símbolos, librerías de Magic y módulos | `riku doctor` |
+| **Proyecto:** la carpeta, su rama y cuántos archivos tienen cambios sin commitear; **Abrir carpeta…** y carpetas recientes | `riku gui /ruta` |
+| **Cambios sin commitear:** cada archivo con su resumen; un clic abre su diff contra `HEAD` | `riku status`, `riku diff ARCHIVO -f visual` |
+| **Historial** | `riku log --graph` (tecla **H**) |
+| **Comparar versiones…:** un archivo entre dos versiones (commit, rama, tag o el disco), o todos los que cambiaron | `riku diff A B [ARCHIVO] -f visual` |
+| **Diagnóstico** | `riku doctor` |
 | **Archivos recientes** | — |
 
-**Abrir carpeta…** es un selector propio: se navega por las carpetas (las que son un repo llevan la marca `git`) o se pega una ruta y Enter. No usa el diálogo del sistema, que en Linux depende de GTK o de un portal y no anda en el contenedor ni por WSLg. Cambiar de carpeta recarga el árbol, vuelve a detectar el repo y pasa **History** al nuevo. Los cambios sin commitear se calculan en segundo plano la primera vez que se ve el inicio (con layouts grandes cuesta); **↻** los vuelve a revisar.
+**Abrir carpeta…** es un selector propio: se navega (las carpetas que son un repo llevan la marca `git`) o se pega una ruta. Cambiar de carpeta recarga el árbol y pasa el Historial al repo nuevo. Los cambios sin commitear se calculan en segundo plano; **↻** los vuelve a revisar.
 
-Con un archivo o un diff abierto, **Comparar…** (barra superior) abre la misma ventana con ese archivo elegido, y **Exportar → PNG / SVG** guarda lo que se ve como imagen (lo de `riku render` y `riku diff -f png`) en `<temp>/riku/`; la ruta queda en el portapapeles.
+Con algo abierto, en la barra: **Comparar…** (con ese archivo ya elegido) y **Exportar → PNG / SVG** (la ruta de la imagen queda en el portapapeles).
 
 ## Diff de todo el repo
 
-**Comparar versiones… → Todos los archivos que cambiaron**, `riku diff A B -f visual` (sin archivo) o `riku show COMMIT -f visual` (sin archivo) abren arriba del panel izquierdo la lista **Cambios A → B**: cada archivo con su estado (**A** añadido, **M** modificado, **D** borrado, **R** renombrado) y su resumen (como en `riku status`). La lista sale enseguida (solo lee Git); los resúmenes llegan después, de a uno, sin trabar el visor. Un clic abre el diff de ese archivo (Diff / Before / After) y la lista queda arriba; **↑/↓** pasan al anterior o al siguiente (si History está cerrado); **×** la cierra. Un archivo sin módulo se lista atenuado. Abrir otra cosa (un archivo del árbol, History, Inicio) cierra la lista.
+**Comparar versiones… → Todos los archivos que cambiaron**, o `riku diff A B -f visual` / `riku show COMMIT -f visual` sin archivo, abren arriba del panel izquierdo la lista **Cambios A → B**: cada archivo con su estado (**A** añadido, **M** modificado, **D** borrado, **R** renombrado) y su resumen. La lista sale enseguida y los resúmenes llegan después, sin trabar el visor. Un clic abre el diff de ese archivo y la lista queda; **↑/↓** pasan al siguiente; **×** la cierra.
 
-## La ventana
+## Ver un diff
 
-La barra superior es el título de la ventana: se arrastra para moverla, doble clic maximiza o restaura, y a la derecha están **minimizar, maximizar y cerrar**, del alto de la barra, con fondo al pasar el puntero (cerrar se pone rojo). Los bordes cambian el tamaño. El marco que dibuja Linux para una ventana de winit (WSLg, Wayland sin decoraciones del servidor) tiene botones tenues que no responden al puntero; **Ajustes → Usar el marco del sistema** vuelve a él (se recuerda).
+Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la diferencia y cada versión; cambiar de vista conserva el zoom para comparar la misma zona. En **Detalles**: **Resumen**, **Cambios** (un clic encuadra el cambio) y **Capas** (ocultar o mostrar; se mantiene al cambiar de celda). En layouts, el panel **Celdas** tiene buscador, "solo top cells" y "solo con cambios". Lo propio de cada formato está en [`formatos.md`](formatos.md).
 
-### Controles
+## Controles
 
 | Acción | Cómo |
 |---|---|
-| Mover la vista | arrastrar; al soltar rápido sigue por inercia (un clic la frena) |
-| Zoom | rueda (anclado al cursor) o **+** / **−** |
-| Encuadrar todo | botón **Encuadrar** o **F** (animado) |
-| Mostrar/ocultar textos | botón **Etiquetas** o **L** |
-| Sin animaciones ni inercia | **Ajustes → Reducir movimiento** (se recuerda) |
-| Dibujar cada polígono aunque sea diminuto | desmarcar **Ajustes → Simplificar al alejar** (se recuerda; más lento en layouts grandes) |
-| Tema | **Claro / Oscuro / Sistema** (arriba a la derecha; se recuerda) |
-| Coordenadas y escala | barra de estado (abajo): `x`, `y` del cursor y tamaño de 1 px |
-| Ver todos los archivos | **Proyecto → Todos los archivos** (por defecto solo lo que se puede abrir: `.sch`, `.sym`, `.gds`, `.oas`, `.mag`, `.raw`) |
-| Abrir un archivo | clic en el panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** en la pantalla de inicio |
-| Abrir otra carpeta | **Abrir carpeta…** (inicio o panel **Proyecto**) |
-| Volver al inicio | botón **Inicio** |
-| Info de un polígono (GDS) | dejar el cursor encima: capa, tamaño, área |
-| Ocultar capas (GDS) | checkboxes en **Details → Capas** (se mantienen al cambiar de celda) |
-| Cambiar de celda (GDS) | panel **Celdas**: buscador, "solo top cells", "solo con cambios" |
-| Ir a un cambio (diff GDS) | clic en **Details → Cambios** |
-| Comparar versiones | vistas **Diff / Before / After** (la vista se conserva) |
-| Historial del repo | botón **History** o **H**: panel abajo con el grafo de ramas (ver abajo) |
+| Mover la vista | arrastrar (al soltar rápido sigue por inercia; un clic la frena) |
+| Zoom | rueda (hacia el cursor) o **+** / **−** |
+| Encuadrar todo | **Encuadrar** o **F** |
+| Mostrar u ocultar textos | **Etiquetas** o **L** |
+| Info de un polígono | dejar el cursor encima: capa, tamaño, área |
+| Coordenadas y escala | barra de estado: `x`, `y` y tamaño de 1 px |
+| Abrir un archivo | panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** |
+| Ver todos los archivos del árbol | **Proyecto → Todos los archivos** |
+| Tema | **Claro / Oscuro / Sistema** |
+| Sin animaciones ni inercia | **Ajustes → Reducir movimiento** |
+| Dibujar cada polígono aunque sea diminuto | desmarcar **Ajustes → Simplificar al alejar** (más lento en layouts grandes) |
 
-## Historial (**History**, tecla **H**)
+Las preferencias se recuerdan entre sesiones.
 
-Un panel abajo, a todo el ancho, con el historial del repo del proyecto:
+## Historial
 
-- **Grafo de ramas y merges** con curvas y un color por rama (el mismo motor que `riku log --graph`); nodo hueco para un merge; chips de `HEAD` (relleno), ramas y tags. Pasar el mouse por un chip atenúa las demás ramas.
-- **Resumen por commit** a la derecha: formatos tocados y `+añadidos −eliminados ~modificados`. El grafo aparece al instante y los resúmenes se calculan en segundo plano (en paralelo), sin trabar el visor.
-- **Clic en un commit:** su mensaje, autor, fecha y archivos. **Clic en un archivo** (o doble clic en el commit, o **Enter**): su diff contra el primer padre en el lienzo, con **Diff / Before / After**, para `.sch`, `.gds`/`.oas`/`.mag` y `.raw` (un `.mag` lee sus sub-celdas del mismo commit). La ruta sobre el lienzo empieza por `History`.
-- **↑/↓** cambian de commit; **H** cierra. **Filtrar archivos** (un glob, `*.gds`) o **Only this file** con un archivo abierto: el grafo se simplifica como `riku log --paths`. Se cargan 200 commits; **Load more** trae más.
-- El panel entra y sale por abajo con un resorte interrumpible; su alto se recuerda. Con **Reduce motion** no se anima.
+Panel abajo (**Historial** o **H**) con el grafo de ramas y merges (el mismo que `riku log --graph`), las refs y un resumen por commit que se calcula en segundo plano. Un clic en un commit muestra sus archivos; un clic en un archivo (o **Enter**) abre su diff contra el primer padre. **↑/↓** cambian de commit. **Filtrar archivos** (un glob, `*.gds`) o **Solo este archivo** simplifican el grafo; se cargan 200 commits y **Cargar más** trae el resto.
 
-## Arquitectura
+## La ventana
 
-```
-src/gui/
-├── mod.rs            arranque (ventana sin marco del sistema)
-├── launch.rs         argumentos (--repo, --commit-a, --commit-b, --cell)
-├── app/mod.rs        estado, preferencias, atajos y el cuadro (`ui`)
-├── app/panels.rs     barra superior, barra de estado, paneles, centro
-├── app/loading.rs    abrir, recargar y recibir cargas
-├── app/actions.rs    inicio: carpeta, status, comparar, diagnóstico, exportar
-├── content.rs        qué ocupa el lienzo: `enum Content { Home, Scene, Wave }`
-├── loader.rs         carga en segundo plano (una sola; la nueva cancela)
-├── canvas.rs         gestos y pintado de una escena
-├── details_panel.rs  panel de detalles y selector de celdas
-├── home.rs           pantalla de inicio (solo dibuja; devuelve la acción)
-├── folder_picker.rs  "Abrir carpeta…" propio
-├── dialogs.rs        "Comparar versiones…" y "Diagnóstico"
-├── window_frame.rs   botones de la ventana, arrastre y bordes
-├── history/          panel History (modelo sin egui + vista)
-├── wave_view.rs      formas de onda (`.raw`)
-├── project.rs        árbol de archivos
-├── (los esquemáticos los dibuja el backend del módulo Xschem: riku/src/modules/xschem_view.rs)
-├── scene_painter.rs  ruta neutra: ScreenXform (mundo↔pantalla, eje Y),
-│                     fit/zoom, hit-test y tooltip
-├── motion.rs         springs interrumpibles e inercia de la vista
-├── polygon_fill.rs   relleno de polígonos en escenas sin índice
-├── entry_picker.rs   selector de celdas con buscador y filtros
-├── label_layout.rs   colocación de etiquetas sin solaparse
-├── theme.rs          colores por tema, tipografía y escala de espaciado
-└── toast.rs          mensajes temporales (estado, completado, aviso, error)
-```
+La barra superior es el título: se arrastra para mover la ventana, doble clic maximiza, y a la derecha están minimizar, maximizar y cerrar, con fondo al pasar el puntero (cerrar en rojo). Los bordes cambian el tamaño. **Ajustes → Usar el marco del sistema** vuelve al marco del escritorio.
 
-- **Una sola ruta de render.** Esquemáticos y layouts llegan como `Arc<dyn RenderableScene>` desde el `ViewerBackend` de su módulo (`viewer-core`); la GUI no conoce tipos de gdstk ni de Xschem.
-- **Layouts grandes** (`viewer_core::index`). Al cargar, el backend arma un índice de la escena (en paralelo): bbox de cada elemento, grillas por tamaño, triangulación de los cóncavos y una pirámide de cobertura por capa. En cada cuadro se consulta solo lo visible. Si eso no pasa de 60 000 elementos se dibuja todo como siempre; si pasa, lo que mide pocos píxeles o menos de un píxel de ancho se pinta como una imagen por capa (una textura por nivel, en cache) y el resto uno a uno, con los rellenos de cada capa juntos en una malla. Un layout de 42 MB (6,2 millones de polígonos) pasó de 11 GB y ~600 ms por cuadro a 2,5 GB y ~2 ms. `RIKU_PROFILE=1` imprime el tiempo de cada cuadro, los elementos dibujados y el nivel usado; `RIKU_LOD_PX` ajusta el lado de los texels (1 px por defecto).
-- **Cargas async.** Runtime Tokio con `poll-promise`; una carga nueva cancela la anterior (`CancellationToken`) y la escena actual sigue visible hasta que llega la nueva.
-- **Coordenadas.** Mundo (Y-up en GDS) → vista (Y-down, relativa al panel, donde vive el `Viewport`) → pantalla. `ScreenXform` concentra las tres para que dibujo, culling, fit, zoom y hit-test usen la misma cuenta.
-- **Etiquetas legibles** (`label_layout.rs`). Tamaño fijo en pantalla (10–14 px); se ocultan si el zoom es tan lejano que serían ruido. Las del mismo punto se fusionan (`VPB · VPWR`). Cada una es una pastilla con halo, desplazada del anclaje (marcado con un punto) para no tapar el pin; si choca, prueba otras posiciones y, si no entra, se omite y la barra de estado lo avisa.
-- **Tema** (`theme.rs`). Fondo, halos, colores de capa, overlays de diff y el painter de Xschem se adaptan a claro/oscuro. El contraste de las etiquetas (WCAG AA, ≥ 4.5:1) se verifica en tests para los colores de los tres PDKs.
-- **Movimiento** (`motion.rs`, criterios de *Designing Fluid Interfaces*, WWDC 2018). Encuadrar e ir a un cambio usan un spring críticamente amortiguado (respuesta 0,3 s, sin rebote) sobre centro + log de escala; cualquier arrastre o rueda lo interrumpe desde el valor en pantalla. Al soltar un arrastre rápido la vista sigue con la velocidad del puntero y desacelera a 0,998 por ms (proyección de momento de iOS). "Reducir movimiento" lo reemplaza por saltos directos.
-
-## Compilar y probar
-
-`cargo test -p riku gui::` corre solo los tests del visor; el resto, en [`desarrollo.md`](desarrollo.md).
-
-- **WSLg:** la ventana aparece en el escritorio de Windows. Para capturarla con herramientas X11, lanzar con `env -u WAYLAND_DISPLAY` (usa XWayland). El visor recuerda la posición de la ventana; si alguna vez abre minimizada o fuera de pantalla, borrar la clave `"window"` de `~/.local/share/riku-gui/app.ron`.
-
-## Criterios de interfaz
-
-- **Jerarquía.** Títulos con peso, secundarios tenues y chicos, cifras en monoespaciada; espaciado de una sola escala (4/8/12/16 px) y esquinas coherentes.
-- **Orientación.** La ruta sobre el lienzo (`commits › archivo › celda › vista`) y el título de la ventana dicen qué se está viendo; la pantalla inicial explica cómo empezar y ofrece los recientes.
-- **Agrupación.** Detalles en secciones plegables (Resumen, Cambios, Capas, Símbolos sin resolver): lo relacionado junto y lo largo se puede plegar.
-- **Feedback.** Mensajes temporales sobre el lienzo: estado e *hecho* se van solos; los avisos duran más; los errores quedan hasta cerrarlos, en lenguaje claro con el detalle técnico entre paréntesis.
+Si la ventana abre fuera de pantalla, borrar la clave `"window"` de `~/.local/share/riku-gui/app.ron`.

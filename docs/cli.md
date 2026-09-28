@@ -14,9 +14,7 @@ Todos los comandos de `riku`. Funcionan igual en la terminal y dentro del shell 
 | `riku doctor` | Diagnóstico del entorno y formatos soportados |
 | `riku completions <shell>` | Autocompletado para bash, zsh, fish, powershell o elvish |
 
-Todos los comandos aceptan `-f json` (salida con `schema` versionado) y `--help` con ejemplos. La salida y la ayuda están en inglés por defecto; `RIKU_LANG=es` las pone en español (los ejemplos de este documento están en español). Para usar Riku desde scripts, CI o agentes de IA, ver [Scripts y agentes](#scripts-y-agentes).
-
-Formatos: `.sch`/`.sym` (Xschem, diff semántico), `.gds`/`.oas`/`.mag` (layouts, diff geométrico; Magic con sus sub-celdas del mismo commit: [`layouts.md`](layouts.md#magic-mag)) y `.raw` (simulaciones de ngspice, diff de formas de onda: [`spice.md`](spice.md)). Un archivo que ningún módulo reconoce se lista sin diff.
+`diff`, `show`, `log`, `status` y `doctor` aceptan `-f json` (salida con `schema` versionado); todos, `--help` con ejemplos. La salida y la ayuda están en inglés por defecto; `RIKU_LANG=es` las pone en español (así están los ejemplos de acá). Qué compara cada formato (`.sch`, `.gds`/`.oas`/`.mag`, `.raw`): [`formatos.md`](formatos.md). Un archivo que ningún módulo reconoce se lista sin diff.
 
 ---
 
@@ -37,8 +35,9 @@ riku schematics (git)> cd ../layout
 ## `riku diff`
 
 ```bash
-riku diff [A] [B] [archivo] [-f text|json|visual|png|svg] [--compact] [--ci]
-          [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
+riku diff [A] [B] [archivo] [-f text|json|visual|png|svg] [--compact] [--ci] [-r REPO]
+          [--cosmetic-threshold-um2 X] [--tolerance TOL] [--expr EXPR]… [--no-cache]
+          [-o ARCHIVO] [--cell CELDA] [--size ANCHOxALTO] [--theme light|dark]
 ```
 
 Como `git diff`: sin `B` se compara contra el **working tree** (los archivos en disco, sin commitear); sin `A`, contra `HEAD`; sin archivo, todos los que cambiaron.
@@ -81,7 +80,7 @@ Marcas: `+` añadido, `-` eliminado, `~` modificado, `r` renombrado. Un reordena
   r cell:INV → INV_X1
 ```
 
-Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nombre y el bbox queda en coordenadas de la celda que la instancia. Un cambio con área total bajo el umbral (0,01 µm² por defecto, debajo del piso DRC de SKY130/GF180) es cosmético. Detalles del diff de layouts en [`layouts.md`](layouts.md).
+Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nombre y el bbox queda en coordenadas de la celda que la instancia. Un cambio con área total bajo el umbral (0,01 µm² por defecto) es cosmético. Más en [`formatos.md`](formatos.md#layouts-gdsii-oasis-y-magic).
 
 **JSON** (`-f json`, schema `riku-diff/v2`):
 
@@ -115,7 +114,7 @@ Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move
 | `--cosmetic-threshold-um2 X` | Umbral de área para marcar cosmético un cambio de layout |
 | `--no-cache` (o `RIKU_NO_CACHE=1`) | No usar ni guardar la cache de diffs de layouts grandes (`~/.cache/riku/diff`) |
 | `--tolerance TOL` | Tolerancia de formas de onda: fracción (`0.005`) o porcentaje (`0.5%`) del rango de cada señal |
-| `--expr EXPR` | Señal calculada a comparar en un `.raw` (repetible): `--expr "gain = v(out)/v(in)"`. Ver [`spice.md`](spice.md#expresiones) |
+| `--expr EXPR` | Señal calculada a comparar en un `.raw` (repetible): `--expr "gain = v(out)/v(in)"`. Ver [`formatos.md`](formatos.md#expresiones) |
 | `--ci` | Códigos de salida de CI (abajo) |
 | `-r REPO` | Repositorio (por defecto, el directorio actual) |
 
@@ -172,7 +171,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 - `●` commit, `○` merge, `┆` una rama que sigue más allá de `-n`. Un color por rama si la salida es una terminal (sin colores si se redirige, con `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza).
 - `--ascii` (o `RIKU_ASCII=1`) usa `* | / \ -` para terminales o fuentes sin Unicode.
 - Con `--paths`, los commits que no tocan esos archivos no se muestran y sus hijos se conectan al ancestro visible más cercano.
-- Con `--json`, cada commit lleva `graph`: `column`, `lane` (la rama, para el color), `passing` (otras ramas que pasan por la fila), `edges` (`[columna aquí, columna en la fila siguiente, rama]`) y `truncated`.
+- Con `-f json`, cada commit lleva `graph`: `column`, `lane` (la rama, para el color), `passing` (otras ramas que pasan por la fila), `edges` (`[columna aquí, columna en la fila siguiente, rama]`) y `truncated`.
 
 ```json
 {
@@ -238,13 +237,11 @@ Sin `--ci`, `diff` y `show` terminan en 0 (o 1 si hay error).
 - run: riku show HEAD --ci || echo "::warning::el commit cambia el circuito"
 ```
 
-**Estabilidad del JSON:** cada salida lleva su `schema`. Un cambio incompatible sube la versión (`v2` → `v3`); un campo nuevo opcional no.
-
 ---
 
 ## `riku doctor`
 
-Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`xschem.md`](xschem.md)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados. Con `-f json` (schema `riku-doctor/v1`), `modules` lista cada formato con su `name`, `format`, `extensions` y si está `available`: así un script sabe qué archivos puede comparar este `riku`.
+Informa el repo Git, el `.xschemrc`, `$PDK_ROOT`/`$PDK`/`$TOOLS` (o los PDKs instalados que se detectarán por símbolos, ver [`formatos.md`](formatos.md#esquemáticos-xschem-sch)), las librerías `.mag` de los PDK (para layouts de Magic) y los módulos de formato compilados. Con `-f json` (schema `riku-doctor/v1`), `modules` lista cada formato con su `name`, `format`, `extensions` y si está `available`: así un script sabe qué archivos puede comparar este `riku`.
 
 ## Configuración del proyecto (`.riku.toml`)
 
@@ -256,7 +253,7 @@ cosmetic_threshold_um2 = 0.01        # µm²: un cambio de menos área es cosmé
 
 [waveform]
 tolerance = "0.5%"                   # o 0.005: fracción del rango de cada señal (por defecto 0,1 %)
-expressions = [                      # señales calculadas que se comparan siempre (ver spice.md)
+expressions = [                      # señales calculadas que se comparan siempre (ver formatos.md)
   "gain = v(out)/v(in)",
   "tran: vpk = max(v(out))",
 ]
@@ -277,7 +274,7 @@ riku render amp.sch --theme dark --size 2400x1500
 ```
 
 - **Salida:** imprime la ruta del archivo. Sin `-o`, va a la carpeta temporal de riku (`/tmp/riku/<archivo>-<versiones>.png`).
-- **Opciones:** `-o ARCHIVO`, `--size ANCHOxALTO` (por defecto `1600x1000`), `--theme light|dark` (por defecto `light`), `--cell CELDA` (layouts) y `--expr` (formas de onda; también las de `.riku.toml`).
+- **Opciones:** `-f png|svg` (en `render`; por defecto `png`), `-o ARCHIVO`, `--size ANCHOxALTO` (por defecto `1600x1000`), `--theme light|dark` (por defecto `light`), `--cell CELDA` (layouts) y `--expr` (formas de onda; también las de `.riku.toml`).
 - **`riku render`** dibuja una sola versión: el archivo en disco (con la ruta tal como se escribe, sin necesitar un repo) o la de un commit con `--rev`.
 - Las formas de onda muestran las señales que más cambiaron (o las primeras, sin diff) y las expresiones que den una curva.
 
@@ -291,34 +288,29 @@ riku completions fish > ~/.config/fish/completions/riku.fish
 
 ## Scripts y agentes
 
-Riku está pensado para usarse también sin persona delante (CI, scripts, agentes de IA):
+Riku se usa también sin persona delante (CI, scripts, agentes de IA):
 
-- **Salida:** `-f json` en todos los comandos. Cada JSON trae `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v2`, `riku-status/v2`, `riku-doctor/v1`, `riku-error/v1`); un cambio incompatible sube la versión. Todos describen los cambios de la misma forma tipada (la de `riku diff -f json`).
-- **Cambio incompatible (2026-09):** se quitó la forma anterior de los cambios (texto con convenciones como `"cell:INV"` o `"TOP:L1/0:INV"` y mapas `before`/`after` de strings). `riku diff -f json-v1` ya no existe, y `riku-status`/`riku-log` pasaron a v2: `details[].element` es el elemento tipado (con `renamed_from` en un renombre) y `full_report` lleva los cambios tipados. `path`, `category`, `counts`, `errors` y `warnings` no cambiaron.
-- **Resultado:** el código de salida dice si hubo cambios funcionales (ver [Códigos de salida](#códigos-de-salida-y-ci)); con `-f json` los errores también son JSON.
-- **Descubrir:** `riku doctor -f json` lista los formatos soportados; `riku <comando> --help` trae ejemplos.
-- **Ver:** `riku diff A B archivo -f png` escribe una imagen del diff e imprime su ruta, para mirarla (ver [Imágenes](#imágenes-riku-render-y--f-pngsvg)).
-- **Sin interacción:** `riku` sin comando abre el shell solo si hay una terminal; desde un script imprime la ayuda y termina. `-f visual` abre una ventana: no usarlo en automatizaciones.
-- **Tuberías:** cortar la salida (`riku log | head`) termina sin error, como `git`.
-
-Flujo típico de un agente que editó un diseño:
+- **Salida:** cada JSON trae su `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v2`, `riku-status/v2`, `riku-doctor/v1`, `riku-error/v1`) y todos describen los cambios con la misma forma tipada. Un cambio incompatible sube la versión; un campo nuevo opcional no.
+- **Resultado:** el [código de salida](#códigos-de-salida-y-ci) dice si hubo cambios funcionales; con `-f json`, los errores también son JSON.
+- **Descubrir:** `riku doctor -f json` lista los formatos soportados.
+- **Ver:** `-f png` escribe una imagen del diff e imprime su ruta.
+- **Sin interacción:** `riku` sin comando abre el shell solo si hay una terminal. `-f visual` abre una ventana: no usarlo en automatizaciones. Cortar la salida (`riku log | head`) termina sin error.
 
 ```bash
 riku status -f json            # qué archivos cambiaron (código 1 si hay cambios funcionales)
 riku diff -f json              # el detalle, disco contra HEAD
-riku diff HEAD~1 HEAD -f json  # qué cambió el último commit
-riku diff amp.sch -f png       # y cómo se ve (imprime la ruta de la imagen)
+riku diff amp.sch -f png       # y cómo se ve
 ```
 
 ## Variables de entorno
 
 | Variable | Efecto |
 |---|---|
-| `PDK_ROOT`, `PDK`, `TOOLS` | Símbolos de Xschem ([`xschem.md`](xschem.md)) |
+| `PDK_ROOT`, `PDK`, `TOOLS` | PDK y símbolos de Xschem ([`formatos.md`](formatos.md)) |
 | `RIKU_LANG` | Idioma de la CLI y del visor: `en` (por defecto) o `es`. En el visor también se elige en Settings → Language |
 | `RIKU_NO_CACHE=1` | Sin cache de diffs de layouts |
 | `RIKU_MAG_PATH=dir1:dir2` | Directorios extra donde buscar las celdas `.mag` que usa un layout de Magic (antes que el PDK) |
 | `RIKU_MAG_LAMBDA=µm` | Lambda de Magic, si el `.tech` de la tecnología del `.mag` no está en `$PDK_ROOT` |
 | `RIKU_JOBS=N` | Hilos para el trabajo pesado (igual que `--jobs N`, que vale en cualquier comando); por defecto, los núcleos disponibles. `RIKU_JOBS=1` deja todo en un hilo |
-| `RIKU_PROFILE=1` | El visor imprime el tiempo de cada cuadro ([`gui.md`](gui.md)); el diff de layouts, el tiempo de cada capa que difiere (polígonos propios, comunes cercanos y Clipper) |
+| `RIKU_PROFILE=1` | El visor imprime el tiempo de cada cuadro; el diff de layouts, el de cada capa que difiere |
 | `RIKU_LOD_PX` | Lado de los texels del nivel de detalle del visor, en píxeles (1 por defecto) |
