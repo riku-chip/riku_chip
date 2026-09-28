@@ -25,7 +25,7 @@ Lo que se ve sin nada abierto, y con el botón **Inicio**:
 | **Diagnóstico** | `riku doctor` |
 | **Archivos recientes** | — |
 
-**Abrir carpeta…** es un selector propio: se navega (las carpetas que son un repo llevan la marca `git`) o se pega una ruta. Cambiar de carpeta recarga el árbol y pasa el Historial al repo nuevo. Los cambios sin commitear se calculan en segundo plano; **↻** los vuelve a revisar.
+**Abrir carpeta…** es un selector propio: se navega (las carpetas que son un repo llevan la marca `git`) o se pega una ruta. En una laptop con Windows (Riku en el contenedor o en WSL) también se puede pegar la ruta de Windows, con `\` o entre comillas como la copia el Explorador: `C:\Users\…\designs\mi_chip` abre `/foss/designs/mi_chip`. Arriba están los atajos a las carpetas de Windows que el contenedor ve (**En la laptop**), y abajo de la ruta, cómo se llama la carpeta actual en Windows. Una carpeta de Windows que no está montada en el contenedor no se puede abrir: el selector lo dice y muestra cuáles sí. Cambiar de carpeta recarga el árbol y pasa el Historial al repo nuevo. Los cambios sin commitear se calculan en segundo plano; **↻** los vuelve a revisar.
 
 Con algo abierto, en la barra: **Comparar…** (con ese archivo ya elegido) y **Exportar → PNG / SVG** (la ruta de la imagen queda en el portapapeles).
 
