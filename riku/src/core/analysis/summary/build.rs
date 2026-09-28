@@ -7,8 +7,6 @@
 
 use std::collections::BTreeMap;
 
-use riku_kernel::legacy::{self, LegacyEntry};
-
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
 
 use super::labels;
@@ -61,9 +59,7 @@ fn aggregate_changes(report: &FileChange, level: DetailLevel) -> Aggregated {
     let mut semantic = 0i64;
     let mut cosmetic = 0i64;
 
-    // La forma v1 da el nombre y los parámetros tal como los mostraban
-    // `status`/`log` (su JSON es riku-status/v1 y riku-log/v1).
-    for (change, entry) in report.changes.iter().zip(legacy::entries(report)) {
+    for change in &report.changes {
         if change.cosmetic {
             cosmetic += 1;
             continue;
@@ -78,19 +74,13 @@ fn aggregate_changes(report: &FileChange, level: DetailLevel) -> Aggregated {
         *counts.entry(count_key.to_string()).or_insert(0) += 1;
 
         if matches!(level, DetailLevel::Detalle | DetailLevel::Completo) {
-            let element = match &change.element {
-                Element::Net { name } => name.clone(),
-                // La misma señal puede cambiar en varios análisis (tran, ac).
-                Element::Signal { plot, name } => format!("{name} · {plot}"),
-                _ => entry.element.clone(),
-            };
-            // Una señal no tiene "parámetros": su Δ numérico está en `riku diff`.
-            let params = if matches!(change.element, Element::Signal { .. }) {
-                BTreeMap::new()
-            } else {
-                extract_param_changes(&entry, change)
-            };
-            details.push(DetailEntry { kind: detail_kind, element, params });
+            let renamed_from = change.renamed_from.clone().filter(|_| change.kind == ChangeKind::Renamed);
+            details.push(DetailEntry {
+                kind: detail_kind,
+                element: change.element.clone(),
+                renamed_from,
+                params: param_changes(change),
+            });
         }
     }
 
@@ -135,34 +125,28 @@ fn classify(change: &Change) -> (&'static str, DetailKind) {
     }
 }
 
-/// Extrae cambios de parámetros (key: "before → after") sin la ubicación del
-/// elemento (los detalles que el módulo marcó como `placement`).
-fn extract_param_changes(entry: &LegacyEntry, change: &riku_kernel::Change) -> BTreeMap<String, String> {
-    let (before, after) = match (&entry.before, &entry.after) {
-        (Some(b), Some(a)) => (b, a),
-        _ => return BTreeMap::new(),
-    };
-    let mut out = BTreeMap::new();
-    for key in before.keys().chain(after.keys()) {
-        if change.details.iter().any(|d| d.placement && d.key == *key) {
-            continue;
-        }
-        let b = before.get(key);
-        let a = after.get(key);
-        match (b, a) {
-            (Some(bv), Some(av)) if bv != av => {
-                out.insert(key.clone(), format!("{bv} → {av}"));
-            }
-            (None, Some(av)) => {
-                out.insert(key.clone(), format!("(nuevo) → {av}"));
-            }
-            (Some(bv), None) => {
-                out.insert(key.clone(), format!("{bv} → (eliminado)"));
-            }
-            _ => {}
-        }
+/// Parámetros que cambiaron (`{"W": "4u → 8u"}`), sin la ubicación del
+/// elemento. Solo en un componente o puerto modificado o renombrado: en uno
+/// añadido o eliminado todos sus valores serían "nuevos" o "eliminados", y
+/// una señal lleva su Δ numérico en `riku diff`.
+fn param_changes(change: &Change) -> BTreeMap<String, String> {
+    let has_params = matches!(change.element, Element::Component { .. } | Element::Port { .. })
+        && matches!(change.kind, ChangeKind::Modified | ChangeKind::Renamed);
+    if !has_params {
+        return BTreeMap::new();
     }
-    out
+    change
+        .params()
+        .filter_map(|d| {
+            let text = match (&d.before, &d.after) {
+                (Some(b), Some(a)) if b != a => format!("{b} → {a}"),
+                (None, Some(a)) => format!("(nuevo) → {a}"),
+                (Some(b), None) => format!("{b} → (eliminado)"),
+                _ => return None,
+            };
+            Some((d.key.clone(), text))
+        })
+        .collect()
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -254,7 +238,7 @@ mod tests {
         let s = FileSummary::from_report_with(&r, "a.sch", DetailLevel::Detalle);
         assert_eq!(s.details.len(), 1);
         assert_eq!(s.details[0].kind, DetailKind::ComponentAdded);
-        assert_eq!(s.details[0].element, "M1");
+        assert_eq!(s.details[0].label(), "M1");
         assert!(s.full_report.is_none());
     }
 
@@ -290,11 +274,11 @@ mod tests {
     }
 
     #[test]
-    fn renombre_y_net_mantienen_los_nombres_de_v1() {
+    fn renombre_y_net_se_nombran_como_en_diff() {
         let r = report(vec![entry(ChangeKind::Modified, "vin → vin_diff", false), entry(ChangeKind::Added, "net:vdd", false)]);
         let s = FileSummary::from_report_with(&r, "a.sch", DetailLevel::Detalle);
-        assert_eq!(s.details[0].element, "vin → vin_diff");
+        assert_eq!(s.details[0].label(), "vin → vin_diff");
         assert_eq!(s.details[0].kind, DetailKind::ComponentRenamed);
-        assert_eq!(s.details[1].element, "vdd");
+        assert_eq!(s.details[1].label(), "vdd");
     }
 }

@@ -259,7 +259,7 @@ mod tests {
         );
     }
 
-    // ── Tests del contrato JSON (schema riku-status/v1) ──────────────────
+    // ── Tests del contrato JSON (schema riku-status/v2) ──────────────────
 
     fn fixture_report() -> StatusReport {
         StatusReport {
@@ -282,7 +282,7 @@ mod tests {
         let env = EnvelopedStatusReport::from(&report);
         let s = serde_json::to_string(&env).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(v["schema"], "riku-status/v1");
+        assert_eq!(v["schema"], "riku-status/v2");
     }
 
     #[test]

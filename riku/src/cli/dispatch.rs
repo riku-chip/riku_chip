@@ -55,7 +55,7 @@ impl Commands {
     pub(super) fn wants_json(&self) -> bool {
         match self {
             Commands::Diff { format, .. } | Commands::Show { format, .. } => {
-                matches!(format, OutputFormat::Json | OutputFormat::JsonV1)
+                matches!(format, OutputFormat::Json)
             }
             Commands::Log { format, json, .. } | Commands::Status { format, json, .. } => {
                 *json || *format == ListFormat::Json

@@ -37,7 +37,7 @@ riku schematics (git)> cd ../layout
 ## `riku diff`
 
 ```bash
-riku diff [A] [B] [archivo] [-f text|json|json-v1|visual|png|svg] [--compact] [--ci]
+riku diff [A] [B] [archivo] [-f text|json|visual|png|svg] [--compact] [--ci]
           [--cosmetic-threshold-um2 X] [--no-cache] [--expr EXPR]… [-r REPO]
 ```
 
@@ -106,7 +106,7 @@ Cada cambio es `celda:Lcapa/datatype`; si nace en una sub-celda se agrega su nom
 }
 ```
 
-Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `error` no es `null` cuando el módulo no pudo comparar el archivo (un lado roto o ilegible): entonces `changes` viene vacío y no significa "sin cambios"; en `-f json-v1` ese mensaje va primero en `warnings`. `-f json-v1` da la forma anterior (`components`, `nets_added`, `nets_removed`, `is_move_all`), idéntica byte a byte, y se mantiene durante una versión.
+Tipos de `element`: `component`, `net`, `whole` (todo el archivo, p. ej. un Move All), `cell`, `geometry` (con `layer_name` si el archivo nombra sus capas, como Magic: `"layer_name": "metal1"`), `port` (puerto de un layout de Magic: `cell` y `name`; sus `details` dicen qué cambió, p. ej. `class` de `input` a `inout`) y `signal` (simulaciones). Los `details` llevan números reales, no texto. `error` no es `null` cuando el módulo no pudo comparar el archivo (un lado roto o ilegible): entonces `changes` viene vacío y no significa "sin cambios".
 
 **Visual** (`-f visual`): abre el visor con las vistas **Diff**, **Before** y **After** (ver [`gui.md`](gui.md)).
 
@@ -132,7 +132,7 @@ riku show abc123 chip.gds -f json              # schema riku-show/v1
 riku show abc123 design/op_amp.sch -f visual   # el diff de ese commit en el visor
 ```
 
-El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final. Acepta las mismas opciones que `diff` salvo `json-v1`; `-f visual` necesita el archivo.
+El commit inicial se compara contra vacío (todo aparece añadido); un merge, contra su primer padre. Los archivos sin módulo se listan al final. Acepta las mismas opciones que `diff`; `-f visual` necesita el archivo.
 
 Con `--compact`, el JSON de `diff` y `show` sale en una línea (como en `log` y `status`); sin él, indentado.
 
@@ -176,7 +176,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 
 ```json
 {
-  "schema": "riku-log/v1",
+  "schema": "riku-log/v2",
   "commits": [
     { "oid": "077931d3…", "short_id": "077931d", "message": "d", "author": "t", "timestamp": 1790477193,
       "parents": ["fbb15d00…"], "refs": ["HEAD", "master"], "is_merge": false,
@@ -198,12 +198,23 @@ Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios 
 
 ```json
 {
-  "schema": "riku-status/v1",
+  "schema": "riku-status/v2",
   "branch": { "name": "master", "head_oid": "077931d3…", "head_short": "077931d",
               "upstream": null, "ahead": 0, "behind": 0 },
   "files": [ { "path": "a.sch", "format": "xschem", "category": "semantic", "counts": { "nets_added": 1 } } ],
   "warnings": []
 }
+```
+
+Con `--detail`, cada archivo trae `details`: qué cambió, con el elemento tipado como en `riku diff -f json`, `renamed_from` en un renombre y los parámetros que cambiaron (sin la ubicación). Con `--full`, además `full_report`: el reporte completo del módulo, con los mismos cambios tipados que un archivo de `riku diff -f json`. Vale igual para cada archivo de `riku log --json`.
+
+```json
+"details": [
+  { "kind": "component_modified", "element": { "type": "component", "name": "M3" },
+    "params": { "W": "4u → 8u" } },
+  { "kind": "component_renamed", "element": { "type": "component", "name": "vin_diff" },
+    "renamed_from": "vin" }
+]
 ```
 
 ---
@@ -282,7 +293,8 @@ riku completions fish > ~/.config/fish/completions/riku.fish
 
 Riku está pensado para usarse también sin persona delante (CI, scripts, agentes de IA):
 
-- **Salida:** `-f json` en todos los comandos. Cada JSON trae `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v1`, `riku-status/v1`, `riku-doctor/v1`, `riku-error/v1`); un cambio incompatible sube la versión.
+- **Salida:** `-f json` en todos los comandos. Cada JSON trae `schema` (`riku-diff/v2`, `riku-diff-set/v1`, `riku-show/v1`, `riku-log/v2`, `riku-status/v2`, `riku-doctor/v1`, `riku-error/v1`); un cambio incompatible sube la versión. Todos describen los cambios de la misma forma tipada (la de `riku diff -f json`).
+- **Cambio incompatible (2026-09):** se quitó la forma anterior de los cambios (texto con convenciones como `"cell:INV"` o `"TOP:L1/0:INV"` y mapas `before`/`after` de strings). `riku diff -f json-v1` ya no existe, y `riku-status`/`riku-log` pasaron a v2: `details[].element` es el elemento tipado (con `renamed_from` en un renombre) y `full_report` lleva los cambios tipados. `path`, `category`, `counts`, `errors` y `warnings` no cambiaron.
 - **Resultado:** el código de salida dice si hubo cambios funcionales (ver [Códigos de salida](#códigos-de-salida-y-ci)); con `-f json` los errores también son JSON.
 - **Descubrir:** `riku doctor -f json` lista los formatos soportados; `riku <comando> --help` trae ejemplos.
 - **Ver:** `riku diff A B archivo -f png` escribe una imagen del diff e imprime su ruta, para mirarla (ver [Imágenes](#imágenes-riku-render-y--f-pngsvg)).

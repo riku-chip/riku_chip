@@ -20,7 +20,7 @@ pub enum LogError {
 
 // ─── Schema / envelope ───────────────────────────────────────────────────────
 
-pub const LOG_SCHEMA: &str = "riku-log/v1";
+pub const LOG_SCHEMA: &str = "riku-log/v2";
 
 pub type EnvelopedLogReport<'a> = Envelope<'a, LogReport>;
 

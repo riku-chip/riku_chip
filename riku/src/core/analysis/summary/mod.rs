@@ -18,4 +18,4 @@ pub mod labels;
 mod types;
 
 pub use labels::label_for;
-pub use types::{DetailEntry, DetailKind, DetailLevel, FileSummary, SummaryCategory};
+pub use types::{element_label, DetailEntry, DetailKind, DetailLevel, FileSummary, SummaryCategory};

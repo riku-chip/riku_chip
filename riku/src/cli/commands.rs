@@ -71,9 +71,6 @@ pub(super) fn run_diff(
             Ok(Changes::of_reports([&report]))
         }
         None => {
-            if matches!(format, OutputFormat::JsonV1) {
-                return Err(tr!("err.json_v1_one_file"));
-            }
             let report = diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts)
                 .map_err(|e| e.to_string())?;
             match format {
@@ -288,9 +285,6 @@ pub(super) fn run_show(
         };
         return present_visual(&repo, parent, &changes.commit.info.oid, file, &opts.expressions).map(|_| Changes::Clean);
     }
-    if matches!(format, OutputFormat::JsonV1) {
-        return Err(tr!("err.show_no_v1"));
-    }
 
     let report = analyze_show(&svc, commit, file_path, &crate::modules::registry(), &opts).map_err(|e| e.to_string())?;
     match format {
@@ -316,7 +310,6 @@ fn print_diff(
     match format {
         OutputFormat::Text => format::diff_text::print(report, file_path),
         OutputFormat::Json => format::diff_json::print(report, warnings, file_path, from.label(), to.label(), pretty),
-        OutputFormat::JsonV1 => format::diff_json::print_v1(report, warnings, file_path, pretty),
         OutputFormat::Visual | OutputFormat::Png | OutputFormat::Svg => unreachable!("se atienden antes de imprimir"),
     }
 }

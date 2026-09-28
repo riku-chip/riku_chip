@@ -353,7 +353,7 @@ mod tests {
         };
         let env = EnvelopedLogReport::from(&report);
         let v: serde_json::Value = serde_json::to_value(&env).unwrap();
-        assert_eq!(v["schema"], "riku-log/v1");
+        assert_eq!(v["schema"], "riku-log/v2");
         assert!(v.get("commits").is_some());
     }
 }

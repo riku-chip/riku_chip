@@ -15,7 +15,7 @@ riku_chip/
 │   ├── src/cli/          comandos, shell, formatos de salida
 │   └── src/gui/          visor egui (feature `gui`)
 ├── riku-kernel/          tipos neutros (FileChange, Change, Element, ChangeKind, Detail…),
-│                         trait FormatModule, Registry; legacy.rs = JSON v1 exacto
+│                         trait FormatModule, Registry
 ├── riku-mod-layout/      módulo GDS/OASIS/Magic: diff geométrico, cache, estilo por PDK, GdsBackend;
 │                         mag.rs = de dónde salen las sub-celdas de un .mag (commit, PDK)
 ├── viewer-core/          contrato del visor: ViewerBackend, Scene, DrawElement, SceneIndex
@@ -60,7 +60,7 @@ pub struct DiffFiles { pub before: Option<Arc<dyn FileSource>>, pub after: Optio
 
 - **Formatos de varios archivos** (Magic: una celda por archivo): el núcleo le pasa al módulo un `FileSource` por versión. `diff`, `show` y `log` usan `GitFiles` (el mismo commit; abre su conexión a Git la primera vez que se le pide un archivo); `status`, HEAD antes y el disco después (`DiskFiles`). El módulo decide qué leer; el núcleo no sabe de `use` ni de celdas.
 
-- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry` con `layer_name` opcional, `Port`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y el JSON (`riku-diff/v2`); `legacy.rs` reproduce el JSON v1 byte a byte.
+- `FileChange` tiene `Change`s tipados: `kind` (añadido, eliminado, modificado, renombrado), `element` (`Component`, `Net`, `Whole`, `Cell`, `Geometry` con `layer_name` opcional, `Port`, `Signal`), `cosmetic`, `location` (para "ir al cambio") y `details` con valores antes/después. De ahí salen el texto y todos los JSON (`riku-diff/v2`, y los cambios de `show`, `status` y `log`): una sola forma tipada.
 - Un `Detail` que es la **ubicación** del elemento en el dibujo (en Xschem: `x`, `y`, `rotation`, `mirror`) lo marca el módulo con `placement: true` (`Change::with_placement`); las listas de parámetros cambiados (`status`/`log --detail`, el texto de `diff`, el visor) usan `Change::params()`, que la omite. Así el núcleo no sabe qué claves son de ubicación en cada formato. En el JSON v2 el campo aparece solo cuando es `true`.
 - `Registry` resuelve el módulo por extensión o firma (`for_path`, `detect`). `log`, `status`, `show` y `diff` reciben el registro: el análisis no sabe qué formatos existen. `extensions()` es lo que se compara y `openable()` suma lo que solo muestra un visor (los `.sym` de Xschem): de ahí salen el `ls` y el autocompletado del shell, el árbol del visor y los textos que nombran los formatos.
 - Comparar un archivo entre dos versiones es **un solo flujo**, `core/analysis/diff_pair.rs`: cada lado es una `Version` (`Rev`, `WorkTree` o `Absent`) con su ruta, y `OnError` dice si un error de Git se propaga (`diff`, `show`) o queda en el archivo (`status`, `log`). `diff`, `show`, `status`, `log` y el visor pasan por ahí.

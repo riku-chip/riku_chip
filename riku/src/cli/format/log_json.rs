@@ -1,6 +1,6 @@
 //! Formateador JSON para `riku log`.
 //!
-//! Usa `EnvelopedLogReport` para garantizar el campo `schema` (riku-log/v1).
+//! Usa `EnvelopedLogReport` para garantizar el campo `schema` (riku-log/v2).
 
 use crate::core::analysis::log::{EnvelopedLogReport, LogReport};
 

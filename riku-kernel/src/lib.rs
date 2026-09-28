@@ -11,11 +11,9 @@
 //!   strings como `"net:X"` o `"TOP:L1/0:INV"`).
 //! - [`FormatModule`] y [`Registry`]: el contrato de los módulos de formato y
 //!   el registro donde se enchufan.
-//! - [`legacy`]: la forma anterior (JSON v1) para una versión de transición.
 
 mod change;
 mod format;
-pub mod legacy;
 mod module;
 
 pub use change::{Bounds, Change, ChangeKind, Detail, Element, FileChange, Value, Via};

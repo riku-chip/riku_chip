@@ -136,15 +136,13 @@ fn print_full_report(rep: &FileChange) {
         println!("      {}", tr!("status.no_entries"));
         return;
     }
-    // Misma notación que el JSON `full_report` (v1): `cell:INV`, `net:vdd`…
-    for e in riku_kernel::legacy::entries(rep) {
-        let marker = match e.kind {
-            "added" => "+",
-            "removed" => "-",
-            _ => "~",
-        };
-        let cosmetic = if e.cosmetic { " [cosmetic]" } else { "" };
-        println!("      {} {}{cosmetic}", super::color::marker(marker), e.element);
+    // Los nombres de `riku diff` (el JSON `full_report` lleva los cambios tipados).
+    for c in &rep.changes {
+        let marker = super::common::marker_for_change(c.kind);
+        let from = c.renamed_from.as_deref().filter(|_| c.kind == riku_kernel::ChangeKind::Renamed);
+        let name = crate::core::analysis::summary::element_label(&c.element, from);
+        let cosmetic = if c.cosmetic { " [cosmetic]" } else { "" };
+        println!("      {} {name}{cosmetic}", super::color::marker(marker));
     }
     if !rep.warnings.is_empty() {
         println!("      {}", tr!("status.module_warnings"));

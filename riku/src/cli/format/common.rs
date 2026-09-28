@@ -61,7 +61,7 @@ pub(super) fn print_detail(d: &DetailEntry, indent: &str) {
 
 /// Las líneas de [`print_detail`], sin imprimirlas.
 pub(super) fn detail_lines(d: &DetailEntry, indent: &str) -> Vec<String> {
-    let mut out = vec![format!("{indent}{} {}", d.kind.marker(), d.element)];
+    let mut out = vec![format!("{indent}{} {}", d.kind.marker(), d.label())];
     for (k, v) in &d.params {
         out.push(format!("{indent}    {k}: {v}"));
     }
@@ -108,7 +108,8 @@ mod tests {
     fn print_detail_no_panica_con_params_vacios() {
         let d = DetailEntry {
             kind: DetailKind::ComponentAdded,
-            element: "M1".into(),
+            element: riku_kernel::Element::Component { name: "M1".into() },
+            renamed_from: None,
             params: BTreeMap::new(),
         };
         print_detail(&d, "  ");

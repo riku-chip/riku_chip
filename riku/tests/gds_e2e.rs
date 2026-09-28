@@ -79,9 +79,9 @@ fn layout_repo(ext: &str) -> GdsRepo {
     GdsRepo { path: dir.path().to_path_buf(), _dir: dir, file, empty, a, b }
 }
 
-/// `riku diff -f json-v1`: la forma anterior, que se mantiene una versión.
+/// `riku diff -f json` (schema `riku-diff/v2`).
 fn riku_json(repo: &GdsRepo, from: &str, to: &str) -> Value {
-    riku_json_as(repo, from, to, "json-v1")
+    riku_json_as(repo, from, to, "json")
 }
 
 fn riku_json_as(repo: &GdsRepo, from: &str, to: &str, format: &str) -> Value {
@@ -96,13 +96,46 @@ fn riku_json_as(repo: &GdsRepo, from: &str, to: &str, format: &str) -> Value {
     })
 }
 
-fn component<'a>(json: &'a Value, name: &str) -> &'a Value {
-    json["components"]
+/// El cambio cuyo elemento se llama `name` como en el texto de `riku diff`
+/// (`TOP:L1/0:INV` para geometría que llega vía `INV`, `INV` para una celda).
+fn change<'a>(json: &'a Value, name: &str) -> &'a Value {
+    json["changes"]
         .as_array()
-        .expect("components")
+        .expect("changes")
         .iter()
-        .find(|c| c["name"] == name)
+        .find(|c| element_name(&c["element"]) == name)
         .unwrap_or_else(|| panic!("falta {name} en {json}"))
+}
+
+fn element_name(e: &Value) -> String {
+    match e["type"].as_str() {
+        Some("geometry") => {
+            let base = format!("{}:L{}/{}", e["cell"].as_str().unwrap_or_default(), e["layer"], e["datatype"]);
+            match e["via"]["path"].as_array() {
+                Some(path) => {
+                    let path: Vec<&str> = path.iter().filter_map(Value::as_str).collect();
+                    format!("{base}:{}", path.join("/"))
+                }
+                None => base,
+            }
+        }
+        _ => e["name"].as_str().unwrap_or_default().to_string(),
+    }
+}
+
+/// Valor "después" de una propiedad de un cambio.
+fn after<'a>(change: &'a Value, key: &str) -> &'a Value {
+    change["details"]
+        .as_array()
+        .and_then(|d| d.iter().find(|d| d["key"] == key))
+        .map(|d| &d["after"])
+        .unwrap_or_else(|| panic!("falta {key} en {change}"))
+}
+
+/// El bbox de un cambio como `[min_x, min_y, max_x, max_y]`.
+fn bbox(change: &Value) -> [f64; 4] {
+    let l = &change["location"];
+    ["min_x", "min_y", "max_x", "max_y"].map(|k| l[k].as_f64().unwrap_or(f64::NAN))
 }
 
 #[test]
@@ -132,18 +165,19 @@ fn cli_json_reports_areas_and_absolute_bbox() {
     assert_eq!(json["file"], "layout.gds");
     assert!(json["warnings"].as_array().unwrap().is_empty());
 
-    let top = component(&json, "TOP:L1/0:INV");
+    let top = change(&json, "TOP:L1/0:INV");
     assert_eq!(top["kind"], "added");
     assert_eq!(top["cosmetic"], false);
-    let after = &top["after"];
-    assert_eq!(after["added_area_um2"], "1.000");
-    // +0.000, nunca "-0.000" (Sum de f64 vacio da -0.0).
-    assert_eq!(after["removed_area_um2"], "0.000");
-    assert_eq!(after["bbox_um"], "12.000,10.000,13.000,11.000");
-    assert_eq!(after["flattened"], "true");
+    assert_eq!(after(top, "added_area_um2").as_f64(), Some(1.0));
+    // +0, nunca -0 (Sum de f64 vacío da -0.0).
+    let removed = after(top, "removed_area_um2").as_f64().unwrap();
+    assert!(removed == 0.0 && removed.is_sign_positive(), "{removed}");
+    assert_eq!(bbox(top), [12.0, 10.0, 13.0, 11.0]);
+    // Llega vía la instancia de INV (aplanado).
+    assert_eq!(top["element"]["via"]["path"], serde_json::json!(["INV"]));
 
-    let inv = component(&json, "INV:L1/0");
-    assert_eq!(inv["after"]["bbox_um"], "2.000,0.000,3.000,1.000");
+    let inv = change(&json, "INV:L1/0");
+    assert_eq!(bbox(inv), [2.0, 0.0, 3.0, 1.0]);
 }
 
 #[test]
@@ -153,7 +187,8 @@ fn cli_new_file_lists_all_cells_as_added() {
     let json = riku_json(&r, &r.empty, &r.a);
     assert!(json["warnings"].as_array().unwrap().is_empty(), "{json}");
     for cell in ["INV", "TOP"] {
-        assert_eq!(component(&json, &format!("cell:{cell}"))["kind"], "added");
+        let c = change(&json, cell);
+        assert_eq!((c["element"]["type"].as_str(), c["kind"].as_str()), (Some("cell"), Some("added")), "{c}");
     }
 }
 
@@ -161,7 +196,7 @@ fn cli_new_file_lists_all_cells_as_added() {
 fn cli_identical_versions_report_nothing() {
     let r = gds_repo();
     let json = riku_json(&r, &r.b, &r.b);
-    assert!(json["components"].as_array().unwrap().is_empty(), "{json}");
+    assert!(json["changes"].as_array().unwrap().is_empty(), "{json}");
 }
 
 #[test]
@@ -171,8 +206,8 @@ fn cli_oasis_diff_matches_gds_diff() {
     let (jg, jo) = (riku_json(&gds, &gds.a, &gds.b), riku_json(&oas, &oas.a, &oas.b));
     assert_eq!(jo["file"], "layout.oas");
     assert!(jo["warnings"].as_array().unwrap().is_empty(), "{jo}");
-    assert_eq!(jg["components"], jo["components"]);
-    assert_eq!(component(&jo, "TOP:L1/0:INV")["after"]["bbox_um"], "12.000,10.000,13.000,11.000");
+    assert_eq!(jg["changes"], jo["changes"]);
+    assert_eq!(bbox(change(&jo, "TOP:L1/0:INV")), [12.0, 10.0, 13.0, 11.0]);
 }
 
 #[test]

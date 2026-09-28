@@ -60,7 +60,7 @@ jobs:
           mkdir /tmp/smoke && cd /tmp/smoke && git init -q
           cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_a.gds layout.gds && git add . && git commit -qm a
           cp $GITHUB_WORKSPACE/riku-mod-layout/tests/fixtures/hier_inv_b.gds layout.gds && git add . && git commit -qm b
-          $B diff HEAD~1 HEAD layout.gds -f json-v1 | grep -q '"TOP:L1/0:INV"'
+          $B diff HEAD~1 HEAD layout.gds -f json | grep -q '"type": "geometry"'
           $B diff HEAD~1 HEAD layout.gds -f json | grep -q '"schema": "riku-diff/v2"'
           # Magic: el cambio de la sub-celda se ve en el top del mismo commit.
           printf 'magic\ntech sky130A\nuse inv  i0\ntransform 1 0 0 0 1 0\nbox 0 0 1 1\n' > top.mag

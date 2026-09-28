@@ -22,7 +22,7 @@ pub enum StatusError {
 /// Identificador del schema JSON de `riku status`. Versionado a propósito:
 /// cambios incompatibles bumpan el sufijo (`v1` → `v2`); cambios compatibles
 /// (campos nuevos opcionales) no.
-pub const STATUS_SCHEMA: &str = "riku-status/v1";
+pub const STATUS_SCHEMA: &str = "riku-status/v2";
 
 /// Wrapper público para serialización con `schema` siempre presente.
 ///

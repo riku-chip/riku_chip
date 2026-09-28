@@ -9,7 +9,7 @@ Qué está hecho, qué sigue y qué queda abierto. Esfuerzo: **S** = horas, **M*
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | Ejecutable único `riku` (CLI + shell + visor), workspace, `.tar.gz`/`.deb` | hecha |
-| 1 | `riku-kernel` con tipos de cambio propios; JSON `riku-diff/v2` (v1 idéntico con `-f json-v1`) | hecha |
+| 1 | `riku-kernel` con tipos de cambio propios; JSON `riku-diff/v2` (la forma v1 se quitó en la fase 9: todo es v2) | hecha |
 | 2 | El núcleo deja de conocer formatos: cada módulo detecta y compara | hecha |
 | 3 | Registro único de módulos (`FormatModule`, `modules/mod.rs`), features por módulo | hecha |
 | 4 | Una sola ruta del visor para `.sch` y `.gds` (fantasmas y anotaciones en la escena) | hecha |

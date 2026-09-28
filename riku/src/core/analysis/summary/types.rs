@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::domain::models::{FileChange, FileFormat};
+use crate::core::domain::models::{Element, FileChange, FileFormat};
 
 /// Cuánta información incluir en el `FileSummary`.
 ///
@@ -99,12 +99,37 @@ impl DetailKind {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DetailEntry {
     pub kind: DetailKind,
-    /// Nombre del elemento ("M3", "vbias", "vin → vin_diff", ...).
-    pub element: String,
+    /// El elemento tipado, como en `riku diff -f json`
+    /// (`{"type": "component", "name": "M3"}`).
+    pub element: Element,
+    /// Nombre anterior, si se renombró.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub renamed_from: Option<String>,
     /// Parámetros que cambiaron, ej. {"W": "4u → 8u"}. Solo en cambios
     /// `Modified` con before/after disponibles.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub params: BTreeMap<String, String>,
+}
+
+impl DetailEntry {
+    /// Cómo se nombra en el texto de `status`/`log` (ver [`element_label`]).
+    pub fn label(&self) -> String {
+        element_label(&self.element, self.renamed_from.as_deref())
+    }
+}
+
+/// Nombre de un elemento para el texto: el mismo que usa `riku diff`, con
+/// `viejo → nuevo` en un renombre y el análisis de una señal (la misma señal
+/// puede cambiar en `tran` y en `ac`).
+pub fn element_label(element: &Element, renamed_from: Option<&str>) -> String {
+    let name = match element {
+        Element::Signal { plot, name } => format!("{name} · {plot}"),
+        other => other.name(),
+    };
+    match renamed_from {
+        Some(from) => format!("{from} → {name}"),
+        None => name,
+    }
 }
 
 /// Vista resumida de un archivo, lista para ser mostrada en una línea.
@@ -122,9 +147,9 @@ pub struct FileSummary {
     /// Detalle por entrada. Vacío en nivel resumen.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub details: Vec<DetailEntry>,
-    /// Reporte completo del driver. Solo presente en nivel completo.
-    /// En el JSON sale con la forma v1 (schemas riku-status/v1 y riku-log/v1).
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "full_report_v1", skip_deserializing, default)]
+    /// Reporte completo del módulo, con los cambios tipados (como un archivo
+    /// de `riku diff -f json`). Solo presente en nivel completo.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub full_report: Option<FileChange>,
     /// Mensajes de error si `category == Error`. Vacío en otros casos.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -160,12 +185,5 @@ impl FileSummary {
             errors: vec![message.into()],
             warnings: Vec::new(),
         }
-    }
-}
-
-fn full_report_v1<S: serde::Serializer>(report: &Option<FileChange>, s: S) -> Result<S::Ok, S::Error> {
-    match report {
-        Some(r) => serde::Serialize::serialize(&riku_kernel::legacy::driver_report(r), s),
-        None => s.serialize_none(),
     }
 }
