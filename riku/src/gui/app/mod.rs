@@ -428,6 +428,7 @@ impl eframe::App for RikuGuiApp {
         }
         self.show_dialogs(&ctx);
         if !self.native_frame {
+            crate::gui::window_frame::apply_pending_restore(&ctx);
             crate::gui::window_frame::outline(&ctx);
             crate::gui::window_frame::resize_edges(&ctx);
         }

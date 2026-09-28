@@ -50,18 +50,57 @@ fn restored_size(monitor: egui::Vec2) -> egui::Vec2 {
     (monitor * 0.6).max(vec2(900.0, 600.0)).min(monitor * 0.95)
 }
 
+/// Un restaurar pedido cuyo tamaño todavía no se aplicó.
+#[derive(Clone, Copy)]
+struct PendingRestore {
+    size: egui::Vec2,
+    pos: egui::Pos2,
+    frames: u32,
+}
+
+fn pending_id() -> egui::Id {
+    egui::Id::new("window_pending_restore")
+}
+
+/// Cuántos cuadros se insiste con el tamaño (~1 s): si el sistema no la
+/// saca de maximizada en ese tiempo, no lo va a hacer.
+const RESTORE_FRAMES: u32 = 60;
+
 /// Maximiza, o restaura a un tamaño menor y centrado.
 fn toggle_maximized(ctx: &egui::Context) {
     if !maximized(ctx) {
+        ctx.data_mut(|d| d.remove::<PendingRestore>(pending_id()));
         ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
         return;
     }
     ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
     if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
         let size = restored_size(monitor);
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize(size));
-        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(((monitor - size) * 0.5).to_pos2()));
+        let pending = PendingRestore { size, pos: ((monitor - size) * 0.5).to_pos2(), frames: 0 };
+        ctx.data_mut(|d| d.insert_temp(pending_id(), pending));
+        apply_pending_restore(ctx);
     }
+}
+
+/// El tamaño de un restaurar, cuando el sistema ya sacó la ventana de
+/// maximizada: en Wayland, pedirlo antes (en el mismo cuadro) se ignora, y
+/// la ventana quedaba del tamaño de la pantalla. Se llama cada cuadro.
+pub(crate) fn apply_pending_restore(ctx: &egui::Context) {
+    let Some(mut p) = ctx.data(|d| d.get_temp::<PendingRestore>(pending_id())) else { return };
+    // El tamaño del contenido: Wayland no da `inner_rect`.
+    let still_max = ctx.input(|i| i.viewport().maximized == Some(true));
+    let applied = (ctx.content_rect().size() - p.size).length() < 4.0;
+    if applied || p.frames >= RESTORE_FRAMES {
+        ctx.data_mut(|d| d.remove::<PendingRestore>(pending_id()));
+        return;
+    }
+    if !still_max {
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(p.size));
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(p.pos));
+    }
+    p.frames += 1;
+    ctx.data_mut(|d| d.insert_temp(pending_id(), p));
+    ctx.request_repaint_after(std::time::Duration::from_millis(16));
 }
 
 /// Los tres botones, de derecha a izquierda (cerrar queda en la esquina).
