@@ -192,7 +192,11 @@ fn build_log_commit<R: GitRepository + ?Sized>(
             let summary = FileSummary::from_report_with(&report, &cf.path, opts.level);
             // Se saltan los archivos sin cambio semántico ni cosmético, para
             // no inflar el log; con avisos no, que el aviso es la noticia.
-            if matches!(summary.category, SummaryCategory::Unchanged) && summary.warnings.is_empty() {
+            // Tampoco los de otro formato con la misma extensión: como los
+            // que no tienen módulo.
+            if matches!(summary.category, SummaryCategory::Unchanged) && summary.warnings.is_empty()
+                || matches!(summary.category, SummaryCategory::Unknown)
+            {
                 continue;
             }
             files.push(summary);

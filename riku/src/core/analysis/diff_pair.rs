@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use riku_kernel::{DiffFiles, DiffOptions, FileChange, FileSource, FormatModule};
+use riku_kernel::{DiffFiles, DiffOptions, FileChange, FileFormat, FileSource, FormatModule};
 use thiserror::Error;
 
 use crate::core::analysis::blob_io::{self, Blob};
@@ -126,9 +126,14 @@ pub fn sources<R: GitRepository + ?Sized>(
 }
 
 /// El diff de un archivo entre dos versiones. El módulo lo elige quien
-/// llama (cada comando decide qué hacer con un formato sin módulo). Un lado
-/// que existe pero no se pudo leer deja el archivo con error, sin llamar al
-/// módulo.
+/// llama, por la extensión (cada comando decide qué hacer con un formato sin
+/// módulo). Un lado que existe pero no se pudo leer deja el archivo con
+/// error, sin llamar al módulo.
+///
+/// Si el módulo no reconoce ninguna de las dos versiones, el archivo es de
+/// otro formato con la misma extensión (un `.sch` de KiCad o Qucs-S, un
+/// `.raw` de LTspice): sale como un archivo sin módulo, con un aviso, no
+/// como error. Si reconoce una, compara, y la otra rota sí es un error.
 pub fn diff_pair<R: GitRepository + ?Sized>(
     repo: &R,
     workdir: Option<&Path>,
@@ -140,6 +145,9 @@ pub fn diff_pair<R: GitRepository + ?Sized>(
 ) -> Result<FileChange, AnalyzeError> {
     let a = read(repo, workdir, before, on_error)?;
     let b = read(repo, workdir, after, on_error)?;
+    if is_other_format(module, &a, &b) {
+        return Ok(other_format(module, after.path));
+    }
     let files = sources(repo, workdir, before.version, after.version);
     let mut report = pipeline::diff_blobs(module, &a, &b, after.path, opts, &files);
     // Un archivo pedido que no está en ninguna de las dos versiones (una
@@ -151,9 +159,51 @@ pub fn diff_pair<R: GitRepository + ?Sized>(
     Ok(report)
 }
 
+/// Hay contenido y el módulo no reconoce ninguna versión. Un lado que no se
+/// pudo leer (demasiado grande) no se sabe: no cuenta.
+fn is_other_format(module: &dyn FormatModule, a: &Blob, b: &Blob) -> bool {
+    let content: Vec<&[u8]> = [a, b]
+        .into_iter()
+        .filter_map(|blob| match blob {
+            Blob::Bytes(bytes) if !bytes.is_empty() => Some(bytes.as_slice()),
+            _ => None,
+        })
+        .collect();
+    a.skipped().is_none()
+        && b.skipped().is_none()
+        && !content.is_empty()
+        && !content.iter().any(|bytes| module.detect(bytes))
+}
+
+/// Un archivo de otro formato: como uno sin módulo (`FileFormat::Unknown`).
+fn other_format(module: &dyn FormatModule, path: &str) -> FileChange {
+    let mut report = FileChange::new(FileFormat::Unknown);
+    report.warnings.push(format!(
+        "{path}: no es un archivo de {} (otro formato con la misma extensión); no se compara.",
+        module.info().name
+    ));
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn otro_formato_con_la_misma_extension() {
+        let registry = crate::modules::registry();
+        let Some(xschem) = registry.for_path("a.sch") else { return };
+        let kicad = Blob::Bytes(b"EESchema Schematic File Version 4\n".to_vec());
+        let sch = Blob::Bytes(b"v {xschem version=3.4.5 file_version=1.2}\n".to_vec());
+        assert!(is_other_format(xschem.as_ref(), &kicad, &Blob::Missing));
+        assert!(is_other_format(xschem.as_ref(), &kicad, &kicad));
+        // Uno se reconoce: se compara (y el otro, roto, será un error).
+        assert!(!is_other_format(xschem.as_ref(), &sch, &kicad));
+        assert!(!is_other_format(xschem.as_ref(), &Blob::Missing, &Blob::Missing));
+        assert!(!is_other_format(xschem.as_ref(), &kicad, &Blob::Skipped("grande".into())));
+        let report = other_format(xschem.as_ref(), "k.sch");
+        assert_eq!((report.format, report.error.is_none()), (FileFormat::Unknown, true));
+    }
 
     #[test]
     fn tokens_del_visor() {

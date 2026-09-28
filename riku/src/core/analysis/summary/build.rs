@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
+use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat};
 
 use super::labels;
 use super::types::{DetailEntry, DetailKind, DetailLevel, FileSummary, SummaryCategory};
@@ -23,6 +23,10 @@ impl FileSummary {
 
     /// Construye un summary desde un `FileChange` con el nivel solicitado.
     pub fn from_report_with(report: &FileChange, path: &str, level: DetailLevel) -> Self {
+        // Otro formato con la extensión de un módulo (ver `diff_pair`).
+        if report.error.is_none() && report.format == FileFormat::Unknown {
+            return Self { warnings: report.warnings.clone(), ..Self::unknown(path) };
+        }
         if let Some(err) = &report.error {
             return Self { format: report.format.clone(), warnings: report.warnings.clone(), ..Self::error(path, err.clone()) };
         }
