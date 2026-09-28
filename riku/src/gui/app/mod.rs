@@ -56,6 +56,9 @@ pub struct RikuGuiApp {
     show_all_files: bool,
     /// Sin animaciones ni inercia (accesibilidad: movimiento reducido).
     reduce_motion: bool,
+    /// Dos dedos en el touchpad (o la rueda) mueven la vista en vez de hacer
+    /// zoom (ver `canvas::CanvasOptions::scroll_pans`).
+    scroll_pans: bool,
     /// Resumir en bloques lo menor a un píxel al alejarse (layouts grandes).
     simplify: bool,
     /// Lado máximo de un bloque de nivel de detalle, en píxeles
@@ -105,6 +108,7 @@ const PREF_LABELS: &str = "riku.show_labels";
 const PREF_LEGEND: &str = "riku.show_legend";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
+const PREF_SCROLL_PANS: &str = "riku.scroll_pans";
 const PREF_SIMPLIFY: &str = "riku.simplify";
 const PREF_NATIVE_FRAME: &str = "riku.native_frame";
 const PREF_RECENT: &str = "riku.recent_files";
@@ -159,6 +163,7 @@ impl RikuGuiApp {
         let show_legend = pref(PREF_LEGEND, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
+        let scroll_pans = pref(PREF_SCROLL_PANS, false);
         let simplify = pref(PREF_SIMPLIFY, true);
         // La ventana arranca sin marco (ver `window_frame`); si el usuario
         // prefiere el del sistema, se lo devuelve.
@@ -204,6 +209,7 @@ impl RikuGuiApp {
             show_legend,
             show_all_files,
             reduce_motion,
+            scroll_pans,
             simplify,
             profile: std::env::var_os("RIKU_PROFILE").is_some(),
             native_frame,
@@ -362,6 +368,7 @@ impl eframe::App for RikuGuiApp {
         eframe::set_value(storage, PREF_LEGEND, &self.show_legend);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
+        eframe::set_value(storage, PREF_SCROLL_PANS, &self.scroll_pans);
         eframe::set_value(storage, PREF_HISTORY_H, &self.history.height);
         eframe::set_value(storage, PREF_SIMPLIFY, &self.simplify);
         eframe::set_value(storage, PREF_NATIVE_FRAME, &self.native_frame);

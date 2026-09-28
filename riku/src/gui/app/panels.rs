@@ -126,6 +126,11 @@ impl RikuGuiApp {
                             .on_hover_text(tr!("settings.reduce_motion_hint"));
                         ui.checkbox(&mut self.simplify, tr!("settings.simplify"))
                             .on_hover_text(tr!("settings.simplify_hint"));
+                        ui.horizontal(|ui| {
+                            ui.label(tr!("settings.scroll")).on_hover_text(tr!("settings.scroll_hint"));
+                            ui.selectable_value(&mut self.scroll_pans, false, tr!("settings.scroll_zoom"));
+                            ui.selectable_value(&mut self.scroll_pans, true, tr!("settings.scroll_pan"));
+                        });
                         if ui
                             .checkbox(&mut self.native_frame, tr!("settings.native_frame"))
                             .on_hover_text(tr!("settings.native_frame_hint"))
@@ -151,7 +156,11 @@ impl RikuGuiApp {
                             ("L".to_string(), tr!("shortcut.labels")),
                             ("H".to_string(), tr!("shortcut.history")),
                             ("+ / −".to_string(), tr!("shortcut.zoom_keys")),
-                            (tr!("shortcut.wheel"), tr!("shortcut.wheel_what")),
+                            (
+                                tr!("shortcut.wheel"),
+                                if self.scroll_pans { tr!("shortcut.wheel_pan") } else { tr!("shortcut.wheel_what") },
+                            ),
+                            (tr!("shortcut.pinch"), tr!("shortcut.pinch_what")),
                             (tr!("shortcut.drag"), tr!("shortcut.drag_what")),
                         ] {
                             ui.horizontal(|ui| {
@@ -353,6 +362,7 @@ impl RikuGuiApp {
             // Escena cargada por el backend del formato (todos los formatos).
             let opts = CanvasOptions {
                 reduce_motion: self.reduce_motion,
+                scroll_pans: self.scroll_pans,
                 labels: self.show_labels,
                 legend: self.show_legend,
                 simplify: self.simplify,

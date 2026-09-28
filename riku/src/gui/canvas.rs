@@ -15,6 +15,9 @@ use crate::gui::theme::CanvasTheme;
 pub(crate) struct CanvasOptions {
     /// Sin animaciones ni inercia (movimiento reducido).
     pub reduce_motion: bool,
+    /// Dos dedos en el touchpad (o la rueda) mueven la vista en vez de
+    /// hacer zoom; el zoom queda en pellizcar o Ctrl + rueda.
+    pub scroll_pans: bool,
     pub labels: bool,
     /// Leyenda de las capas a la vista.
     pub legend: bool,
@@ -50,9 +53,13 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
     // animación o inercia en el valor que tenga en pantalla (interrumpible,
     // sin saltos).
     let pressed = response.hovered() && ctx.input(|i| i.pointer.any_pressed());
-    let scroll = ctx.input(|i| i.smooth_scroll_delta.y as f64);
-    let wheel = scroll.abs() > f64::EPSILON && response.hovered();
-    if pressed || wheel {
+    // Rueda o dos dedos (x: a los lados, y: arriba/abajo) y pellizco o
+    // Ctrl + rueda (egui los junta en `zoom_delta`, sin desplazamiento).
+    let (scroll, pinch) = ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta() as f64));
+    let (sx, sy) = (scroll.x as f64, scroll.y as f64);
+    let scrolled = response.hovered() && (sx.abs() > f64::EPSILON || sy.abs() > f64::EPSILON);
+    let pinched = response.hovered() && (pinch - 1.0).abs() > 1e-6;
+    if pressed || scrolled || pinched {
         bs.anim = None;
         bs.inertia = None;
     }
@@ -68,10 +75,21 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
         let v = ctx.input(|i| i.pointer.velocity());
         bs.inertia = Inertia::from_release(v.x as f64, v.y as f64);
     }
-    if wheel {
-        // Zoom anclado al cursor (o al centro si no hay puntero).
-        let anchor = response.hover_pos().unwrap_or(rect.center());
-        zoom_at_screen(&mut bs.viewport, 1.0 + scroll * 0.002, anchor, rect);
+    // Zoom anclado al cursor (o al centro si no hay puntero).
+    let anchor = response.hover_pos().unwrap_or(rect.center());
+    if pinched {
+        zoom_at_screen(&mut bs.viewport, pinch, anchor, rect);
+    }
+    if scrolled {
+        match scroll_action(sx, sy, opts.scroll_pans) {
+            ScrollAction::Pan(dx, dy) => bs.viewport.pan_by_screen(dx, dy),
+            ScrollAction::ZoomAndPan { zoom, dx } => {
+                zoom_at_screen(&mut bs.viewport, zoom, anchor, rect);
+                bs.viewport.pan_by_screen(dx, 0.0);
+            }
+        }
+    }
+    if scrolled || pinched {
         bs.fitted_size = None;
         ctx.request_repaint();
     }
@@ -211,5 +229,43 @@ fn cursor_icon(ctx: &egui::Context, response: &egui::Response) {
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if response.hovered() {
         ctx.set_cursor_icon(egui::CursorIcon::Grab);
+    }
+}
+
+/// Qué hace un desplazamiento de la rueda o de dos dedos en el touchpad.
+#[derive(Debug, PartialEq)]
+enum ScrollAction {
+    /// Mover la vista (como arrastrar el contenido).
+    Pan(f64, f64),
+    /// Zoom con lo vertical (como la rueda del mouse) y mover con lo
+    /// horizontal (dos dedos a los lados, o Shift + rueda).
+    ZoomAndPan { zoom: f64, dx: f64 },
+}
+
+/// `scroll_pans`: el ajuste "Dos dedos / rueda: mover". Por defecto la
+/// rueda hace zoom; en WSLg el touchpad llega igual que la rueda, así que
+/// no se puede decidir solo por el tipo de evento.
+fn scroll_action(dx: f64, dy: f64, scroll_pans: bool) -> ScrollAction {
+    if scroll_pans {
+        ScrollAction::Pan(dx, dy)
+    } else {
+        ScrollAction::ZoomAndPan { zoom: 1.0 + dy * 0.002, dx }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_rueda_hace_zoom_y_lo_horizontal_mueve() {
+        let ScrollAction::ZoomAndPan { zoom, dx } = scroll_action(0.0, 50.0, false) else { panic!("zoom") };
+        assert!((zoom - 1.1).abs() < 1e-9 && dx == 0.0, "{zoom} {dx}");
+        assert_eq!(scroll_action(30.0, 0.0, false), ScrollAction::ZoomAndPan { zoom: 1.0, dx: 30.0 });
+    }
+
+    #[test]
+    fn en_modo_mover_los_dos_ejes_mueven() {
+        assert_eq!(scroll_action(30.0, -20.0, true), ScrollAction::Pan(30.0, -20.0));
     }
 }

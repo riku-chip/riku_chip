@@ -42,7 +42,8 @@ Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la difer
 | Acción | Cómo |
 |---|---|
 | Mover la vista | arrastrar (al soltar rápido sigue por inercia; un clic la frena) |
-| Zoom | rueda (hacia el cursor) o **+** / **−** |
+| Zoom | rueda (hacia el cursor), pellizcar en el touchpad o Ctrl + rueda, o **+** / **−** |
+| Touchpad | dos dedos a los lados mueven la vista; arriba/abajo hacen zoom como la rueda, o mueven con **Ajustes → Dos dedos / rueda: Mover** (el zoom queda en pellizcar) |
 | Encuadrar todo | **Encuadrar** o **F** |
 | Mostrar u ocultar textos | **Etiquetas** o **L** |
 | Qué capa es cada color | **Leyenda** o **G**: las capas de lo que está a la vista, abajo a la izquierda (con el zoom lejos, las del archivo) |
