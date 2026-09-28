@@ -16,7 +16,7 @@ mod change;
 mod format;
 mod module;
 
-pub use change::{Bounds, Change, ChangeKind, Detail, Element, FileChange, Value, Via};
+pub use change::{Bounds, Change, ChangeKind, Detail, Element, FileChange, Severity, Value, Via};
 pub use format::FileFormat;
 pub use module::{DiffOptions, FormatModule, ModuleInfo, Registry};
 // Otros archivos de la misma versión (formatos de varios archivos).

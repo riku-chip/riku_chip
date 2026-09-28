@@ -83,7 +83,9 @@ pub struct Netlist {
     pub devices: Vec<(Device, Terminals)>,
     /// Cada resistor y las redes de sus dos terminales.
     pub resistors: Vec<(Resistor, [usize; 2])>,
-    /// La red de cada etiqueta de la entrada (`None` si no cayó sobre su tipo).
+    /// Las etiquetas de la entrada y la red de cada una (`None` si no cayó
+    /// sobre su tipo).
+    pub labels: Vec<NetLabel>,
     pub label_nets: Vec<Option<usize>>,
     pub warnings: Vec<String>,
 }
@@ -388,7 +390,7 @@ pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, lab
             (r, [a, b])
         })
         .collect();
-    Netlist { nets, devices, resistors, label_nets, warnings }
+    Netlist { nets, devices, resistors, labels: labels.to_vec(), label_nets, warnings }
 }
 
 #[cfg(test)]

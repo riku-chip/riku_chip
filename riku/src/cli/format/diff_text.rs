@@ -65,8 +65,10 @@ fn display_name(c: &Change) -> String {
 }
 
 fn print_change(c: &Change) {
-    println!("  {} {}", super::color::marker(marker_for_change(c.kind)), display_name(c));
+    let marker = if c.severity.is_some() { "!" } else { marker_for_change(c.kind) };
+    println!("  {} {}", super::color::marker(marker), display_name(c));
     match &c.element {
+        Element::LayoutNet { .. } => print_layout_net(c),
         Element::Geometry { .. } => print_geometry(c),
         Element::Signal { .. } => print_signal(c),
         Element::Port { .. } | Element::Device { .. } => print_port(c),
@@ -96,6 +98,21 @@ fn print_geometry(c: &Change) {
     let area = |k: &str| format!("{:.3}", c.after(k).and_then(Value::as_f64).unwrap_or(0.0));
     println!("      +{} polys / +{} µm²", count("added_polygons"), area("added_area_um2"));
     println!("      -{} polys / -{} µm²", count("removed_polygons"), area("removed_area_um2"));
+    if let Some(b) = c.location {
+        println!("      bbox: ({:.3}, {:.3}) → ({:.3}, {:.3}) µm", b.min_x, b.min_y, b.max_x, b.max_y);
+    }
+}
+
+/// Abierto o corto de una red: qué redes había y cuáles hay, y dónde.
+fn print_layout_net(c: &Change) {
+    let show = |v: Option<&Value>| v.map_or_else(|| "—".to_string(), Value::to_string);
+    let kind = c.after("kind").map(Value::to_string).unwrap_or_default();
+    let what = match kind.as_str() {
+        "open" => tr!("diff.net_open"),
+        "short" => tr!("diff.net_short"),
+        _ => tr!("diff.net_renamed"),
+    };
+    println!("      {what}: {} → {}", show(c.before("nets")), show(c.after("nets")));
     if let Some(b) = c.location {
         println!("      bbox: ({:.3}, {:.3}) → ({:.3}, {:.3}) µm", b.min_x, b.min_y, b.max_x, b.max_y);
     }

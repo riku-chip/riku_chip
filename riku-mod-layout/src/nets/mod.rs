@@ -3,10 +3,12 @@
 //! los transistores. Con las reglas del `.tech` de Magic del PDK, como los
 //! transistores (ver `docs/electrico.md`, nivel 3).
 
+mod diff;
 mod extract;
 mod netlist;
 
 pub use extract::{build, Net, NetLabel, Netlist, Resistor, Terminals};
+pub use diff::{cell_net_changes, net_changes, net_label, NetChange, NetChangeKind};
 pub use netlist::{fingers, spice, Fingers};
 
 use std::collections::HashMap;

@@ -96,6 +96,10 @@ pub struct GdsDiffReport {
     /// (ver `docs/electrico.md`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub devices: Vec<crate::devices::DeviceChange>,
+    /// Abiertos, cortos y renombres de redes, en las celdas con cambios en
+    /// una capa conductora (nivel 3 de `docs/electrico.md`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nets: Vec<crate::nets::NetChange>,
     pub warnings: Vec<String>,
 }
 
@@ -241,6 +245,7 @@ pub fn diff_layout_sides(
             }
             if let (Some(a), Some(b)) = (&la, &lb) {
                 device_changes(&a.lib, &b.lib, path, &mut report);
+                net_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, &mut report);
             }
             Ok(report)
         })
@@ -279,6 +284,52 @@ fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffRe
     if !skipped.is_empty() {
         report.warnings.push(format!(
             "transistores no comparados en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
+            skipped.join(", "),
+            crate::devices::MAX_POLYGONS / 1_000_000
+        ));
+    }
+}
+
+/// Abiertos y cortos en cada celda con cambios en una capa que conduce
+/// (según las reglas del PDK); una celda demasiado grande queda en un aviso.
+fn net_changes(
+    la: &Library,
+    lb: &Library,
+    info: (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
+    path: &str,
+    report: &mut GdsDiffReport,
+) {
+    let Some(rules) = crate::devices::rules_for_library(lb, Some(path)) else { return };
+    let mut types = rules.conductors();
+    types.extend(rules.resistors.iter().map(|r| r.magic.clone()));
+    let used = rules.type_layers(&types);
+    let magic: HashMap<(u32, u32), String> = lb.layer_names().into_iter().map(|(t, n)| ((t.layer, t.datatype), n)).collect();
+    let relevant = |k: &LayerKey| {
+        used.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
+            || magic.get(&(k.layer, k.datatype)).is_some_and(|n| types.iter().any(|t| t == rules.canonical(n)))
+    };
+    let mut cells: BTreeMap<&str, Vec<[f64; 4]>> = BTreeMap::new();
+    for g in report.geometry.iter().filter(|g| relevant(&g.layer)) {
+        let boxes = cells.entry(g.cell.as_str()).or_default();
+        if let Some(b) = g.bbox_um {
+            boxes.push([b.min_x, b.min_y, b.max_x, b.max_y]);
+        }
+    }
+    let found: Vec<(&str, Option<Vec<crate::nets::NetChange>>)> = cells
+        .par_iter()
+        .map(|(&c, boxes)| (c, crate::nets::cell_net_changes(la, lb, c, rules, crate::devices::MAX_POLYGONS, info, boxes)))
+        .collect();
+    let mut skipped = Vec::new();
+    for (cell, changes) in found {
+        match changes {
+            Some(v) => report.nets.extend(v),
+            None if la.find_cell(cell).is_some() && lb.find_cell(cell).is_some() => skipped.push(cell.to_string()),
+            None => {}
+        }
+    }
+    if !skipped.is_empty() {
+        report.warnings.push(format!(
+            "redes no comparadas en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
             skipped.join(", "),
             crate::devices::MAX_POLYGONS / 1_000_000
         ));
@@ -1047,6 +1098,36 @@ mod tests {
 
         let d = diff_cell_as(Some(&a), "INV", Some(&b), "INV_X1", &DiffConfig::default());
         assert!(d.geometry.is_empty(), "{:?}", d.geometry);
+    }
+
+    fn nand2_diff(a: &str, b: &str) -> GdsDiffReport {
+        diff_layout_sides(
+            LayoutSide { bytes: &fixture_bytes(a), files: None },
+            LayoutSide { bytes: &fixture_bytes(b), files: None },
+            "nand2.gds",
+            &DiffConfig::default(),
+            &crate::DiffCache::disabled(),
+        )
+        .expect("diff")
+    }
+
+    #[test]
+    fn report_lists_shorts_and_opens() {
+        use crate::nets::NetChangeKind;
+        // Un li entre la entrada B y la salida Y (gen_nand2_nets.py).
+        let r = nand2_diff("nand2_a.gds", "nand2_short.gds");
+        assert_eq!(r.nets.len(), 1, "{:?}", r.nets);
+        let n = &r.nets[0];
+        assert_eq!((n.kind, n.before.clone(), n.after.clone()), (NetChangeKind::Short, vec!["B".to_string(), "Y".into()], vec!["B = Y".to_string()]));
+        // Dónde: el li agregado, lo que no se superpone con el que había.
+        let want = [0.43, 1.10, 0.60, 1.28];
+        assert!(n.bbox_um.iter().zip(want).all(|(x, y)| (x - y).abs() < 1e-6), "{:?}", n.bbox_um);
+        // Sin las vías del riel de tierra: VGND se parte en dos.
+        let r = nand2_diff("nand2_a.gds", "nand2_open.gds");
+        assert_eq!(r.nets.len(), 1, "{:?}", r.nets);
+        let n = &r.nets[0];
+        assert_eq!((n.kind, n.before.clone(), n.after.len()), (NetChangeKind::Open, vec!["VGND".to_string()], 2));
+        assert!(nand2_diff("nand2_a.gds", "nand2_b.gds").nets.is_empty(), "un transistor más angosto no cambia las redes");
     }
 
     #[test]

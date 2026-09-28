@@ -6,7 +6,7 @@ Hoy Riku muestra y compara **capas**: dice cuánta área de `poly` cambió, no q
 |---|---|---|
 | 1. Leer el dibujo | Leyenda y resaltar una capa | Hecho ([`gui.md`](gui.md#controles)) |
 | 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | Hecho (fases 2.1–2.6); ver abajo |
-| 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | En curso: 3.1–3.3 hechas (ver abajo) |
+| 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | En curso: 3.1–3.4 hechas (ver abajo) |
 | 4. LVS | Layout contra esquemático, con el resultado en el visor | Idea |
 | 5. Chequeos eléctricos | ERC, antena, parásitos, post-layout | Idea |
 
@@ -205,7 +205,8 @@ En total, **L** (una a dos semanas). La 3.1 y la 3.2 no cambian nada visible; la
 
 - **3.1–3.3 hechas** (`riku-mod-layout/src/nets/`, `devices/regions.rs`): redes, terminales, fingers, resistores y la netlist SPICE (`examples/nets.rs`). Verificación en [`tools/verify/README.md`](../tools/verify/README.md#redes-toolsverifynets): con Netgen, GF180MCU 219 de 219 celdas, SKY130 422 de 427, IHP 68 de 73; las diferencias, confirmadas con Magic, son de las netlists del PDK. SRAM del repo: 2,1 s.
 - **Diferencias con el diseño:** `grow` y `shrink` se evalúan (con `offset_owned`, nuevo en gdstk_rust): el pozo P de SKY130 se arma agrandando la difusión, y `npd` de la SRAM es `npass` sin las compuertas angostas. Magic pinta los tipos en orden y en un mismo plano el posterior tapa al anterior; sin eso IHP daba cortos falsos. Las regiones se unen agrandadas medio nanómetro (Clipper puede dejar separados polígonos que comparten un borde). Una etiqueta es pin si cae sobre un polígono de pin (`labels LIPIN port`), o en Magic si tiene `port`. También se reconocen resistores (`device resistor|rsubcircuit`); los de modelo `None` (metal en IHP) son cortos.
-- **Pendiente:** la SRAM contra Magic difiere en los pull-ups de la celda de memoria (Magic cuenta 720 `special_pfet_latch`, Riku y KLayout 360).
+- **3.4 hecha** (`nets/diff.rs`): abiertos, cortos y renombres en `riku diff`/`show`, texto y JSON (`layout_net`, `severity`), con los fixtures `nand2_short.gds` y `nand2_open.gds` (`gen_nand2_nets.py`). Los transistores que cambian de red no se listan aparte: ese cambio ya es un abierto o un corto.
+- **SRAM contra Magic:** difiere en los pull-ups de la celda de memoria (Magic cuenta 720 `special_pfet_latch`, Riku y KLayout 360). Los 360 de más son de L 0,025 µm con fuente y drenaje en la misma red: la línea de palabra pisando el borde de una difusión, que Magic anota como un transistor en corto y Riku y KLayout descartan (la compuerta tiene que separar dos regiones). No es un error de Riku.
 
 ### Decisiones abiertas
 

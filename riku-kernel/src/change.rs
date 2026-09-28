@@ -76,6 +76,18 @@ pub struct Change {
     /// Propiedades del elemento antes y después.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<Detail>,
+    /// Qué tan grave es: `error` en un abierto o un corto de un layout. Sin
+    /// él, un cambio común.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<Severity>,
+}
+
+/// La gravedad de un cambio que no es solo "algo distinto".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// Cambia el circuito: un abierto o un corto.
+    Error,
 }
 
 impl Change {
@@ -88,7 +100,13 @@ impl Change {
             renamed_from: None,
             location: None,
             details: Vec::new(),
+            severity: None,
         }
+    }
+
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
     }
 
     pub fn cosmetic(mut self, cosmetic: bool) -> Self {
@@ -153,6 +171,10 @@ pub enum Element {
     /// Transistor de una celda de un layout: su modelo y un punto dentro de
     /// su compuerta (µm). Los `details` dicen `model`, `w_um` y `l_um`.
     Device { cell: String, model: String, at: [f64; 2] },
+    /// Red de una celda de un layout (su etiqueta, o cómo encontrarla si no
+    /// tiene: `d de nfet_01v8 en (1.20, 0.50)`). Los `details` dicen `kind`
+    /// (`open`, `short`) y las redes de antes y después.
+    LayoutNet { cell: String, name: String },
     /// Señal de una simulación (`v(out)`, `i(vdd)`) dentro de un análisis
     /// (`Transient Analysis`).
     Signal { plot: String, name: String },
@@ -177,6 +199,7 @@ impl Element {
             }
             Self::Port { cell, name } => format!("{cell}:port:{name}"),
             Self::Device { cell, model, at } => format!("{cell}:{model} @ ({:.3}, {:.3})", at[0], at[1]),
+            Self::LayoutNet { cell, name } => format!("{cell}:net:{name}"),
         }
     }
 }
@@ -328,6 +351,13 @@ mod tests {
         let d = Element::Device { cell: "inv".into(), model: "sky130_fd_pr__nfet_01v8".into(), at: [1.2, 0.5] };
         assert_eq!(serde_json::to_value(&d).unwrap()["type"], "device");
         assert_eq!(d.name(), "inv:sky130_fd_pr__nfet_01v8 @ (1.200, 0.500)");
+        let n = Element::LayoutNet { cell: "inv".into(), name: "Y".into() };
+        assert_eq!((n.name(), serde_json::to_value(&n).unwrap()["type"].as_str()), ("inv:net:Y".to_string(), Some("layout_net")));
+        let c = Change::new(ChangeKind::Modified, n).with_severity(Severity::Error);
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(v["severity"], "error");
+        assert!(serde_json::to_value(Change::new(ChangeKind::Added, Element::Whole)).unwrap().get("severity").is_none(), "sin gravedad, el JSON de siempre");
+        assert_eq!(serde_json::from_value::<Change>(v).unwrap(), c);
         let p = Element::Port { cell: "inv".into(), name: "A".into() };
         assert_eq!(p.name(), "inv:port:A");
         assert_eq!(serde_json::to_value(&p).unwrap()["type"], "port");

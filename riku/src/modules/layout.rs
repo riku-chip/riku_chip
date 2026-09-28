@@ -110,6 +110,31 @@ fn device_change(d: &riku_mod_layout::devices::DeviceChange) -> Change {
     c
 }
 
+/// Un abierto, un corto o un renombre de una red: `kind` y las redes de
+/// antes y después (varias, separadas por coma). Abiertos y cortos son
+/// errores: cambian el circuito.
+fn net_change(n: &riku_mod_layout::nets::NetChange) -> Change {
+    use riku_kernel::{Severity, Value};
+    use riku_mod_layout::nets::NetChangeKind;
+    let list = |v: &[String]| Some(Value::Text(v.join(", ")));
+    let (kind, name, word) = match n.kind {
+        NetChangeKind::Open => (ChangeKind::Modified, n.before.join(", "), "open"),
+        NetChangeKind::Short => (ChangeKind::Modified, n.after.join(", "), "short"),
+        NetChangeKind::Renamed => (ChangeKind::Renamed, n.after.join(", "), "renamed"),
+    };
+    let mut c = Change::new(kind, Element::LayoutNet { cell: n.cell.clone(), name })
+        .with_detail("kind", None, Some(Value::Text(word.into())))
+        .with_detail("nets", list(&n.before), list(&n.after));
+    if n.kind == NetChangeKind::Renamed {
+        c.renamed_from = n.before.first().cloned();
+    } else {
+        c = c.with_severity(Severity::Error);
+    }
+    let b = n.bbox_um;
+    c.location = Some(Bounds { min_x: b[0], min_y: b[1], max_x: b[2], max_y: b[3] });
+    c
+}
+
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
         GdsError::NotGdsii { side } => format!(
@@ -205,6 +230,9 @@ impl FormatModule for LayoutModule {
         for d in &r.devices {
             report.changes.push(device_change(d));
         }
+        // Abiertos y cortos primero: son lo más grave del reporte.
+        let nets: Vec<Change> = r.nets.iter().map(net_change).collect();
+        report.changes.splice(0..0, nets);
         report.warnings.extend(r.warnings);
         report
     }

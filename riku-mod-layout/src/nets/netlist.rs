@@ -137,6 +137,7 @@ mod tests {
                 (dev("mini__nfet", 0.65), Terminals { d: 3, g: 1, s: 2, b: 2 }),
             ],
             resistors: Vec::new(),
+            labels: Vec::new(),
             label_nets: Vec::new(),
             warnings: Vec::new(),
         }

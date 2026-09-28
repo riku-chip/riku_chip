@@ -37,7 +37,7 @@ pub fn bold(s: &str) -> String {
 pub fn marker(m: &str) -> String {
     match m {
         "+" => green(m),
-        "-" => red(m),
+        "-" | "!" => red(m),
         _ => yellow(m),
     }
 }
