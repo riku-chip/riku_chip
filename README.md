@@ -189,6 +189,7 @@ Todas las opciones, el JSON y los códigos de salida: [`docs/cli.md`](docs/cli.m
 | [`docs/gui.md`](docs/gui.md) | El visor |
 | [`docs/formatos.md`](docs/formatos.md) | Qué compara cada formato: Xschem, layouts (GDS/OASIS/Magic, con transistores y redes) y simulaciones |
 | [`docs/desarrollo.md`](docs/desarrollo.md) | Compilar, probar, verificar (KLayout, Magic, Netgen), arquitectura, reglas y publicar |
+| [`docs/arquitectura.html`](docs/arquitectura.html) | Diagrama interactivo de la arquitectura: CLI y visor, núcleo, módulos por formato, motor de layouts y PDK (descargarlo y abrirlo en el navegador) |
 | [`docs/pendientes.md`](docs/pendientes.md) | Lo que falta: pendientes, ideas (LVS, chequeos eléctricos) y limitaciones |
 
 **Estado:** alpha. Los tres tipos de archivo funcionan de punta a punta; los layouts de millones de polígonos se comparan en segundos y con menos de 1 GB. Para contribuir: `cargo test --workspace` en verde y commits `tipo(alcance): …`.
