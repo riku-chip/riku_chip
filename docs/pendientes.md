@@ -54,7 +54,7 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 
 **Entender el layout y su parte eléctrica** (hoy el visor muestra capas; quien no sabe de layouts no ve transistores ni redes). Cada nivel se apoya en el anterior:
 
-1. **Leer el dibujo** (S): una leyenda en el lienzo con las capas visibles en esa zona, y **resaltar una capa** al pasar el mouse por su nombre en el panel **Capas** (el resto atenuado).
+1. ~~**Leer el dibujo**~~: hecho (leyenda y resaltar una capa, ver [`gui.md`](gui.md#controles)).
 2. **Dispositivos** (M–L): reconocer transistores donde el poly cruza la difusión, con su tipo (N o P, por el pozo y el implante), W y L, y marcarlos en el visor. En el diff, cambios de dispositivo ("M3: W 0,42 → 0,84 µm") en vez de solo área por capa. Las reglas de cada PDK están en sus decks de extracción (Magic `.tech`, LVS de KLayout).
 3. **Conectividad** (L): unir las capas por contactos y vías para armar las redes del layout, y comparar redes entre versiones: una red que se partió (abierto) o dos que se unieron (corto). Es lo que un diff de área no ve.
 4. **LVS** (M, con herramientas externas): layout contra esquemático en cada commit (el flujo de *Verificación en CI*, abajo). Riku mostraría el resultado junto al diff: qué dispositivos o redes no coinciden y dónde están en el layout.

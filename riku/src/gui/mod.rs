@@ -20,6 +20,7 @@ mod home;
 pub(crate) use crate::i18n;
 mod label_layout;
 mod launch;
+mod legend;
 mod loader;
 mod motion;
 mod polygon_fill;

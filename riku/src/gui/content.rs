@@ -79,6 +79,12 @@ pub(crate) struct SceneState {
     /// Capas ocultas desde el panel de detalles, por **nombre** (`"met1 68/20"`):
     /// las claves numéricas cambian entre celdas, el nombre no.
     pub hidden_layers: HashSet<String>,
+    /// Capa resaltada fija (clic en su nombre), también por nombre.
+    pub layer_focus: Option<String>,
+    /// Capa bajo el puntero en el panel Capas y en la leyenda: resalta
+    /// mientras el puntero está encima. Cada uno pone la suya en cada cuadro.
+    pub layer_hover_panel: Option<String>,
+    pub layer_hover_legend: Option<String>,
     /// Buscador y filtro del selector de celdas.
     pub entry_query: String,
     pub only_roots: bool,
@@ -122,6 +128,9 @@ impl SceneState {
                 needs_fit: true,
                 fitted_size: None,
                 hidden_layers: HashSet::new(),
+                layer_focus: None,
+                layer_hover_panel: None,
+                layer_hover_legend: None,
                 entry_query: String::new(),
                 only_roots: true,
                 only_changed: true,
@@ -143,6 +152,26 @@ impl SceneState {
             .filter(|(_, p)| self.hidden_layers.contains(&p.name))
             .map(|(k, _)| k)
             .collect()
+    }
+
+    /// Nombre de la capa resaltada: la del puntero, o la fija.
+    pub(crate) fn focused_layer(&self) -> Option<&str> {
+        self.layer_hover_panel.as_deref().or(self.layer_hover_legend.as_deref()).or(self.layer_focus.as_deref())
+    }
+
+    /// Clave de la capa resaltada en la escena actual (una capa oculta no
+    /// se resalta: no hay nada que ver).
+    pub(crate) fn focus_key(&self) -> Option<Layer> {
+        let name = self.focused_layer()?;
+        if self.hidden_layers.contains(name) {
+            return None;
+        }
+        self.scene.layer_list().into_iter().find(|(_, p)| p.name == name).map(|(k, _)| k)
+    }
+
+    /// Clic en el nombre de una capa: la fija como resaltada, o la suelta.
+    pub(crate) fn toggle_layer_focus(&mut self, name: &str) {
+        self.layer_focus = if self.layer_focus.as_deref() == Some(name) { None } else { Some(name.to_string()) };
     }
 
     /// Pestaña actual si es un diff.

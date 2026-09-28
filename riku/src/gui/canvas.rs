@@ -16,6 +16,8 @@ pub(crate) struct CanvasOptions {
     /// Sin animaciones ni inercia (movimiento reducido).
     pub reduce_motion: bool,
     pub labels: bool,
+    /// Leyenda de las capas a la vista.
+    pub legend: bool,
     /// Resumir en bloques lo menor a un píxel.
     pub simplify: bool,
     pub block_px: f64,
@@ -136,6 +138,7 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
         labels: opts.labels,
         lod: opts.simplify,
         block_px: opts.block_px,
+        focus: bs.focus_key(),
     };
     let t_paint = std::time::Instant::now();
     let stats = ui
@@ -151,6 +154,11 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
             stats.elements,
             stats.lod_level
         );
+    }
+    if opts.legend {
+        crate::gui::legend::show(ui, response.rect, bs, &stats);
+    } else {
+        bs.layer_hover_legend = None;
     }
     let xf = ScreenXform::new(response.rect, &bs.viewport, bs.scene.y_axis());
     let readout = Readout {

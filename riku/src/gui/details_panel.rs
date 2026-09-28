@@ -53,6 +53,7 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState) {
     }
 
     let layers = scene.layer_list();
+    bs.layer_hover_panel = None;
     if layers.is_empty() {
         return;
     }
@@ -73,7 +74,7 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState) {
         egui::ScrollArea::vertical().id_salt("layer_list").show(ui, |ui| {
             let theme = CanvasTheme::from_visuals(ui.visuals());
             for (_, paint) in &layers {
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     let mut visible = !bs.hidden_layers.contains(&paint.name);
                     if ui.checkbox(&mut visible, "").changed() {
                         if visible {
@@ -86,9 +87,21 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState) {
                     let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
                     let (fill, stroke) = theme.layer_colors(to_color32(paint.fill), to_color32(paint.stroke));
                     ui.painter().rect(rect, 3.0, fill, egui::Stroke::new(1.5_f32, stroke), egui::StrokeKind::Inside);
+                    // Clic en el nombre: resaltarla (fija); otro clic la suelta.
                     let name = RichText::new(&paint.name);
-                    ui.label(if visible { name } else { name.weak() });
+                    let pinned = bs.layer_focus.as_deref() == Some(paint.name.as_str());
+                    if ui
+                        .selectable_label(pinned, if visible { name } else { name.weak() })
+                        .on_hover_text(tr!("details.layer_focus_hint"))
+                        .clicked()
+                    {
+                        bs.toggle_layer_focus(&paint.name);
+                    }
                 });
+                // Puntero sobre la fila: resaltarla mientras esté encima.
+                if row.response.contains_pointer() {
+                    bs.layer_hover_panel = Some(paint.name.clone());
+                }
             }
         });
     });

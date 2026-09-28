@@ -45,6 +45,8 @@ Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la difer
 | Zoom | rueda (hacia el cursor) o **+** / **−** |
 | Encuadrar todo | **Encuadrar** o **F** |
 | Mostrar u ocultar textos | **Etiquetas** o **L** |
+| Qué capa es cada color | **Leyenda** o **G**: las capas de lo que está a la vista, abajo a la izquierda (con el zoom lejos, las del archivo) |
+| Resaltar una capa | pasar el cursor por su nombre en **Capas** o en la leyenda (el resto se atenúa); un clic la deja resaltada, otro clic o **Esc** la suelta |
 | Info de un polígono | dejar el cursor encima: capa, tamaño, área |
 | Coordenadas y escala | barra de estado: `x`, `y` y tamaño de 1 px |
 | Abrir un archivo | panel **Proyecto**, arrastrarlo a la ventana, o **Recientes** |

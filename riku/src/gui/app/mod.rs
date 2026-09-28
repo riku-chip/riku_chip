@@ -50,6 +50,8 @@ pub struct RikuGuiApp {
     // ─── Preferencias (persisten entre sesiones) ────────────────────────────
     /// Dibujar etiquetas de texto en el lienzo.
     show_labels: bool,
+    /// Leyenda de capas en el lienzo.
+    show_legend: bool,
     /// Árbol de proyecto con todos los archivos, no solo los que se abren.
     show_all_files: bool,
     /// Sin animaciones ni inercia (accesibilidad: movimiento reducido).
@@ -100,6 +102,7 @@ pub struct RikuGuiApp {
 
 /// Claves de persistencia (eframe storage).
 const PREF_LABELS: &str = "riku.show_labels";
+const PREF_LEGEND: &str = "riku.show_legend";
 const PREF_ALL_FILES: &str = "riku.show_all_files";
 const PREF_REDUCE_MOTION: &str = "riku.reduce_motion";
 const PREF_SIMPLIFY: &str = "riku.simplify";
@@ -153,6 +156,7 @@ impl RikuGuiApp {
             cc.storage.and_then(|s| eframe::get_value::<bool>(s, key)).unwrap_or(default)
         };
         let show_labels = pref(PREF_LABELS, true);
+        let show_legend = pref(PREF_LEGEND, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
         let reduce_motion = pref(PREF_REDUCE_MOTION, false);
         let simplify = pref(PREF_SIMPLIFY, true);
@@ -197,6 +201,7 @@ impl RikuGuiApp {
                 launch.exprs.clone()
             },
             show_labels,
+            show_legend,
             show_all_files,
             reduce_motion,
             simplify,
@@ -297,6 +302,12 @@ impl RikuGuiApp {
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.history.toggle();
         }
+        // Esc suelta la capa resaltada.
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if let Some(bs) = self.content.scene_mut() {
+                bs.layer_focus = None;
+            }
+        }
         // ↑/↓ recorren la lista del diff de todo el repo (si History está
         // abierto, son de History).
         if !self.history.open {
@@ -306,10 +317,11 @@ impl RikuGuiApp {
                 self.open_change_set_file(&path);
             }
         }
-        let (fit, labels, zoom_in, zoom_out) = ctx.input(|i| {
+        let (fit, labels, legend, zoom_in, zoom_out) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::F),
                 i.key_pressed(egui::Key::L),
+                i.key_pressed(egui::Key::G),
                 // Todas las pulsaciones del cuadro: con un layout pesado, varias
                 // caen en el mismo y no deben perderse.
                 i.num_presses(egui::Key::Plus) + i.num_presses(egui::Key::Equals),
@@ -323,6 +335,11 @@ impl RikuGuiApp {
             self.show_labels = !self.show_labels;
             // Con el teclado no se ve el botón cambiar: confirmarlo.
             let msg = if self.show_labels { tr!("toast.labels_on") } else { tr!("toast.labels_off") };
+            self.notify(ToastKind::Info, msg);
+        }
+        if legend {
+            self.show_legend = !self.show_legend;
+            let msg = if self.show_legend { tr!("toast.legend_on") } else { tr!("toast.legend_off") };
             self.notify(ToastKind::Info, msg);
         }
         if let Some(bs) = self.content.scene_mut() {
@@ -341,6 +358,7 @@ impl eframe::App for RikuGuiApp {
     /// Preferencias propias; el tema lo persiste egui junto a su memoria.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, PREF_LABELS, &self.show_labels);
+        eframe::set_value(storage, PREF_LEGEND, &self.show_legend);
         eframe::set_value(storage, PREF_ALL_FILES, &self.show_all_files);
         eframe::set_value(storage, PREF_REDUCE_MOTION, &self.reduce_motion);
         eframe::set_value(storage, PREF_HISTORY_H, &self.history.height);

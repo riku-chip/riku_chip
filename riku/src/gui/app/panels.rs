@@ -74,6 +74,8 @@ impl RikuGuiApp {
                 ui.separator();
                 ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels"))
                     .on_hover_text(tr!("toolbar.labels_hint"));
+                ui.toggle_value(&mut self.show_legend, tr!("toolbar.legend"))
+                    .on_hover_text(tr!("toolbar.legend_hint"));
                 let has_repo = self.history.repo().is_some();
                 let mut open = self.history.open;
                 let hint = if has_repo { tr!("toolbar.history_hint") } else { tr!("toolbar.history_no_repo") };
@@ -348,6 +350,7 @@ impl RikuGuiApp {
             let opts = CanvasOptions {
                 reduce_motion: self.reduce_motion,
                 labels: self.show_labels,
+                legend: self.show_legend,
                 simplify: self.simplify,
                 block_px: self.block_px,
                 profile: self.profile,

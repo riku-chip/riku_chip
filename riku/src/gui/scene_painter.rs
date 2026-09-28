@@ -69,6 +69,33 @@ fn layer_colors(scene: &dyn RenderableScene, layer: Layer) -> (Color32, Color32)
     }
 }
 
+/// Colores con que se pinta una capa: los de la escena ajustados al tema y,
+/// con una capa resaltada, reforzados en ella y atenuados en el resto.
+fn paint_colors(scene: &dyn RenderableScene, theme: &CanvasTheme, focus: Option<Layer>, layer: Layer) -> (Color32, Color32) {
+    let (fill, stroke) = layer_colors(scene, layer);
+    let (fill, stroke) = theme.layer_colors(fill, stroke);
+    emphasize(fill, stroke, focus.map(|f| f == layer))
+}
+
+/// Cuánto quedan de las demás capas con una resaltada: se ve el contexto
+/// sin competir con ella.
+const DIMMED: f32 = 0.15;
+
+/// `Some(true)`: la capa resaltada (relleno el doble de opaco, hasta 200, y
+/// contorno opaco); `Some(false)`: otra capa, atenuada; `None`: sin cambios.
+fn emphasize(fill: Color32, stroke: Color32, focused: Option<bool>) -> (Color32, Color32) {
+    match focused {
+        None => (fill, stroke),
+        Some(true) => {
+            let [r, g, b, a] = fill.to_srgba_unmultiplied();
+            let fill = if a == 0 { fill } else { Color32::from_rgba_unmultiplied(r, g, b, (u16::from(a) * 2).min(200) as u8) };
+            let [r, g, b, _] = stroke.to_srgba_unmultiplied();
+            (fill, Color32::from_rgb(r, g, b))
+        }
+        Some(false) => (fill.gamma_multiply(DIMMED), stroke.gamma_multiply(DIMMED)),
+    }
+}
+
 /// Transformación mundo ↔ pantalla de una escena pintada dentro de `rect`.
 #[derive(Clone, Copy)]
 pub struct ScreenXform {
@@ -201,16 +228,24 @@ pub struct PaintOptions {
     pub lod: bool,
     /// Lado máximo de un bloque, en píxeles.
     pub block_px: f64,
+    /// Capa resaltada: el resto se atenúa (las marcas del diff y las
+    /// etiquetas no).
+    pub focus: Option<Layer>,
 }
 
-/// Qué pasó al pintar, para informar en la barra de estado.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// Qué pasó al pintar, para informar en la barra de estado y la leyenda.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PaintStats {
     /// Etiquetas visibles que no se dibujaron por falta de lugar.
     pub labels_hidden: usize,
     /// Elementos dibujados uno a uno y nivel de la pirámide usado (si hubo).
     pub elements: usize,
     pub lod_level: Option<usize>,
+    /// Capas de lo que quedó a la vista (sin las ocultas), sin orden.
+    pub layers_in_view: HashSet<Layer>,
+    /// Con el zoom lejos, lo menor a un píxel va en una imagen del archivo
+    /// entero: `layers_in_view` suma todas sus capas, no solo las de la zona.
+    pub layers_approx: bool,
 }
 
 /// Alto de las etiquetas en pantalla. Se deriva del tamaño en el mundo pero
@@ -258,13 +293,17 @@ pub fn paint_scene(
         draw_tinted(&painter, &xf, vp.scale, el, ghost, drawn_text);
     }
     let mut labels: Vec<(LabelCandidate, f32)> = Vec::new();
-    let mut visitor = |el: &DrawElement| -> bool {
+    // Capas a la vista, para la leyenda. Los elementos vienen agrupados por
+    // capa: se mira solo cuando cambia.
+    let mut seen = LayersSeen::default();
+    let mut visitor = |el: &DrawElement, seen: &mut LayersSeen| -> bool {
         if hidden.contains(&el.layer()) {
             return true;
         }
+        seen.add(el.layer());
         match el {
             DrawElement::Text { .. } if drawn_text => {
-                let (_, stroke) = theme.layer_colors(Color32::TRANSPARENT, layer_colors(scene, el.layer()).1);
+                let (_, stroke) = paint_colors(scene, &theme, opts.focus, el.layer());
                 draw_text(&painter, &xf, vp.scale, el, stroke);
             }
             DrawElement::Text { x, y, content, size, .. } => {
@@ -278,7 +317,7 @@ pub fn paint_scene(
                     ));
                 }
             }
-            _ => draw_element(&painter, &xf, vp.scale, scene, el, &theme),
+            _ => draw_element(&painter, &xf, vp.scale, scene, el, &theme, opts.focus),
         }
         true
     };
@@ -302,28 +341,56 @@ pub fn paint_scene(
             let vis = index.visible(elements, &q, &|l| hidden.contains(&l));
             (drawn, lod_level) = (vis.elements.len(), vis.level);
             if let Some(level) = vis.level {
-                paint_coverage(&painter, &xf, scene, index, level, vis.span, hidden, &theme);
+                paint_coverage(&painter, &xf, scene, index, level, vis.span, hidden, &theme, opts.focus);
+                if let Some(view) = index.coverage(level, vis.span) {
+                    seen.set.extend(view.layers().map(|l| l.layer).filter(|l| !hidden.contains(l)));
+                    seen.approx = true;
+                }
             }
             let mut batch = LayerBatch::default();
             for &i in &vis.elements {
                 let el = &elements[i as usize];
                 if let DrawElement::Polygon { points, layer, filled: true } = el {
-                    batch.polygon(&painter, &xf, vp.scale, scene, &theme, index, i as usize, points, *layer);
+                    seen.add(*layer);
+                    batch.polygon(&painter, &xf, vp.scale, (scene, &theme, opts.focus), index, i as usize, points, *layer);
                     continue;
                 }
                 batch.flush(&painter);
-                visitor(el);
+                visitor(el, &mut seen);
             }
             batch.flush(&painter);
         }
         None => scene.visit(&xf.visible_world_bbox(), &mut |el| {
             drawn += 1;
-            visitor(el)
+            visitor(el, &mut seen)
         }),
     }
     paint_annotations(&painter, &xf, scene.annotations(), &theme);
 
-    PaintStats { labels_hidden: paint_labels(&painter, labels, rect, &theme), elements: drawn, lod_level }
+    PaintStats {
+        labels_hidden: paint_labels(&painter, labels, rect, &theme),
+        elements: drawn,
+        lod_level,
+        layers_in_view: seen.set,
+        layers_approx: seen.approx,
+    }
+}
+
+/// Las capas vistas al pintar un cuadro.
+#[derive(Default)]
+struct LayersSeen {
+    set: HashSet<Layer>,
+    last: Option<Layer>,
+    approx: bool,
+}
+
+impl LayersSeen {
+    fn add(&mut self, layer: Layer) {
+        if self.last != Some(layer) {
+            self.last = Some(layer);
+            self.set.insert(layer);
+        }
+    }
 }
 
 /// Un polígono de menos de estos píxeles se dibuja sin contorno: con el
@@ -347,8 +414,7 @@ impl LayerBatch {
         painter: &egui::Painter,
         xf: &ScreenXform,
         scale: f64,
-        scene: &dyn RenderableScene,
-        theme: &CanvasTheme,
+        (scene, theme, focus): (&dyn RenderableScene, &CanvasTheme, Option<Layer>),
         index: &SceneIndex,
         i: usize,
         points: &[(f64, f64)],
@@ -358,8 +424,7 @@ impl LayerBatch {
             self.flush(painter);
             self.layer = Some(layer);
         }
-        let (fill, stroke_color) = layer_colors(scene, layer);
-        let (fill, stroke_color) = theme.layer_colors(fill, stroke_color);
+        let (fill, stroke_color) = paint_colors(scene, theme, focus, layer);
         let stroke = Stroke::new(1.0_f32, stroke_color);
         let pts: Vec<Pos2> = strip_closing_point(points).iter().map(|(x, y)| xf.to_screen(*x, *y)).collect();
         if pts.len() < 2 {
@@ -421,6 +486,7 @@ struct CoverageKey {
     span: usize,
     hidden: Vec<Layer>,
     dark: bool,
+    focus: Option<Layer>,
 }
 
 /// Cuántos niveles se guardan (el actual y los vecinos, para acercar y
@@ -441,11 +507,12 @@ fn paint_coverage(
     span: usize,
     hidden: &HashSet<Layer>,
     theme: &CanvasTheme,
+    focus: Option<Layer>,
 ) {
     let Some(view) = index.coverage(level, span) else { return };
     let mut hidden_sorted: Vec<Layer> = hidden.iter().copied().collect();
     hidden_sorted.sort_unstable();
-    let key = CoverageKey { scene: index.id(), level, span, hidden: hidden_sorted, dark: theme.dark };
+    let key = CoverageKey { scene: index.id(), level, span, hidden: hidden_sorted, dark: theme.dark, focus };
     let id = egui::Id::new("riku-coverage-textures");
     let ctx = painter.ctx();
     let mut cache: CoverageTextures = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
@@ -453,7 +520,7 @@ fn paint_coverage(
         Some(pos) => cache.entries[pos].1.clone(),
         None => {
             let flip = scene.y_axis() == YAxis::Up;
-            let image = coverage_image(&view, scene, hidden, theme, flip);
+            let image = coverage_image(&view, scene, hidden, theme, focus, flip);
             // Al achicar, promedio (lineal); al agrandar un texel de varios
             // píxeles, bordes nítidos (nearest) en vez de borrosos.
             let options = egui::TextureOptions {
@@ -483,6 +550,7 @@ fn coverage_image(
     scene: &dyn RenderableScene,
     hidden: &HashSet<Layer>,
     theme: &CanvasTheme,
+    focus: Option<Layer>,
     flip: bool,
 ) -> egui::ColorImage {
     let n = view.n;
@@ -491,8 +559,7 @@ fn coverage_image(
         if hidden.contains(&layer.layer) {
             continue;
         }
-        let (fill, stroke) = layer_colors(scene, layer.layer);
-        let (fill, stroke) = theme.layer_colors(fill, stroke);
+        let (fill, stroke) = paint_colors(scene, theme, focus, layer.layer);
         let color = if fill.a() > 0 { fill } else { stroke.gamma_multiply(0.7) };
         for (cx, cy) in layer.cells() {
             let row = if flip { n - 1 - cy } else { cy };
@@ -557,9 +624,9 @@ fn draw_element(
     scene: &dyn RenderableScene,
     el: &DrawElement,
     theme: &CanvasTheme,
+    focus: Option<Layer>,
 ) {
-    let (fill, stroke_color) = layer_colors(scene, el.layer());
-    let (fill, stroke_color) = theme.layer_colors(fill, stroke_color);
+    let (fill, stroke_color) = paint_colors(scene, theme, focus, el.layer());
     let stroke = Stroke::new(1.0_f32, stroke_color);
 
     match el {
@@ -778,6 +845,20 @@ mod tests {
     }
 
     #[test]
+    fn focus_strengthens_its_layer_and_dims_the_rest() {
+        let fill = Color32::from_rgba_unmultiplied(200, 40, 40, 60);
+        let stroke = Color32::from_rgba_unmultiplied(200, 40, 40, 180);
+        assert_eq!(emphasize(fill, stroke, None), (fill, stroke), "sin capa resaltada, los colores de siempre");
+        let (f, s) = emphasize(fill, stroke, Some(true));
+        assert_eq!(f.to_srgba_unmultiplied()[3], 120);
+        assert_eq!(s.a(), 255);
+        let (f, s) = emphasize(fill, stroke, Some(false));
+        assert!(f.a() < fill.a() / 4 && s.a() < stroke.a() / 4);
+        // Una capa de solo contorno sigue sin relleno al resaltarla.
+        assert_eq!(emphasize(Color32::TRANSPARENT, stroke, Some(true)).0, Color32::TRANSPARENT);
+    }
+
+    #[test]
     fn pick_prefers_topmost_and_skips_hidden() {
         let scene = stacked_scene();
         let none = HashSet::new();
@@ -876,7 +957,7 @@ mod tests {
             let mut vp = Viewport::default();
             fit_scene(&mut vp, scene.as_ref(), rect);
             zoom_at_screen(&mut vp, zoom, rect.center(), rect);
-            let opts = PaintOptions { theme: CanvasTheme::from_visuals(&egui::Visuals::dark()), labels: true, lod: true, block_px: viewer_core::index::BLOCK_PX };
+            let opts = PaintOptions { theme: CanvasTheme::from_visuals(&egui::Visuals::dark()), labels: true, lod: true, block_px: viewer_core::index::BLOCK_PX, focus: None };
             let mut times = Vec::new();
             let mut stats = PaintStats::default();
             for _ in 0..12 {
