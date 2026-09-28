@@ -82,6 +82,10 @@ pub(crate) fn build_diff_scene(
             CellChange::Removed => ChangeKind::Removed,
             CellChange::Modified | CellChange::Renamed { .. } => ChangeKind::Modified,
         });
+        e.renamed_from = match changed.get(&e.id) {
+            Some(CellChange::Renamed { from }) => Some(from.clone()),
+            _ => None,
+        };
     }
     // El nombre viejo de una celda renombrada ya no es una entrada propia.
     let renamed_from: HashSet<&str> = changed

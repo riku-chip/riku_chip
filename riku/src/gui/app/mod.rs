@@ -238,7 +238,10 @@ impl RikuGuiApp {
         } else if let Some(path) = app.selected_path.clone() {
             app.remember_recent(&path);
             if app.load_via_backend(&path, launch.cell.clone()) {
-                app.status = tr!("status.loading", file = path.display());
+                // Un `.raw` ya se abrió: su resumen queda en la barra.
+                if app.loader.busy() {
+                    app.status = tr!("status.loading", file = path.display());
+                }
             } else {
                 app.status = tr!("status.unsupported", file = path.display());
             }

@@ -24,7 +24,7 @@ use crate::viewport::YAxis;
 /// Sub-vista navegable de un archivo: una celda de un GDS, a futuro una página
 /// o un nivel de jerarquía. Un backend que las soporte las lista en la escena
 /// y carga una concreta con `ViewerBackend::load_entry`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ViewEntry {
     /// Identificador estable dentro del archivo (en GDS, el nombre de celda).
     pub id: String,
@@ -35,6 +35,9 @@ pub struct ViewEntry {
     /// En escenas de diff: cómo cambió esta entrada entre las dos versiones
     /// (`None` = sin cambios o escena que no es diff).
     pub change: Option<ChangeKind>,
+    /// En escenas de diff: el id que tenía en la versión "antes", si se
+    /// renombró (así se abre la misma entrada en la otra versión).
+    pub renamed_from: Option<String>,
 }
 
 /// Cómo se dibujan los `DrawElement::Text` de una escena.

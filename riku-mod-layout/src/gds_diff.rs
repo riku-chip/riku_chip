@@ -222,7 +222,8 @@ pub fn diff_layout_sides(
         .get_or_compute("report", &inputs, &params, || {
             let read = |r: &Option<Raw<'_>>, side| r.as_ref().map(|r| r.read(None).map_err(|e| side_error(e, side))).transpose();
             let (la, lb) = rayon::join(|| read(&ra, "A"), || read(&rb, "B"));
-            let (la, lb) = (la?, lb?);
+            let (mut la, mut lb) = (la?, lb?);
+            source::same_unit(ra.as_ref(), &mut la, rb.as_ref(), &mut lb).map_err(|e| side_error(e, "A"))?;
             let mut report = diff_libraries(la.as_ref().map(|s| &*s.lib), lb.as_ref().map(|s| &*s.lib), cfg);
             report.ports = crate::mag::port_changes(
                 la.as_ref().and_then(|s| s.info.as_ref()),
@@ -407,8 +408,8 @@ fn map_changed_cells<T: Send>(
     cfg: &DiffConfig,
     f: impl Fn(&str, CellDiff) -> T + Sync,
 ) -> Vec<T> {
-    // unit es metros/unit. Para µm: factor = unit / 1e-6. Si A y B difieren
-    // en unit, manda B (el lado "after").
+    // unit es metros/unit. Para µm: factor = unit / 1e-6. Los dos lados
+    // llegan en la misma unidad (`source::same_unit`).
     let unit_factor = lib_b.unit() / 1e-6;
     let layers: BTreeSet<LayerKey> = lib_a.layers().into_iter().chain(lib_b.layers()).map(LayerKey::from).collect();
     let (tree_a, tree_b) = rayon::join(|| tree_prints(lib_a), || tree_prints(lib_b));
@@ -845,6 +846,26 @@ mod tests {
             .join("fixtures")
             .join(name);
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    #[test]
+    fn the_same_layout_in_other_units_has_no_changes() {
+        let um = fixture_bytes("hier_inv_a.gds");
+        let path = std::env::temp_dir().join(format!("riku-units-{}.gds", std::process::id()));
+        let lib = Library::from_bytes_any_in_unit(&um, 1e-9).unwrap();
+        lib.write_gds(path.to_str().unwrap()).unwrap();
+        let nm = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!((Library::from_bytes(&nm).unwrap().unit() - 1e-9).abs() < 1e-18);
+        for (a, b) in [(&um, &nm), (&nm, &um)] {
+            let r = diff_gds(a, b).expect("diff");
+            assert!(r.geometry.is_empty() && r.cells_added.is_empty() && r.cells_removed.is_empty(), "{r:?}");
+            assert!(r.warnings.iter().any(|w| w.contains("unidad")), "{:?}", r.warnings);
+        }
+        // Con un cambio, las áreas salen en µm² igual que entre dos µm.
+        let changed = diff_gds(&nm, &fixture_bytes("hier_inv_b.gds")).expect("diff");
+        let same = diff_gds(&um, &fixture_bytes("hier_inv_b.gds")).expect("diff");
+        assert_eq!(changed.geometry, same.geometry);
     }
 
     #[test]

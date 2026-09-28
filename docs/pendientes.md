@@ -4,19 +4,6 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 
 **Estado:** fases 0–9 hechas; última versión [v0.2.0](https://github.com/riku-chip/riku_chip/releases/tag/v0.2.0). Revisado 2026-09-28.
 
-## Arreglos chicos
-
-| Qué | Dónde | Esf. |
-|---|---|---|
-| La vista **Before** de una celda renombrada busca el nombre nuevo en la versión A (la vista **Diff** sí lo resuelve) | `gui/loader.rs` (pasa `entry` tal cual) | S |
-| El autocompletado del shell se cae con un espacio no ASCII (NBSP) | `cli/shell_complete.rs` (`rfind(char::is_whitespace)` + `i + 1`) | S |
-| `RIKU_MAG_PATH` se parte con `':'`; usar `std::env::split_paths` | `riku-mod-layout/src/mag.rs` | S |
-| Un glob inválido en `--paths` se descarta en silencio (si todos lo son, todo coincide) | `core/path_matcher.rs` | S |
-| **Recargar** no refresca el Historial | `gui/app/loading.rs` (`reload_backend`) | S |
-| Layouts con distinta unidad en cada lado (nm y µm) no se normalizan: "manda B" | `riku-mod-layout/src/gds_diff.rs` | S |
-| Zoom sobre un bbox degenerado sin límite real (solo `max(1e-9)`) | `viewer-core/src/viewport.rs` | S |
-| Un `array` de Magic con un rango enorme podría agotar la memoria (sin tope; verificar) | `gdstk_rust`, `magic/` | S |
-
 ## Mejoras
 
 | Qué | Por qué | Esf. |

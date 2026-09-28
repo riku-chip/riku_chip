@@ -55,7 +55,9 @@ pub(crate) struct DiffContext {
 #[derive(Clone)]
 pub(crate) enum LoadKind {
     Single,
-    Diff { before: Arc<Vec<u8>>, files: DiffFiles, tab: DiffTab },
+    /// `renamed`: entradas renombradas (antes, después), para abrir la misma
+    /// en cada pestaña; las da la escena de diff.
+    Diff { before: Arc<Vec<u8>>, files: DiffFiles, tab: DiffTab, renamed: Arc<[(String, String)]> },
 }
 
 /// Una escena cargada via `ViewerBackend` (todos los formatos salvo las

@@ -89,6 +89,28 @@ impl Raw<'_> {
     }
 }
 
+/// Deja los dos lados de un diff en la misma unidad: las coordenadas se
+/// comparan tal cual, y un layout en nm contra el mismo en µm diferiría
+/// entero. Se relee A en la unidad de B (el lado "después"); si A es Magic
+/// (que no se relee así), B en la de A.
+pub(crate) fn same_unit(ra: Option<&Raw<'_>>, a: &mut Option<Side>, rb: Option<&Raw<'_>>, b: &mut Option<Side>) -> Result<(), ReadError> {
+    let (Some(sa), Some(sb)) = (a.as_mut(), b.as_mut()) else { return Ok(()) };
+    let (ua, ub) = (sa.lib.unit(), sb.lib.unit());
+    if (ua - ub).abs() <= 1e-9 * ua.max(ub) {
+        return Ok(());
+    }
+    let (bytes, side, unit, other) = match (ra, rb) {
+        (Some(Raw::Bytes(bytes)), _) => (*bytes, sa, ub, "después"),
+        (_, Some(Raw::Bytes(bytes))) => (*bytes, sb, ua, "antes"),
+        _ => return Ok(()), // dos Magic: los dos en µm
+    };
+    let from = side.lib.unit();
+    let lib = Library::from_bytes_any_in_unit(bytes, unit).map_err(|e| ReadError::Parse(e.to_string()))?;
+    side.lib = Arc::new(lib);
+    side.notices.push(format!("unidad de {} µm llevada a {} µm, la del lado {other}", from * 1e6, unit * 1e6));
+    Ok(())
+}
+
 /// Clave de cache de un par de lados (`None` = el archivo no existía ahí):
 /// las entradas de cada lado, marcadas, y los parámetros de lectura que no
 /// están en los bytes (lambda de Magic).

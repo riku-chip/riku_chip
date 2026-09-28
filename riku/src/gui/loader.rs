@@ -94,10 +94,10 @@ impl Loader {
                 LoadKind::Diff { files, tab: DiffTab::After, .. } => {
                     backend.load_with(source.as_ref().clone(), hint, entry, files.after.clone(), token).await
                 }
-                LoadKind::Diff { before, files, tab: DiffTab::Before } => {
+                LoadKind::Diff { before, files, tab: DiffTab::Before, .. } => {
                     backend.load_with(before.as_ref().clone(), hint, entry, files.before.clone(), token).await
                 }
-                LoadKind::Diff { before, files, tab: DiffTab::Diff } => {
+                LoadKind::Diff { before, files, tab: DiffTab::Diff, .. } => {
                     backend
                         .load_diff_with(before.as_ref().clone(), source.as_ref().clone(), hint, entry, files.clone(), token)
                         .await

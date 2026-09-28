@@ -116,6 +116,16 @@ impl HistoryPanel {
         }
     }
 
+    /// El repo pudo cambiar (**Recargar**): se relee ahora si el panel está
+    /// abierto, o al abrirlo.
+    pub fn invalidate(&mut self) {
+        if self.open {
+            self.reload();
+        } else {
+            self.loaded = false;
+        }
+    }
+
     /// Vuelve a leer el historial (otro filtro, más páginas, un commit nuevo).
     pub fn reload(&mut self) {
         let Some(repo) = self.repo.clone() else { return };

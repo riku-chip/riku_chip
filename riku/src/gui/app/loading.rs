@@ -28,7 +28,10 @@ impl RikuGuiApp {
 
         // Cualquier formato con un backend registrado (ruta neutra async).
         if self.load_via_backend(path, None) {
-            self.status = tr!("status.loading", file = path.display());
+            // Un `.raw` ya se abrió: su resumen queda en la barra.
+            if self.loader.busy() {
+                self.status = tr!("status.loading", file = path.display());
+            }
         } else if self.error.is_none() {
             self.status = tr!("status.unsupported", file = path.display());
             self.notify(ToastKind::Warning, tr!("toast.unsupported", name = name, exts = self.openable_text()));
@@ -160,7 +163,7 @@ impl RikuGuiApp {
             source: Arc::new(after),
             path: file_str,
             entry,
-            kind: LoadKind::Diff { before: Arc::new(before), files, tab: DiffTab::Diff },
+            kind: LoadKind::Diff { before: Arc::new(before), files, tab: DiffTab::Diff, renamed: Arc::new([]) },
             refit: true,
             diff: Some(diff),
         });
@@ -193,11 +196,17 @@ impl RikuGuiApp {
 
     /// Cambia la pestaña del diff (Diff / Before / After) sobre la misma
     /// celda, conservando la vista para comparar la misma zona.
+    /// Una celda renombrada se abre con su nombre de cada versión.
     pub(super) fn select_diff_tab(&mut self, tab: DiffTab) {
         let Some(bs) = self.content.scene() else { return };
-        let LoadKind::Diff { before, files, .. } = &bs.kind else { return };
-        let kind = LoadKind::Diff { before: before.clone(), files: files.clone(), tab };
-        let entry = bs.scene.current_entry().map(str::to_string);
+        let LoadKind::Diff { before, files, tab: from, renamed } = &bs.kind else { return };
+        let renamed: Arc<[(String, String)]> = if *from == DiffTab::Diff {
+            bs.scene.entries().iter().filter_map(|e| Some((e.renamed_from.clone()?, e.id.clone()))).collect()
+        } else {
+            renamed.clone()
+        };
+        let entry = bs.scene.current_entry().map(|id| entry_in_tab(&renamed, id, *from, tab).to_string());
+        let kind = LoadKind::Diff { before: before.clone(), files: files.clone(), tab, renamed };
         self.reload_scene(entry, Some(kind), false);
     }
 
@@ -311,5 +320,32 @@ impl RikuGuiApp {
             }
             None => {}
         }
+    }
+}
+
+/// El nombre de la entrada `id` de la pestaña `from` en la pestaña `to`:
+/// **Before** muestra la versión anterior, con los nombres de antes.
+fn entry_in_tab<'a>(renamed: &'a [(String, String)], id: &'a str, from: DiffTab, to: DiffTab) -> &'a str {
+    let hit = match (from == DiffTab::Before, to == DiffTab::Before) {
+        (false, true) => renamed.iter().find(|(_, new)| new == id).map(|(old, _)| old),
+        (true, false) => renamed.iter().find(|(old, _)| old == id).map(|(_, new)| new),
+        _ => None,
+    };
+    hit.map_or(id, String::as_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_renamed_entry_keeps_its_name_of_each_version() {
+        let renamed = [("INV".to_string(), "INV_X1".to_string()), ("INV_X1".to_string(), "INV_X2".to_string())];
+        assert_eq!(entry_in_tab(&renamed, "INV_X1", DiffTab::Diff, DiffTab::Before), "INV");
+        assert_eq!(entry_in_tab(&renamed, "INV", DiffTab::Before, DiffTab::After), "INV_X1");
+        // Entre pestañas de la misma versión, el nombre no cambia (aunque
+        // otra celda se llamara así antes).
+        assert_eq!(entry_in_tab(&renamed, "INV_X1", DiffTab::Diff, DiffTab::After), "INV_X1");
+        assert_eq!(entry_in_tab(&renamed, "TOP", DiffTab::Diff, DiffTab::Before), "TOP");
     }
 }

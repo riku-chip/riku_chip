@@ -25,17 +25,24 @@ impl Default for Viewport {
 }
 
 impl Viewport {
+    /// Zoom mínimo y máximo (píxeles por unidad de mundo). En µm, 1e6 es un
+    /// nanómetro de mil píxeles; más allá solo hay error de redondeo.
+    pub const MIN_SCALE: f64 = 1e-6;
+    pub const MAX_SCALE: f64 = 1e6;
+
     /// Ajusta pan y zoom para que `bbox` quepa en `(width_px, height_px)` con
     /// un margen del 10% alrededor. Si la bbox está vacía, no cambia nada.
+    /// Una bbox sin ancho (o sin alto) se encuadra por la otra medida, y un
+    /// punto solo se centra, con el zoom de antes.
     pub fn fit_to(&mut self, bbox: &BoundingBox, width_px: f64, height_px: f64) {
         if bbox.is_empty() || width_px <= 0.0 || height_px <= 0.0 {
             return;
         }
-        let w = bbox.width().max(1e-9);
-        let h = bbox.height().max(1e-9);
-        let sx = width_px / w;
-        let sy = height_px / h;
-        self.scale = sx.min(sy) * 0.9; // 10% margen total
+        let fit = |px: f64, len: f64| if len > 0.0 { px / len } else { f64::INFINITY };
+        let s = fit(width_px, bbox.width()).min(fit(height_px, bbox.height()));
+        if s.is_finite() {
+            self.scale = (s * 0.9).clamp(Self::MIN_SCALE, Self::MAX_SCALE); // 10% margen total
+        }
         let (cx, cy) = bbox.center();
         self.pan_x = width_px * 0.5 - cx * self.scale;
         self.pan_y = height_px * 0.5 - cy * self.scale;
@@ -49,7 +56,7 @@ impl Viewport {
         }
         let world_x = (cursor_sx - self.pan_x) / self.scale;
         let world_y = (cursor_sy - self.pan_y) / self.scale;
-        self.scale *= factor;
+        self.scale = (self.scale * factor).clamp(Self::MIN_SCALE, Self::MAX_SCALE);
         self.pan_x = cursor_sx - world_x * self.scale;
         self.pan_y = cursor_sy - world_y * self.scale;
     }
@@ -142,5 +149,30 @@ mod tests {
         vp.fit_to(&bb, 200.0, 100.0);
         let (cx, cy) = world_to_screen(&vp, 5.0, 5.0);
         assert!((cx - 100.0).abs() < 1e-9 && (cy - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_to_a_line_uses_its_length_and_a_point_keeps_the_zoom() {
+        let mut vp = Viewport::default();
+        vp.fit_to(&BoundingBox::from_points((0.0, 5.0), (10.0, 5.0)), 200.0, 100.0);
+        assert!((vp.scale - 18.0).abs() < 1e-9, "{}", vp.scale);
+        vp.fit_to(&BoundingBox::from_points((3.0, 4.0), (3.0, 4.0)), 200.0, 100.0);
+        assert!((vp.scale - 18.0).abs() < 1e-9, "{}", vp.scale);
+        assert_eq!(world_to_screen(&vp, 3.0, 4.0), (100.0, 50.0));
+    }
+
+    #[test]
+    fn zoom_stays_within_limits_and_keeps_the_point_under_the_cursor() {
+        let mut vp = Viewport::default();
+        for _ in 0..100 {
+            vp.zoom_at(10.0, 50.0, 50.0);
+        }
+        assert_eq!(vp.scale, Viewport::MAX_SCALE);
+        let (x, y) = screen_to_world(&vp, 50.0, 50.0);
+        assert!((x - 50.0).abs() < 1e-6 && (y - 50.0).abs() < 1e-6, "({x}, {y})");
+        for _ in 0..100 {
+            vp.zoom_at(0.1, 0.0, 0.0);
+        }
+        assert_eq!(vp.scale, Viewport::MIN_SCALE);
     }
 }

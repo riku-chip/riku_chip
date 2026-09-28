@@ -7,7 +7,7 @@
 //!    `$PDK_ROOT`, `$PDKPATH`, `~`…);
 //! 2. junto al archivo que la usa, en la misma versión (el mismo commit, o
 //!    el disco);
-//! 3. en los directorios de `$RIKU_MAG_PATH` (separados por `:`) y en las
+//! 3. en los directorios de `$RIKU_MAG_PATH` (separados como `PATH`) y en las
 //!    librerías del PDK de la línea `tech`
 //!    (`$PDK_ROOT/<tech>/libs.ref/*/mag`), en disco.
 //!
@@ -76,12 +76,9 @@ fn library_cells(tech: Option<&str>) -> Arc<HashMap<String, PathBuf>> {
     if let Some(found) = cache.lock().unwrap().get(&key) {
         return found.clone();
     }
-    let mut dirs: Vec<PathBuf> = std::env::var("RIKU_MAG_PATH")
-        .unwrap_or_default()
-        .split(':')
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .collect();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("RIKU_MAG_PATH")
+        .map(|v| std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect())
+        .unwrap_or_default();
     if let (Some(root), Some(t)) = (pdk_root(), tech) {
         let libs = root.join(t).join("libs.ref");
         if let Ok(rd) = std::fs::read_dir(&libs) {

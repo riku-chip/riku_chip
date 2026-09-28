@@ -28,7 +28,11 @@ const RECENT_COMMITS: usize = 20;
 /// empieza esa palabra (lo que se reemplaza) y los candidatos ordenados.
 pub(super) fn complete(line: &str, pos: usize, cwd: &Path) -> (usize, Vec<String>) {
     let head = &line[..pos];
-    let start = head.rfind(char::is_whitespace).map_or(0, |i| i + 1);
+    // El separador puede ocupar más de un byte (un espacio no separable).
+    let start = head
+        .char_indices()
+        .rfind(|(_, c)| c.is_whitespace())
+        .map_or(0, |(i, c)| i + c.len_utf8());
     let word = &head[start..];
     let before: Vec<&str> = head[..start].split_whitespace().collect();
 
@@ -168,6 +172,13 @@ mod tests {
         for c in ["cd", "ls", "help", "exit", "diff", "log", "status", "doctor", "open"] {
             assert!(all.contains(&c.to_string()), "{c} en {all:?}");
         }
+    }
+
+    #[test]
+    fn a_non_ascii_space_separates_words() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(words("status\u{a0}--fo", tmp.path()), vec!["--format"]);
+        assert_eq!(complete("log\u{a0}", 5, tmp.path()).0, 5);
     }
 
     #[test]

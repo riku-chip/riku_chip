@@ -841,14 +841,18 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
 fn show_expressions(ui: &mut egui::Ui, view: &mut WaveView) {
     ui.separator();
     ui.label(RichText::new(tr!("wave.expressions")).strong()).on_hover_text(tr!("wave.expr_help"));
-    ui.horizontal(|ui| {
+    // Primero el botón y el campo en lo que sobra: una fila más ancha que
+    // el panel lo agranda, y en el cuadro siguiente otra vez.
+    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let add = ui.button("+").on_hover_text(tr!("wave.expr_add")).clicked();
         let resp = ui.add(
             egui::TextEdit::singleline(&mut view.expr_input)
                 .hint_text(tr!("wave.expr_hint"))
-                .desired_width(ui.available_width() - 34.0),
+                .desired_width(ui.available_width()),
         );
         let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if ui.button("+").on_hover_text(tr!("wave.expr_add")).clicked() || enter {
+        if add || enter {
             view.add_expression();
         }
     });

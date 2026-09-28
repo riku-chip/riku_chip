@@ -65,6 +65,11 @@ impl RikuGuiApp {
                     self.refresh_tree();
                     // El archivo abierto se relee del disco en la misma sub-vista.
                     self.reload_backend();
+                    // Y lo del repo: un commit o un cambio hecho afuera.
+                    self.history.invalidate();
+                    if !matches!(self.repo_status, super::actions::RepoStatus::Loading(_)) {
+                        self.repo_status = super::actions::RepoStatus::Stale;
+                    }
                 }
                 ui.separator();
                 ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels"))
@@ -196,6 +201,7 @@ impl RikuGuiApp {
         egui::Panel::left("left_panel")
             .resizable(true)
             .default_size(200.0)
+            .max_size(side_panel_max(ui))
             .show(ui, |ui| {
                 // Diff de todo el repo: la lista arriba; debajo, las vistas del
                 // archivo abierto.
@@ -280,6 +286,7 @@ impl RikuGuiApp {
         egui::Panel::right("info_panel")
             .resizable(true)
             .default_size(220.0)
+            .max_size(side_panel_max(ui))
             .show(ui, |ui| {
                 ui.heading(tr!("panel.details"));
                 if let Some(path) = &self.selected_path {
@@ -501,4 +508,10 @@ mod tests {
         assert_eq!(fmt_len(1.25), "1.25");
         assert_eq!(fmt_len(310.4), "310");
     }
+}
+
+/// Lo más ancho que puede quedar un panel lateral: el lienzo nunca
+/// desaparece, aunque algo de adentro pida más lugar.
+fn side_panel_max(ui: &egui::Ui) -> f32 {
+    (ui.available_width() * 0.4).max(160.0)
 }

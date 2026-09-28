@@ -165,7 +165,7 @@ mod tests {
     use super::*;
 
     fn entry(id: &str, is_root: bool) -> ViewEntry {
-        ViewEntry { id: id.into(), is_root, size: None, change: None }
+        ViewEntry { id: id.into(), is_root, size: None, change: None, renamed_from: None }
     }
 
     fn lib() -> Vec<ViewEntry> {

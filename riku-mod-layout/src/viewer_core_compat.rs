@@ -377,7 +377,8 @@ impl ViewerBackend for GdsBackend {
             let (ra, rb) = (ra?, rb?);
             let read = |raw: &Option<Raw<'_>>, label| raw.as_ref().map(|r| r.read(Some(&libs)).map_err(|e| read_error(e, label))).transpose();
             let (a, b) = rayon::join(|| read(&ra, "antes"), || read(&rb, "después"));
-            let (a, b) = (a?, b?);
+            let (mut a, mut b) = (a?, b?);
+            source::same_unit(ra.as_ref(), &mut a, rb.as_ref(), &mut b).map_err(|e| read_error(e, "antes"))?;
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
             }
@@ -429,7 +430,7 @@ pub(crate) fn list_cells(lib: &Library) -> Vec<ViewEntry> {
                 && (w > 0.0 || h > 0.0))
                 .then_some((w, h));
             let id = cell.name().to_string();
-            ViewEntry { is_root: top_names.contains(&id), id, size, change: None }
+            ViewEntry { is_root: top_names.contains(&id), id, size, change: None, renamed_from: None }
         })
         .collect();
     entries.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.id.cmp(&b.id)));
@@ -827,6 +828,8 @@ port 1 nsew signal {class}
         assert!(h.changes().iter().any(|c| c.label == "celda renombrada: INV → INV_X1"));
         let ids: Vec<&str> = h.entries().iter().map(|e| e.id.as_str()).collect();
         assert!(ids.contains(&"INV_X1") && !ids.contains(&"INV"), "{ids:?}");
+        let e = h.entries().iter().find(|e| e.id == "INV_X1").unwrap();
+        assert_eq!(e.renamed_from.as_deref(), Some("INV"), "para abrirla en la versión anterior");
     }
 
     #[tokio::test]

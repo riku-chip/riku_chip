@@ -180,7 +180,7 @@ pub(crate) enum Commands {
         detail: bool,
         #[arg(long, help = tr!("help.full"))]
         full: bool,
-        #[arg(long = "paths", value_name = "PAT", help = tr!("help.paths"))]
+        #[arg(long = "paths", value_name = "PAT", value_parser = crate::core::path_matcher::check_glob, help = tr!("help.paths"))]
         paths: Vec<String>,
         #[arg(long, value_name = "REF", help = tr!("help.branch"))]
         branch: Option<String>,
@@ -213,7 +213,7 @@ pub(crate) enum Commands {
         detail: bool,
         #[arg(long, help = tr!("help.full"))]
         full: bool,
-        #[arg(long = "paths", value_name = "PAT", help = tr!("help.paths"))]
+        #[arg(long = "paths", value_name = "PAT", value_parser = crate::core::path_matcher::check_glob, help = tr!("help.paths"))]
         paths: Vec<String>,
         #[arg(long, help = tr!("help.status_ci"))]
         ci: bool,
