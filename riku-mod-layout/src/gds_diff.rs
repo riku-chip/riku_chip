@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use viewer_core::FileSource;
 
 use crate::source::{self, Raw, ReadError};
+use crate::top_cell::is_meta_cell;
 
 use crate::hier_walk::{Origin, OriginPath, Origins};
 use crate::prints::{layer_prints, pair_prints, tree_prints, xor_layer, LayerPrints, PairPrints};
@@ -380,7 +381,7 @@ struct CellPairing {
 
 fn pair_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) -> CellPairing {
     let names = |l: Option<&Library>| -> BTreeSet<String> {
-        l.map(|l| l.cells().map(|c| c.name().to_string()).collect()).unwrap_or_default()
+        l.map(|l| l.cells().map(|c| c.name().to_string()).filter(|n| !is_meta_cell(n)).collect()).unwrap_or_default()
     };
     let (na, nb) = (names(lib_a), names(lib_b));
     let only_a: BTreeSet<String> = na.difference(&nb).cloned().collect();
@@ -774,6 +775,32 @@ pub(crate) fn changed_cells(lib_a: Option<&Library>, lib_b: Option<&Library>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lo mismo con y sin la celda de contexto que agrega KLayout al guardar.
+    #[test]
+    fn klayout_context_cell_is_not_a_change() {
+        use gdstk_rs::{GdsTag, LibraryBuilder};
+        let gds = |with_context: bool| {
+            let mut b = LibraryBuilder::new("L", 1e-6, 1e-9);
+            let top = b.add_cell("TOP");
+            b.add_box(top, GdsTag { layer: 1, datatype: 0 }, 0.0, 0.0, 1.0, 1.0);
+            if with_context {
+                b.add_cell("$$$CONTEXT_INFO$$$");
+            }
+            let path = std::env::temp_dir().join(format!("riku-ctx-{with_context}-{}.gds", std::process::id()));
+            b.build().write_gds(path.to_str().unwrap()).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let _ = std::fs::remove_file(&path);
+            bytes
+        };
+        let (plain, with_ctx) = (gds(false), gds(true));
+
+        let r = diff_gds(&plain, &with_ctx).expect("diff");
+        assert!(r.cells_added.is_empty() && r.cells_removed.is_empty() && r.geometry.is_empty(), "{r:?}");
+        let (a, b) = (Library::from_bytes(&plain).unwrap(), Library::from_bytes(&with_ctx).unwrap());
+        assert!(changed_cells(Some(&a), Some(&b)).is_empty());
+        assert_eq!(crate::select_top_cell(&b).map(|c| c.name().to_string()).as_deref(), Some("TOP"));
+    }
 
     fn proof_lib_bytes() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

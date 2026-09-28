@@ -1,30 +1,29 @@
 use gdstk_rs::{Cell, Library};
 
+/// Celda que no es parte del diseño: KLayout guarda en `$$$CONTEXT_INFO$$$`
+/// (vacía) de qué PCells y librerías salen las celdas, y al leer la consume.
+/// Riku la ignora en el diff, en la lista de celdas y al elegir la top: si
+/// no, una versión guardada con KLayout y otra sin él tendrían una celda
+/// "añadida", y como nadie la instancia, sería la top por orden alfabético.
+pub(crate) fn is_meta_cell(name: &str) -> bool {
+    name == "$$$CONTEXT_INFO$$$"
+}
+
 /// Elige la cell raiz a renderizar de una Library, con tie-break determinista.
 ///
 /// - 0 top cells (library ciclica o vacia) -> `None`.
 /// - 1 top cell -> esa.
 /// - N>1 top cells -> la primera por nombre lexicografico ascendente.
 ///   Reproducible entre corridas, no requiere recorrer geometria.
+///
+/// Las celdas de metadatos ([`is_meta_cell`]) no cuentan.
 pub(crate) fn select_top_cell<'a>(lib: &'a Library) -> Option<Cell<'a>> {
     let tops = lib.top_level();
-    let count = tops.count();
-    if count == 0 {
-        return None;
-    }
-    if count == 1 {
-        return Some(tops.cell(0));
-    }
-    let mut best_idx: u64 = 0;
-    let mut best_name: String = tops.cell(0).name().to_string();
-    for i in 1..count {
-        let name = tops.cell(i).name().to_string();
-        if name < best_name {
-            best_name = name;
-            best_idx = i;
-        }
-    }
-    Some(tops.cell(best_idx))
+    (0..tops.count())
+        .map(|i| (i, tops.cell(i).name().to_string()))
+        .filter(|(_, name)| !is_meta_cell(name))
+        .min_by(|a, b| a.1.cmp(&b.1))
+        .map(|(i, _)| tops.cell(i))
 }
 
 #[cfg(test)]

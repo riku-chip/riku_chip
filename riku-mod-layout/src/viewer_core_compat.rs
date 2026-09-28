@@ -422,6 +422,7 @@ pub(crate) fn list_cells(lib: &Library) -> Vec<ViewEntry> {
 
     let mut entries: Vec<ViewEntry> = lib
         .cells()
+        .filter(|cell| !crate::top_cell::is_meta_cell(cell.name()))
         .map(|cell| {
             let b = cell.bbox();
             // gdstk da bbox (0,0,0,0) para celdas vacias: sin tamano real.
