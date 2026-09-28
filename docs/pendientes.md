@@ -4,10 +4,23 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 
 **Estado:** última versión [v0.2.1](https://github.com/riku-chip/riku_chip/releases/tag/v0.2.1). Revisado 2026-09-28.
 
+## En curso: demos y README
+
+`riku demo` ya crea `ota` (OTA de SKY130: esquemático, layout y simulación; 11 commits, una rama y un corto que se arregla) y `sram` (SRAM 16×8 de OpenRAM: cambios en sub-celdas, un renombre y relleno en una rama). Los arman los scripts de `tools/demos/` (ver [`desarrollo.md`](desarrollo.md)); el diseño está en la historia de Git (`feat(cli): riku demo`).
+
+| Qué | Por qué | Esf. |
+|---|---|---|
+| Demo `inversor` en Magic y Xschem (el inversor de `demo_sky130A` de iic-osic-tools) | Mostrar Magic: capas por nombre, un cambio en el transistor visto desde la celda de arriba, un puerto que cambia de clase, un abierto | M |
+| README: una sección con cada comando (`status`, `diff` en texto/JSON/visual, `show`, `log --graph`, `open`, `render`, `doctor`, `demo`), para qué sirve y su salida real sacada de los demos | Hoy el README muestra pocos comandos y ejemplos de juguete | S |
+| Demo `chip` grande (la SRAM de 1 KB de OpenRAM de `sky130_sram_macros`, 10 MB) en un repo aparte, que `riku demo chip` clone | Ver el rendimiento con un diseño grande sin inflar el ejecutable | M |
+| `riku render` dibuja la capa "Transistores", que en el visor viene oculta | Respetar `LayerPaint::hidden` al exportar | S |
+
 ## Mejoras
 
 | Qué | Por qué | Esf. |
 |---|---|---|
+| **Extracción jerárquica con memoria por huella** | Hoy las redes se arman aplanando la celda (tope: 2 millones de polígonos) y se recalculan en cada commit. Como el diff ya tiene un árbol de la jerarquía con una huella (hash) por celda, se puede guardar la netlist de cada celda por su huella y reusarla: una celda que no cambió no se re-analiza, y el padre solo une los pines de sus hijas (como KLayout). Parecido a un DOM virtual: un árbol de netlists donde se recalcula solo la rama que cambió. Permitiría analizar un chip entero y bajar el costo de un `log` | L |
+| Costo de `log` con cambios en la celda de arriba de un layout mediano | En la SRAM del repo, un commit que agrega relleno en la celda de arriba cuesta ~1,7 s (las redes de la macro, en los dos lados). Lo resuelve la extracción jerárquica; mientras tanto, la caché de diffs solo guarda layouts de más de 1 MiB | M |
 | Renombres de celdas que además cambiaron | Hoy solo se detectan los puros; uno con cambios sale como baja + alta. Emparejar por bbox y huellas en común (`gds_diff.rs::detect_renames`) | M |
 | Zoom cercano en zonas muy densas (~45 ms por cuadro) | Con píxeles más chicos que la celda más fina de la pirámide se dibuja todo uno a uno. Pirámide más fina con bitsets dispersos (`viewer-core/src/index.rs`) | M |
 | Medir el diff con un wrapper de SKY130/Caravel | Las mediciones de rendimiento son con un chip de IHP; otro PDK puede tener otro peor caso (`profile_diff`) | S |
