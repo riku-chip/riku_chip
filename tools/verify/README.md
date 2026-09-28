@@ -54,6 +54,17 @@ tools/verify/mag/compare_mag.sh top.mag 0.01 DIR...     # una propia: lambda en 
 
 Hace falta **KLayout 0.30.12 o más nuevo** (0.30.4 y anteriores ignoran `magscale`): `python3 -m venv /tmp/kl && /tmp/kl/bin/pip install klayout==0.30.12` y `KLAYOUT_PY=/tmp/kl/bin/python`. Las capas que Riku deja fuera a propósito (`checkpaint`, `error_*`…) no cuentan como diferencia.
 
+## Transistores (`tools/verify/devices/`)
+
+Los transistores que reconoce Riku (modelo, W y L de cada finger; ver [`docs/electrico.md`](../../docs/electrico.md)) contra la netlist de referencia de las celdas estándar de cada PDK, celda por celda:
+
+```bash
+cargo build --release -p riku-mod-layout --example devices
+tools/verify/devices/compare_stdcells.sh "$CARGO_TARGET_DIR/release/examples/devices"
+```
+
+Resultados de referencia (2026-09): SKY130 **437 de 437** celdas iguales (GDS y `.mag`), GF180MCU 228 de 229, IHP SG13G2 73 de 74. Las dos que difieren (`gf180mcu_fd_sc_mcu7t5v0__clkbuf_1`, `sg13g2_dfrbp_1`) son de la netlist del PDK, que no coincide con su layout: Riku da lo mismo que el extractor de KLayout (`klayout_gates.py <gds> <celda> <difusión> <poly>`). También la SRAM de `examples/GDS/`: 2271 transistores, W y L iguales a KLayout uno por uno.
+
 ## Medir (`riku-mod-layout/examples/`)
 
 - `profile_diff a.gds b.gds`: tiempo y memoria de cada etapa del diff (`SKIP_FP=1`, `PRINTS=1`, `CANON=1` para diagnósticos).
@@ -61,6 +72,7 @@ Hace falta **KLayout 0.30.12 o más nuevo** (0.30.4 y anteriores ignoran `magsca
 - `profile_prints layout.gds [celda] [hilos]`: la huella por pedazos (reparto, tiempos, memoria, escalado por hilos).
 - `profile_xor a.gds b.gds <celda> <layer> <datatype>`: el XOR de una capa, entero y por cuadrantes (`SKIP_WHOLE=1` si el entero tarda minutos).
 - `verify_dump`: el volcado que usa `compare.sh`; `mag_area` (en `external/gdstk/rust/examples`), el de `compare_mag.sh`.
+- `devices layout [celda…]` (o una carpeta de `.mag`): los transistores de cada celda, el volcado de `compare_stdcells.sh`.
 
 Correrlos en release y sobre una copia en `/tmp`: un montaje lento distorsiona los tiempos.
 

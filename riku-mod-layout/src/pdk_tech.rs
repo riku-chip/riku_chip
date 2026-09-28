@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use crate::devices::DeviceRules;
 use crate::palette::LayerRole;
 use crate::style::Color;
 
@@ -48,6 +49,10 @@ pub struct Tech {
     magic: HashMap<String, MagicType>,
     /// Lambda de Magic en µm.
     pub lambda_um: Option<f64>,
+    /// Carpeta del PDK (vacía en los armados a mano).
+    dir: PathBuf,
+    /// Reglas de transistores del `.tech`: se leen la primera vez que se piden.
+    devices: OnceLock<Option<DeviceRules>>,
 }
 
 impl Tech {
@@ -56,7 +61,18 @@ impl Tech {
         for (i, l) in layers.iter().enumerate() {
             index.entry(l.tag).or_insert(i);
         }
-        Self { name, layers, index, magic, lambda_um }
+        Self { name, layers, index, magic, lambda_um, ..Default::default() }
+    }
+
+    /// Reglas de transistores del `.tech` de Magic del PDK (ver
+    /// [`crate::devices`]); `None` si no hay `.tech` o no define ninguno.
+    pub fn device_rules(&self) -> Option<&DeviceRules> {
+        self.devices
+            .get_or_init(|| {
+                let magic_dir = self.dir.join("libs.tech").join("magic");
+                read_tech(&magic_dir, &self.name, 0).and_then(|t| DeviceRules::parse(&t))
+            })
+            .as_ref()
     }
 
     /// Capa del `.lyp` y su posición.
@@ -145,7 +161,9 @@ pub fn load(dir: &Path) -> Option<Tech> {
     if layers.is_empty() && magic.is_empty() && lambda.is_none() {
         return None;
     }
-    Some(Tech::new(name, layers, magic, lambda))
+    let mut tech = Tech::new(name, layers, magic, lambda);
+    tech.dir = dir.to_path_buf();
+    Some(tech)
 }
 
 /// El `.lyp` del PDK (no los de `xsect`, que son de cortes transversales).
