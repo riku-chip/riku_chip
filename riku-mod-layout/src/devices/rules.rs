@@ -468,6 +468,32 @@ impl DeviceRules {
         out
     }
 
+    /// Las capas GDS donde se dibuja un tipo: las del primer `or` de sus
+    /// `layer`, siguiendo las `templayer` (`ndiff` → `ndiffarea` → `DIFF`,
+    /// `DIFFPIN`…), sin los marcadores que solo lo restringen (`NSDM`).
+    pub fn base_layers(&self, name: &str) -> Vec<GdsLayer> {
+        let c = self.canonical(name);
+        let mut out = Vec::new();
+        for (i, d) in self.defs.iter().enumerate() {
+            if !d.temp && self.canonical(&d.name) == c {
+                self.base_into(i, &mut out, 0);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn base_into(&self, def: usize, out: &mut Vec<GdsLayer>, depth: u32) {
+        let Some(Op::Or(names)) = self.defs[def].ops.first() else { return };
+        for n in names {
+            out.extend(self.gds_layers(n).iter().copied());
+            if let Some(&t) = self.temps.get(n).filter(|_| depth < 8) {
+                self.base_into(t, out, depth + 1);
+            }
+        }
+    }
+
     /// Las capas GDS que usan las reglas de esos tipos (cualquiera de sus nombres).
     pub fn type_layers(&self, types: &[String]) -> Vec<GdsLayer> {
         let wanted: Vec<&str> = types.iter().map(|t| self.canonical(t)).collect();
@@ -970,6 +996,9 @@ end
         assert_eq!(r.label_types((64, 59)), [("pwell".to_string(), false)]);
         assert!(r.label_types((99, 0)).is_empty());
         assert_eq!(r.port_layers(), [(67, Some(16))]);
+        // Dónde se dibuja cada tipo: sin los marcadores (NSDM) ni lo que resta (POLY).
+        assert_eq!(r.base_layers("ndiff"), [(65, Some(20))]);
+        assert_eq!(r.base_layers("mcon"), [(67, Some(44))]);
     }
 
     #[test]

@@ -198,6 +198,11 @@ pub fn hover_info(
         let sq = scene.world_unit().map(|u| format!(" {u}²")).unwrap_or_default();
         text.push_str(&format!("\n{} {a:.4}{sq}", tr!("canvas.area")));
     }
+    // La red del polígono, si el backend conoce la conectividad.
+    let (x, y) = xf.to_world(pos);
+    if let Some(net) = scene.net_at(x, y, Some(el.layer())) {
+        text.push_str(&format!("\n{}", tr!("canvas.net", name = net.name)));
+    }
     Some(text)
 }
 

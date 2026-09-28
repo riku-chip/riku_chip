@@ -26,6 +26,9 @@ pub struct ChangeItem {
     pub bbox: Option<BoundingBox>,
     /// Cambio por debajo del umbral de relevancia (ruido de snap, slivers).
     pub cosmetic: bool,
+    /// Cambia el circuito (un abierto o un corto de un layout): la UI lo
+    /// muestra primero y resaltado.
+    pub error: bool,
 }
 
 /// Marca visual de un cambio sobre la escena de diff: recuadro alrededor de

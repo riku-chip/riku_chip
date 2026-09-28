@@ -1,5 +1,5 @@
 //! Redes de una celda aplanada, a partir de la región de cada tipo de Magic
-//! (ver `docs/electrico.md`, nivel 3):
+//! (ver `docs/formatos.md`, «Transistores y redes»):
 //!
 //! 1. **Pedazos:** cada polígono de la unión de un tipo.
 //! 2. **Conexiones:** dos pedazos de tipos que `connect` une (en Magic,
@@ -76,9 +76,21 @@ pub struct Resistor {
     pub subckt: bool,
 }
 
+/// Un pedazo conductor de una red (para mostrarla y resaltarla).
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetPiece {
+    /// Tipo de Magic (canónico).
+    pub magic: String,
+    pub poly: OwnedPolygon,
+    pub net: usize,
+}
+
 /// Las redes de una celda, sus transistores y sus resistores.
 #[derive(Clone, Debug, Default)]
 pub struct Netlist {
+    /// Los pedazos conductores de cada red (los de redes con un terminal o
+    /// una etiqueta).
+    pub pieces: Vec<NetPiece>,
     pub nets: Vec<Net>,
     pub devices: Vec<(Device, Terminals)>,
     /// Cada resistor y las redes de sus dos terminales.
@@ -335,6 +347,7 @@ pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, lab
     if let Some(&i) = index.get(&uf.find(substrate)) {
         nets[i].substrate = true;
     }
+    let mut net_pieces = Vec::new();
     for t in &order {
         let (grid, first) = &pieces.by_type[t];
         for (i, p) in grid.polys.iter().enumerate() {
@@ -342,6 +355,7 @@ pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, lab
                 let b = bbox(p);
                 let nb = &mut nets[n].bbox;
                 *nb = [nb[0].min(b[0]), nb[1].min(b[1]), nb[2].max(b[2]), nb[3].max(b[3])];
+                net_pieces.push(NetPiece { magic: t.clone(), poly: p.clone(), net: n });
             }
         }
     }
@@ -390,7 +404,7 @@ pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, lab
             (r, [a, b])
         })
         .collect();
-    Netlist { nets, devices, resistors, labels: labels.to_vec(), label_nets, warnings }
+    Netlist { pieces: net_pieces, nets, devices, resistors, labels: labels.to_vec(), label_nets, warnings }
 }
 
 #[cfg(test)]

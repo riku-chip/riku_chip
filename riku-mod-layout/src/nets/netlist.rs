@@ -129,6 +129,7 @@ mod tests {
 
     fn sample() -> Netlist {
         Netlist {
+            pieces: Vec::new(),
             nets: vec![net(Some("Y"), true, false), net(Some("A"), true, false), net(None, false, true), net(None, false, false)],
             devices: vec![
                 (dev("mini__nfet", 0.42), Terminals { d: 0, g: 1, s: 3, b: 2 }),

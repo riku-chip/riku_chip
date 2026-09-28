@@ -6,7 +6,7 @@
 //! verify_dump xor <a> <b> <cell>        # área añadida / eliminada por capa (XOR)
 //! ```
 //!
-//! Coordenadas y áreas en µm / µm². Ver `tools/verify/README.md`.
+//! Coordenadas y áreas en µm / µm². Ver `docs/desarrollo.md`, «Verificación».
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;

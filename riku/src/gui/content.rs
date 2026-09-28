@@ -81,6 +81,9 @@ pub(crate) struct SceneState {
     pub hidden_layers: HashSet<String>,
     /// Capa resaltada fija (clic en su nombre), también por nombre.
     pub layer_focus: Option<String>,
+    /// Red resaltada (clic en un polígono de un layout): su nombre y sus
+    /// polígonos. Se suelta con Esc o con otro clic.
+    pub net_focus: Option<viewer_core::NetHit>,
     /// Capa bajo el puntero en el panel Capas y en la leyenda: resalta
     /// mientras el puntero está encima. Cada uno pone la suya en cada cuadro.
     pub layer_hover_panel: Option<String>,
@@ -117,6 +120,8 @@ impl SceneState {
                 source: loaded.source,
                 kind: loaded.kind,
                 needs_fit: loaded.refit || p.needs_fit,
+                // Otra celda u otra versión: la red resaltada ya no es la misma.
+                net_focus: None,
                 ..p
             },
             None => SceneState {
@@ -130,6 +135,7 @@ impl SceneState {
                 needs_fit: true,
                 fitted_size: None,
                 layer_focus: None,
+                net_focus: None,
                 layer_hover_panel: None,
                 layer_hover_legend: None,
                 entry_query: String::new(),

@@ -1,13 +1,15 @@
 //! Redes de un layout: qué metal, poly y difusión están unidos por contactos
 //! y vías, con el nombre de sus etiquetas, y a qué red va cada terminal de
 //! los transistores. Con las reglas del `.tech` de Magic del PDK, como los
-//! transistores (ver `docs/electrico.md`, nivel 3).
+//! transistores (ver `docs/formatos.md`, «Transistores y redes»).
 
 mod diff;
 mod extract;
 mod netlist;
+mod probe;
 
-pub use extract::{build, Net, NetLabel, Netlist, Resistor, Terminals};
+pub use extract::{build, Net, NetLabel, NetPiece, Netlist, Resistor, Terminals};
+pub use probe::LayoutNets;
 pub use diff::{cell_net_changes, net_changes, net_label, NetChange, NetChangeKind};
 pub use netlist::{fingers, spice, Fingers};
 

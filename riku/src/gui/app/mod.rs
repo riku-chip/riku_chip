@@ -302,10 +302,11 @@ impl RikuGuiApp {
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.history.toggle();
         }
-        // Esc suelta la capa resaltada.
+        // Esc suelta la capa y la red resaltadas.
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if let Some(bs) = self.content.scene_mut() {
                 bs.layer_focus = None;
+                bs.net_focus = None;
             }
         }
         // ↑/↓ recorren la lista del diff de todo el repo (si History está

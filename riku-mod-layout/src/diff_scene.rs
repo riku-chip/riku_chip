@@ -222,7 +222,7 @@ fn change_items(diff: &CellDiff, process: &'static Process, unit_factor: f64, na
                 max_x: b.max_x / unit_factor,
                 max_y: b.max_y / unit_factor,
             });
-            ChangeItem { kind, label, detail, bbox, cosmetic: g.cosmetic }
+            ChangeItem { kind, label, detail, bbox, cosmetic: g.cosmetic, error: false }
         })
         .collect()
 }
@@ -236,6 +236,7 @@ fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem
         detail: String::new(),
         bbox: None,
         cosmetic: false,
+        error: false,
     };
     changed
         .iter()
@@ -279,7 +280,46 @@ pub(crate) fn device_item(c: &crate::devices::DeviceChange) -> ChangeItem {
         max_x: d.bbox_um[2],
         max_y: d.bbox_um[3],
     });
-    ChangeItem { kind, label, detail, bbox, cosmetic: false }
+    ChangeItem { kind, label, detail, bbox, cosmetic: false, error: false }
+}
+
+/// Un abierto, un corto o un renombre, para la lista Cambios: `corto · B =
+/// Y` con `B, Y → B = Y`. Abiertos y cortos son `error` (van primero y en
+/// rojo); un clic encuadra dónde está.
+pub(crate) fn net_item(n: &crate::nets::NetChange) -> ChangeItem {
+    use crate::nets::NetChangeKind;
+    let (what, name, error) = match n.kind {
+        NetChangeKind::Short => ("corto", n.after.join(", "), true),
+        NetChangeKind::Open => ("abierto", n.before.join(", "), true),
+        NetChangeKind::Renamed => ("red renombrada", n.after.join(", "), false),
+    };
+    let b = n.bbox_um;
+    ChangeItem {
+        kind: ChangeKind::Modified,
+        label: format!("{what} · {name}"),
+        detail: format!("{} → {}", n.before.join(", "), n.after.join(", ")),
+        bbox: Some(VcBBox { min_x: b[0], min_y: b[1], max_x: b[2], max_y: b[3] }),
+        cosmetic: false,
+        error,
+    }
+}
+
+/// El recuadro de un abierto o un corto sobre la escena del diff.
+pub(crate) fn net_annotation(n: &crate::nets::NetChange) -> Option<viewer_core::Annotation> {
+    use crate::nets::NetChangeKind;
+    let label = match n.kind {
+        NetChangeKind::Short => "corto",
+        NetChangeKind::Open => "abierto",
+        NetChangeKind::Renamed => return None,
+    };
+    let b = n.bbox_um;
+    Some(viewer_core::Annotation {
+        kind: ChangeKind::Modified,
+        cosmetic: false,
+        moved: false,
+        label: label.into(),
+        shape: viewer_core::AnnotationShape::Box(VcBBox { min_x: b[0], min_y: b[1], max_x: b[2], max_y: b[3] }),
+    })
 }
 
 pub(crate) fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
@@ -303,6 +343,6 @@ pub(crate) fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
         max_x: r[2],
         max_y: r[3],
     });
-    ChangeItem { kind, label, detail, bbox, cosmetic: p.cosmetic }
+    ChangeItem { kind, label, detail, bbox, cosmetic: p.cosmetic, error: false }
 }
 

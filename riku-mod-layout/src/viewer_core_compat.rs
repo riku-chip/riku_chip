@@ -164,7 +164,7 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
         scene.push(el);
     }
     let labels = labels_count;
-    let transistors = add_devices(&mut scene, lib, cell, path_hint, polygons, text_size);
+    let electrical = add_electrical(&mut scene, lib, cell, path_hint, polygons, text_size, &keys);
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
@@ -177,10 +177,61 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
             format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height()),
         ),
     ];
-    if let Some(summary) = transistors {
-        scene.metadata.push(("Transistores".into(), summary));
+    for (k, v) in electrical {
+        scene.metadata.push((k.into(), v));
     }
     (scene, keys)
+}
+
+/// Transistores y redes de la celda, con las reglas de su PDK: la capa
+/// "Transistores", la sonda de redes de la escena (tooltip y resaltar) y
+/// el resumen para Detalles. Nada si el layout no es de un PDK conocido.
+fn add_electrical(
+    scene: &mut VcScene,
+    lib: &Library,
+    cell: &gdstk_rs::Cell<'_>,
+    path_hint: Option<&str>,
+    polygons: usize,
+    text_size: f64,
+    keys: &LayerKeys,
+) -> Vec<(&'static str, String)> {
+    let Some(rules) = crate::devices::rules_for_library(lib, path_hint) else { return Vec::new() };
+    if polygons as u64 > crate::devices::MAX_POLYGONS {
+        return vec![
+            ("Transistores", "no se reconocen en una celda tan grande: abrí una sub-celda".into()),
+            ("Redes", "no calculadas en una celda tan grande".into()),
+        ];
+    }
+    let nl = crate::nets::cell_nets(lib, cell, rules, None);
+    let mut out = Vec::new();
+    let devices: Vec<crate::devices::Device> = nl.devices.iter().map(|(d, _)| d.clone()).collect();
+    if let Some(summary) = add_devices(scene, &devices, text_size) {
+        out.push(("Transistores", summary));
+    }
+    if !nl.nets.is_empty() {
+        let named = nl.nets.iter().filter(|n| n.name.is_some()).count();
+        out.push(("Redes", format!("{} ({named} con nombre)", nl.nets.len())));
+        scene.notices.extend(nl.warnings.iter().filter(|w| w.contains("más de un nombre")).cloned());
+        // Las capas de la escena de cada tipo: las del archivo con su nombre
+        // (Magic) o las capas GDS donde se dibuja.
+        let names = layer_names(lib);
+        let tags: Vec<(u32, u32)> = lib.layers().into_iter().map(|t| (t.layer, t.datatype)).collect();
+        let layers_of = |t: &str| -> Vec<Layer> {
+            let magic: Vec<Layer> =
+                names.iter().filter(|(_, n)| rules.canonical(n) == t).map(|(&(l, d), _)| keys.key(GdsTag { layer: l, datatype: d })).collect();
+            if !magic.is_empty() {
+                return magic;
+            }
+            let base = rules.base_layers(t);
+            tags.iter()
+                .filter(|&&(l, d)| base.iter().any(|&(bl, bd)| bl == l && bd.is_none_or(|bd| bd == d)))
+                .map(|&(l, d)| keys.key(GdsTag { layer: l, datatype: d }))
+                .collect()
+        };
+        let probe = crate::nets::LayoutNets::new(&nl, &layers_of, lib.unit() / 1e-6);
+        scene.nets = Some(Arc::new(probe));
+    }
+    out
 }
 
 /// Nombre de la capa con los transistores reconocidos.
@@ -188,13 +239,8 @@ pub(crate) const DEVICE_LAYER: &str = "Transistores";
 
 /// La capa "Transistores" (oculta al abrir): la compuerta de cada uno y una
 /// etiqueta con su tipo, W y L. Devuelve el resumen para el panel
-/// ("12 (8 N, 4 P)"), si hay transistores o si la celda es muy grande.
-fn add_devices(scene: &mut VcScene, lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>, polygons: usize, text_size: f64) -> Option<String> {
-    let rules = crate::devices::rules_for_library(lib, path_hint)?;
-    if polygons as u64 > crate::devices::MAX_POLYGONS {
-        return Some("no se reconocen en una celda tan grande: abrí una sub-celda".into());
-    }
-    let devices = crate::devices::cell_devices(lib, cell, rules);
+/// ("12 (8 N, 4 P)"), si hay transistores.
+fn add_devices(scene: &mut VcScene, devices: &[crate::devices::Device], text_size: f64) -> Option<String> {
     if devices.is_empty() {
         return None;
     }
@@ -209,7 +255,7 @@ fn add_devices(scene: &mut VcScene, lib: &Library, cell: &gdstk_rs::Cell<'_>, pa
         },
     );
     let (mut n, mut p) = (0, 0);
-    for d in &devices {
+    for d in devices {
         let model = d.model.rsplit("__").next().unwrap_or(&d.model);
         let low = model.to_ascii_lowercase();
         if low.contains("nfet") || low.contains("nmos") {
@@ -459,6 +505,18 @@ impl ViewerBackend for GdsBackend {
             let mut s = build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff)?;
             let cell = s.current_entry.clone();
             s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
+            // Abiertos y cortos de la celda abierta: primero, con su marca.
+            if let (Some(sa), Some(sb), Some(name)) = (a.as_ref(), b.as_ref(), cell.as_deref()) {
+                if let Some(rules) = crate::devices::rules_for_library(&sb.lib, path) {
+                    let boxes: Vec<[f64; 4]> = s.changes.iter().filter_map(|c| c.bbox).map(|b| [b.min_x, b.min_y, b.max_x, b.max_y]).collect();
+                    let info = (sa.info.as_ref(), sb.info.as_ref());
+                    let found = crate::nets::cell_net_changes(&sa.lib, &sb.lib, name, rules, crate::devices::MAX_POLYGONS, info, &boxes);
+                    let found = found.unwrap_or_default();
+                    s.annotations.extend(found.iter().filter_map(crate::diff_scene::net_annotation));
+                    let items: Vec<_> = found.iter().map(crate::diff_scene::net_item).collect();
+                    s.changes.splice(0..0, items);
+                }
+            }
             // Transistores que cambiaron en la celda abierta.
             if let (Some(la), Some(lb), Some(name)) = (lib_a, lib_b, cell.as_deref()) {
                 if let Some(rules) = crate::devices::rules_for_library(lb, path) {
@@ -910,6 +968,32 @@ port 1 nsew signal {class}
         // Otros layouts sin reglas de PDK: ni capa ni resumen.
         let plain = diff(None, "hier_inv_a.gds", None).await;
         assert!(plain.layer_list().iter().all(|(_, p)| p.name != DEVICE_LAYER));
+    }
+
+    #[tokio::test]
+    async fn a_net_is_known_under_the_cursor() {
+        let h = diff(None, "nand2_a.gds", None).await;
+        assert_eq!(meta(&h, "Redes"), "8 (7 con nombre)");
+        let li = h.layer_list().into_iter().find(|(_, p)| p.name.ends_with("67/20")).expect("li1").0;
+        let hit = h.net_at(0.685, 1.19, Some(li)).expect("el li de la salida");
+        assert_eq!(hit.name, "Y");
+        assert!(hit.outline.len() >= 2, "la red entera (li y difusiones): {}", hit.outline.len());
+        // Sobre el metal1 de abajo, la tierra; fuera de la celda, nada.
+        let m1 = h.layer_list().into_iter().find(|(_, p)| p.name.ends_with("68/20")).expect("met1").0;
+        assert_eq!(h.net_at(0.7, 0.0, Some(m1)).map(|n| n.name), Some("VGND".into()));
+        assert_eq!(h.net_at(50.0, 50.0, None), None);
+    }
+
+    #[tokio::test]
+    async fn a_short_comes_first_in_the_changes_and_is_marked() {
+        let h = diff(Some("nand2_a.gds"), "nand2_short.gds", None).await;
+        let first = &h.changes()[0];
+        assert_eq!((first.label.as_str(), first.detail.as_str(), first.error), ("corto · B = Y", "B, Y → B = Y", true));
+        assert!(first.bbox.is_some(), "un clic encuadra");
+        assert!(h.annotations().iter().any(|a| a.label == "corto"), "con su recuadro");
+        assert!(h.changes()[1..].iter().all(|c| !c.error));
+        let same = diff(Some("nand2_a.gds"), "nand2_b.gds", None).await;
+        assert!(same.changes().iter().all(|c| !c.error), "un transistor más angosto no es un corto");
     }
 
     #[tokio::test]

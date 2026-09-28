@@ -253,6 +253,7 @@ mod tests {
     /// Dos inversores: A0 → Y0 y A1 → Y1 (redes 0..4), con VGND (4).
     fn two_inverters(nets: Vec<Net>, t0: Terminals, t1: Terminals, label_nets: Vec<Option<usize>>) -> Netlist {
         Netlist {
+            pieces: Vec::new(),
             nets,
             devices: vec![(dev(0.0), t0), (dev(2.0), t1)],
             resistors: Vec::new(),

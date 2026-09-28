@@ -390,7 +390,7 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
             });
             let detail = if moved_only { "trasladado".to_string() } else { param_changes(c) };
             let label = if c.kind == ChangeKind::Renamed { format!("{label} (renombrado)") } else { label };
-            Some((annotation, ChangeItem { kind, label, detail, bbox, cosmetic: c.cosmetic }))
+            Some((annotation, ChangeItem { kind, label, detail, bbox, cosmetic: c.cosmetic, error: false }))
         }
         Element::Net { name } => {
             // Una net añadida se ve en B; una eliminada, en A.
@@ -417,7 +417,7 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
                 label: name.clone(),
                 shape: AnnotationShape::Segments(segs),
             });
-            let item = ChangeItem { kind, label: format!("net:{name}"), detail: String::new(), bbox, cosmetic: c.cosmetic };
+            let item = ChangeItem { kind, label: format!("net:{name}"), detail: String::new(), bbox, cosmetic: c.cosmetic, error: false };
             Some((annotation, item))
         }
         Element::Whole => Some((
@@ -428,6 +428,7 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
                 detail: "reorganización cosmética".into(),
                 bbox: None,
                 cosmetic: true,
+                error: false,
             },
         )),
         _ => None,

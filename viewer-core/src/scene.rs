@@ -52,6 +52,23 @@ pub enum TextStyle {
     Drawn,
 }
 
+/// Una red bajo un punto de la escena: su nombre y sus polígonos (en
+/// coordenadas de mundo), para mostrarla y resaltarla entera.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NetHit {
+    pub name: String,
+    pub outline: Vec<Vec<(f64, f64)>>,
+}
+
+/// Qué red hay en un punto. Un backend que conoce la conectividad de lo que
+/// dibuja (un layout con las reglas de su PDK) la pone en la escena.
+pub trait NetProbe: Send + Sync + std::fmt::Debug {
+    /// La red en `(x, y)` (coordenadas de mundo). `layer`: la capa del
+    /// elemento bajo el cursor, para elegir entre capas superpuestas (el
+    /// metal, no el pozo de abajo).
+    fn at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit>;
+}
+
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
 #[derive(Debug, Clone)]
 pub struct Scene {
@@ -88,6 +105,8 @@ pub struct Scene {
     /// Índice espacial (culling, nivel de detalle, relleno precalculado).
     /// `None` hasta llamar a [`Scene::build_index`]; `push` lo descarta.
     pub index: Option<Arc<SceneIndex>>,
+    /// Redes de lo que se dibuja, si el backend las conoce.
+    pub nets: Option<Arc<dyn NetProbe>>,
 }
 
 impl Default for Scene {
@@ -113,6 +132,7 @@ impl Scene {
             annotations: Vec::new(),
             notices: Vec::new(),
             index: None,
+            nets: None,
         }
     }
 
@@ -229,6 +249,12 @@ pub trait RenderableScene: Send + Sync {
     fn indexed(&self) -> Option<(&SceneIndex, &[DrawElement])> {
         None
     }
+
+    /// La red en un punto, si el backend conoce la conectividad (ver
+    /// [`NetProbe`]). Por defecto ninguna.
+    fn net_at(&self, _x: f64, _y: f64, _layer: Option<Layer>) -> Option<NetHit> {
+        None
+    }
 }
 
 impl RenderableScene for Scene {
@@ -290,6 +316,10 @@ impl RenderableScene for Scene {
 
     fn indexed(&self) -> Option<(&SceneIndex, &[DrawElement])> {
         self.index.as_deref().map(|i| (i, &self.elements[..]))
+    }
+
+    fn net_at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit> {
+        self.nets.as_ref()?.at(x, y, layer)
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {
@@ -365,5 +395,33 @@ mod overlay_tests {
         assert_eq!((h.ghost().len(), h.annotations().len(), h.notices().len()), (1, 1, 1));
         // Los fantasmas no cuentan como elementos de la escena.
         assert!(h.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod net_tests {
+    use super::*;
+
+    /// Una red cuadrada de 0 a 1, solo en la capa 7.
+    #[derive(Debug)]
+    struct Square;
+
+    impl NetProbe for Square {
+        fn at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit> {
+            let inside = (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y);
+            (inside && layer == Some(7)).then(|| NetHit { name: "Y".into(), outline: vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]] })
+        }
+    }
+
+    #[test]
+    fn a_scene_answers_net_at_with_its_probe() {
+        let mut scene = Scene::new();
+        assert_eq!(scene.net_at(0.5, 0.5, Some(7)), None, "sin sonda, ninguna");
+        scene.nets = Some(Arc::new(Square));
+        assert_eq!(scene.net_at(0.5, 0.5, Some(7)).map(|h| h.name), Some("Y".into()));
+        assert_eq!(scene.net_at(0.5, 0.5, Some(3)), None, "otra capa");
+        assert_eq!(scene.net_at(2.0, 0.5, Some(7)), None);
+        // Un clon comparte la sonda.
+        assert!(scene.clone().net_at(0.5, 0.5, Some(7)).is_some());
     }
 }

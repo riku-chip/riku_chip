@@ -189,6 +189,10 @@ impl RikuGuiApp {
                         ui.separator();
                         ui.monospace(format!("x {:>9.3}  y {:>9.3} {unit}", x, y));
                     }
+                    if let Some(net) = self.content.scene().and_then(|bs| bs.net_focus.as_ref()) {
+                        ui.separator();
+                        ui.label(tr!("status.net", name = net.name, count = net.outline.len()));
+                    }
                     if self.readout.labels_hidden > 0 && self.show_labels {
                         ui.separator();
                         ui.label(RichText::new(tr!("status.labels_hidden", count = self.readout.labels_hidden)).weak());

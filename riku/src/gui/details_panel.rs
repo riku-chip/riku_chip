@@ -161,13 +161,19 @@ fn change_items(ui: &mut egui::Ui, changes: &[ChangeItem]) -> Option<BoundingBox
         .show(ui, |ui| {
             for c in changes {
                 let sign = match c.kind {
+                    _ if c.error => "!",
                     ChangeKind::Added => "+",
                     ChangeKind::Removed => "−",
                     ChangeKind::Modified => "~",
                 };
-                let color = crate::gui::theme::change_color(c.kind, ui.visuals().dark_mode);
+                // Un abierto o un corto: en rojo (el color de lo quitado) y en negrita.
+                let kind = if c.error { ChangeKind::Removed } else { c.kind };
+                let color = crate::gui::theme::change_color(kind, ui.visuals().dark_mode);
                 let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
-                let text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
+                let mut text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
+                if c.error {
+                    text = text.strong();
+                }
                 let resp = ui.add(
                     egui::Label::new(text)
                         .truncate()

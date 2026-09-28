@@ -40,7 +40,7 @@ pub(crate) struct Readout {
 pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) -> Readout {
     let ctx = ui.ctx().clone();
     let available = ui.available_size_before_wrap();
-    let response = ui.allocate_response(available, egui::Sense::drag());
+    let response = ui.allocate_response(available, egui::Sense::click_and_drag());
     cursor_icon(&ctx, &response);
     let rect = response.rect;
     let (w, h) = (rect.width() as f64, rect.height() as f64);
@@ -155,12 +155,27 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
             stats.lod_level
         );
     }
+    let xf = ScreenXform::new(response.rect, &bs.viewport, bs.scene.y_axis());
+    // Clic en un polígono: resaltar su red (otro clic en la misma, o en el
+    // vacío, la suelta).
+    if response.clicked() {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let (x, y) = xf.to_world(pos);
+            let hit = crate::gui::scene_painter::pick_at(bs.scene.as_ref(), (x, y), &hidden).and_then(|el| bs.scene.net_at(x, y, Some(el.layer())));
+            bs.net_focus = match hit {
+                Some(h) if bs.net_focus.as_ref().is_some_and(|f| f.name == h.name) => None,
+                other => other,
+            };
+        }
+    }
+    if let Some(net) = &bs.net_focus {
+        paint_net(&ui.painter_at(response.rect), &xf, net, ui.visuals());
+    }
     if opts.legend {
         crate::gui::legend::show(ui, response.rect, bs, &stats);
     } else {
         bs.layer_hover_legend = None;
     }
-    let xf = ScreenXform::new(response.rect, &bs.viewport, bs.scene.y_axis());
     let readout = Readout {
         cursor_world: response.hover_pos().map(|p| xf.to_world(p)),
         px_world: Some(1.0 / bs.viewport.scale),
@@ -174,6 +189,20 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
         }
     }
     readout
+}
+
+/// La red resaltada: el resto atenuado y sus polígonos en amarillo encima.
+fn paint_net(painter: &egui::Painter, xf: &ScreenXform, net: &viewer_core::NetHit, visuals: &egui::Visuals) {
+    painter.rect_filled(painter.clip_rect(), 0.0, visuals.extreme_bg_color.gamma_multiply(0.65));
+    let yellow = egui::Color32::from_rgb(255, 205, 40);
+    let stroke = egui::Stroke::new(1.5, yellow);
+    for poly in &net.outline {
+        if poly.len() < 3 {
+            continue;
+        }
+        let screen: Vec<egui::Pos2> = poly.iter().map(|&(x, y)| xf.to_screen(x, y)).collect();
+        crate::gui::polygon_fill::paint_filled_polygon(painter, poly, screen, yellow.gamma_multiply(0.45), stroke);
+    }
 }
 
 /// Cursor sobre el lienzo: mano abierta (se puede mover) y cerrada al arrastrar.
