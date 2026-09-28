@@ -65,6 +65,18 @@ tools/verify/devices/compare_stdcells.sh "$CARGO_TARGET_DIR/release/examples/dev
 
 Resultados de referencia (2026-09): SKY130 **437 de 437** celdas iguales (GDS y `.mag`), GF180MCU 228 de 229, IHP SG13G2 73 de 74. Las dos que difieren (`gf180mcu_fd_sc_mcu7t5v0__clkbuf_1`, `sg13g2_dfrbp_1`) son de la netlist del PDK, que no coincide con su layout: Riku da lo mismo que el extractor de KLayout (`klayout_gates.py <gds> <celda> <difusión> <poly>`). También la SRAM de `examples/GDS/`: 2271 transistores, W y L iguales a KLayout uno por uno.
 
+## Redes (`tools/verify/nets/`)
+
+La netlist que extrae Riku (redes, transistores y resistores; nivel 3 de [`docs/electrico.md`](../../docs/electrico.md)) contra la de referencia de las celdas estándar, con **Netgen** y el `setup.tcl` de cada PDK: compara la topología entera, como un LVS.
+
+```bash
+cargo build --release -p riku-mod-layout --example nets
+tools/verify/nets/compare_stdcells.sh "$CARGO_TARGET_DIR/release/examples/nets"
+tools/verify/nets/magic_vs_riku.sh sky130A <layout.gds> <celda…>   # Magic como segundo oráculo
+```
+
+Resultados de referencia (2026-09): GF180MCU **219 de 219** (GDS y `.mag`), SKY130 422 de 427 (GDS) y 423 de 426 (`.mag`), IHP SG13G2 68 de 73; sin contar las celdas sin transistores. Las que difieren están listadas en `compare_stdcells.sh`, y en todas la extracción de Magic da lo mismo que Riku: la netlist del PDK no coincide con su layout (pines que el GDS no dibuja, pilas en otro orden) o le falta un resistor de metal que el layout tiene (`probe_p_8`).
+
 ## Medir (`riku-mod-layout/examples/`)
 
 - `profile_diff a.gds b.gds`: tiempo y memoria de cada etapa del diff (`SKIP_FP=1`, `PRINTS=1`, `CANON=1` para diagnósticos).

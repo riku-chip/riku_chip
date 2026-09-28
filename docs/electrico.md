@@ -6,7 +6,7 @@ Hoy Riku muestra y compara **capas**: dice cuánta área de `poly` cambió, no q
 |---|---|---|
 | 1. Leer el dibujo | Leyenda y resaltar una capa | Hecho ([`gui.md`](gui.md#controles)) |
 | 2. Dispositivos | Reconocer transistores (tipo, modelo, W, L), mostrarlos y compararlos | Hecho (fases 2.1–2.6); ver abajo |
-| 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | Idea |
+| 3. Conectividad | Redes del layout; abiertos y cortos entre versiones | En curso: 3.1–3.3 hechas (ver abajo) |
 | 4. LVS | Layout contra esquemático, con el resultado en el visor | Idea |
 | 5. Chequeos eléctricos | ERC, antena, parásitos, post-layout | Idea |
 
@@ -102,7 +102,117 @@ En total, **L** (una a dos semanas). Cada fase se cierra con tests y un commit. 
 
 ## Nivel 3: conectividad
 
-Unir las capas conductoras por contactos y vías (la sección `connect` del `.tech` de Magic, o `connect` del LVS de KLayout) para armar las **redes** de cada celda, con los nombres de las etiquetas. Entre dos versiones: una red que se partió (**abierto**) o dos que se unieron (**corto**), que un diff de área no ve. Con redes, los dispositivos del nivel 2 saben qué red va a cada terminal y se pueden agrupar sus fingers. Esfuerzo **L**; es lo que más vale después del nivel 2.
+**Objetivo:** las **redes** de cada celda (qué metal, poly y difusión están unidos por contactos y vías), con el nombre de sus etiquetas, y entre dos versiones lo que un diff de área no ve:
+
+```
+! nand2_1: corto entre A y Y          (en (1,20; 0,85): metal1 +0,02 µm²)
+! nand2_1: abierto en VPWR, se partió en 2 (una parte con pfet@(0,49; 2,10))
+```
+
+Con redes, además, cada transistor sabe qué red va a su compuerta, fuente y drenaje, y los fingers se agrupan en un solo dispositivo (`nf`).
+
+### De dónde salen las reglas: otra vez el `.tech` de Magic
+
+Las tres secciones que hacen falta ya están en el `.tech` que leemos para los transistores; no hay tablas por PDK:
+
+- **`contact`**: cada tipo de contacto y las dos capas que une. En SKY130, `mcon locali metal1` y `ndc ndiff locali`; en GF180MCU e IHP, `ndc ndiff metal1` (no tienen `li`).
+- **`connect`**: qué tipos son el mismo conductor. Por ejemplo, `*poly,xpc,allfets,polyfill` (la compuerta es poly, así que la red de la compuerta sale sola) o `allnactivenonfet` (la difusión **sin** los transistores: el canal separa fuente de drenaje).
+- **`aliases`**: expande nombres como `allfets` o `allnactivenonfet`. `*li` quiere decir `locali` y todos los contactos que la tienen como una de sus dos capas.
+- **`cifinput`**: de qué capas GDS sale cada tipo, con las mismas reglas del nivel 2. Por ejemplo, `ndiff` = `DIFF` y `NSDM`, sin `POLY` ni `NWELL`. Sus líneas `labels LI`, `labels LIPIN port` y `labels LITXT text` dicen en qué capas GDS van las etiquetas de cada conductor.
+
+`gen_devices.py` suma esas secciones a la tabla generada para cuando no está el PDK.
+
+### Algoritmo, por celda aplanada
+
+1. **Regiones:** cada tipo conductor y cada tipo de contacto se evalúa como región con su regla de `cifinput` (`or`, `and` y `and-not` con `boolean_owned`; `grow` y `shrink` se ignoran, como en el nivel 2). Los tipos de un mismo grupo de `connect` se unen.
+2. **Pedazos:** cada polígono de la unión de un grupo es un pedazo conductor. Clipper ya junta los que se tocan o se superponen.
+3. **Contactos:** cada polígono de contacto une los pedazos de sus dos capas que contiene en un punto interior. Se buscan con la grilla del nivel 2, y los pedazos se unen con *union-find*.
+4. **Nombres:** una etiqueta GDS (o de Magic) sobre una capa de `labels` nombra la red del pedazo en el que cae. Si una red tiene dos nombres, se toma el primero en orden alfabético y queda un aviso (en LVS eso sería un error). Las redes sin nombre se llaman por su transistor más cercano: `net@nfet(0,49; 0,66)`.
+5. **Terminales:** la compuerta es el pedazo de poly que contiene el transistor. La fuente y el drenaje son los pedazos de difusión que toca, los mismos dos que ya encuentra el nivel 2.
+6. **Fingers:** los transistores con el mismo modelo, L y red de compuerta, y el mismo par {fuente, drenaje}, se agrupan en uno (`W` es la suma y `nf` la cantidad).
+
+**Pozos y sustrato** van aparte. `nwell` es un conductor más: el grupo `*nwell,*nsd` une el pozo con sus tomas. El sustrato `pwell` no se dibuja en muchos PDK, así que el cuerpo de un nfet va a una red implícita `sub` unida a las tomas `psd` que no están dentro de un `nwell`. Eso alcanza para comparar contra las netlists de las celdas estándar (`VPB`/`VNB`).
+
+**Salida:** una netlist SPICE por celda (`.subckt` con los pines como puertos: las etiquetas `port` en Magic y las de las capas `PIN` en GDS). Sirve para verificar ahora y es la base del nivel 4.
+
+### Comparar redes entre versiones
+
+Las redes de A y de B no tienen identidad propia, así que se comparan por **anclas** que sí la tienen:
+
+- las etiquetas (nombre y capa);
+- los terminales de los transistores emparejados por posición en el nivel 2 (compuerta, fuente y drenaje).
+
+Cada red es un conjunto de anclas. Si el ancla `x` está en la red `a` de A y en la red `b` de B, el par `(a, b)` es una arista, y la estructura que queda dice qué pasó:
+
+- **Abierto:** una red de A cuyas anclas caen en dos o más redes de B.
+- **Corto:** dos o más redes de A cuyas anclas caen en una sola red de B.
+- **Renombrado:** la misma red, con otro nombre.
+
+Las anclas que existen solo de un lado (un transistor agregado, por ejemplo) no cuentan: agregar un transistor no es un corto.
+
+**Dónde:** la ubicación de un abierto o un corto es la de los cambios de geometría del diff que tocan esas redes. Casi siempre es uno solo, y un clic lo encuadra.
+
+**En el reporte:**
+- `Element::Net { cell, name }` con `details` `kind: open|short|renamed` y las redes o anclas del otro lado. Es otro tipo aditivo en `riku-diff/v2`, como `device`.
+- Los transistores del nivel 2 suman `nf` y los nombres de sus redes (`g`, `s`, `d`). Un transistor que cambió de red es un cambio más: `~ nfet@(…): d: Y → net@…`.
+
+### Qué se ve
+
+- **CLI y JSON:** abiertos y cortos arriba de todo en `riku diff` y `show`, porque son lo más grave del reporte. El tipo de cambio es `!` en texto y `"severity": "error"` en JSON.
+- **Diff en el visor:** abiertos y cortos al principio de la lista **Cambios**, en rojo. Un clic encuadra el lugar.
+- **Visor:** el tooltip del polígono bajo el cursor suma su red (`metal1 · red A`), y el resumen dice `Redes: 9 (5 con nombre)`. Resaltar una red entera con un clic necesita preguntarle al backend qué red hay en un punto (ver Decisiones).
+- **Ejemplo `nets`:** `riku-mod-layout/examples/nets.rs <gds|mag> [celda]` imprime la netlist extraída.
+
+### Dónde va
+
+| Qué | Dónde |
+|---|---|
+| `contact`, `connect`, `aliases` y `labels` | `riku-mod-layout/src/devices/rules.rs` (y `gen_devices.py`) |
+| Regiones, pedazos, contactos, nombres y terminales | `riku-mod-layout/src/nets/extract.rs`, junto a `devices/` |
+| Fingers y netlist SPICE | `riku-mod-layout/src/nets/netlist.rs` |
+| Abiertos, cortos y renombres | `riku-mod-layout/src/nets/diff.rs`, desde `gds_diff.rs` |
+| `Element::Net` | `riku-kernel/src/change.rs`; texto en `cli/format/diff_text.rs` |
+| Lista Cambios y tooltip | `diff_scene.rs` y `viewer_core_compat.rs` |
+
+No hace falta nada nuevo en gdstk_rust: con `boolean_owned` alcanza.
+
+### Rendimiento
+
+Igual que en el nivel 2: solo se extraen las celdas que cambiaron en una capa de las reglas, y la celda abierta en el visor. Se aplanan solo las capas conductoras. Hay un tope de polígonos (`MAX_POLYGONS`), y las celdas más grandes se avisan y se comparan en sus sub-celdas. Lo que cuesta es la unión de cada grupo de conductores: para la SRAM del repo espero menos de un segundo, y se mide antes de la fase 3.4. La extracción jerárquica (cada celda una vez, con sus pines hacia arriba, como KLayout) es lo que haría falta para un chip entero, y queda para después.
+
+### Verificación: Netgen contra las netlists del PDK
+
+Es la misma prueba que un LVS real. Por cada celda estándar, la netlist que extrae Riku se compara con la de referencia del PDK usando **Netgen** (`netgen -batch lvs`, con el `setup.tcl` de cada PDK; está en el contenedor). Netgen compara la topología completa: qué transistor va a qué red.
+
+- `tools/verify/nets/compare_netgen.sh` se corre sobre SKY130 (437 celdas, en GDS y `.mag`), GF180MCU e IHP.
+- Las dos celdas conocidas del nivel 2 siguen marcadas como conocidas.
+- Espero que falle alguna celda por pozos o sustrato, y esas diferencias se documentan.
+- Segundo oráculo para la SRAM: `LayoutToNetlist` de KLayout con las mismas capas. Se compara la cantidad de redes y el grado de cada una.
+
+### Fases
+
+| Fase | Qué | Esf. |
+|---|---|---|
+| 3.1 | Reglas: `contact`, `connect`, `aliases` y `labels` para los tres PDK, con la tabla generada | S |
+| 3.2 | Extracción: regiones, pedazos, contactos, nombres y terminales, con tests por PDK | M |
+| 3.3 | Netlist SPICE, fingers (`nf`), ejemplo `nets` y verificación con Netgen en las celdas estándar | M |
+| 3.4 | Diff: abiertos, cortos y renombres por anclas, y transistores que cambiaron de red, en CLI y JSON (con un fixture de SKY130 con un corto y otro con un abierto) | M |
+| 3.5 | Visor: lista Cambios, tooltip con la red y resumen | S |
+
+En total, **L** (una a dos semanas). La 3.1 y la 3.2 no cambian nada visible; la 3.3 ya da algo útil (la netlist); la 3.4 es lo que se ve en el diff.
+
+### Avance
+
+- **3.1–3.3 hechas** (`riku-mod-layout/src/nets/`, `devices/regions.rs`): redes, terminales, fingers, resistores y la netlist SPICE (`examples/nets.rs`). Verificación en [`tools/verify/README.md`](../tools/verify/README.md#redes-toolsverifynets): con Netgen, GF180MCU 219 de 219 celdas, SKY130 422 de 427, IHP 68 de 73; las diferencias, confirmadas con Magic, son de las netlists del PDK. SRAM del repo: 2,1 s.
+- **Diferencias con el diseño:** `grow` y `shrink` se evalúan (con `offset_owned`, nuevo en gdstk_rust): el pozo P de SKY130 se arma agrandando la difusión, y `npd` de la SRAM es `npass` sin las compuertas angostas. Magic pinta los tipos en orden y en un mismo plano el posterior tapa al anterior; sin eso IHP daba cortos falsos. Las regiones se unen agrandadas medio nanómetro (Clipper puede dejar separados polígonos que comparten un borde). Una etiqueta es pin si cae sobre un polígono de pin (`labels LIPIN port`), o en Magic si tiene `port`. También se reconocen resistores (`device resistor|rsubcircuit`); los de modelo `None` (metal en IHP) son cortos.
+- **Pendiente:** la SRAM contra Magic difiere en los pull-ups de la celda de memoria (Magic cuenta 720 `special_pfet_latch`, Riku y KLayout 360).
+
+### Decisiones abiertas
+
+1. **Resaltar una red con un clic:** hoy la escena es solo geometría. Para saber la red de un punto hace falta un método nuevo en `ViewerBackend` (`net_at(point) -> Option<polígonos>`), con un valor por defecto que no rompe el crate de Carlos, pero es un cambio en el contrato compartido y conviene avisarle. Propongo dejarlo para después de la 3.5: el tooltip y la lista Cambios ya cubren lo principal.
+2. **Severidad:** propongo sumar `severity` (`error` para abiertos y cortos) al `Change` de v2, como campo opcional. La alternativa es no tocar el schema y ordenar por tipo.
+3. **Dos nombres en una red:** propongo un aviso y no un error: es un problema del diseño que ya reportaría el LVS del nivel 4.
+4. **Sustrato implícito:** una sola red `sub` para todo lo que no está en un `nwell`, suficiente para las celdas estándar. Los pozos aislados (`dnwell`) se tratan como redes normales.
 
 ## Nivel 4: LVS
 

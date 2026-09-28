@@ -15,6 +15,11 @@
 //! - `types` dice qué nombres son el mismo tipo (`scnmos,scntransistor,scnfet`):
 //!   un `.mag` usa cualquiera de ellos.
 //!
+//! - `contact`, `connect` y `aliases` dicen qué tipos conducen juntos cuando
+//!   se tocan; las líneas `labels` de `cifinput`, en qué
+//!   capas GDS van las etiquetas de cada tipo, y `substrate` de `extract`
+//!   qué tipos son el sustrato: las redes del nivel 3 (`nets/`).
+//!
 //! Magic lo interpreta en `cif/CIFrdtech.c`: cada `layer`/`templayer` es una
 //! lista de operaciones sobre una región que empieza vacía (`or` suma, `and`
 //! corta, `and-not` resta). Acá se evalúan en un punto: sirve para decidir
@@ -28,22 +33,29 @@ use std::collections::HashMap;
 pub type GdsLayer = (u32, Option<u32>);
 
 #[derive(Clone, Debug, PartialEq)]
-enum Op {
+pub(super) enum Op {
     Or(Vec<String>),
     And(Vec<String>),
     AndNot(Vec<String>),
     /// Suma la región de este punto de la lista a otra capa.
     CopyUp(Vec<String>),
-    /// `grow`, `shrink` y lo que no se evalúa en un punto.
+    /// `grow` y `shrink`, en µm: no cambian el resultado en un punto, pero sí
+    /// las regiones (un pozo que se agranda une sus pedazos).
+    Grow(f64),
+    Shrink(f64),
+    /// Lo que no se evalúa (`grow-grid`, `boundary`…).
     Ignored,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Def {
-    name: String,
+pub(super) struct Def {
+    pub(super) name: String,
     /// `layer` (un tipo de Magic) o `templayer` (intermedia, usable como operando).
-    temp: bool,
-    ops: Vec<Op>,
+    pub(super) temp: bool,
+    pub(super) ops: Vec<Op>,
+    /// `labels LIPIN port`: nombres de `calma` cuyas etiquetas son de este
+    /// tipo, y si son pines.
+    labels: Vec<(String, bool)>,
 }
 
 /// Un tipo de transistor: su nombre en Magic, sus modelos SPICE (cada uno
@@ -54,6 +66,22 @@ pub struct DeviceType {
     pub magic: String,
     pub models: Vec<(String, Vec<Cond>)>,
     pub sd: Vec<String>,
+    /// Tipos del sustrato (`pwell`); `space` si puede no haber pozo dibujado.
+    pub sub: Vec<String>,
+    /// `msubcircuit` (una instancia `X` en SPICE) y no `mosfet` (`M`).
+    pub subckt: bool,
+}
+
+/// Un tipo de resistor: su nombre en Magic (canónico), su modelo SPICE
+/// (`None` en las líneas `None` de IHP: un corto, no un dispositivo) y los
+/// tipos de sus terminales (`*metal5`: el metal y sus vías).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResistorType {
+    pub magic: String,
+    pub model: Option<String>,
+    pub terminals: Vec<String>,
+    /// `rsubcircuit` (una instancia `X` en SPICE) y no `resistor` (`R`).
+    pub subckt: bool,
 }
 
 /// `w>=0.42`: una condición de un modelo, en µm.
@@ -110,15 +138,26 @@ impl DeviceType {
 /// Las reglas de un PDK.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DeviceRules {
-    calma: HashMap<String, Vec<GdsLayer>>,
-    defs: Vec<Def>,
-    temps: HashMap<String, usize>,
+    pub(super) calma: HashMap<String, Vec<GdsLayer>>,
+    pub(super) defs: Vec<Def>,
+    pub(super) temps: HashMap<String, usize>,
     /// `(def, op)` de cada `copyup` a un nombre.
-    copyups: HashMap<String, Vec<(usize, usize)>>,
+    pub(super) copyups: HashMap<String, Vec<(usize, usize)>>,
     /// Transistores, en el orden de su `layer` en `cifinput` (el de Magic).
     pub devices: Vec<(usize, DeviceType)>,
+    /// Resistores (`device resistor|rsubcircuit` de `extract`), uno por tipo.
+    pub resistors: Vec<ResistorType>,
     /// Cada nombre de `types` → el primero de su línea (el canónico).
     canonical: HashMap<String, String>,
+    /// Cada tipo (canónico) → su plano (`active`, `metal1`…).
+    planes: HashMap<String, String>,
+    /// Cada tipo de contacto → las dos capas que une (`mcon` → `locali`, `metal1`).
+    contacts: HashMap<String, Vec<String>>,
+    /// Pares de listas de tipos que conducen juntos, ya expandidos.
+    pub connect: Vec<(Vec<String>, Vec<String>)>,
+    /// Tipos que son el sustrato (`*psd,space/w,pwell`) y los que lo excluyen
+    /// (`-dnwell,isosub`).
+    pub substrate: (Vec<String>, Vec<String>),
 }
 
 /// Clases de `device` que son transistores MOS.
@@ -132,18 +171,46 @@ impl DeviceRules {
         let cif = first_style(&sections.iter().find(|(n, _)| n == "cifinput")?.1);
         let mut rules = DeviceRules::default();
         for line in sections.iter().filter(|(n, _)| n == "types").flat_map(|(_, l)| l) {
-            let Some(names) = line.split_whitespace().nth(1) else { continue };
+            let mut w = line.split_whitespace();
+            let (Some(plane), Some(names)) = (w.next(), w.next()) else { continue };
             let names: Vec<&str> = names.split(',').collect();
             for n in &names {
                 rules.canonical.entry(n.to_string()).or_insert_with(|| names[0].to_string());
             }
+            // `-active`: un tipo que no se lee ni se escribe en CIF; el plano es el mismo.
+            rules.planes.entry(names[0].to_string()).or_insert_with(|| plane.trim_start_matches('-').to_string());
         }
-        let models = sections
+        let extract = sections.iter().find(|(n, _)| n == "extract").map(|(_, l)| first_style(l)).unwrap_or_default();
+        let models = device_models(&extract, &rules.canonical);
+        for line in sections.iter().filter(|(n, _)| n == "contact").flat_map(|(_, l)| l) {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            if w.len() >= 3 && !matches!(w[0], "stackable" | "lambda") {
+                let c = rules.canonical(w[0]).to_string();
+                let residues = w[1..].iter().map(|r| rules.canonical(r).to_string()).collect();
+                rules.contacts.insert(c, residues);
+            }
+        }
+        let aliases: HashMap<String, String> = sections
             .iter()
-            .find(|(n, _)| n == "extract")
-            .map(|(_, l)| device_models(&first_style(l), &rules.canonical))
-            .unwrap_or_default();
+            .filter(|(n, _)| n == "aliases")
+            .flat_map(|(_, l)| l)
+            .filter_map(|l| l.split_once(char::is_whitespace).map(|(a, b)| (a.to_string(), b.trim().to_string())))
+            .collect();
+        for line in sections.iter().filter(|(n, _)| n == "connect").flat_map(|(_, l)| l) {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            if w.len() == 2 {
+                let pair = (rules.expand(w[0], &aliases), rules.expand(w[1], &aliases));
+                rules.connect.push(pair);
+            }
+        }
+        if let Some(line) = extract.iter().find(|l| l.split_whitespace().next() == Some("substrate")) {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            let types = w.get(1).map(|t| rules.expand(t, &aliases)).unwrap_or_default();
+            let not = w.iter().find_map(|t| t.strip_prefix('-')).map(|t| rules.expand(t, &aliases)).unwrap_or_default();
+            rules.substrate = (types, not);
+        }
 
+        let mut unit_um = 1e-2;
         for line in &cif {
             let w: Vec<&str> = line.split_whitespace().collect();
             let names = |i: usize| w.get(i).map(|s| s.split(',').map(str::to_string).collect::<Vec<_>>()).unwrap_or_default();
@@ -158,7 +225,7 @@ impl DeviceRules {
                     if temp {
                         rules.temps.insert(w[1].to_string(), rules.defs.len());
                     }
-                    rules.defs.push(Def { name: w[1].to_string(), temp, ops });
+                    rules.defs.push(Def { name: w[1].to_string(), temp, ops, labels: Vec::new() });
                 }
                 Some(op @ ("and" | "and-not" | "or" | "copyup")) => {
                     let Some(def) = rules.defs.last_mut() else { continue };
@@ -170,7 +237,27 @@ impl DeviceRules {
                         _ => Op::CopyUp(n),
                     });
                 }
-                Some("grow" | "grow-grid" | "shrink" | "boundary" | "not-square" | "mask-hints" | "tagged") => {
+                Some("scalefactor") => {
+                    // `grow`/`shrink` van en centimicrones o, con la palabra, en nm o Å.
+                    unit_um = if w.contains(&"nanometers") {
+                        1e-3
+                    } else if w.contains(&"angstroms") {
+                        1e-4
+                    } else {
+                        1e-2
+                    };
+                }
+                Some(op @ ("grow" | "shrink")) if w.len() >= 2 => {
+                    if let (Some(def), Ok(v)) = (rules.defs.last_mut(), w[1].parse::<f64>()) {
+                        def.ops.push(if op == "grow" { Op::Grow(v * unit_um) } else { Op::Shrink(v * unit_um) });
+                    }
+                }
+                Some("labels") if w.len() >= 2 => {
+                    if let Some(def) = rules.defs.last_mut() {
+                        def.labels.push((w[1].to_string(), w.get(2) == Some(&"port")));
+                    }
+                }
+                Some("grow" | "grow-grid" | "grow-min" | "shrink" | "boundary" | "not-square" | "mask-hints" | "tagged") => {
                     if let Some(def) = rules.defs.last_mut() {
                         def.ops.push(Op::Ignored);
                     }
@@ -193,10 +280,37 @@ impl DeviceRules {
             .enumerate()
             .filter(|(_, d)| !d.temp)
             .filter_map(|(i, d)| {
-                let (models, sd) = models.get(rules.canonical(&d.name))?;
-                Some((i, DeviceType { magic: d.name.clone(), models: models.clone(), sd: sd.clone() }))
+                let m = models.get(rules.canonical(&d.name))?;
+                // Los alias (`allpsub` en GF180 es `space/w,pwell,pbase`).
+                let expand = |v: &[String]| {
+                    let mut out: Vec<String> = Vec::new();
+                    for x in v.iter().flat_map(|s| rules.expand(s, &aliases)) {
+                        if !out.contains(&x) {
+                            out.push(x);
+                        }
+                    }
+                    out
+                };
+                let t = DeviceType { magic: d.name.clone(), models: m.models.clone(), sd: expand(&m.sd), sub: expand(&m.sub), subckt: m.subckt };
+                Some((i, t))
             })
             .collect();
+        for line in &extract {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            if w.first() != Some(&"device") || w.len() < 5 || !matches!(w[1], "resistor" | "rsubcircuit") {
+                continue;
+            }
+            let terminals = rules.expand(w[4], &aliases);
+            for t in w[3].split(',') {
+                let magic = rules.canonical(t).to_string();
+                // Un tipo con dos líneas (`rsubcircuit` y `resistor` en SKY130): la primera, como Magic.
+                if rules.resistors.iter().any(|r| r.magic == magic) {
+                    continue;
+                }
+                let model = (w[2] != "None").then(|| w[2].to_string());
+                rules.resistors.push(ResistorType { magic, model, terminals: terminals.clone(), subckt: w[1] == "rsubcircuit" });
+            }
+        }
         (!rules.devices.is_empty()).then_some(rules)
     }
 
@@ -218,6 +332,125 @@ impl DeviceRules {
         t.sd.iter().any(|s| c.starts_with(s.as_str()))
     }
 
+    /// Una lista de tipos de `connect` o `substrate` (`*li,coreli`,
+    /// `allnactivenonfet`, `space/w`), en nombres canónicos: los alias de
+    /// `aliases` se expanden, `*x` es `x` y los contactos que lo unen, y el
+    /// plano (`/w`) se descarta. `space` queda como está.
+    fn expand(&self, list: &str, aliases: &HashMap<String, String>) -> Vec<String> {
+        let mut out = Vec::new();
+        self.expand_into(list, aliases, &mut out, 0);
+        out
+    }
+
+    fn expand_into(&self, list: &str, aliases: &HashMap<String, String>, out: &mut Vec<String>, depth: u32) {
+        for item in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            let item = item.split('/').next().unwrap_or(item);
+            let (star, name) = match item.strip_prefix('*') {
+                Some(n) => (true, n),
+                None => (false, item),
+            };
+            if let Some(a) = aliases.get(name).filter(|_| depth < 8) {
+                self.expand_into(a, aliases, out, depth + 1);
+                continue;
+            }
+            let name = self.canonical(name).to_string();
+            if star {
+                let mut cs: Vec<&String> = self.contacts.iter().filter(|(_, r)| r.contains(&name)).map(|(c, _)| c).collect();
+                cs.sort();
+                for c in cs {
+                    if !out.contains(c) {
+                        out.push(c.clone());
+                    }
+                }
+            }
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+
+    /// El plano de un tipo (`active`), según `types`.
+    pub fn plane(&self, name: &str) -> Option<&str> {
+        self.planes.get(self.canonical(name)).map(String::as_str)
+    }
+
+    /// La posición de la primera `layer` de un tipo en `cifinput`: Magic pinta
+    /// en ese orden, y en un mismo plano un tipo posterior tapa al anterior.
+    pub fn layer_index(&self, name: &str) -> Option<usize> {
+        let c = self.canonical(name);
+        self.defs.iter().position(|d| !d.temp && self.canonical(&d.name) == c)
+    }
+
+    /// El tipo y los contactos que lo tocan (el `*metal1` de Magic): una
+    /// etiqueta de `metal1` puede caer sobre una vía, que tapa al metal.
+    pub fn with_contacts(&self, name: &str) -> Vec<String> {
+        self.expand(&format!("*{name}"), &HashMap::new())
+    }
+
+    /// Las dos capas que une un contacto (vacío si no es un contacto).
+    pub fn contact_residues(&self, name: &str) -> &[String] {
+        self.contacts.get(self.canonical(name)).map_or(&[], Vec::as_slice)
+    }
+
+    /// Los tipos que conducen (los de `connect`), sin `space`.
+    pub fn conductors(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.connect.iter().flat_map(|(a, b)| a.iter().chain(b)).filter(|t| *t != "space").cloned().collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Los tipos de Magic de las `layer` de `cifinput` (en el orden del
+    /// archivo, sin repetir).
+    pub fn layer_types(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = Vec::new();
+        for d in self.defs.iter().filter(|d| !d.temp) {
+            if !out.contains(&d.name.as_str()) {
+                out.push(&d.name);
+            }
+        }
+        out
+    }
+
+    /// Las capas GDS de pines (`labels LIPIN port`): una etiqueta sobre un
+    /// polígono de estas capas es un pin, como en Magic.
+    pub fn port_layers(&self) -> Vec<GdsLayer> {
+        let mut out: Vec<GdsLayer> =
+            self.defs.iter().flat_map(|d| d.labels.iter().filter(|(_, p)| *p)).flat_map(|(n, _)| self.gds_layers(n).iter().copied()).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Los tipos cuyas etiquetas van en la capa GDS `tag`, y si son pines.
+    /// Una etiqueta de una `templayer` (`ndiffarea`) es de los tipos que la
+    /// usan como base (`ndiff`).
+    pub fn label_types(&self, tag: (u32, u32)) -> Vec<(String, bool)> {
+        let matches = |name: &str| self.gds_layers(name).iter().any(|&(l, d)| l == tag.0 && d.is_none_or(|d| d == tag.1));
+        let mut out: Vec<(String, bool)> = Vec::new();
+        for def in &self.defs {
+            for (_, port) in def.labels.iter().filter(|(n, _)| matches(n)) {
+                let types: Vec<&str> = if def.temp {
+                    self.defs
+                        .iter()
+                        .filter(|d| !d.temp && matches!(d.ops.first(), Some(Op::Or(ns)) if ns.contains(&def.name)))
+                        .map(|d| d.name.as_str())
+                        .collect()
+                } else {
+                    vec![def.name.as_str()]
+                };
+                for t in types {
+                    let t = self.canonical(t).to_string();
+                    match out.iter_mut().find(|(n, _)| *n == t) {
+                        Some(e) => e.1 |= *port,
+                        None => out.push((t, *port)),
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Capas GDS de un nombre de `cifinput` (vacío si no está en ningún `calma`).
     pub fn gds_layers(&self, name: &str) -> &[GdsLayer] {
         self.calma.get(name).map_or(&[], Vec::as_slice)
@@ -228,6 +461,21 @@ impl DeviceRules {
         let mut names = Vec::new();
         for (d, _) in &self.devices {
             self.collect_names(*d, &mut names, &mut Vec::new());
+        }
+        let mut out: Vec<GdsLayer> = names.iter().flat_map(|n| self.gds_layers(n).iter().copied()).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Las capas GDS que usan las reglas de esos tipos (cualquiera de sus nombres).
+    pub fn type_layers(&self, types: &[String]) -> Vec<GdsLayer> {
+        let wanted: Vec<&str> = types.iter().map(|t| self.canonical(t)).collect();
+        let mut names = Vec::new();
+        for (d, def) in self.defs.iter().enumerate() {
+            if !def.temp && wanted.contains(&self.canonical(&def.name)) {
+                self.collect_names(d, &mut names, &mut Vec::new());
+            }
         }
         let mut out: Vec<GdsLayer> = names.iter().flat_map(|n| self.gds_layers(n).iter().copied()).collect();
         out.sort_unstable();
@@ -293,12 +541,21 @@ impl DeviceRules {
     /// (Magic pinta las capas en orden). `inside(capa)` dice si el punto está
     /// en esa capa GDS.
     pub fn device_at(&self, inside: &dyn Fn(GdsLayer) -> bool) -> Option<&DeviceType> {
+        self.devices_at(inside).last().map(|(_, t)| *t)
+    }
+
+    /// Todos los transistores cuya regla incluye el punto, en el orden de
+    /// `cifinput`, con el índice de su `layer`.
+    pub fn devices_at(&self, inside: &dyn Fn(GdsLayer) -> bool) -> Vec<(usize, &DeviceType)> {
         let mut memo = HashMap::new();
-        self.devices
-            .iter()
-            .filter(|(d, _)| self.eval_def(*d, None, inside, &mut memo, &mut Vec::new()))
-            .last()
-            .map(|(_, t)| t)
+        self.devices.iter().filter(|(d, _)| self.eval_def(*d, None, inside, &mut memo, &mut Vec::new())).map(|(d, t)| (*d, t)).collect()
+    }
+
+    /// La regla de esa `layer` agranda o achica la región: en un punto no
+    /// alcanza (`npd` de SKY130 es `npass` con `shrink 70`/`grow 70`: solo las
+    /// compuertas de más de 0,14 µm).
+    pub fn resizes(&self, def: usize) -> bool {
+        self.defs[def].ops.iter().any(|o| matches!(o, Op::Grow(_) | Op::Shrink(_)))
     }
 
     /// Una lista de operaciones en el punto, hasta `upto` (sin incluirla).
@@ -317,7 +574,7 @@ impl DeviceRules {
                 Op::Or(ns) => state = state || self.any_in(ns, inside, memo, visiting),
                 Op::And(ns) => state = state && self.any_in(ns, inside, memo, visiting),
                 Op::AndNot(ns) => state = state && !self.any_in(ns, inside, memo, visiting),
-                Op::CopyUp(_) | Op::Ignored => {}
+                Op::CopyUp(_) | Op::Grow(_) | Op::Shrink(_) | Op::Ignored => {}
             }
         }
         state
@@ -366,36 +623,55 @@ fn gds_layers(layers: &str, types: &str) -> Vec<GdsLayer> {
     nums(layers).into_iter().flat_map(|l| types.iter().map(move |&t| (l, t))).collect()
 }
 
-/// Modelos (con sus condiciones) y tipos de fuente/drenaje de cada tipo,
-/// por nombre canónico, según las líneas `device` de MOS de `extract`.
-#[allow(clippy::type_complexity)]
-fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashMap<String, (Vec<(String, Vec<Cond>)>, Vec<String>)> {
+/// Lo que dicen las líneas `device` de un tipo de transistor.
+#[derive(Default)]
+struct Models {
+    models: Vec<(String, Vec<Cond>)>,
+    sd: Vec<String>,
+    sub: Vec<String>,
+    subckt: bool,
+}
+
+/// Modelos (con sus condiciones), tipos de fuente/drenaje y de sustrato de
+/// cada tipo, por nombre canónico, según las líneas `device` de MOS de
+/// `extract`: `device msubcircuit MODELO tipos sd [sd…] sustrato nodo…`.
+fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashMap<String, Models> {
     let canon = |n: &str| canonical.get(n).cloned().unwrap_or_else(|| n.to_string());
-    let mut out: HashMap<String, (Vec<(String, Vec<Cond>)>, Vec<String>)> = HashMap::new();
+    let names = |t: &str| t.split(',').map(|t| canon(t.trim_start_matches('*').split('/').next().unwrap_or(""))).collect::<Vec<_>>();
+    let mut out: HashMap<String, Models> = HashMap::new();
     for line in lines {
         let w: Vec<&str> = line.split_whitespace().collect();
         if w.first() != Some(&"device") || w.len() < 4 || !MOS_CLASSES.contains(&w[1]) {
             continue;
         }
         let conds: Vec<Cond> = w[4..].iter().filter_map(|t| Cond::parse(t)).collect();
-        // Fuente y drenaje: los campos que siguen a los tipos y empiezan con
-        // `*` (`*ndiff,ndiffres`); el que sigue sin `*` es el sustrato
-        // (`pwell,space/w`).
-        let sd: Vec<String> = w[4..]
-            .iter()
-            .take_while(|t| t.starts_with('*'))
-            .flat_map(|t| t.split(','))
-            .map(|t| canon(t.trim_start_matches('*')))
-            .collect();
+        // Fuente y drenaje: el campo que sigue a los tipos, repetido una vez
+        // por terminal (`*ndiff *ndiff`, `ndiff,ndc ndiff,ndc`); el siguiente
+        // es el sustrato (`pwell,space/w`), si no es un nodo (`error`,
+        // `$SUB`) ni un parámetro (`w>=0.42`, `l=l`).
+        let sd_field = w.get(4).copied().filter(|t| !t.contains('=') && !t.contains('<') && !t.contains('>'));
+        let sd: Vec<String> = sd_field.map(names).unwrap_or_default();
+        let after = 4 + w[4..].iter().take_while(|t| Some(**t) == sd_field).count();
+        let sub: Vec<String> = w
+            .get(after)
+            .filter(|t| sd_field.is_some() && !t.starts_with('$') && !t.contains('=') && !t.contains('<') && !t.contains('>') && **t != "error")
+            .map(|t| names(t))
+            .unwrap_or_default();
         for t in w[3].split(',') {
-            let (models, sds) = out.entry(canon(t)).or_default();
+            let m = out.entry(canon(t)).or_default();
             // La misma línea repetida con otros terminales (npd en SKY130).
-            if !models.iter().any(|(m, c)| m == w[2] && *c == conds) {
-                models.push((w[2].to_string(), conds.clone()));
+            if !m.models.iter().any(|(mm, c)| mm == w[2] && *c == conds) {
+                m.models.push((w[2].to_string(), conds.clone()));
             }
+            m.subckt |= w[1] == "msubcircuit";
             for s in &sd {
-                if !sds.contains(s) {
-                    sds.push(s.clone());
+                if !m.sd.contains(s) {
+                    m.sd.push(s.clone());
+                }
+            }
+            for s in &sub {
+                if !m.sub.contains(s) {
+                    m.sub.push(s.clone());
                 }
             }
         }
@@ -455,7 +731,9 @@ pub(crate) mod tests {
     use super::*;
 
     /// Un `.tech` mínimo con la forma del de SKY130: nfet, pfet por una
-    /// `templayer`, un marcador de bajo Vt y un `copyup` cíclico.
+    /// `templayer`, un marcador de bajo Vt y un `copyup` cíclico; y para las
+    /// redes, difusión, poly, `locali` y `metal1` con sus contactos, pozo N
+    /// y sustrato.
     pub(crate) const TECH: &str = r"
 tech
   mini
@@ -467,6 +745,30 @@ types
  active ndiff,ndiffusion
  active ndiffc,ndcontact
  active pdiff
+ active psubstratepdiff,psd
+ active ndc,ndcontact2
+end
+contact
+ ndc ndiff locali
+ pdc pdiff locali
+ psc psd locali
+ pc poly locali
+ mcon locali metal1
+ stackable
+end
+aliases
+ allnactivenonfet *ndiff
+ allfets allnfets,pfet
+ allnfets nfet,nfetlvt
+end
+connect
+ nwell nwell
+ pwell,*psd pwell,*psd
+ allnactivenonfet allnactivenonfet
+ *pdiff *pdiff
+ *poly,allfets *poly,allfets
+ *locali *locali
+ *metal1 *metal1
 end
 cifinput
 style mini
@@ -491,7 +793,48 @@ style mini
  layer pfet pfetarea
  and NWELL
  grow 10
+ layer nwell NWELL
+ labels NWELL
+ templayer ndiffarea DIFF
+ and-not POLY
+ and NSDM
+ labels DIFF
+ layer ndiff ndiffarea
+ layer pdiff DIFF
+ and-not POLY
+ and NWELL
+ layer psd TAP
+ and-not NWELL
+ layer pwell DIFF,TAP
+ and-not NWELL
+ or SUBTXT
+ labels SUBTXT text
+ layer poly POLY
+ layer ndc CONT
+ and DIFF
+ and NSDM
+ layer pdc CONT
+ and DIFF
+ and NWELL
+ layer psc CONT
+ and TAP
+ layer pc CONT
+ and POLY
+ layer locali LI
+ labels LI
+ labels LIPIN port
+ layer mcon MCON
+ layer metal1 MET1
+ labels MET1TXT text
  calma DIFF 65 20
+ calma TAP 65 44
+ calma CONT 66 44
+ calma LI 67 20
+ calma LIPIN 67 16
+ calma MCON 67 44
+ calma MET1 68 20
+ calma MET1TXT 68 5
+ calma SUBTXT 64 59
  calma POLY 66 20
  calma NSDM 93 44
  calma NWELL 64 20
@@ -502,12 +845,15 @@ style other
 end
 extract
 style mini
+ substrate *psd,space/w,pwell well $SUB -dnwell
  device msubcircuit mini__nfet nfet *ndiff *ndiff \
-    pwell error w>=0.42 l=l w=w
+    pwell,space/w error w>=0.42 l=l w=w
  device msubcircuit mini__nfet_small nfet *ndiff *ndiff pwell error w<0.42
  device mosfet mini__nfet_lvt nfetlvt *ndiff
- device msubcircuit mini__pfet pfet *pdiff
+ device msubcircuit mini__pfet pfet *pdiff *pdiff nwell error
+ device mosfet mini__nfet_gf nfetgf ndiff,ndc ndiff,ndc pwell error
  device resistor mini__res rpoly *poly
+ device resistor None rm1 *metal1
 style other
  device mosfet other__nfet nfet *ndiff
 end
@@ -563,6 +909,67 @@ end
         assert!(r.is_sd_of(t, "ndiff") && r.is_sd_of(t, "ndiffc") && r.is_sd_of(t, "ndcontact"), "{:?}", t.sd);
         assert!(!r.is_sd_of(t, "pdiff"));
         assert!(!r.is_sd_of(t, "pwell"), "el sustrato no es fuente ni drenaje");
+    }
+
+    #[test]
+    fn terminals_and_substrate_come_from_the_device_lines() {
+        let r = DeviceRules::parse(TECH).expect("reglas");
+        let nfet = r.device_type("nfet").unwrap();
+        assert_eq!((nfet.sd.as_slice(), nfet.sub.as_slice()), (&["ndiff".to_string()][..], &["pwell".to_string(), "space".to_string()][..]));
+        assert!(nfet.subckt);
+        let pfet = r.device_type("pfet").unwrap();
+        assert_eq!(pfet.sub, ["nwell"]);
+        // Como en GF180: fuente y drenaje sin `*`.
+        let m = device_models(&["device mosfet m nfetgf ndiff,ndc ndiff,ndc pwell error".to_string()], &HashMap::new());
+        let gf = &m["nfetgf"];
+        assert_eq!((gf.sd.as_slice(), gf.sub.as_slice(), gf.subckt), (&["ndiff".to_string(), "ndc".to_string()][..], &["pwell".to_string()][..], false));
+        let lvt = r.device_type("nfetlvt").unwrap();
+        assert_eq!((lvt.sd.len(), lvt.sub.len()), (1, 0), "sin sustrato en la línea");
+        // El orden de pintado y los planos.
+        assert_eq!((r.plane("nmos"), r.plane("ndiffusion"), r.plane("metal1")), (Some("active"), Some("active"), None));
+        assert!(r.layer_index("nfet") < r.layer_index("ndiff") && r.layer_index("ndiff") < r.layer_index("ndc"));
+        assert_eq!(r.layer_index("nada"), None);
+    }
+
+    #[test]
+    fn resistors_come_from_their_device_lines() {
+        let r = DeviceRules::parse(TECH).expect("reglas");
+        let got: Vec<(&str, Option<&str>, bool)> = r.resistors.iter().map(|x| (x.magic.as_str(), x.model.as_deref(), x.subckt)).collect();
+        assert_eq!(got, [("rpoly", Some("mini__res")), ("rm1", None)].map(|(m, x)| (m, x, false)));
+        assert_eq!(r.resistors[0].terminals, ["pc", "poly"], "*poly: el poly y su contacto");
+    }
+
+    #[test]
+    fn connectivity_expands_aliases_and_contacts() {
+        let r = DeviceRules::parse(TECH).expect("reglas");
+        assert_eq!(r.contact_residues("mcon"), ["locali", "metal1"]);
+        assert_eq!(r.contact_residues("ndcontact2"), ["ndiff", "locali"], "alias de types");
+        assert!(r.contact_residues("metal1").is_empty());
+        let group = |t: &str| r.connect.iter().find(|(a, _)| a.iter().any(|x| x == t)).map(|(a, _)| a.clone()).unwrap_or_default();
+        // `*locali`: la capa y los contactos que la tocan.
+        let mut li = group("locali");
+        li.sort();
+        assert_eq!(li, ["locali", "mcon", "ndc", "pc", "pdc", "psc"]);
+        // `allnactivenonfet` → `*ndiff`; `allfets` → alias dentro de alias.
+        assert_eq!(group("ndiff"), ["ndc", "ndiff"]);
+        let mut poly = group("poly");
+        poly.sort();
+        assert_eq!(poly, ["nmos", "nmoslvt", "pc", "pmos", "poly"], "en nombres canónicos");
+        assert!(r.conductors().contains(&"metal1".to_string()) && !r.conductors().contains(&"space".to_string()));
+        assert_eq!(r.substrate, (vec!["psc".into(), "psubstratepdiff".into(), "space".into(), "pwell".into()], vec!["dnwell".into()]));
+    }
+
+    #[test]
+    fn labels_belong_to_the_types_of_their_layer() {
+        let r = DeviceRules::parse(TECH).expect("reglas");
+        assert_eq!(r.label_types((67, 16)), [("locali".to_string(), true)]);
+        assert_eq!(r.label_types((67, 20)), [("locali".to_string(), false)]);
+        assert_eq!(r.label_types((68, 5)), [("metal1".to_string(), false)]);
+        // Una etiqueta de una templayer: de los tipos que la usan como base.
+        assert_eq!(r.label_types((65, 20)), [("ndiff".to_string(), false)]);
+        assert_eq!(r.label_types((64, 59)), [("pwell".to_string(), false)]);
+        assert!(r.label_types((99, 0)).is_empty());
+        assert_eq!(r.port_layers(), [(67, Some(16))]);
     }
 
     #[test]

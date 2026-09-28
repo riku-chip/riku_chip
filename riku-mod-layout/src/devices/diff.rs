@@ -130,6 +130,7 @@ mod tests {
             at: (x + 0.075, w / 2.0),
             w_um: w,
             l_um: 0.15,
+            sd_at: Vec::new(),
         }
     }
 

@@ -15,6 +15,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use gdstk_rs::{boolean_owned, BoolOp, GdsTag, OwnedPolygon, Point2D};
 
+use super::regions::RegionEval;
 use super::rules::{DeviceRules, GdsLayer};
 
 /// Un transistor (un finger).
@@ -30,6 +31,10 @@ pub struct Device {
     pub at: (f64, f64),
     pub w_um: f64,
     pub l_um: f64,
+    /// Un punto en cada una de las dos regiones de fuente y drenaje, justo
+    /// afuera de la compuerta (unidades de la librería): de ahí salen sus
+    /// redes.
+    pub sd_at: Vec<(f64, f64)>,
 }
 
 /// Los polígonos aplanados de una celda, por capa GDS, con un índice para
@@ -53,8 +58,13 @@ impl LayerPolys {
     }
 
     /// Los polígonos de esas capas.
-    fn polys(&self, layers: &[GdsLayer]) -> Vec<OwnedPolygon> {
+    pub(crate) fn polys(&self, layers: &[GdsLayer]) -> Vec<OwnedPolygon> {
         layers.iter().flat_map(|&gl| self.matching(gl)).flat_map(|g| g.polys.iter().cloned()).collect()
+    }
+
+    /// Hay polígonos en la capa GDS `gl`.
+    pub(crate) fn has(&self, gl: GdsLayer) -> bool {
+        self.matching(gl).any(|g| !g.polys.is_empty())
     }
 
     /// El punto está en alguna capa GDS `gl`.
@@ -65,8 +75,8 @@ impl LayerPolys {
 
 /// Polígonos con sus cajas en una grilla uniforme: un punto mira solo los
 /// de su casilla.
-struct Grid {
-    polys: Vec<OwnedPolygon>,
+pub(crate) struct Grid {
+    pub(crate) polys: Vec<OwnedPolygon>,
     boxes: Vec<[f64; 4]>,
     origin: (f64, f64),
     cell: f64,
@@ -74,7 +84,7 @@ struct Grid {
 }
 
 impl Grid {
-    fn new(polys: Vec<OwnedPolygon>) -> Self {
+    pub(crate) fn new(polys: Vec<OwnedPolygon>) -> Self {
         let boxes: Vec<[f64; 4]> = polys.iter().map(bbox).collect();
         let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
         for b in &boxes {
@@ -101,7 +111,7 @@ impl Grid {
     }
 
     /// El índice de un polígono que contiene el punto.
-    fn find(&self, x: f64, y: f64) -> Option<u32> {
+    pub(crate) fn find(&self, x: f64, y: f64) -> Option<u32> {
         let key = (((x - self.origin.0) / self.cell).floor() as i64, ((y - self.origin.1) / self.cell).floor() as i64);
         self.cells.get(&key)?.iter().copied().find(|&i| {
             let b = self.boxes[i as usize];
@@ -117,6 +127,7 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
     let tag = GdsTag { layer: 0, datatype: 0 };
     let eps = 1e-4 / unit_um; // 0,1 nm
     let mut out: Vec<Device> = Vec::new();
+    let mut sized: HashMap<usize, Grid> = HashMap::new();
     for (active, gate) in &pairs {
         let (a, g) = (layers.polys(active), layers.polys(gate));
         if a.is_empty() || g.is_empty() {
@@ -131,12 +142,25 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
         let sd = Grid::new(sd);
         for poly in gates {
             let Some(at) = interior_point(&poly.points) else { continue };
-            let Some(kind) = rules.device_at(&|gl| layers.contains(gl, at.0, at.1)) else { continue };
+            // El último tipo que incluye el punto; si su regla cambia de
+            // tamaño, se confirma con su región (ver `DeviceRules::resizes`).
+            let candidates = rules.devices_at(&|gl| layers.contains(gl, at.0, at.1));
+            let Some(kind) = candidates
+                .iter()
+                .rev()
+                .find(|(d, _)| {
+                    !rules.resizes(*d)
+                        || sized.entry(*d).or_insert_with(|| Grid::new(RegionEval::new(rules, layers, unit_um).def_region(*d))).contains(at.0, at.1)
+                })
+                .map(|(_, t)| *t)
+            else {
+                continue;
+            };
             // Mismo finger por otro par de capas: ya está.
             if out.iter().any(|d| point_in(&d.gate.points, at.0, at.1)) {
                 continue;
             }
-            let Some((w_um, l_um)) = measure(&poly.points, &sd, eps, unit_um) else { continue };
+            let Some((w_um, l_um, sd_at)) = measure(&poly.points, &sd, eps, unit_um) else { continue };
             out.push(Device {
                 model: kind.model(w_um, l_um).to_string(),
                 magic: kind.magic.clone(),
@@ -144,6 +168,7 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
                 at,
                 w_um,
                 l_um,
+                sd_at,
             });
         }
     }
@@ -175,8 +200,8 @@ pub fn extract_magic(rules: &DeviceRules, polys: Vec<OwnedPolygon>, names: &Hash
         let (Ok(gates), Ok(sd)) = (boolean_owned(&gates, &[], BoolOp::Or, tag), boolean_owned(&sd, &[], BoolOp::Or, tag)) else { continue };
         let sd = Grid::new(sd);
         for poly in gates {
-            let (Some(at), Some((w_um, l_um))) = (interior_point(&poly.points), measure(&poly.points, &sd, eps, unit_um)) else { continue };
-            out.push(Device { model: kind.model(w_um, l_um).to_string(), magic: kind.magic.clone(), gate: poly, at, w_um, l_um });
+            let (Some(at), Some((w_um, l_um, sd_at))) = (interior_point(&poly.points), measure(&poly.points, &sd, eps, unit_um)) else { continue };
+            out.push(Device { model: kind.model(w_um, l_um).to_string(), magic: kind.magic.clone(), gate: poly, at, w_um, l_um, sd_at });
         }
     }
     out.sort_by(|a, b| (a.at.1, a.at.0).partial_cmp(&(b.at.1, b.at.0)).unwrap_or(std::cmp::Ordering::Equal));
@@ -184,14 +209,15 @@ pub fn extract_magic(rules: &DeviceRules, polys: Vec<OwnedPolygon>, names: &Hash
 }
 
 /// W y L (µm) de una compuerta: sus bordes con fuente y drenaje (dos
-/// regiones de `sd`, ni una ni tres, como en KLayout).
-fn measure(gate: &[Point2D], sd: &Grid, eps: f64, unit_um: f64) -> Option<(f64, f64)> {
-    let (mut len, mut regions) = (0.0, Vec::new());
+/// regiones de `sd`, ni una ni tres, como en KLayout); y un punto en cada una.
+fn measure(gate: &[Point2D], sd: &Grid, eps: f64, unit_um: f64) -> Option<(f64, f64, Vec<(f64, f64)>)> {
+    let (mut len, mut regions, mut points) = (0.0, Vec::new(), Vec::new());
     for (edge, (x, y)) in outward_edges(gate, eps) {
         if let Some(r) = sd.find(x, y) {
             len += edge;
             if !regions.contains(&r) {
                 regions.push(r);
+                points.push((x, y));
             }
         }
     }
@@ -199,10 +225,10 @@ fn measure(gate: &[Point2D], sd: &Grid, eps: f64, unit_um: f64) -> Option<(f64, 
         return None;
     }
     let w = len / 2.0;
-    Some((w * unit_um, area(gate) / w * unit_um))
+    Some((w * unit_um, area(gate) / w * unit_um, points))
 }
 
-fn bbox(p: &OwnedPolygon) -> [f64; 4] {
+pub(crate) fn bbox(p: &OwnedPolygon) -> [f64; 4] {
     p.points.iter().fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, q| {
         [b[0].min(q.x), b[1].min(q.y), b[2].max(q.x), b[3].max(q.y)]
     })
@@ -213,7 +239,7 @@ fn signed_area(pts: &[Point2D]) -> f64 {
     (0..n).map(|i| pts[i].x * pts[(i + 1) % n].y - pts[(i + 1) % n].x * pts[i].y).sum::<f64>() / 2.0
 }
 
-fn area(pts: &[Point2D]) -> f64 {
+pub(crate) fn area(pts: &[Point2D]) -> f64 {
     signed_area(pts).abs()
 }
 
@@ -236,7 +262,7 @@ pub(crate) fn point_in(pts: &[Point2D], x: f64, y: f64) -> bool {
 /// Un punto dentro del polígono: el medio del tramo interior más ancho de
 /// una horizontal cerca de la mitad de su alto (no justo en la mitad, para
 /// no caer sobre un vértice de la grilla).
-fn interior_point(pts: &[Point2D]) -> Option<(f64, f64)> {
+pub(crate) fn interior_point(pts: &[Point2D]) -> Option<(f64, f64)> {
     let (y0, y1) = pts.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), p| (a.min(p.y), b.max(p.y)));
     if !(y1 > y0) {
         return None;
@@ -254,7 +280,7 @@ fn interior_point(pts: &[Point2D]) -> Option<(f64, f64)> {
 }
 
 /// Cada borde: su largo y un punto a `eps` hacia afuera desde su medio.
-fn outward_edges(pts: &[Point2D], eps: f64) -> impl Iterator<Item = (f64, (f64, f64))> + '_ {
+pub(crate) fn outward_edges(pts: &[Point2D], eps: f64) -> impl Iterator<Item = (f64, (f64, f64))> + '_ {
     let ccw = signed_area(pts) > 0.0;
     let n = pts.len();
     (0..n).filter_map(move |i| {

@@ -9,7 +9,9 @@ las lea con el mismo lector cuando el PDK no está instalado:
 - el primer estilo de `cifinput`: `layer`, `templayer`, sus operaciones y
   los `calma`;
 - el primer estilo de `extract`: las líneas `device` de transistores MOS;
-- `types`: los alias de cada tipo (un `.mag` puede usar cualquiera).
+- `types`: los alias de cada tipo (un `.mag` puede usar cualquiera);
+- para las redes (`riku-mod-layout/src/nets/`): `contact`, `connect`,
+  `aliases`, las líneas `labels` de `cifinput` y `substrate` de `extract`.
 
 Con el PDK instalado, Riku lee su `.tech` (ver `pdk_tech.rs`). Correr de
 nuevo cuando cambie el PDK.
@@ -27,8 +29,9 @@ PDKS = [
     ("IHP", "ihp-sg13g2/libs.tech/magic/ihp-sg13g2.tech"),
 ]
 
-CIF_KEEP = {"layer", "templayer", "fault", "and", "and-not", "or", "copyup", "grow", "grow-grid", "shrink", "calma", "gds"}
+CIF_KEEP = {"layer", "templayer", "fault", "and", "and-not", "or", "copyup", "grow", "grow-grid", "shrink", "calma", "gds", "labels", "scalefactor"}
 MOS_CLASSES = {"mosfet", "msubcircuit"}
+RES_CLASSES = {"resistor", "rsubcircuit"}
 
 
 def read_tech(path, depth=0):
@@ -87,11 +90,17 @@ def trimmed(path):
     dev = [
         " ".join(l.split())
         for l in first_style(s.get("extract", []))
-        if l.split()[0] == "device" and len(l.split()) > 3 and l.split()[1] in MOS_CLASSES
+        if (l.split()[0] == "device" and len(l.split()) > 3 and l.split()[1] in MOS_CLASSES | RES_CLASSES)
+        or l.split()[0] == "substrate"
     ]
     types = [l for l in s.get("types", []) if len(l.split()) > 1 and "," in l.split()[1]]
+    keep = "".join(
+        f"{name}\n" + "\n".join(" ".join(l.split()) for l in s.get(name, [])) + "\nend\n"
+        for name in ("contact", "aliases", "connect")
+    )
     return (
         "types\n" + "\n".join(types) + "\nend\n"
+        + keep
         + "cifinput\nstyle riku\n" + "\n".join(cif) + "\nend\n"
         + "extract\nstyle riku\n" + "\n".join(dev) + "\nend\n"
     )

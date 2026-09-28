@@ -2,7 +2,7 @@
 //! Reglas de transistores de cada PDK para cuando no está instalado: lo que
 //! `rules.rs` lee del `.tech` (primer estilo de `cifinput`, líneas `device`).
 
-/// `sky130A/libs.tech/magic/sky130A.tech`: 57 líneas `device` de MOS.
+/// `sky130A/libs.tech/magic/sky130A.tech`: 97 líneas `device` de MOS.
 pub const SKY130: &str = r#"types
 dwell dnwell,dnw
 dwell isosubstrate,isosub
@@ -106,12 +106,133 @@ metal5 rm5,rmetal5,rmet5
 metal5 mrdlcontact,mrdlc,pi1
 metali metalrdl,mrdl,metrdl,rdl
 end
+contact
+pc poly locali
+ndc ndiff locali
+pdc pdiff locali
+nsc nsd locali
+psc psd locali
+ndic ndiode locali
+ndilvtc ndiodelvt locali
+nndic nndiode locali
+pdic pdiode locali
+pdilvtc pdiodelvt locali
+pdihvtc pdiodehvt locali
+xpc xpc locali
+mvndc mvndiff locali
+mvpdc mvpdiff locali
+mvnsc mvnsd locali
+mvpsc mvpsd locali
+mvndic mvndiode locali
+mvpdic mvpdiode locali
+mcon locali metal1
+obsmcon obsli metal1
+via1 metal1 metal2
+via2 metal2 metal3
+via3 metal3 metal4
+via4 metal4 metal5
+stackable
+mimcc mimcap metal4
+mim2cc mimcap2 metal5
+mrdlc metal5 mrdl
+pi2 mrdl ubm
+end
+aliases
+allwellplane nwell
+allnwell nwell,obswell,pnp
+allnfets nfet,npass,npd,scnfet,mvnfet,mvnfetesd,mvnnfet,nnfet,nfetlvt,nsonos
+allpfets pfet,ppu,scpfet,scpfethvt,mvpfet,mvpfetesd,pfethvt,pfetlvt,pfetmvt
+allfets allnfets,allpfets,varactor,mvvaractor,varhvt,corenvar,corepvar
+allfetsstd nfet,mvnfet,mvnfetesd,mvnnfet,nnfet,nfetlvt,pfet,mvpfet,mvpfetesd,pfethvt,pfetlvt,pfetmvt
+allfetsspecial scnfet,scpfet,scpfethvt
+allfetscore npass,npd,nsonos,ppu,corenvar,corepvar
+allfetsnolvt nfet,npass,npd,scnfet,mvnfet,mvnfetesd,mvnnfet,nnfet,nsonos,pfet,ppu,scpfet,scpfethvt,mvpfet,mvpfetesd,pfethvt,pfetmvt,varactor,mvvaractor,varhvt,corenvar
+allnactivenonfet *ndiff,*nsd,*ndiode,*nndiode,*mvndiff,*mvnsd,*mvndiode,*ndiodelvt
+allnactive allnactivenonfet,allnfets
+allnactivenontap *ndiff,*ndiode,*nndiode,*mvndiff,*mvndiode,*ndiodelvt,allnfets
+allnactivetap *nsd,*mvnsd,var,varhvt,mvvar,corenvar
+allpactivenonfet *pdiff,*psd,*pdiode,*mvpdiff,*mvpsd,*mvpdiode,*pdiodelvt,*pdiodehvt
+allpactive allpactivenonfet,allpfets
+allpactivenontap *pdiff,*pdiode,*mvpdiff,*mvpdiode,*pdiodelvt,*pdiodehvt,allpfets
+allpactivetap *psd,*mvpsd,corepvar
+allactivenonfet allnactivenonfet,allpactivenonfet
+allactive allactivenonfet,allfets
+allactiveres ndiffres,pdiffres,mvndiffres,mvpdiffres
+allndifflv *ndif,*nsd,*ndiode,ndiffres,nfet,npass,npd,scnfet,nfetlvt,nsonos
+allpdifflv *pdif,*psd,*pdiode,pdiffres,pfet,ppu,scpfet,scpfethvt,pfetlvt,pfetmvt,pfethvt
+alldifflv allndifflv,allpdifflv
+allndifflvnonfet *ndif,*nsd,*ndiode,*nndiode,ndiffres,*ndiodelvt
+allpdifflvnonfet *pdif,*psd,*pdiode,pdiffres,*pdiodelvt,*pdiodehvt
+alldifflvnonfet allndifflvnonfet,allpdifflvnonfet
+allndiffmv *mvndif,*mvnsd,*mvndiode,*nndiode,mvndiffres,mvnfet,mvnfetesd,mvnnfet,nnfet
+allpdiffmv *mvpdif,*mvpsd,*mvpdiode,mvpdiffres,mvpfet,mvpfetesd
+alldiffmv allndiffmv,allpdiffmv
+allndiffmvnontap *mvndif,*mvndiode,*nndiode,mvndiffres,mvnfet,mvnfetesd,mvnnfet,nnfet
+allpdiffmvnontap *mvpdif,*mvpdiode,mvpdiffres,mvpfet,mvpfetesd
+alldiffmvnontap allndiffmvnontap,allpdiffmvnontap
+allndiffmvnonfet *mvndif,*mvnsd,*mvndiode,*nndiode,mvndiffres
+allpdiffmvnonfet *mvpdif,*mvpsd,*mvpdiode,mvpdiffres
+alldiffmvnonfet allndiffmvnonfet,allpdiffmvnonfet
+alldiffnonfet alldifflvnonfet,alldiffmvnonfet
+alldiff alldifflv,alldiffmv,fomfill
+allpolyres mrp1,xhrpoly,uhrpoly,rmp
+allpolynonfet *poly,allpolyres,xpc
+allpolynonres *poly,allfets,xpc
+allpoly allpolynonfet,allfets
+allpolynoncap *poly,xpc,allfets,allpolyres
+allndiffcontlv ndc,nsc,ndic,nndic,ndilvtc
+allpdiffcontlv pdc,psc,pdic,pdilvtc,pdihvtc
+allndiffcontmv mvndc,mvnsc,mvndic
+allpdiffcontmv mvpdc,mvpsc,mvpdic
+allndiffcont allndiffcontlv,allndiffcontmv
+allpdiffcont allpdiffcontlv,allpdiffcontmv
+alldiffcontlv allndiffcontlv,allpdiffcontlv
+alldiffcontmv allndiffcontmv,allpdiffcontmv
+alldiffcont alldiffcontlv,alldiffcontmv
+allcont alldiffcont,pc
+allres allpolyres,allactiveres
+allli *locali,coreli,rli
+allm1 *m1,rm1
+allm2 *m2,rm2
+allm3 *m3,rm3
+allm4 *m4,rm4
+allm5 *m5,rm5
+psub pwell
+obstypes obswell,mvobsactive,obsactive,obsli,obsmcon,obsm1,obsm2,obsm3,obsm4,obsm5,obsmrdl,obscomment
+blocktypes fillblock
+end
+connect
+*nwell,*nsd,*mvnsd,dnwell,pnp,photo *nwell,*nsd,*mvnsd,dnwell,pnp,photo
+pwell,*psd,*mvpsd,npn,isosub pwell,*psd,*mvpsd,npn,isosub
+*mvnsd ed
+*mvpsd ed
+*li,coreli,lifill *li,coreli,lifill
+*m1,m1fill,obsmcon *m1,m1fill,obsmcon
+*m2,m2fill *m2,m2fill
+*m3,m3fill *m3,m3fill
+*m4,m4fill *m4,m4fill
+*m5,m5fill *m5,m5fill
+*mimcap *mimcap
+*mimcap2 *mimcap2
+allnactivenonfet allnactivenonfet
+allpactivenonfet allpactivenonfet
+*poly,xpc,allfets,polyfill *poly,xpc,allfets,polyfill
+*mrdl *mrdl
+glass metrdl
+end
 cifinput
 style riku
+scalefactor 10 nanometers
 layer pnp NWELL,WELLTXT,WELLPIN
 and PNPID
+labels NWELL
+labels WELLPIN port
+labels WELLTXT text
 layer nwell NWELL,WELLTXT,WELLPIN
 and-not PNPID
+labels NWELL
+labels WELLPIN port
+labels WELLTXT text
 templayer nwellarea NWELL
 copyup nwelcheck
 templayer xnwelcheck nwelcheck
@@ -126,8 +247,12 @@ grow 130
 or SUBTXT,SUBPIN
 grow 420
 shrink 420
+labels SUBPIN port
+labels SUBTXT text
 layer dnwell DNWELL
+labels DNWELL
 layer isosub SUBCUT
+labels SUBCUT
 layer npn DNWELL
 and-not NWELL,nwelcheck
 and NPNID
@@ -135,6 +260,7 @@ layer photo DNWELL
 and PHOTO
 layer rpw PWRES
 and DNWELL
+labels PWRES
 templayer ndiffarea DIFF,DIFFTXT,DIFFPIN,barediff
 and-not POLY
 and-not NWELL,nwelcheck
@@ -145,6 +271,9 @@ and-not HVI,hvcheck
 and NSDM
 and-not CORELI
 copyup ndifcheck
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer ndiff ndiffarea
 templayer xndifcheck ndifcheck
 copyup ndifcheck
@@ -157,6 +286,9 @@ and-not DIFFRES
 and HVI,hvcheck
 and NSDM
 copyup ndifcheck
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer mvndiff mvndiffarea
 templayer mvxndifcheck mvndifcheck
 copyup mvndifcheck
@@ -168,6 +300,7 @@ and-not POLY
 and-not PSDM
 and-not HVI,hvcheck
 and-not LVTN
+labels DIFF
 layer ndiodelvt DIFF,barediff
 and NSDM
 and DIODE
@@ -176,6 +309,7 @@ and-not POLY
 and-not PSDM
 and-not HVI,hvcheck
 and LVTN
+labels DIFF
 templayer ndiodearea DIODE
 and NSDM
 and-not HVI,hvcheck
@@ -184,6 +318,7 @@ copyup DIODE,NSDM
 layer ndiffres DIFFRES
 and NSDM
 and-not HVI,hvcheck
+labels DIFF
 templayer pdiffarea DIFF,DIFFTXT,DIFFPIN,barediff
 and-not POLY
 and NWELL,nwelcheck
@@ -192,6 +327,9 @@ and-not DIODE
 and-not HVI,hvcheck
 and PSDM
 copyup pdifcheck
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer pdiff pdiffarea
 layer mvndiode DIFF,barediff
 and NSDM
@@ -200,6 +338,7 @@ and HVI,hvcheck
 and-not POLY
 and-not PSDM
 and-not LVTN
+labels DIFF
 layer nndiode DIFF,barediff
 and NSDM
 and DIODE
@@ -207,6 +346,7 @@ and HVI,hvcheck
 and-not POLY
 and-not PSDM
 and LVTN
+labels DIFF
 templayer mvndiodearea DIODE
 and NSDM
 and HVI,hvcheck
@@ -215,6 +355,7 @@ copyup DIODE,NSDM
 layer mvndiffres DIFFRES
 and NSDM
 and HVI,hvcheck
+labels DIFF
 templayer mvpdiffarea DIFF,DIFFTXT,DIFFPIN,barediff
 and-not POLY
 and NWELL,nwelcheck
@@ -224,6 +365,9 @@ and-not DIODE
 and-not DIFFRES
 and PSDM
 copyup mvpdifcheck
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer mvpdiff mvpdiffarea
 templayer xpdifcheck pdifcheck
 copyup pdifcheck
@@ -235,6 +379,7 @@ and-not HVI,hvcheck
 and-not LVTN
 and-not HVTP
 and DIODE
+labels DIFF
 layer pdiodelvt DIFF,barediff
 and PSDM
 and-not POLY
@@ -243,6 +388,7 @@ and-not HVI,hvcheck
 and LVTN
 and-not HVTP
 and DIODE
+labels DIFF
 layer pdiodehvt DIFF,barediff
 and PSDM
 and-not POLY
@@ -251,6 +397,7 @@ and-not HVI,hvcheck
 and-not LVTN
 and HVTP
 and DIODE
+labels DIFF
 templayer pdiodearea DIODE
 and PSDM
 and-not HVI,hvcheck
@@ -265,27 +412,34 @@ and-not LVTN
 and-not HVTP
 and-not STDCELL
 and-not COREID
+labels DIFF
 layer scpfet pfetarea
 and-not LVTN
 and-not HVTP
 and STDCELL
 and-not COREID
+labels DIFF
 layer scpfethvt pfetarea
 and-not LVTN
 and HVTP
 and STDCELL
+labels DIFF
 layer ppu pfetarea
 and-not LVTN
 and HVTP
 and COREID
+labels DIFF
 layer pfetlvt pfetarea
 and LVTN
+labels DIFF
 layer pfetmvt pfetarea
 and HVTR
+labels DIFF
 layer pfethvt pfetarea
 and HVTP
 and-not STDCELL
 and-not COREID
+labels DIFF
 layer nwell pfetarea
 and-not COREID
 grow 180
@@ -297,6 +451,7 @@ and-not POLY
 and-not NSDM
 and HVI,hvcheck
 and DIODE
+labels DIFF
 templayer mvpdiodearea DIODE
 and PSDM
 and HVI,hvcheck
@@ -308,18 +463,24 @@ and-not NSDM
 and HVI,hvcheck
 layer mvpfet mvpfetarea
 and-not ESDID
+labels DIFF
 layer mvpfetesd mvpfetarea
 and ESDID
+labels DIFF
 layer pdiff DIFF,DIFFTXT,DIFFPIN,barediff
 and-not NSDM
 and-not POLY
 and-not HVI,hvcheck
 and-not DIODE
 and-not DIFFRES
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer pdiffres DIFFRES
 and PSDM
 and NWELL,nwelcheck
 and-not HVI,hvcheck
+labels DIFF
 layer nfet DIFF,barediff
 and POLY
 or baretrans
@@ -330,6 +491,7 @@ and-not LVTN
 and-not SONOS
 and-not STDCELL
 and-not COREID
+labels DIFF
 layer scnfet DIFF,barediff
 and POLY
 or baretrans
@@ -340,6 +502,7 @@ and-not HVI,hvcheck
 and-not LVTN
 and-not SONOS
 and STDCELL
+labels DIFF
 layer npass DIFF,barediff
 and POLY
 or baretrans
@@ -347,6 +510,7 @@ and-not PSDM
 and NSDM
 and-not NWELL,nwelcheck
 and COREID
+labels DIFF
 layer npd DIFF,barediff
 and POLY
 or baretrans
@@ -356,6 +520,7 @@ and-not NWELL,nwelcheck
 and COREID
 shrink 70
 grow 70
+labels DIFF
 layer npd TAP
 grow 100
 and DIFF
@@ -364,6 +529,7 @@ and-not PSDM
 and NSDM
 and-not NWELL,nwelcheck
 and COREID
+labels DIFF
 layer nfetlvt DIFF,barediff
 and POLY
 or baretrans
@@ -372,6 +538,7 @@ and NSDM
 and-not HVI,hvcheck
 and LVTN
 and-not SONOS
+labels DIFF
 layer nsonos DIFF,barediff
 and POLY
 or baretrans
@@ -380,6 +547,7 @@ and NSDM
 and-not HVI,hvcheck
 and LVTN
 and SONOS
+labels DIFF
 templayer nsdarea TAP,DIFF
 and NSDM
 and NWELL,nwelcheck
@@ -389,14 +557,18 @@ and-not HVI,hvcheck
 and-not CORELI
 copyup nsubcheck
 layer nsd nsdarea
+labels TAP
 layer nsd TAP,TAPTXT
 and NSDM
 and-not POLY
 and-not HVI,hvcheck
+labels TAP
+labels TAPTXT text
 layer corenvar TAP
 and NSDM
 and POLY
 and COREID
+labels TAP
 templayer nsdexpand nsdarea
 grow 500
 templayer xnsubcheck nsubcheck
@@ -410,14 +582,18 @@ and-not HVI,hvcheck
 and-not pfetexpand
 copyup psubcheck
 layer psd psdarea
+labels TAP
 layer psd TAP
 and PSDM
 and-not POLY
 and-not HVI,hvcheck
+labels TAP
+labels TAPTXT text
 layer corepvar TAP
 and PSDM
 and POLY
 and COREID
+labels TAP
 templayer psdexpand psdarea
 grow 500
 layer mvpdiff DIFF,DIFFTXT,DIFFPIN,barediff
@@ -425,11 +601,15 @@ and-not NSDM
 and-not POLY
 and HVI,hvcheck
 and mvpfetexpand
+labels DIFF
+labels DIFFPIN port
+labels DIFFTXT text
 layer mvpdiffres DIFFRES
 and PSDM
 and NWELL,nwelcheck
 and HVI,hvcheck
 and-not mvrdpioedge
+labels DIFF
 templayer mvnfetarea DIFF,barediff
 and POLY
 or baretrans
@@ -454,6 +634,7 @@ and NSDM
 and HVI,hvcheck
 and ESDID
 and-not mvnnfetarea
+labels DIFF
 layer mvnfet DIFF,barediff
 and POLY
 or baretrans
@@ -462,10 +643,13 @@ and NSDM
 and HVI,hvcheck
 and-not ESDID
 and-not mvnnfetarea
+labels DIFF
 layer nnfet mvnnfetarea
 and LVID
+labels DIFF
 layer mvnnfet mvnnfetarea
 and-not LVID
+labels DIFF
 templayer mvnsdarea TAP,DIFF
 and NSDM
 and NWELL,nwelcheck
@@ -474,9 +658,12 @@ and-not PSDM
 and HVI,hvcheck
 copyup mvnsubcheck
 layer mvnsd mvnsdarea
+labels TAP
 layer mvnsd TAP,TAPTXT
 and NSDM
 and HVI,hvcheck
+labels TAP
+labels TAPTXT text
 layer mvpfet EDID
 and POLY
 and-not DIFF
@@ -522,9 +709,12 @@ and HVI,hvcheck
 and-not mvpfetexpand
 copyup mvpsubcheck
 layer mvpsd mvpsdarea
+labels DIFF
 layer mvpsd TAP,TAPTXT
 and PSDM
 and HVI,hvcheck
+labels TAP
+labels TAPTXT text
 templayer mvpsdexpand mvpsdarea
 grow 500
 templayer xpsubcheck psubcheck
@@ -602,14 +792,19 @@ shrink 130
 grow 130
 copyup polycheck
 layer poly polyarea
+labels POLY
+labels POLYPIN port
+labels POLYTXT text
 templayer xpolycheck polycheck
 copyup polycheck
 layer mrp1 POLYRES
 and POLY
 and-not RPM
 and-not URPM
+labels POLY
 layer rmp POLYSHORT
 and POLY
+labels POLY
 layer xhrpoly RPM
 and POLYRES
 and POLY
@@ -617,12 +812,14 @@ and-not URPM
 and PSDM
 and NPC
 and-not xpolyterm
+labels POLY
 layer uhrpoly URPM
 and POLYRES
 and POLY
 and-not RPM
 and NPC
 and-not xpolyterm
+labels POLY
 templayer ndcbase CONT
 or barecont
 and LI
@@ -637,6 +834,7 @@ shrink 85
 shrink 85
 grow 85
 or ndcbase
+labels CONT
 templayer nscbase CONT
 or barecont
 and LI
@@ -651,6 +849,7 @@ shrink 85
 shrink 85
 grow 85
 or nscbase
+labels CONT
 templayer pdcbase CONT
 or barecont
 and LI
@@ -665,6 +864,7 @@ shrink 85
 shrink 85
 grow 85
 or pdcbase
+labels CONT
 templayer pdcnowell CONT
 or barecont
 and LI
@@ -679,6 +879,7 @@ shrink 85
 shrink 85
 grow 85
 or pdcnowell
+labels CONT
 templayer pscbase CONT
 or barecont
 and LI
@@ -694,6 +895,7 @@ shrink 85
 shrink 85
 grow 85
 or pscbase
+labels CONT
 templayer pcbase CONT
 or barecont
 and LI
@@ -707,6 +909,7 @@ shrink 85
 shrink 85
 grow 85
 or pcbase
+labels CONT
 templayer ndicbase CONT
 or barecont
 and LI
@@ -725,6 +928,7 @@ shrink 85
 shrink 85
 grow 85
 or ndicbase
+labels CONT
 templayer ndilvtcbase CONT
 or barecont
 and LI
@@ -743,6 +947,7 @@ shrink 85
 shrink 85
 grow 85
 or ndilvtcbase
+labels CONT
 templayer pdicbase CONT
 or barecont
 and LI
@@ -761,6 +966,7 @@ shrink 85
 shrink 85
 grow 85
 or pdicbase
+labels CONT
 templayer pdilvtcbase CONT
 or barecont
 and LI
@@ -779,6 +985,7 @@ shrink 85
 shrink 85
 grow 85
 or pdilvtcbase
+labels CONT
 templayer pdihvtcbase CONT
 or barecont
 and LI
@@ -797,6 +1004,7 @@ shrink 85
 shrink 85
 grow 85
 or pdihvtcbase
+labels CONT
 templayer mvndcbase CONT
 or barecont
 and LI
@@ -811,6 +1019,7 @@ shrink 85
 shrink 85
 grow 85
 or mvndcbase
+labels CONT
 templayer mvnscbase CONT
 or barecont
 and LI
@@ -825,6 +1034,7 @@ shrink 85
 shrink 85
 grow 85
 or mvnscbase
+labels CONT
 templayer mvpdcbase CONT
 or barecont
 and LI
@@ -839,6 +1049,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpdcbase
+labels CONT
 templayer mvpdcnowell CONT
 or barecont
 and LI
@@ -854,6 +1065,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpdcnowell
+labels CONT
 templayer mvpscbase CONT
 or barecont
 and LI
@@ -869,6 +1081,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpscbase
+labels CONT
 templayer mvndicbase CONT
 or barecont
 and LI
@@ -886,6 +1099,7 @@ shrink 85
 shrink 85
 grow 85
 or mvndicbase
+labels CONT
 templayer nndicbase CONT
 or barecont
 and LI
@@ -903,6 +1117,7 @@ shrink 85
 shrink 85
 grow 85
 or nndicbase
+labels CONT
 templayer mvpdicbase CONT
 or barecont
 and LI
@@ -919,42 +1134,63 @@ shrink 85
 shrink 85
 grow 85
 or mvpdicbase
+labels CONT
 layer	fomfill  FOMFILL
+labels FOMFILL
 layer	polyfill POLYFILL
+labels POLYFILL
 layer coreli LI,LITXT,LIPIN
 and-not LIRES,LISHORT
 and COREID
+labels LI
+labels LIPIN port
+labels LITXT text
 layer locali LI,LITXT,LIPIN
 and-not LIRES,LISHORT
 and-not COREID
+labels LI
+labels LIPIN port
+labels LITXT text
 layer rli LI
 and LIRES,LISHORT
+labels LIRES,LISHORT
 layer	lifill LIFILL
+labels LIFILL
 layer mcon MCON
 grow 95
 shrink 95
 shrink 85
 grow 85
 or MCON
+labels MCON
 layer m1 MET1,MET1TXT,MET1PIN
 and-not MET1RES,MET1SHORT
+labels MET1
+labels MET1PIN port
+labels MET1TXT text
 layer rm1 MET1
 and MET1RES,MET1SHORT
+labels MET1RES,MET1SHORT
 layer m1fill MET1FILL
+labels MET1FILL
 layer mimcap MET3
 and CAPM
+labels CAPM
 layer mimcc VIA3
 and CAPM
 grow 60
 grow 40
 shrink 40
+labels CAPM
 layer mimcap2 MET4
 and CAPM2
+labels CAPM2
 layer mim2cc VIA4
 and CAPM2
 grow 190
 grow 210
 shrink 210
+labels CAPM2
 templayer m2cbase VIA1
 and-not COREID
 grow 5
@@ -968,9 +1204,14 @@ grow 130
 or m2cbase
 layer m2 MET2,MET2TXT,MET2PIN
 and-not MET2RES,MET2SHORT
+labels MET2
+labels MET2PIN port
+labels MET2TXT text
 layer rm2 MET2
 and MET2RES,MET2SHORT
+labels MET2RES,MET2SHORT
 layer m2fill MET2FILL
+labels MET2FILL
 templayer m3cbase VIA2
 grow 40
 layer m3c m3cbase
@@ -981,9 +1222,14 @@ grow 140
 or m3cbase
 layer m3 MET3,MET3TXT,MET3PIN
 and-not MET3RES,MET3SHORT
+labels MET3
+labels MET3PIN port
+labels MET3TXT text
 layer rm3 MET3
 and MET3RES,MET3SHORT
+labels MET3RES,MET3SHORT
 layer m3fill MET3FILL
+labels MET3FILL
 templayer via3base VIA3
 and-not CAPM
 grow 60
@@ -995,14 +1241,24 @@ grow 160
 or via3base
 layer m4 MET4,MET4TXT,MET4PIN
 and-not MET4RES,MET4SHORT
+labels MET4
+labels MET4PIN port
+labels MET4TXT text
 layer rm4 MET4
 and MET4RES,MET4SHORT
+labels MET4RES,MET4SHORT
 layer m4fill MET4FILL
+labels MET4FILL
 layer m5 MET5,MET5TXT,MET5PIN
 and-not MET5RES,MET5SHORT
+labels MET5
+labels MET5PIN port
+labels MET5TXT text
 layer rm5 MET5
 and MET5RES,MET5SHORT
+labels MET5RES,MET5SHORT
 layer m5fill MET5FILL
+labels MET5FILL
 templayer via4base VIA4
 and-not CAPM2
 grow 190
@@ -1013,6 +1269,9 @@ shrink 590
 grow 590
 or via4base
 layer metrdl RDL,RDLTXT,RDLPIN
+labels RDL
+labels RDLPIN port
+labels RDLTXT text
 templayer gentrans DIFF
 and-not PSDM
 and-not NSDM
@@ -1038,6 +1297,7 @@ shrink 85
 shrink 85
 grow 85
 or ndiccopy
+labels CONT
 templayer mvndiccopy CONT
 and LI
 and DIODE
@@ -1052,6 +1312,7 @@ shrink 85
 shrink 85
 grow 85
 or mvndiccopy
+labels CONT
 templayer pdiccopy CONT
 and LI
 and DIODE
@@ -1064,6 +1325,7 @@ shrink 85
 shrink 85
 grow 85
 or pdiccopy
+labels CONT
 templayer mvpdiccopy CONT
 and LI
 and DIODE
@@ -1075,6 +1337,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpdiccopy
+labels CONT
 templayer ndccopy CONT
 and ndifcheck
 layer ndc ndccopy
@@ -1083,6 +1346,7 @@ shrink 85
 shrink 85
 grow 85
 or ndccopy
+labels CONT
 templayer mvndccopy CONT
 and mvndifcheck
 layer mvndc mvndccopy
@@ -1091,6 +1355,7 @@ shrink 85
 shrink 85
 grow 85
 or mvndccopy
+labels CONT
 templayer pdccopy CONT
 and pdifcheck
 layer pdc pdccopy
@@ -1099,6 +1364,7 @@ shrink 85
 shrink 85
 grow 85
 or pdccopy
+labels CONT
 templayer mvpdccopy CONT
 and mvpdifcheck
 layer mvpdc mvpdccopy
@@ -1107,6 +1373,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpdccopy
+labels CONT
 templayer pccopy CONT
 and polycheck
 layer pc pccopy
@@ -1115,6 +1382,7 @@ shrink 85
 shrink 85
 grow 85
 or pccopy
+labels CONT
 templayer nsccopy CONT
 and nsubcheck
 layer nsc nsccopy
@@ -1123,6 +1391,7 @@ shrink 85
 shrink 85
 grow 85
 or nsccopy
+labels CONT
 templayer mvnsccopy CONT
 and mvnsubcheck
 layer mvnsc mvnsccopy
@@ -1131,6 +1400,7 @@ shrink 85
 shrink 85
 grow 85
 or mvnsccopy
+labels CONT
 templayer psccopy CONT
 and psubcheck
 layer psc psccopy
@@ -1139,6 +1409,7 @@ shrink 85
 shrink 85
 grow 85
 or psccopy
+labels CONT
 templayer mvpsccopy CONT
 and mvpsubcheck
 layer mvpsc mvpsccopy
@@ -1147,6 +1418,7 @@ shrink 85
 shrink 85
 grow 85
 or mvpsccopy
+labels CONT
 templayer barelicont CONT
 and LI
 and-not DIFF,TAP
@@ -1167,24 +1439,35 @@ and-not mvpsubcheck
 and-not CORELI
 copyup barecont
 layer glass GLASS,PADTXT,PADPIN
+labels GLASS
+labels PADPIN port
+labels PADTXT text
 templayer boundary BOUND,STDCELL,PADCELL
 layer comment LVSTEXT
+labels LVSTEXT text
 layer comment TTEXT
+labels TTEXT text
 templayer obspoly FILLOBSPOLY
 and-not POLY
 layer obsactive FILLOBSFOM
 and-not DIFF,TAP
 or obspoly
+labels FILLOBSFOM,FILLOBSPOLY
 layer obsm1 FILLOBSM1
 and-not MET1
+labels FILLOBSM1
 layer obsm2 FILLOBSM2
 and-not MET2
+labels FILLOBSM2
 layer obsm3 FILLOBSM3
 and-not MET3
+labels FILLOBSM3
 layer obsm4 FILLOBSM4
 and-not MET4
+labels FILLOBSM4
 layer obsm5 FILLOBSM5
 and-not MET5
+labels FILLOBSM5
 layer var POLY
 and TAP
 and NSDM
@@ -1192,17 +1475,20 @@ and NWELL,nwelcheck
 and-not HVI,hvcheck
 and-not HVTP
 and-not COREID
+labels POLY
 layer varhvt POLY
 and TAP
 and NSDM
 and NWELL,nwelcheck
 and-not HVI,hvcheck
 and HVTP
+labels POLY
 layer mvvar POLY
 and TAP
 and NSDM
 and NWELL,nwelcheck
 and HVI,hvcheck
+labels POLY
 calma NWELL 64 20
 calma DIFF 65 20
 calma TAP  65 44
@@ -1327,6 +1613,7 @@ calma MET5FILL	  59  28
 end
 extract
 style riku
+substrate *ppdiff,*mvppdiff,space/w,pwell well $SUB -dnwell,isosub
 device msubcircuit sky130_fd_pr__pfet_01v8 pfet,scpfet *pdiff,pdiffres *pdiff,pdiffres nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sky130_fd_pr__special_pfet_latch ppu *pdiff,pdiffres *pdiff,pdiffres nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sky130_fd_pr__pfet_01v8_lvt pfetlvt *pdiff,pdiffres *pdiff,pdiffres nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
@@ -1361,6 +1648,31 @@ device msubcircuit sky130_fd_pr__nfet_05v0_nvt mvnnfet *mvndiff,mvndiffres *mvnd
 device msubcircuit sky130_fd_pr__nfet_03v3_nvt nnfet *mvndiff,mvndiffres *mvndiff,mvndiffres pwell,space/w error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sky130_fd_pr__esd_nfet_g5v0d10v5 mvnfetesd *mvndiff,mvndiffres *mvndiff,mvndiffres pwell,space/w error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sky130_fd_pr__esd_pfet_g5v0d10v5 mvpfetesd *mvpdiff,mvpdiffres *mvpdiff,mvpdiffres nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
+device resistor sky130_fd_pr__res_generic_l1 rli1 *li,coreli
+device resistor sky130_fd_pr__res_generic_m1 rmetal1 *metal1
+device resistor sky130_fd_pr__res_generic_m2 rmetal2 *metal2
+device resistor sky130_fd_pr__res_generic_m3 rmetal3 *metal3
+device resistor sky130_fd_pr__res_generic_m4 rm4 *m4
+device resistor sky130_fd_pr__res_generic_m5 rm5 *m5
+device rsubcircuit sky130_fd_pr__res_high_po xhrpoly xpc nwell,pwell,space/w error l=l+0.16 w=w
+device rsubcircuit sky130_fd_pr__res_high_po_0p35 xhrpoly xpc nwell,pwell,space/w error w>0.34 w<0.36 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_high_po_0p69 xhrpoly xpc nwell,pwell,space/w error w>0.68 w<0.70 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_high_po_1p41 xhrpoly xpc nwell,pwell,space/w error w>1.40 w<1.42 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_high_po_2p85 xhrpoly xpc nwell,pwell,space/w error w>2.84 w<2.86 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_high_po_5p73 xhrpoly xpc nwell,pwell,space/w error w>5.72 w<5.74 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_xhigh_po uhrpoly xpc nwell,pwell,space/w error l=l+0.16 w=w
+device rsubcircuit sky130_fd_pr__res_xhigh_po_0p35 uhrpoly xpc nwell,pwell,space/w error w>0.34 w<0.36 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_xhigh_po_0p69 uhrpoly xpc nwell,pwell,space/w error w>0.68 w<0.70 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_xhigh_po_1p41 uhrpoly xpc nwell,pwell,space/w error w>1.40 w<1.42 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_xhigh_po_2p85 uhrpoly xpc nwell,pwell,space/w error w>2.84 w<2.86 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_xhigh_po_5p73 uhrpoly xpc nwell,pwell,space/w error w>5.72 w<5.74 l=l+0.16
+device rsubcircuit sky130_fd_pr__res_generic_nd ndiffres *ndiff pwell,space/w error l=l w=w
+device rsubcircuit sky130_fd_pr__res_generic_pd pdiffres *pdiff nwell error l=l w=w
+device rsubcircuit sky130_fd_pr__res_iso_pw rpw pwell dnwell error l=l w=w
+device rsubcircuit sky130_fd_pr__res_generic_nd__hv mvndiffres *mvndiff pwell,space/w error l=l w=w
+device rsubcircuit sky130_fd_pr__res_generic_pd__hv mvpdiffres *mvpdiff nwell error l=l w=w
+device rsubcircuit sky130_fd_pr__res_generic_po rmp *poly l=l w=w
+device rsubcircuit sky130_fd_pr__res_generic_po mrp1 *poly l=l w=w
 device msubcircuit sky130_fd_pr__diode_pw2nd_05v5 *ndiode pwell,space/w a=area*1E12 p=perim*1E6
 device msubcircuit sky130_fd_pr__diode_pw2nd_05v5_lvt *ndiodelvt pwell,space/w a=area*1E12 p=perim*1E6
 device msubcircuit sky130_fd_pr__diode_pw2nd_05v5_nvt *nndiode pwell,space/w a=area*1E12 p=perim*1E6
@@ -1384,10 +1696,25 @@ device mosfet sky130_fd_pr__nfet_g5v0d10v5 mvnfet mvndiff,mvndiffres,mvndc pwell
 device mosfet sky130_fd_pr__esd_nfet_g5v0d10v5 mvnfetesd mvndiff,mvndiffres,mvndc pwell,space/w
 device mosfet sky130_fd_pr__nfet_05v0_nvt mvnnfet *mvndiff,mvndiffres pwell,space/w
 device mosfet sky130_fd_pr__nfet_03v3_nvt nnfet *mvndiff,mvndiffres pwell,space/w
+device resistor sky130_fd_pr__res_generic_po rmp *poly
+device resistor sky130_fd_pr__res_generic_l1 rli1 *li,coreli
+device resistor sky130_fd_pr__res_generic_m1 rmetal1 *metal1
+device resistor sky130_fd_pr__res_generic_m2 rmetal2 *metal2
+device resistor sky130_fd_pr__res_generic_m3 rmetal3 *metal3
+device resistor sky130_fd_pr__res_generic_m4 rm4 *m4
+device resistor sky130_fd_pr__res_generic_m5 rm5 *m5
+device resistor sky130_fd_pr__res_high_po xhrpoly xpc
+device resistor sky130_fd_pr__res_xhigh_po uhrpoly xpc
+device resistor sky130_fd_pr__res_generic_po mrp1 *poly
+device resistor sky130_fd_pr__res_generic_nd ndiffres *ndiff
+device resistor sky130_fd_pr__res_generic_pd pdiffres *pdiff
+device resistor mrdn_hv mvndiffres *mvndiff
+device resistor mrdp_hv mvpdiffres *mvpdiff
+device resistor sky130_fd_pr__res_iso_pw rpw pwell
 end
 "#;
 
-/// `gf180mcuD/libs.tech/magic/gf180mcuD.tech`: 23 líneas `device` de MOS.
+/// `gf180mcuD/libs.tech/magic/gf180mcuD.tech`: 42 líneas `device` de MOS.
 pub const GF180: &str = r#"types
 dwell deepnwell,dnwell,dnw
 dwell isosubstrate,isosub
@@ -1477,18 +1804,132 @@ metal4 via4,v4
 metal5 metal5,m5,met5
 metal5 rm5,rmetal5,rmet5
 end
+contact
+pc poly metal1
+ndc ndiff metal1
+pdc pdiff metal1
+nsc nsd metal1
+psc psd metal1
+ndic ndiode metal1
+nndic nndiode metal1
+pdic pdiode metal1
+skdic schottky metal1
+mvndc mvndiff metal1
+mvpdc mvpdiff metal1
+mvnsc mvnsd metal1
+mvpsc mvpsd metal1
+mvndic mvndiode metal1
+mvpdic mvpdiode metal1
+mvnndic mvnndiode metal1
+ldndc ldndiff metal1
+ldpdc ldpdiff metal1
+via1 metal1 metal2
+via2 metal2 metal3
+via3 metal3 metal4
+via4 metal4 metal5
+mimcc mimcap metal5
+stackable
+padl m1 m2 m3 m4 m5 glass
+end
+aliases
+allnwell nwell,rnwell,nbase
+allpsub space/w,pwell,pbase
+allpwell pwell
+allsubwell allnwell,allpsub
+allwells allnwell,allpwell,obswell
+allnfets nfet,mvnfet,nnfet,mvnnfet,ncap,mvncap
+allnfetsnonnat nfet,mvnfet,ncap,mvncap
+allpfets pfet,mvpfet,pcap,mvpcap
+allfets allnfets,allpfets,nvaractor,mvnvaractor,pvaractor,mvpvaractor
+allfetsnonnat allnfetsnonnat,allpfets,nvaractor,mvnvaractor,pvaractor,mvpvaractor
+allfetsmv mvnfet,mvpfet,mvnnfet,mvnvaractor,mvpvaractor,mvncap,mvpcap
+alllvnactivenonfet *ndiff,*nsd,*ndiode,*nndiode
+allmvnactivenonfet *mvndiff,*mvnsd,*mvndiode,*mvnndiode,*ldndiff
+allnactivenonfet alllvnactivenonfet,allmvnactivenonfet
+allnactive allnactivenonfet,allnfets
+alllvpactivenonfet *pdiff,*psd,*pdiode
+allmvpactivenonfet *mvpdiff,*mvpsd,*mvpdiode,*ldpdiff
+allpactivenonfet alllvpactivenonfet,allmvpactivenonfet
+allpactive allpactivenonfet,allpfets
+alllvactivenonfet alllvnactivenonfet,alllvpactivenonfet
+allmvactivenonfet allmvnactivenonfet,allmvpactivenonfet
+allactivenonfet allnactivenonfet,allpactivenonfet
+allactive allactivenonfet,allfets
+allactiveres ndiffres,pdiffres,mvndiffres,mvpdiffres
+allndifflv *ndif,*nsd,*ndiode,*nndiode,ndiffres,nfet,nnfet,ncap
+allpdifflv *pdif,*psd,*pdiode,pdiffres,pfet,pcap
+alldifflv allndifflv,allpdifflv
+allndifflvnonfet *ndif,*nsd,*ndiode,*nndiode,ndiffres
+allpdifflvnonfet *pdif,*psd,*pdiode,pdiffres
+alldifflvnonfet allndifflvnonfet,allpdifflvnonfet
+allndiffmv *mvndif,*mvnsd,*mvndiode,mvndiffres,mvnfet,mvnnfet,mvnvaractor,*mvnndiode,mvncap,*ldndiff
+allpdiffmv *mvpdif,*mvpsd,*mvpdiode,mvpdiffres,mvpfet,mvpvaractor,mvpcap,*ldpdiff
+alldiffmv allndiffmv,allpdiffmv
+allndiffmvnonfet *mvndif,*mvnsd,*mvndiode,mvndiffres,*mvnndiode,*ldndiff
+allpdiffmvnonfet *mvpdif,*mvpsd,*mvpdiode,mvpdiffres,*ldpdiff
+alldiffmvnonfet allndiffmvnonfet,allpdiffmvnonfet
+alldiffnonfet alldifflvnonfet,alldiffmvnonfet
+alldiff alldifflv,alldiffmv
+allpolyres rpp,rnp,rpps,rnps,hires,mvhires
+allpolysblkres rpp,rnp,hires,mvhires
+allsblkdev rnp,rpp,rnd,rpd,hires,mvhires,mvrnd,mvrpd
+allpolynonfet *poly,allpolyres
+allpolynonres *poly,allfets
+allpoly allpolynonfet,allfets
+allpolynoncap *poly,allfets,allpolyres
+allndiffcontlv ndc,nsc,ndic,nndic
+allpdiffcontlv pdc,psc,pdic
+allndiffcontmv mvndc,mvnsc,mvndic,mvnndic
+allpdiffcontmv mvpdc,mvpsc,mvpdic
+allndiffcont allndiffcontlv,allndiffcontmv
+allpdiffcont allpdiffcontlv,allpdiffcontmv
+alldiffcontlv allndiffcontlv,allpdiffcontlv
+alldiffcontmv allndiffcontmv,allpdiffcontmv
+alldiffcont alldiffcontlv,alldiffcontmv
+allcont alldiffcont,pc
+allres allpolyres,allactiveres
+alldiode *pdiode,*ndiode,*nndiode,*mvpdiode,*mvndiode,*mvnndiode,*schottky
+allm1 *m1,rm1
+allm2 *m2,rm2
+allm3 *m3,rm3
+allm4 *m4,rm4,*mimcap
+allm5 *m5,rm5
+allpad padl
+end
+connect
+nwell,*nsd,*mvnsd,nbase,dnwell nwell,*nsd,*mvnsd,nbase,dnwell
+pwell,*psd,*mvpsd,pbase,isosub pwell,*psd,*mvpsd,pbase,isosub
+*psd,*mvpsd *psd,*mvpsd
+*m1 *m1
+*m2 *m2
+*m3 *m3
+*m4 *m4
+*m5 *m5
+*mimcap *mimcap
+allnactivenonfet allnactivenonfet
+allpactivenonfet allpactivenonfet
+*poly,allfets *poly,allfets
+*schottky *schottky
+end
 cifinput
 style riku
+scalefactor 50 nanometers
 layer pwell PWELL,PWELLTXT
 and-not BJTDEF,BJTDRC
+labels PWELL
+labels PWELLTXT port
 layer pbase PWELL,PWELLTXT
 and BJTDEF,BJTDRC
 layer nwell NWELL,NWELLTXT
 and-not BJTDEF,BJTDRC
+labels NWELL
+labels NWELLTXT port
 layer nbase NWELL,NWELLTXT
 and BJTDEF,BJTDRC
 layer dnwell DNWELL
+labels DNWELL
 layer isosub SUBCUT
+labels SUBCUT
 templayer nwelldef DNWELL
 shrink 500
 and-not PWELL
@@ -1502,7 +1943,9 @@ and-not DUALGATE
 and NPLUS
 copyup ndifcheck
 layer ndiff ndiffarea
+labels DIFF
 layer filldiff DIFFFILL
+labels DIFFFILL
 templayer xndifcheck ndifcheck
 copyup ndifcheck
 templayer mvndiffarea DIFF
@@ -1803,7 +2246,10 @@ and-not HRES
 copyup polycheck
 layer poly polyarea,POLYTXT
 and-not RESDEF
+labels POLY
+labels POLYTXT text
 layer fillpoly POLYFILL
+labels POLYFILL
 templayer xpolycheck polycheck
 copyup polycheck
 layer rpps POLY
@@ -2006,8 +2452,12 @@ and RESDEF
 and MET1RES
 layer m1 MET1,MET1TXT
 and-not MET1RES
+labels MET1
+labels MET1TXT port
 layer obsm1 M1BLOCK
+labels M1BLOCK
 layer fillm1 M1FILL
+labels M1FILL
 layer m2c VIA1
 grow 130
 shrink 130
@@ -2016,15 +2466,23 @@ and RESDEF
 and MET2RES
 layer m2 MET2,MET2TXT
 and-not MET2RES
+labels MET2
+labels MET2TXT port
 layer obsm2 M2BLOCK
+labels M2BLOCK
 layer fillm2 M2FILL
+labels M2FILL
 layer rm3 MET3
 and RESDEF
 and MET3RES
 layer m3 MET3,MET3TXT
 and-not MET3RES
+labels MET3
+labels MET3TXT port
 layer obsm3 M3BLOCK
+labels M3BLOCK
 layer fillm3 M3FILL
+labels M3FILL
 layer m3c VIA2
 grow 140
 shrink 130
@@ -2033,8 +2491,12 @@ and RESDEF
 and MET4RES
 layer m4 MET4,MET4TXT
 and-not MET4RES
+labels MET4
+labels MET4TXT port
 layer obsm4 M4BLOCK
+labels M4BLOCK
 layer fillm4 M4FILL
+labels M4FILL
 layer via3 VIA3
 grow 140
 shrink 130
@@ -2045,8 +2507,12 @@ templayer mimarea CAPDEF
 and MET4
 layer m5 MET5,MET5TXT
 and-not MET5RES
+labels MET5
+labels MET5TXT port
 layer obsm5 M5BLOCK
+labels M5BLOCK
 layer fillm5 M5FILL
+labels M5FILL
 layer via4 VIA4
 and-not CAPM
 and-not mimarea
@@ -2060,6 +2526,7 @@ grow 260
 shrink 250
 layer mimcap CAPM
 and CAPDEF
+labels CAPM
 templayer nolayer CAP_LENGTH
 templayer gentrans DIFF
 and-not PPLUS
@@ -2163,9 +2630,12 @@ and-not mvnsubcheck
 and-not mvpsubcheck
 copyup CONT
 layer glass GLASS
+labels GLASS
 templayer cellbound BOUND,PRBOUND
 layer lvstext TTEXT
+labels TTEXT text
 layer fillblock  FILLOBS2
+labels FILLOBS2
 layer nvar POLY
 and DIFF
 and NPLUS
@@ -2257,6 +2727,7 @@ calma FET5VDEF 112 1
 end
 extract
 style riku
+substrate *ppdiff,*mvppdiff,space/w,pwell well $SUB -dnwell,isosub
 device msubcircuit pfet_03v3 pfet pdiff,pdc pdiff,pdc allnwell error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit nfet_03v3 nfet ndiff,ndc ndiff,ndc allpsub error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit pfet_06v0 mvpfet mvpdiff,mvpdc mvpdiff,mvpdc allnwell error l>=5.5e-7 l=l w=w a1=as p1=ps a2=ad p2=pd
@@ -2280,10 +2751,29 @@ device msubcircuit pnp_10p00x10p00 pnp *pdiff pwell,space/w error a1>99.0 a1<101
 device msubcircuit pnp_05p00x05p00 pnp *pdiff pwell,space/w error a1>24.0 a1<26.0
 device msubcircuit nfet_10v0_asym mvnfet *mvndiff *ldndiff allpsub error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit pfet_10v0_asym mvpfet *mvpdiff *ldpdiff allnwell error l=l w=w a1=as p1=ps a2=ad p2=pd
+device rsubcircuit efuse efuse *poly
+device rsubcircuit rm1 rm1 *m1 l=r_length w=r_width
+device rsubcircuit rm2 rm2 *m2 l=r_length w=r_width
+device rsubcircuit rm3 rm3 *m3 l=r_length w=r_width
+device rsubcircuit rm4 rm4 *m4 l=r_length w=r_width
+device rsubcircuit tm11k rm5 *m5 l=r_length w=r_width
+device rsubcircuit ppolyf_s rpps *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit npolyf_s rnps *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit ppolyf_u rpp *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit npolyf_u rnp *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit ppolyf_u_1k hires *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit ppolyf_u_1k_6p0 mvhires *poly allnwell,allpsub error l=r_length w=r_width
+device rsubcircuit pplus_u rpd *pdiff allnwell error l=r_length w=r_width
+device rsubcircuit nplus_u rnd *ndiff allpsub error l=r_length w=r_width
+device rsubcircuit pplus_s rpds *pdiff allnwell error l=r_length w=r_width
+device rsubcircuit nplus_s rnds *ndiff allpsub error l=r_length w=r_width
+device rsubcircuit pplus_u mvpdiffres *mvpdiff allnwell error l=r_length w=r_width
+device rsubcircuit nplus_u mvndiffres *mvndiff allpsub error l=r_length w=r_width
+device rsubcircuit nwell rnw nwell allpsub error l=r_length w=r_width
 end
 "#;
 
-/// `ihp-sg13g2/libs.tech/magic/ihp-sg13g2.tech`: 14 líneas `device` de MOS.
+/// `ihp-sg13g2/libs.tech/magic/ihp-sg13g2.tech`: 34 líneas `device` de MOS.
 pub const IHP: &str = r#"types
 dwell dnwell,dnw
 dwell isosubstrate,isosub
@@ -2369,8 +2859,113 @@ metal7 rm7,rmetal7,rmet7
 -metal7 solder,sbump
 comment thruvia,tsv
 end
+contact
+pc poly metal1
+ndc ndiff metal1
+pdc pdiff metal1
+nsc nsd metal1
+psc psd metal1
+ndic ndiode metal1
+pdic pdiode metal1
+sdic schottky metal1
+nec nemitter metal1
+hvnec hvnemitter metal1
+hvndc hvndiff metal1
+hvpdc hvpdiff metal1
+hvnsc hvnsd metal1
+hvpsc hvpsd metal1
+hvvc hvvar metal1
+via1 metal1 metal2
+via2 metal2 metal3
+via3 metal3 metal4
+via4 metal4 metal5
+via5 metal5 metal6
+via6 metal6 metal7
+stackable
+mimcc mimcap metal6
+end
+aliases
+allwellplane nwell
+allnwell nwell,obswell,pnp
+allnfets nfet,hvnfet,hvnfetesd
+allpfets pfet,hvpfet,hvpfetesd
+allfets allnfets,allpfets,*hvvar,hvpvar
+allfetsstd nfet,hvnfet,hvnfetesd,pfet,hvpfet,hvpfetesd
+allnactivenonfet *ndiff,*nsd,*ndiode,*hvndiff,*hvnsd,hvndiffres
+allnactive allnactivenonfet,allnfets
+allnactivenontap *ndiff,*ndiode,*hvndiff,allnfets
+allnactivetap *nsd,*hvnsd,*hvvar
+allpactivenonfet *pdiff,*psd,*pdiode,*hvpdiff,*hvpsd
+allpactive allpactivenonfet,allpfets
+allpactivenontap *pdiff,*pdiode,*hvpdiff,allpfets
+allpactivetap *psd,*hvpsd,hvpvar
+allactivenonfet allnactivenonfet,allpactivenonfet
+allactive allactivenonfet,allfets
+allndifflv *ndif,*nsd,*ndiode,nfet
+allpdifflv *pdif,*psd,*pdiode,pfet
+alldifflv allndifflv,allpdifflv
+allndifflvnonfet *ndif,*nsd,*ndiode
+allpdifflvnonfet *pdif,*psd,*pdiode
+alldifflvnonfet allndifflvnonfet,allpdifflvnonfet
+allndiffhv *hvndif,*hvnsd,hvnfet,hvnfetesd,hvndiffres,*hvvar
+allpdiffhv *hvpdif,*hvpsd,hvpfet,hvpfetesd,hvpvar
+alldiffhv allndiffhv,allpdiffhv
+allndiffhvnontap *hvndif,hvnfet,hvnfetesd
+allpdiffhvnontap *hvpdif,hvpfet,hvpfetesd
+alldiffhvnontap allndiffhvnontap,allpdiffhvnontap
+allndiffhvnonfet *hvndif,*hvnsd,hvndiffres
+allpdiffhvnonfet *hvpdif,*hvpsd
+alldiffhvnonfet allndiffhvnonfet,allpdiffhvnonfet
+alldiffnonfet alldifflvnonfet,alldiffhvnonfet
+alldiff alldifflv,alldiffhv
+allpolyres pres,nres,xres
+allpolynonfet *poly,allpolyres
+allpolynonres *poly,allfets
+allpoly allpolynonfet,allfets
+allpolynoncap *poly,allfets,allpolyres
+allndiffcontlv ndc,nsc,ndic
+allpdiffcontlv pdc,psc,pdic
+allndiffconthv hvndc,hvnsc
+allpdiffconthv hvpdc,hvpsc
+allndiffcont allndiffcontlv,allndiffconthv
+allpdiffcont allpdiffcontlv,allpdiffconthv
+alldiffcontlv allndiffcontlv,allpdiffcontlv
+alldiffconthv allndiffconthv,allpdiffconthv
+alldiffcont alldiffcontlv,alldiffconthv
+allcont alldiffcont,pc,hvvarc
+allres allpolyres,hvndiffres,isodiffres,hvisodiffres
+allm1 *m1,rm1,iprobe
+allm2 *m2,rm2
+allm3 *m3,rm3
+allm4 *m4,rm4
+allm5 *m5,rm5
+allm6 *m6,rm6
+allm7 *m7,rm7
+psub pwell
+obstypes obswell,obsactive,obspoly,obsm1,obsm2,obsm3,obsm4,obsm5,obsm6,obsm7
+blocktypes fillblock
+end
+connect
+*nwell,*nsd,*hvnsd,dnwell *nwell,*nsd,*hvnsd,dnwell
+pwell,*psd,*hvpsd,isosub pwell,*psd,*hvpsd,isosub
+npn,pbc npn,pbc
+pbc,*m1 pbc,*m1
+*m1,m1fill,iprobe,diffprobe *m1,m1fill,iprobe,diffprobe
+*m2,m2fill *m2,m2fill
+*m3,m3fill *m3,m3fill
+*m4,m4fill *m4,m4fill
+*m5,m5fill *m5,m5fill
+*m6,m6fill *m6,m6fill
+*m7,m7fill,pillar,solder *m7,m7fill,pillar,solder
+*mimcap *mimcap
+allnactivenonfet allnactivenonfet
+isodiffres *ndiff,*psd
+allpactivenonfet allpactivenonfet
+*poly,allfets,polyfill *poly,allfets,polyfill
+end
 cifinput
 style riku
+scalefactor 10 nanometers
 templayer large_dnwell DNWELL
 and NWELL
 shrink 1140
@@ -2390,6 +2985,8 @@ and NWELL
 layer pnp pnparea
 layer nwell NWELL,WELLPIN
 and-not pnparea
+labels NWELL
+labels WELLPIN port
 templayer nwellarea NWELL
 and-not pnp
 copyup nwelcheck
@@ -2407,12 +3004,16 @@ and-not NWELL,nwelcheck
 or SUBTXT
 grow 420
 shrink 420
+labels SUBTXT text
 layer dnwell DNWELL
+labels DNWELL
 layer isosub SUBCUT
 shrink 400
 grow 400
+labels SUBCUT
 layer tsv THRUVIA
 and TSVID
+labels THRUVIA
 templayer ndiffarea DIFF,DIFFPIN
 and-not POLY
 and-not NWELL,nwelcheck
@@ -2421,6 +3022,8 @@ and-not DIODE
 and-not THKOX,hvcheck
 and-not NSDBLOCK
 copyup ndifcheck
+labels DIFF
+labels DIFFPIN port
 layer ndiff ndiffarea
 templayer xndifcheck ndifcheck
 copyup ndifcheck
@@ -2432,6 +3035,8 @@ and-not DIODE
 and THKOX,hvcheck
 and-not NSDBLOCK
 copyup hvndifcheck
+labels DIFF
+labels DIFFPIN port
 layer hvndiff hvndiffarea
 templayer hvxndifcheck hvndifcheck
 copyup hvndifcheck
@@ -2454,12 +3059,15 @@ and DIFF,DIFFMASK
 layer nemitter DIFFMASK
 and lvnpnarea
 and-not EMITTER
+labels DIFFMASK
 layer nemitter DIFF
 and npnarea
 and-not EMITTER
+labels DIFF
 layer hvnemitter DIFF
 and hvnpnarea
 and-not HVEMITTER
+labels DIFF
 layer npn NSDBLOCK
 and lvnpnarea
 grow 40
@@ -2471,15 +3079,19 @@ and EMITTER
 layer nec DIFF
 and npnarea
 and EMITTER
+labels DIFF
 layer hvnec DIFF
 and hvnpnarea
 and HVEMITTER
+labels DIFF
 layer pbc NSDBLOCK
 and lvnpnarea
 and CONT
+labels NSDBLOCK
 layer pbc DIFFMASK
 and npnarea,hvnpnarea
 and CONT
+labels DIFFMASK
 layer ndiode DIFF
 and-not NSDBLOCK
 and DIODE
@@ -2500,6 +3112,8 @@ and-not THKOX,hvcheck
 and PSD
 copyup pdifcheck
 layer pdiff pdiffarea
+labels DIFF
+labels DIFFPIN port
 templayer hvpdiffarea DIFF,DIFFPIN
 and-not POLY
 and NWELL,nwelcheck
@@ -2509,6 +3123,8 @@ and PSD
 and-not SBLK
 copyup hvpdifcheck
 layer hvpdiff hvpdiffarea
+labels DIFF
+labels DIFFPIN port
 templayer xpdifcheck pdifcheck
 copyup pdifcheck
 layer pdiode DIFF
@@ -2516,6 +3132,7 @@ and PSD
 and-not POLY
 and-not THKOX,hvcheck
 and DIODE
+labels DIFF
 templayer pdiodearea DIODE
 and PSD
 and-not THKOX,hvcheck
@@ -2530,18 +3147,21 @@ and-not isoarea
 and-not DIODE
 and-not BIPOLARID
 and-not POLY
+labels DIFF
 layer isodiffres DIFF,DIFFMASK
 and isoarea
 and SBLK
 and-not THKOX
 and-not BIPOLARID
 and-not POLY
+labels DIFF,DIFFMASK
 layer hvisodiffres DIFF
 and isoarea
 and SBLK
 and THKOX
 and-not BIPOLARID
 and-not POLY
+labels DIFF
 layer ndiff DIFFMASK
 and isoarea
 and SBLK
@@ -2566,9 +3186,11 @@ templayer schottkyarea DIODE
 and SBLK
 layer schottky schottkyarea
 and-not CONT
+labels DIODE
 layer sdic DIODE
 and SBLK
 and CONT
+labels DIODE
 layer nwell schottkyarea
 grow 1000
 and DIFF
@@ -2587,13 +3209,16 @@ and NWELL,nwelcheck
 and THKOX,hvcheck
 layer hvpfet hvpfetarea
 and-not ESDID
+labels DIFF
 layer hvpfetesd hvpfetarea
 and ESDID
+labels DIFF
 layer nfet DIFF
 and POLY
 and-not PSD
 and-not NSDBLOCK
 and-not THKOX,hvcheck
+labels DIFF
 templayer nsdarea DIFF
 and-not NSDBLOCK
 and NWELL,nwelcheck
@@ -2602,6 +3227,7 @@ and-not PSD
 and-not THKOX,hvcheck
 copyup nsubcheck
 layer nsd nsdarea
+labels DIFF
 templayer xnsubcheck nsubcheck
 copyup nsubcheck
 templayer psdarea DIFF
@@ -2612,6 +3238,7 @@ and-not POLY
 and-not THKOX,hvcheck
 copyup psubcheck
 layer psd psdarea
+labels DIFF
 templayer hvnfetarea DIFF
 and POLY
 and-not PSD
@@ -2624,12 +3251,14 @@ and-not PSD
 and-not NSDBLOCK
 and THKOX,hvcheck
 and ESDID
+labels DIFF
 layer hvnfet DIFF
 and POLY
 and-not PSD
 and-not NSDBLOCK
 and THKOX,hvcheck
 and-not ESDID
+labels DIFF
 templayer hvnsdarea DIFF
 and-not NSDBLOCK
 and-not SBLK
@@ -2639,6 +3268,7 @@ and-not PSD
 and THKOX,hvcheck
 copyup hvnsubcheck
 layer hvnsd hvnsdarea
+labels DIFF
 templayer hvxnsubcheck hvnsubcheck
 copyup hvnsubcheck
 templayer hvpsdarea DIFF
@@ -2648,6 +3278,7 @@ and-not POLY
 and THKOX,hvcheck
 copyup hvpsubcheck
 layer hvpsd hvpsdarea
+labels DIFF
 templayer xpsubcheck psubcheck
 copyup psubcheck
 templayer hvxpsubcheck hvpsubcheck
@@ -2656,21 +3287,26 @@ layer poly POLY,POLYPIN
 and-not POLYRES
 and-not RESDEF
 and-not DIFF
+labels POLY
+labels POLYPIN port
 layer nres RESDEF
 and POLYRES,POLY
 and EXTBLOCK
 and-not PSD
 and-not NSD
+labels POLYRES
 layer pres POLYRES,POLY
 and EXTBLOCK
 and SBLK
 and PSD
 and-not NSD
+labels POLYRES
 layer xres POLYRES
 and EXTBLOCK
 and SBLK
 and PSD
 and NSD
+labels POLYRES
 templayer xpolycheck polycheck
 copyup polycheck
 templayer ndcbase CONT
@@ -2688,6 +3324,7 @@ shrink 85
 shrink 85
 grow 85
 or ndcbase
+labels CONT
 templayer nscbase CONT
 or barecont
 and MET1
@@ -2703,6 +3340,7 @@ shrink 85
 shrink 85
 grow 85
 or nscbase
+labels CONT
 templayer pdcbase CONT
 or barecont
 and MET1
@@ -2717,6 +3355,7 @@ shrink 85
 shrink 85
 grow 85
 or pdcbase
+labels CONT
 templayer pdcnowell CONT
 or barecont
 and MET1
@@ -2730,6 +3369,7 @@ shrink 85
 shrink 85
 grow 85
 or pdcnowell
+labels CONT
 templayer pscbase CONT
 or barecont
 and MET1
@@ -2745,8 +3385,10 @@ shrink 85
 shrink 85
 grow 85
 or pscbase
+labels CONT
 layer sealc pscbase
 and EDGESEAL
+labels CONT
 templayer pcbase CONT
 or barecont
 and MET1
@@ -2759,6 +3401,7 @@ shrink 85
 shrink 85
 grow 85
 or pcbase
+labels CONT
 templayer ndicbase CONT
 or barecont
 and MET1
@@ -2776,6 +3419,7 @@ shrink 85
 shrink 85
 grow 85
 or ndicbase
+labels CONT
 templayer pdicbase CONT
 or barecont
 and MET1
@@ -2791,6 +3435,7 @@ shrink 85
 shrink 85
 grow 85
 or pdicbase
+labels CONT
 templayer hvndcbase CONT
 or barecont
 and MET1
@@ -2805,6 +3450,7 @@ shrink 85
 shrink 85
 grow 85
 or hvndcbase
+labels CONT
 templayer hvnscbase CONT
 or barecont
 and MET1
@@ -2820,6 +3466,7 @@ shrink 85
 shrink 85
 grow 85
 or hvnscbase
+labels CONT
 templayer hvpdcbase CONT
 or barecont
 and MET1
@@ -2834,6 +3481,7 @@ shrink 85
 shrink 85
 grow 85
 or hvpdcbase
+labels CONT
 templayer hvpdcnowell CONT
 or barecont
 and MET1
@@ -2847,6 +3495,7 @@ shrink 85
 shrink 85
 grow 85
 or hvpdcnowell
+labels CONT
 templayer hvpscbase CONT
 or barecont
 and MET1
@@ -2861,23 +3510,35 @@ shrink 85
 shrink 85
 grow 85
 or hvpscbase
+labels CONT
 layer	difffill  DIFFFILL
+labels DIFFFILL
 layer	polyfill POLYFILL
+labels POLYFILL
 layer m1 MET1,MET1TXT,MET1PIN
 and-not MET1RES
 and-not MET1SLIT
+labels MET1
+labels MET1PIN port
+labels MET1TXT text
 layer iprobe IPROBE
+labels IPROBE
 layer diffprobe DPROBE
+labels DPROBE
 layer rm1 MET1
 and MET1RES
+labels MET1RES
 layer m1fill MET1FILL
+labels MET1FILL
 layer mimcap MET5
 and MIM
+labels MIM
 layer mimcc VIA5,MIMCC
 and MIM
 grow 60
 grow 40
 shrink 40
+labels MIM
 layer m2c VIA1
 and-not EDGESEAL
 grow 5
@@ -2890,9 +3551,14 @@ and EDGESEAL
 layer m2 MET2,MET2TXT,MET2PIN
 and-not MET2RES
 and-not MET2SLIT
+labels MET2
+labels MET2PIN port
+labels MET2TXT text
 layer rm2 MET2
 and MET2RES
+labels MET2RES
 layer m2fill MET2FILL
+labels MET2FILL
 layer m3c VIA2
 and-not EDGESEAL
 grow 5
@@ -2905,9 +3571,14 @@ and EDGESEAL
 layer m3 MET3,MET3TXT,MET3PIN
 and-not MET3RES
 and-not MET3SLIT
+labels MET3
+labels MET3PIN port
+labels MET3TXT text
 layer rm3 MET3
 and MET3RES
+labels MET3RES
 layer m3fill MET3FILL
+labels MET3FILL
 layer via3 VIA3
 and-not EDGESEAL
 grow 5
@@ -2920,9 +3591,14 @@ and EDGESEAL
 layer m4 MET4,MET4TXT,MET4PIN
 and-not MET4RES
 and-not MET4SLIT
+labels MET4
+labels MET4PIN port
+labels MET4TXT text
 layer rm4 MET4
 and MET4RES
+labels MET4RES
 layer m4fill MET4FILL
+labels MET4FILL
 layer via4 VIA4
 and-not EDGESEAL
 grow 5
@@ -2935,9 +3611,14 @@ and EDGESEAL
 layer m5 MET5,MET5TXT,MET5PIN
 and-not MET5RES
 and-not MET5SLIT
+labels MET5
+labels MET5PIN port
+labels MET5TXT text
 layer rm5 MET5
 and MET5RES
+labels MET5RES
 layer m5fill MET5FILL
+labels MET5FILL
 layer via5 VIA5
 and-not EDGESEAL
 and-not MIM
@@ -2951,9 +3632,14 @@ and EDGESEAL
 layer m6 MET6,MET6TXT,MET6PIN
 and-not MET6RES
 and-not MET6SLIT
+labels MET6
+labels MET6PIN port
+labels MET6TXT text
 layer rm6 MET6
 and MET6RES
+labels MET6RES
 layer m6fill MET6FILL
+labels MET6FILL
 layer via6 VIA6
 and-not EDGESEAL
 grow 500
@@ -2967,9 +3653,14 @@ layer m7 MET7,MET7TXT,MET7PIN
 and-not MET7RES
 and-not MET7SLIT
 and-not GLASS
+labels MET7
+labels MET7PIN port
+labels MET7TXT text
 layer rm7 MET7
 and MET7RES
+labels MET7RES
 layer m7fill MET7FILL
+labels MET7FILL
 templayer ndiccopy CONT
 and LI
 and DIODE
@@ -2983,6 +3674,7 @@ shrink 85
 shrink 85
 grow 85
 or ndiccopy
+labels CONT
 templayer pdiccopy CONT
 and LI
 and DIODE
@@ -2995,6 +3687,7 @@ shrink 85
 shrink 85
 grow 85
 or pdiccopy
+labels CONT
 templayer ndccopy CONT
 and ndifcheck
 layer ndc ndccopy
@@ -3003,6 +3696,7 @@ shrink 85
 shrink 85
 grow 85
 or ndccopy
+labels CONT
 templayer hvndccopy CONT
 and hvndifcheck
 layer hvndc hvndccopy
@@ -3011,6 +3705,7 @@ shrink 85
 shrink 85
 grow 85
 or hvndccopy
+labels CONT
 templayer pdccopy CONT
 and pdifcheck
 layer pdc pdccopy
@@ -3019,6 +3714,7 @@ shrink 85
 shrink 85
 grow 85
 or pdccopy
+labels CONT
 templayer hvpdccopy CONT
 and hvpdifcheck
 layer hvpdc hvpdccopy
@@ -3027,6 +3723,7 @@ shrink 85
 shrink 85
 grow 85
 or hvpdccopy
+labels CONT
 templayer pccopy CONT
 and polycheck
 layer pc pccopy
@@ -3035,6 +3732,7 @@ shrink 85
 shrink 85
 grow 85
 or pccopy
+labels CONT
 templayer nsccopy CONT
 and nsubcheck
 layer nsc nsccopy
@@ -3043,6 +3741,7 @@ shrink 85
 shrink 85
 grow 85
 or nsccopy
+labels CONT
 templayer hvnsccopy CONT
 and hvnsubcheck
 layer hvnsc hvnsccopy
@@ -3051,6 +3750,7 @@ shrink 85
 shrink 85
 grow 85
 or hvnsccopy
+labels CONT
 templayer psccopy CONT
 and psubcheck
 layer psc psccopy
@@ -3059,6 +3759,7 @@ shrink 85
 shrink 85
 grow 85
 or psccopy
+labels CONT
 templayer hvpsccopy CONT
 and hvpsubcheck
 layer hvpsc hvpsccopy
@@ -3067,6 +3768,7 @@ shrink 85
 shrink 85
 grow 85
 or hvpsccopy
+labels CONT
 templayer barecont CONT
 and MET1
 and-not DIFF
@@ -3087,39 +3789,54 @@ copyup barecont
 layer seal EDGESEAL
 grow 7200
 and GLASS
+labels GLASS
 layer pillar PILLAR
 and MET7
 and GLASS
 and-not EDGESEAL
+labels PILLAR
 layer solder SOLDER
 and MET7
 and GLASS
 and-not EDGESEAL
+labels SOLDER
 layer pad PADID
 and MET7
 and GLASS
 and-not EDGESEAL
+labels PADID
 templayer boundary BOUND
 layer comment LVSTEXT
+labels LVSTEXT text
 layer fillblock FILLBLOCK
+labels FILLBLOCK
 layer obsactive FILLOBSDIFF
 and-not DIFF
+labels FILLOBSDIFF
 layer obspoly FILLOBSPOLY
 and-not POLY
+labels FILLOBSPOLY
 layer obsm1 FILLOBSM1
 and-not MET1
+labels FILLOBSM1
 layer obsm2 FILLOBSM2
 and-not MET2
+labels FILLOBSM2
 layer obsm3 FILLOBSM3
 and-not MET3
+labels FILLOBSM3
 layer obsm4 FILLOBSM4
 and-not MET4
+labels FILLOBSM4
 layer obsm5 FILLOBSM5
 and-not MET5
+labels FILLOBSM5
 layer obsm6 FILLOBSM6
 and-not MET6
+labels FILLOBSM6
 layer obsm7 FILLOBSM7
 and-not MET7
+labels FILLOBSM7
 layer hvvar POLY
 and DIFF
 and-not NSDBLOCK
@@ -3127,6 +3844,7 @@ and-not PSD
 and-not CONT
 and NWELL,nwelcheck
 and THKOX,hvcheck
+labels POLY
 layer hvvarc CONT
 and POLY
 and DIFF
@@ -3134,11 +3852,13 @@ and-not NSDBLOCK
 and-not PSD
 and NWELL,nwelcheck
 and THKOX,hvcheck
+labels CONT
 layer hvpvar POLY
 and DIFF
 and PSD
 and-not NWELL,nwelcheck
 and THKOX,hvcheck
+labels POLY
 calma NWELL 31 0
 calma DIFF 1 0
 calma DIFFMASK 1 20
@@ -3273,6 +3993,7 @@ calma MET7NORCX  134  28
 end
 extract
 style riku
+substrate *ppdiff,*hvppdiff,space/w,pwell well $SUB -dnwell,isosub
 device msubcircuit sg13_lv_pmos pfet *pdiff *pdiff nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sg13_lv_nmos nfet *ndiff *ndiff pwell,space/w error l=l w=w a1=as p1=ps a2=ad p2=pd
 device msubcircuit sg13_hv_pmos hvpfet *hvpdiff *hvpdiff nwell error l=l w=w a1=as p1=ps a2=ad p2=pd
@@ -3283,9 +4004,29 @@ device msubcircuit npn13g2l npn nec *ndiff space/w error w1=we l1=le
 device msubcircuit npn13g2v npn hvnec *ndiff space/w error w1=we l1=le
 device msubcircuit pnpMPA pnp *pdiff pwell,space/w w1=we l1=le
 device msubcircuit dantenna *ndiode pwell,space/w w=w l=l
+device rsubcircuit rsil nres *poly w=w l=l
+device rsubcircuit rppd pres *poly w=w l=l
+device rsubcircuit rhigh xres *poly w=w l=l
+device resistor None rm1 *metal1
+device resistor None rm2 *metal2
+device resistor None rm3 *metal3
+device resistor None rm4 *metal4
+device resistor None rm5 *metal5
+device resistor None rm6 *metal6
+device resistor None rm7 *metal7
 device mosfet sg13_lv_pmos pfet *pdiff *pdiff nwell error
 device mosfet sg13_lv_nmos nfet *ndiff *ndiff pwell,space/w error
 device mosfet sg13_hv_pmos hvpfet *hvpdiff *hvpdiff nwell error
 device mosfet sg13_hv_nmos hvnfet *hvndiff *hvndiff pwell,space/w error
+device resistor rsil nres *poly
+device resistor rppd pres *poly
+device resistor rhigh xres *poly
+device resistor None rm1 *metal1
+device resistor None rm2 *metal2
+device resistor None rm3 *metal3
+device resistor None rm4 *metal4
+device resistor None rm5 *metal5
+device resistor None rm6 *metal6
+device resistor None rm7 *metal7
 end
 "#;

@@ -8,6 +8,7 @@ mod box_grid;
 mod diff_cache;
 mod diff_scene;
 pub mod devices;
+pub mod nets;
 mod gds_diff;
 mod hier_walk;
 mod labels;

@@ -3,12 +3,14 @@
 
 mod devices_generated;
 mod diff;
-mod extract;
-mod rules;
+pub(crate) mod extract;
+mod regions;
+pub(crate) mod rules;
 
 pub use diff::{cell_device_changes, device_changes, flat_polygon_estimate, DeviceChange, DeviceDesc};
 pub use extract::{extract, extract_magic, Device, LayerPolys};
-pub use rules::{Cond, CondOp, DeviceRules, DeviceType, GdsLayer};
+pub use regions::RegionEval;
+pub use rules::{Cond, CondOp, DeviceRules, DeviceType, GdsLayer, ResistorType};
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -84,7 +86,7 @@ pub fn cell_devices(lib: &Library, cell: &Cell<'_>, rules: &DeviceRules) -> Vec<
 }
 
 /// La celda aplanada, solo en esas capas.
-fn flatten(cell: &Cell<'_>, tags: &[(u32, u32)]) -> Vec<OwnedPolygon> {
+pub(crate) fn flatten(cell: &Cell<'_>, tags: &[(u32, u32)]) -> Vec<OwnedPolygon> {
     tags.iter()
         .flat_map(|&(l, d)| {
             cell.get_polygons()
