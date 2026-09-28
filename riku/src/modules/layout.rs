@@ -120,15 +120,16 @@ fn net_change(n: &riku_mod_layout::nets::NetChange) -> Change {
     let (kind, name, word) = match n.kind {
         NetChangeKind::Open => (ChangeKind::Modified, n.before.join(", "), "open"),
         NetChangeKind::Short => (ChangeKind::Modified, n.after.join(", "), "short"),
+        NetChangeKind::Separated => (ChangeKind::Modified, n.before.join(", "), "separated"),
         NetChangeKind::Renamed => (ChangeKind::Renamed, n.after.join(", "), "renamed"),
     };
     let mut c = Change::new(kind, Element::LayoutNet { cell: n.cell.clone(), name })
         .with_detail("kind", None, Some(Value::Text(word.into())))
         .with_detail("nets", list(&n.before), list(&n.after));
-    if n.kind == NetChangeKind::Renamed {
-        c.renamed_from = n.before.first().cloned();
-    } else {
-        c = c.with_severity(Severity::Error);
+    match n.kind {
+        NetChangeKind::Renamed => c.renamed_from = n.before.first().cloned(),
+        NetChangeKind::Open | NetChangeKind::Short => c = c.with_severity(Severity::Error),
+        NetChangeKind::Separated => {}
     }
     let b = n.bbox_um;
     c.location = Some(Bounds { min_x: b[0], min_y: b[1], max_x: b[2], max_y: b[3] });

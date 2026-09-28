@@ -291,6 +291,7 @@ pub(crate) fn net_item(n: &crate::nets::NetChange) -> ChangeItem {
     let (what, name, error) = match n.kind {
         NetChangeKind::Short => ("corto", n.after.join(", "), true),
         NetChangeKind::Open => ("abierto", n.before.join(", "), true),
+        NetChangeKind::Separated => ("corto resuelto", n.before.join(", "), false),
         NetChangeKind::Renamed => ("red renombrada", n.after.join(", "), false),
     };
     let b = n.bbox_um;
@@ -310,11 +311,12 @@ pub(crate) fn net_annotation(n: &crate::nets::NetChange) -> Option<viewer_core::
     let label = match n.kind {
         NetChangeKind::Short => "corto",
         NetChangeKind::Open => "abierto",
-        NetChangeKind::Renamed => return None,
+        NetChangeKind::Separated | NetChangeKind::Renamed => return None,
     };
     let b = n.bbox_um;
     Some(viewer_core::Annotation {
-        kind: ChangeKind::Modified,
+        // En rojo (el color de lo quitado), como en la lista Cambios.
+        kind: ChangeKind::Removed,
         cosmetic: false,
         moved: false,
         label: label.into(),

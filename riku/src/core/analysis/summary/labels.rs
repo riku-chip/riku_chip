@@ -15,6 +15,21 @@ pub const NETS_MODIFIED: &str = "nets_modified";
 pub const SIGNALS_ADDED: &str = "signals_added";
 pub const SIGNALS_REMOVED: &str = "signals_removed";
 pub const SIGNALS_MODIFIED: &str = "signals_modified";
+/// Redes de un layout: cambios que cambian el circuito.
+pub const SHORTS: &str = "shorts";
+pub const OPENS: &str = "opens";
+
+/// Los conteos de cambios que cambian el circuito: van primero y resaltados.
+pub fn is_error(key: &str) -> bool {
+    matches!(key, SHORTS | OPENS)
+}
+
+/// Las claves en el orden en que se muestran: los errores primero.
+pub fn ordered(counts: &std::collections::BTreeMap<String, i64>) -> Vec<(&String, &i64)> {
+    let mut v: Vec<(&String, &i64)> = counts.iter().collect();
+    v.sort_by_key(|(k, _)| !is_error(k));
+    v
+}
 
 /// Traduce una clave canónica a etiqueta corta humana (singular/plural).
 /// Devuelve `None` si la clave no es canónica — el formateador puede entonces
@@ -42,6 +57,10 @@ pub fn label_for(key: &str, count: i64) -> Option<String> {
         SIGNALS_REMOVED => "label.signals_removed",
         SIGNALS_MODIFIED if !plural => "label.signal_modified",
         SIGNALS_MODIFIED => "label.signals_modified",
+        SHORTS if !plural => "label.short",
+        SHORTS => "label.shorts",
+        OPENS if !plural => "label.open",
+        OPENS => "label.opens",
         _ => return None,
     };
     Some(crate::i18n::tr!(key))

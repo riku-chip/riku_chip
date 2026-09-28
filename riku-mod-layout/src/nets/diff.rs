@@ -7,7 +7,9 @@
 //! grupo conexo de ese grafo:
 //!
 //! - varias redes de A y una de B: un **corto**;
-//! - una red de A y varias de B: un **abierto**;
+//! - una red de A y varias de B: un **abierto**; salvo que la de A ya fuera
+//!   un corto (tenía varias etiquetas) y cada red de B se quede con alguna
+//!   de ellas: entonces el corto se **resolvió**;
 //! - una y una, con otra etiqueta: un **renombre**.
 //!
 //! Lo que existe de un solo lado (un transistor agregado) no es ancla:
@@ -26,6 +28,9 @@ pub enum NetChangeKind {
     Open,
     /// Dos o más redes se unieron.
     Short,
+    /// Una red con varias etiquetas (un corto) se separó en redes que se
+    /// quedan cada una con alguna: el corto se resolvió.
+    Separated,
     /// La misma red con otra etiqueta.
     Renamed,
 }
@@ -189,7 +194,15 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
         }
         if gb.len() > 1 {
             let bbox = place(bbox_a.or(bbox_b).unwrap_or_default());
-            out.push(NetChange { cell: cell.into(), kind: NetChangeKind::Open, before: before.clone(), after: after.clone(), bbox_um: bbox });
+            let fixed = match ga.as_slice() {
+                [i] => {
+                    let had = &a.nets[*i].labels;
+                    had.len() > 1 && gb.iter().all(|&j| !b.nets[j].labels.is_empty() && b.nets[j].labels.iter().all(|l| had.contains(l)))
+                }
+                _ => false,
+            };
+            let kind = if fixed { NetChangeKind::Separated } else { NetChangeKind::Open };
+            out.push(NetChange { cell: cell.into(), kind, before: before.clone(), after: after.clone(), bbox_um: bbox });
         }
         if let ([i], [j]) = (ga.as_slice(), gb.as_slice()) {
             if let (Some(x), Some(y)) = (&a.nets[*i].name, &b.nets[*j].name) {
@@ -309,6 +322,27 @@ mod tests {
         assert_eq!(ch[0].kind, NetChangeKind::Open);
         assert_eq!(ch[0].before, ["VGND"]);
         assert_eq!(ch[0].after, ["VGND".to_string(), format!("s de nfet_01v8 en ({:.2}, 0.30)", 2.075)]);
+    }
+
+    #[test]
+    fn splitting_a_short_along_its_labels_is_a_fix() {
+        // Al revés que `a_short_joins_two_nets`: la red "A1 = Y0" vuelve a
+        // ser dos, cada una con su etiqueta.
+        let nets = vec![
+            net(Some("A0")),
+            Net { name: Some("A1".into()), labels: vec!["A1".into(), "Y0".into()], port: true, substrate: false, bbox: [0.0, 0.0, 1.0, 1.0] },
+            net(Some("Y1")),
+            net(Some("VGND")),
+        ];
+        let shorted = two_inverters(
+            nets,
+            Terminals { g: 0, d: 1, s: 3, b: 3 },
+            Terminals { g: 1, d: 2, s: 3, b: 3 },
+            vec![Some(0), Some(1), Some(1), Some(2), Some(3)],
+        );
+        let ch = net_changes("C", &shorted, &before(), 1.0, &[]);
+        assert_eq!(ch.len(), 1, "{ch:?}");
+        assert_eq!((ch[0].kind, ch[0].after.clone()), (NetChangeKind::Separated, vec!["A1".to_string(), "Y0".into()]));
     }
 
     #[test]

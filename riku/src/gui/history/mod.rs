@@ -725,8 +725,8 @@ pub(crate) fn counts_text(s: &FileSummary) -> String {
     if s.category == SummaryCategory::Cosmetic {
         return tr!("history.cosmetic");
     }
-    s.counts
-        .iter()
+    crate::core::analysis::summary::labels::ordered(&s.counts)
+        .into_iter()
         .map(|(k, v)| {
             // Singular con 1 ("1 modificado"), plural con el resto.
             let key = if *v == 1 { format!("history.count_one.{k}") } else { format!("history.count.{k}") };

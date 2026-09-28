@@ -38,9 +38,10 @@ pub(super) fn format_counts(f: &FileSummary, allow_cosmetic_label: bool) -> Stri
         return tr!("summary.no_detail");
     }
     let mut parts = Vec::with_capacity(f.counts.len());
-    for (key, count) in &f.counts {
+    for (key, count) in crate::core::analysis::summary::labels::ordered(&f.counts) {
         let label = label_for(key, *count).unwrap_or_else(|| key.clone());
-        parts.push(format!("{count} {label}"));
+        let text = format!("{count} {label}");
+        parts.push(if crate::core::analysis::summary::labels::is_error(key) { super::color::red(&text) } else { text });
     }
     parts.join(", ")
 }

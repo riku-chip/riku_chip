@@ -110,6 +110,7 @@ fn print_layout_net(c: &Change) {
     let what = match kind.as_str() {
         "open" => tr!("diff.net_open"),
         "short" => tr!("diff.net_short"),
+        "separated" => tr!("diff.net_separated"),
         _ => tr!("diff.net_renamed"),
     };
     println!("      {what}: {} → {}", show(c.before("nets")), show(c.after("nets")));

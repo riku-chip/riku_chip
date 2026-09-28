@@ -117,6 +117,15 @@ fn classify(change: &Change) -> (&'static str, DetailKind) {
             ChangeKind::Modified | ChangeKind::Renamed => (labels::SIGNALS_MODIFIED, DetailKind::SignalModified),
         };
     }
+    // Una red de un layout: un abierto o un corto cuenta aparte.
+    if matches!(change.element, Element::LayoutNet { .. }) {
+        let kind = change.after("kind").map(|v| v.to_string()).unwrap_or_default();
+        return match kind.as_str() {
+            "short" => (labels::SHORTS, DetailKind::NetModified),
+            "open" => (labels::OPENS, DetailKind::NetModified),
+            _ => (labels::NETS_MODIFIED, DetailKind::NetModified),
+        };
+    }
     let is_net = matches!(change.element, Element::Net { .. });
     match (is_net, change.kind) {
         (true, ChangeKind::Added) => (labels::NETS_ADDED, DetailKind::NetAdded),
