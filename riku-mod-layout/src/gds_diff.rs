@@ -267,7 +267,7 @@ fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffRe
                 rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n))
             })
     };
-    let cells: BTreeSet<&str> = report.geometry.iter().filter(|g| relevant(&g.layer)).map(|g| g.cell.as_str()).collect();
+    let cells: BTreeSet<&str> = report.geometry.iter().filter(|g| own_change(g) && relevant(&g.layer)).map(|g| g.cell.as_str()).collect();
     let cells: Vec<&str> = cells.into_iter().collect();
     let found: Vec<(&str, Option<Vec<crate::devices::DeviceChange>>)> = cells
         .par_iter()
@@ -290,6 +290,15 @@ fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffRe
     }
 }
 
+/// Un cambio en la geometría propia de la celda, no heredado de una
+/// sub-celda. Transistores y redes se analizan solo ahí: el cambio de una
+/// sub-celda ya se analiza en ella, y repetirlo en cada ancestro (hasta la
+/// raíz de un chip) cuesta segundos por commit. Lo que no se ve así: un
+/// corto que solo aparece por el contexto del padre.
+fn own_change(g: &GdsGeomDiff) -> bool {
+    g.origin_path.len() <= 1
+}
+
 /// Abiertos y cortos en cada celda con cambios en una capa que conduce
 /// (según las reglas del PDK); una celda demasiado grande queda en un aviso.
 fn net_changes(
@@ -309,7 +318,7 @@ fn net_changes(
             || magic.get(&(k.layer, k.datatype)).is_some_and(|n| types.iter().any(|t| t == rules.canonical(n)))
     };
     let mut cells: BTreeMap<&str, Vec<[f64; 4]>> = BTreeMap::new();
-    for g in report.geometry.iter().filter(|g| relevant(&g.layer)) {
+    for g in report.geometry.iter().filter(|g| own_change(g) && relevant(&g.layer)) {
         let boxes = cells.entry(g.cell.as_str()).or_default();
         if let Some(b) = g.bbox_um {
             boxes.push([b.min_x, b.min_y, b.max_x, b.max_y]);
