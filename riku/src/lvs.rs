@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::i18n::tr;
@@ -25,16 +25,16 @@ use crate::modules::xschem_pdk::{symbol_source_for, PdkSource};
 pub const SCHEMA: &str = "riku-lvs/v1";
 
 /// Un esquemático y su layout (rutas relativas a la raíz de la versión).
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pair {
     pub schematic: String,
     pub layout: String,
     /// Celda del layout; `None`: la top.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cell: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     /// Coinciden conectividad y parámetros.
@@ -46,14 +46,14 @@ pub enum Verdict {
 }
 
 /// Lo mismo visto del lado del layout y del esquemático.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Sides<T> {
     pub layout: T,
     pub schematic: T,
 }
 
 /// Un dispositivo emparejado con un parámetro distinto.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PropertyError {
     pub model: String,
     /// Nombres de instancia (`M1` en el esquemático, `19` en el layout).
@@ -62,7 +62,7 @@ pub struct PropertyError {
     pub values: Vec<PropertyValue>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PropertyValue {
     pub name: String,
     pub layout: String,
@@ -70,7 +70,7 @@ pub struct PropertyValue {
 }
 
 /// Lo que dijo Netgen, sin los datos del par.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Comparison {
     pub result: Verdict,
     /// Las últimas líneas de Netgen ("Final result: …").
@@ -86,7 +86,7 @@ pub struct Comparison {
 }
 
 /// El LVS de un par en una versión.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Report {
     #[serde(flatten)]
     pub pair: Pair,
@@ -327,6 +327,162 @@ fn tail(bytes: &[u8]) -> String {
     lines[lines.len().saturating_sub(6)..].join(" | ")
 }
 
+// ─── Historial ───────────────────────────────────────────────────────────────
+
+/// Cómo quedó el LVS de un par en un commit.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum StepResult {
+    /// El esquemático o el layout no están en ese commit.
+    Missing,
+    Error { error: String },
+    Done {
+        #[serde(flatten)]
+        report: Box<Report>,
+        /// El par no cambió desde otro commit ya comparado: su resultado.
+        reused: bool,
+    },
+}
+
+impl StepResult {
+    pub fn verdict(&self) -> Option<Verdict> {
+        match self {
+            StepResult::Done { report, .. } => Some(report.comparison.result),
+            _ => None,
+        }
+    }
+}
+
+/// Un commit del historial.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Step {
+    pub commit: String,
+    pub summary: String,
+    pub author: String,
+    pub time: i64,
+    #[serde(flatten)]
+    pub result: StepResult,
+    /// Respecto del commit anterior (más viejo): `broke` si dejó de
+    /// coincidir, `fixed` si volvió a coincidir.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition: Option<Transition>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transition {
+    Broke,
+    Fixed,
+}
+
+/// Qué pasó en cada commit (del más nuevo al más viejo) respecto del
+/// anterior: dónde dejó de coincidir y dónde volvió a coincidir. Los commits
+/// sin resultado (sin el par, o con error) no cortan la comparación.
+pub fn mark_transitions(steps: &mut [Step]) {
+    for i in 0..steps.len() {
+        let now = steps[i].result.verdict();
+        let before = steps[i + 1..].iter().find_map(|s| s.result.verdict());
+        steps[i].transition = match (before, now) {
+            (Some(Verdict::Match), Some(v)) if v != Verdict::Match => Some(Transition::Broke),
+            (Some(b), Some(Verdict::Match)) if b != Verdict::Match => Some(Transition::Fixed),
+            _ => None,
+        };
+    }
+}
+
+/// Lo que determina el LVS de un par en un commit: las carpetas del
+/// esquemático y del layout (Git da un id por carpeta que cambia si cambia
+/// cualquier archivo adentro; ahí están sus sub-esquemáticos, símbolos y
+/// sub-celdas). `None` si falta alguno de los dos archivos.
+pub fn signature(tree: &git2::Tree<'_>, pair: &Pair) -> Option<String> {
+    let dir_id = |file: &str| -> Option<String> {
+        tree.get_path(Path::new(file)).ok()?;
+        match Path::new(file).parent().filter(|d| !d.as_os_str().is_empty()) {
+            Some(d) => Some(tree.get_path(d).ok()?.id().to_string()),
+            None => Some(tree.id().to_string()),
+        }
+    };
+    let (s, l) = (dir_id(&pair.schematic)?, dir_id(&pair.layout)?);
+    Some(format!("{}|{}|{}|{s}|{l}", pair.schematic, pair.layout, pair.cell.as_deref().unwrap_or("")))
+}
+
+/// Carpeta de la caché de resultados (`RIKU_CACHE_DIR/lvs` o
+/// `~/.cache/riku/lvs`); `None` con `RIKU_NO_CACHE`.
+fn cache_dir() -> Option<PathBuf> {
+    if std::env::var("RIKU_NO_CACHE").is_ok_and(|v| !v.is_empty() && v != "0") {
+        return None;
+    }
+    std::env::var_os("RIKU_CACHE_DIR")
+        .map(|d| PathBuf::from(d).join("lvs"))
+        .or_else(|| dirs::cache_dir().map(|d| d.join("riku").join("lvs")))
+}
+
+fn cache_file(signature: &str) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (env!("CARGO_PKG_VERSION"), signature).hash(&mut h);
+    Some(cache_dir()?.join(format!("{:016x}.json", h.finish())))
+}
+
+/// El LVS de cada par en los últimos `limit` commits desde `from` (por el
+/// primer padre, del más nuevo al más viejo). Solo compara cuando el par
+/// cambió; si no, repite el resultado (de este historial o de la caché).
+pub fn history(repo_path: &Path, from: &str, limit: usize, pairs: &[Pair], tools: &Tools) -> Result<Vec<(Pair, Vec<Step>)>, String> {
+    let repo = git2::Repository::discover(repo_path).map_err(|e| e.message().to_string())?;
+    let start = repo.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
+    let mut commits = vec![start];
+    while commits.len() < limit {
+        let Ok(parent) = commits[commits.len() - 1].parent(0) else { break };
+        commits.push(parent);
+    }
+
+    let mut out = Vec::new();
+    for pair in pairs {
+        let mut seen: BTreeMap<String, Result<Report, String>> = BTreeMap::new();
+        let mut steps = Vec::new();
+        for c in &commits {
+            let id = c.id().to_string();
+            let short = id[..7.min(id.len())].to_string();
+            let sig = c.tree().ok().and_then(|t| signature(&t, pair));
+            let result = match sig {
+                None => StepResult::Missing,
+                Some(sig) => {
+                    let reused = seen.contains_key(&sig);
+                    if !reused {
+                        let cached = cache_file(&sig)
+                            .and_then(|f| std::fs::read_to_string(f).ok())
+                            .and_then(|t| serde_json::from_str::<Report>(&t).ok());
+                        let fresh = match cached {
+                            Some(r) => Ok(r),
+                            None => Tree::commit(repo_path, &id).and_then(|tree| run(&tree, pair, tools)),
+                        };
+                        if let (Ok(r), Some(f)) = (&fresh, cache_file(&sig)) {
+                            let _ = f.parent().map(std::fs::create_dir_all);
+                            let _ = serde_json::to_string(r).map(|t| std::fs::write(f, t));
+                        }
+                        seen.insert(sig.clone(), fresh);
+                    }
+                    match &seen[&sig] {
+                        Ok(r) => StepResult::Done { report: Box::new(r.clone()), reused },
+                        Err(e) => StepResult::Error { error: e.clone() },
+                    }
+                }
+            };
+            steps.push(Step {
+                commit: short,
+                summary: c.summary().unwrap_or_default().to_string(),
+                author: c.author().name().unwrap_or_default().to_string(),
+                time: c.time().seconds(),
+                result,
+                transition: None,
+            });
+        }
+        mark_transitions(&mut steps);
+        out.push((pair.clone(), steps));
+    }
+    Ok(out)
+}
+
 // ─── Netgen ──────────────────────────────────────────────────────────────────
 
 /// Lee el `comp.json` de Netgen (circuito 1: el layout; 2: el esquemático) y
@@ -508,6 +664,74 @@ Top level cell failed pin matching.
 LVS Done.
 ");
         assert_eq!((c.result, c.summary), (Verdict::Mismatch, vec!["Top level cell failed pin matching.".to_string()]));
+    }
+
+    fn step(v: Option<Verdict>) -> Step {
+        let result = match v {
+            None => StepResult::Missing,
+            Some(v) => StepResult::Done {
+                report: Box::new(Report {
+                    pair: Pair { schematic: "a.sch".into(), layout: "a.gds".into(), cell: None },
+                    layout_cell: "a".into(),
+                    pdk: "sky130A".into(),
+                    comparison: Comparison {
+                        result: v,
+                        summary: vec![],
+                        devices: Sides::default(),
+                        nets: Sides::default(),
+                        pins: Sides::default(),
+                        unmatched_nets: vec![],
+                        unmatched_devices: vec![],
+                        properties: vec![],
+                    },
+                    warnings: vec![],
+                }),
+                reused: false,
+            },
+        };
+        Step { commit: String::new(), summary: String::new(), author: String::new(), time: 0, result, transition: None }
+    }
+
+    #[test]
+    fn marca_donde_se_rompio_y_donde_se_arreglo() {
+        use Verdict::*;
+        // Del más nuevo al más viejo.
+        let mut steps: Vec<Step> = [Some(Match), Some(Mismatch), None, Some(PropertyErrors), Some(Match)].into_iter().map(step).collect();
+        mark_transitions(&mut steps);
+        let t: Vec<Option<Transition>> = steps.iter().map(|s| s.transition).collect();
+        assert_eq!(t, vec![Some(Transition::Fixed), None, None, Some(Transition::Broke), None]);
+    }
+
+    #[test]
+    fn la_firma_cambia_solo_si_cambia_una_carpeta_del_par() {
+        let dir = std::env::temp_dir().join(format!("riku-lvs-sig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let repo = git2::Repository::init(&dir).unwrap();
+        let sig = git2::Signature::now("t", "t@t").unwrap();
+        let commit = |files: &[(&str, &str)]| {
+            for (p, body) in files {
+                let path = dir.join(p);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, body).unwrap();
+            }
+            let mut index = repo.index().unwrap();
+            index.add_all(["*"], git2::IndexAddOption::DEFAULT, None).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let parents: Vec<git2::Commit> = repo.head().ok().and_then(|h| h.peel_to_commit().ok()).into_iter().collect();
+            let refs: Vec<&git2::Commit> = parents.iter().collect();
+            let id = repo.commit(Some("HEAD"), &sig, &sig, "c", &tree, &refs).unwrap();
+            repo.find_commit(id).unwrap().tree().unwrap().id()
+        };
+        let pair = Pair { schematic: "sch/a.sch".into(), layout: "lay/a.gds".into(), cell: None };
+        let t1 = commit(&[("sch/a.sch", "1"), ("lay/a.gds", "1"), ("README", "x")]);
+        let t2 = commit(&[("README", "y")]);
+        let t3 = commit(&[("sch/sub.sch", "2")]);
+        let firma = |t| signature(&repo.find_tree(t).unwrap(), &pair);
+        assert!(firma(t1).is_some());
+        assert_eq!(firma(t1), firma(t2), "otro archivo fuera del par");
+        assert_ne!(firma(t2), firma(t3), "un sub-esquemático en su carpeta");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

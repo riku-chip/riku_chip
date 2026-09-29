@@ -176,6 +176,10 @@ pub(crate) enum Commands {
         format: ListFormat,
         #[arg(long, help = tr!("help.lvs_ci"))]
         ci: bool,
+        #[arg(long, help = tr!("help.lvs_log"))]
+        log: bool,
+        #[arg(short = 'n', long, value_name = "N", default_value_t = 20, requires = "log", help = tr!("help.lvs_limit"))]
+        limit: usize,
     },
     #[command(about = tr!("help.log"), after_help = tr!("help.examples_log"))]
     Log {

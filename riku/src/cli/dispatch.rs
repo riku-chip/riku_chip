@@ -125,9 +125,14 @@ impl Commands {
             }
 
             #[cfg(all(feature = "xschem", feature = "layout"))]
-            Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _ } => {
+            Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _, log, limit } => {
                 let pair = sch.zip(layout);
-                commands::run_lvs(repo, rev.as_deref(), pair, cell, format == ListFormat::Json)
+                let json = format == ListFormat::Json;
+                if log {
+                    commands::run_lvs_log(repo, rev.as_deref().unwrap_or("HEAD"), limit, pair, cell, json)
+                } else {
+                    commands::run_lvs(repo, rev.as_deref(), pair, cell, json)
+                }
             }
 
             Commands::Log {

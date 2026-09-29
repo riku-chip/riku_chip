@@ -477,15 +477,7 @@ pub(super) fn run_lvs(
     use crate::lvs::{self, Pair, Tree, Verdict};
 
     let tools = lvs::tools()?;
-    let root = git2::Repository::discover(&repo).ok().and_then(|r| r.workdir().map(|w| w.to_path_buf())).unwrap_or_else(|| repo.clone());
-    let configured: Vec<Pair> = match pair {
-        Some((s, l)) => vec![Pair { schematic: repo_file(&repo, Some(&root), &s), layout: repo_file(&repo, Some(&root), &l), cell: cell.clone() }],
-        None => config::load(Some(&root))?
-            .lvs
-            .into_iter()
-            .map(|c| Pair { schematic: c.schematic, layout: c.layout, cell: c.cell.or_else(|| cell.clone()) })
-            .collect(),
-    };
+    let (root, configured) = lvs_configured(&repo, pair, &cell)?;
     let tree = match rev {
         None => Tree::disk(&root),
         Some(r) => Tree::commit(&repo, r)?,
@@ -583,4 +575,93 @@ fn list(items: &[String]) -> String {
     } else {
         items.join(", ")
     }
+}
+
+/// La raíz del repo (o `repo`, si no es uno) y los pares pedidos: `--sch` y
+/// `--layout`, o los de `.riku.toml` (vacío: los de igual nombre).
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn lvs_configured(
+    repo: &std::path::Path,
+    pair: Option<(String, String)>,
+    cell: &Option<String>,
+) -> Result<(PathBuf, Vec<crate::lvs::Pair>), String> {
+    use crate::lvs::Pair;
+    let root = git2::Repository::discover(repo).ok().and_then(|r| r.workdir().map(|w| w.to_path_buf())).unwrap_or_else(|| repo.to_path_buf());
+    let configured = match pair {
+        Some((s, l)) => vec![Pair { schematic: repo_file(repo, Some(&root), &s), layout: repo_file(repo, Some(&root), &l), cell: cell.clone() }],
+        None => config::load(Some(&root))?
+            .lvs
+            .into_iter()
+            .map(|c| Pair { schematic: c.schematic, layout: c.layout, cell: c.cell.or_else(|| cell.clone()) })
+            .collect(),
+    };
+    Ok((root, configured))
+}
+
+/// `riku lvs --log`: el LVS de cada par en los últimos commits, y dónde dejó
+/// de coincidir o volvió a coincidir.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+pub(super) fn run_lvs_log(
+    repo: PathBuf,
+    from: &str,
+    limit: usize,
+    pair: Option<(String, String)>,
+    cell: Option<String>,
+    json: bool,
+) -> Result<super::dispatch::Outcome, String> {
+    use super::dispatch::Outcome;
+    use crate::lvs::{self, Pair, StepResult, Transition, Tree, Verdict};
+
+    let tools = lvs::tools()?;
+    let (_, configured) = lvs_configured(&repo, pair, &cell)?;
+    // Los pares se buscan en el commit de partida.
+    let pairs: Vec<Pair> = {
+        let tree = Tree::commit(&repo, from)?;
+        lvs::pairs(&tree.root, &configured).into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect()
+    };
+    if pairs.is_empty() {
+        return Err(tr!("lvs.none_found"));
+    }
+    let history = lvs::history(&repo, from, limit.max(1), &pairs, &tools)?;
+
+    if json {
+        let items: Vec<serde_json::Value> = history
+            .iter()
+            .map(|(p, steps)| serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "cell": p.cell, "commits": steps }))
+            .collect();
+        super::format::print_enveloped(&serde_json::json!({ "schema": "riku-lvs-log/v1", "from": from, "pairs": items }), true)?;
+    } else {
+        for (p, steps) in &history {
+            println!("LVS  {} ↔ {}  ({})", p.schematic, p.layout, tr!("lvs.log_range", count = steps.len(), from = from));
+            for s in steps {
+                let state = match &s.result {
+                    StepResult::Missing => tr!("lvs.state_missing"),
+                    StepResult::Error { error } => tr!("lvs.state_error", error = error),
+                    StepResult::Done { report, .. } => match report.comparison.result {
+                        Verdict::Match => tr!("lvs.state_match"),
+                        Verdict::PropertyErrors => tr!("lvs.state_properties", count = report.comparison.properties.len()),
+                        Verdict::Mismatch => tr!("lvs.state_mismatch"),
+                    },
+                };
+                let mark = match s.transition {
+                    Some(Transition::Broke) => format!("  ← {}", tr!("lvs.broke")),
+                    Some(Transition::Fixed) => format!("  ← {}", tr!("lvs.fixed")),
+                    None => String::new(),
+                };
+                let date = crate::text::format_timestamp(s.time);
+                let summary: String = s.summary.chars().take(40).collect();
+                println!("  {}  {:16}  {:40}  {state}{mark}", s.commit, date, summary);
+            }
+            println!();
+        }
+    }
+    // El estado de la punta: como `riku lvs` en ese commit.
+    let tip = history.iter().filter_map(|(_, steps)| steps.first().and_then(|s| s.result.verdict()));
+    Ok(if history.iter().any(|(_, s)| matches!(s.first().map(|x| &x.result), Some(StepResult::Error { .. }))) {
+        Outcome::Failed
+    } else if tip.into_iter().any(|v| v != Verdict::Match) {
+        Outcome::Functional
+    } else {
+        Outcome::Clean
+    })
 }

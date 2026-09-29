@@ -285,6 +285,7 @@ riku lvs                                   # cada esquemático con su layout, en
 riku lvs HEAD~1                            # en un commit
 riku lvs --sch xschem/amp.sch --layout layout/amp.gds [--cell amp]
 riku lvs -f json --ci                      # 0 coincide, 1 no coincide o parámetros distintos, 2 error
+riku lvs --log [-n 20] [REV]               # en cada commit desde REV (HEAD), y dónde dejó de coincidir
 ```
 
 Compara la netlist del esquemático (`xschem --netlist`, con el PDK de sus símbolos) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Necesita `xschem` y `netgen` (vienen con iic-osic-tools; `riku doctor` dice si están).
@@ -297,6 +298,8 @@ schematic = "xschem/amp.sch"
 layout = "layout/amp.gds"
 cell = "amp"          # opcional: sin ella, la top
 ```
+
+**Historial** (`--log`): recorre los últimos commits por el primer padre y marca `← dejó de coincidir` y `← volvió a coincidir`. Solo compara cuando cambió algo en las carpetas del esquemático o del layout; si no, repite el resultado. Los resultados se guardan en `~/.cache/riku/lvs` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`.
 
 El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
 
