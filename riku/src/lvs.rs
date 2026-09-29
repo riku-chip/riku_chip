@@ -283,7 +283,28 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
         let found = crate::modules::xschem_hier::find(reference, parent, files.as_ref(), true)?;
         Some((found.clone(), String::from_utf8(files.read(&found)?).ok()?))
     };
-    let lvs_mode = xschem_viewer::spice::SpiceOptions { lvs: true, top_subckt: true };
+    // Las variables de los bloques de código (`.include $::SKYWATER_MODELS/…`),
+    // del `xschemrc` del PDK. `PDK_ROOT` y `PDK`, los que fija `sak-pdk`; si
+    // el esquemático es de otro PDK (o no hay entorno), los de la carpeta
+    // del PDK de sus símbolos.
+    let rc = std::fs::read_to_string(pdk_dir.join("libs.tech/xschem/xschemrc")).unwrap_or_default();
+    let active = std::env::var("PDK").is_ok_and(|p| p == pdk);
+    let root = std::env::var("PDK_ROOT")
+        .ok()
+        .filter(|_| active)
+        .unwrap_or_else(|| pdk_dir.parent().map(|p| p.display().to_string()).unwrap_or_default());
+    let pdk_name = pdk.clone();
+    let env = move |n: &str| match n.trim_start_matches("env(").trim_end_matches(')') {
+        "PDK_ROOT" => Some(root.clone()),
+        "PDK" => Some(pdk_name.clone()),
+        other => std::env::var(other).ok(),
+    };
+    let vars = xschem_viewer::tcleval::rc_vars(&rc, &env);
+    let lvs_mode = xschem_viewer::spice::SpiceOptions {
+        lvs: true,
+        top_subckt: true,
+        vars: Some(std::sync::Arc::new(move |n: &str| vars.get(n).cloned().or_else(|| env(n)))),
+    };
     let netlist = xschem_viewer::spice::netlist(&text, &pair.schematic, &stem, &opts, lvs_mode, &lookup)?;
     warnings.extend(netlist.warnings.iter().map(|w| tr!("lvs.missing_symbol", line = w)));
     std::fs::write(work.0.join("schematic.spice"), &netlist.text).map_err(|e| e.to_string())?;
