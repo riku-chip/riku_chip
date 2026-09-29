@@ -30,6 +30,12 @@ use riku_kernel::{DiffFiles, DiffOptions, DiskFiles, FileSource, FormatModule};
 
 /// Capa sintética de los marcadores de símbolo faltante.
 const MISSING_LAYER: Layer = 100;
+/// En la vista Diff, lo que cambió se copia a la capa `capa + HIGHLIGHT`,
+/// con el color pleno, sobre el resto atenuado (como en los layouts).
+const HIGHLIGHT: Layer = 200;
+/// Opacidad del contorno de lo que no cambió en la vista Diff (de 255): el
+/// contexto se lee (qué se conecta con qué), pero no compite con el cambio.
+const DIM_STROKE: u8 = 105;
 /// Altura de una línea de texto por unidad de `v_size` (convención de Xschem).
 const TEXT_SCALE: f64 = 50.0;
 
@@ -443,6 +449,7 @@ fn convert(el: &X) -> Vec<Vc> {
 /// movió o se eliminó), una marca por cambio y la lista de cambios.
 fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, report: &FileChange) -> Scene {
     let mut scene = scene_from(b, pdk);
+    highlight_changes(&mut scene, b, report);
 
     if let Some(a) = a {
         // Componentes movidos o eliminados: cómo estaban antes.
@@ -498,6 +505,39 @@ fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, rep
     };
     scene.metadata.insert(0, (tr!("meta.diff"), summary));
     scene
+}
+
+/// Atenúa todo el esquemático y vuelve a pintar a color pleno lo que cambió
+/// funcionalmente: los componentes añadidos, modificados o renombrados y los
+/// wires de las nets nuevas. Lo cosmético (solo movido) queda atenuado, con
+/// su recuadro; lo eliminado es el fantasma de la versión anterior.
+fn highlight_changes(scene: &mut Scene, b: &ResolvedScene, report: &FileChange) {
+    let full: Vec<(Layer, LayerPaint)> = scene.layers.iter().map(|(k, p)| (*k, p.clone())).collect();
+    for paint in scene.layers.values_mut() {
+        paint.stroke.a = paint.stroke.a.min(DIM_STROKE);
+        paint.fill.a /= 3;
+    }
+    let mut changed: Vec<Vc> = Vec::new();
+    for c in report.changes.iter().filter(|c| !c.cosmetic && c.kind != ChangeKind::Removed) {
+        match &c.element {
+            Element::Component { name } => changed.extend(b.elements_of(name).flat_map(convert)),
+            Element::Net { name } if c.kind == ChangeKind::Added => {
+                changed.extend(b.wires.iter().filter(|w| w.4.as_deref() == Some(name.as_str())).map(|&(x1, y1, x2, y2, _)| {
+                    Vc::Line { x1, y1, x2, y2, layer: 1 }
+                }));
+            }
+            _ => {}
+        }
+    }
+    for mut el in changed {
+        let base = el.layer();
+        let to = base.saturating_add(HIGHLIGHT);
+        if let Some((_, paint)) = full.iter().find(|(k, _)| *k == base) {
+            scene.layers.entry(to).or_insert_with(|| paint.clone());
+        }
+        el.set_layer(to);
+        scene.push(el);
+    }
 }
 
 /// Marca en la escena y entrada de la lista para un cambio.
@@ -708,6 +748,24 @@ N 3.0004 7 3 90 {{lab=y}}
         let s = diff_scene(Some(&ra), &rb, &pdk, &report);
         let ghosts: Vec<f64> = s.ghost.iter().filter_map(|g| match g { Vc::Line { y1, .. } => Some(*y1), _ => None }).collect();
         assert_eq!(ghosts, vec![50.0], "solo el wire que ya no está");
+    }
+
+    #[test]
+    fn el_diff_atenua_todo_y_resalta_lo_que_cambio() {
+        let (a, (b, pdk)) = (resolve(A.as_bytes()).unwrap().0, resolve(B.as_bytes()).unwrap());
+        let report = XschemModule::new().diff(A.as_bytes(), B.as_bytes(), "t.sch", &DiffOptions::default());
+        let s = diff_scene(Some(&a), &b, &pdk, &report);
+        // Las capas de siempre, atenuadas; las del resaltado, con el color pleno.
+        let wires = &s.layers[&1];
+        assert!(wires.stroke.a <= DIM_STROKE, "{wires:?}");
+        let lit: Vec<&LayerPaint> = s.layers.iter().filter(|(k, _)| **k >= HIGHLIGHT).map(|(_, p)| p).collect();
+        assert!(!lit.is_empty() && lit.iter().all(|p| p.stroke.a == 255), "{lit:?}");
+        // Mismo nombre que la capa de base: se ocultan juntas.
+        assert!(lit.iter().all(|p| s.layers.iter().any(|(k, q)| *k < HIGHLIGHT && q.name == p.name)));
+        // R1 cambió: sus elementos están en el resaltado.
+        let r1 = b.elements_of("R1").count();
+        let highlighted = s.elements.iter().filter(|e| e.layer() >= HIGHLIGHT).count();
+        assert!(r1 > 0 && highlighted >= r1, "{highlighted} de {r1}");
     }
 
     #[test]

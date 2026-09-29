@@ -86,6 +86,17 @@ impl DrawElement {
         }
     }
 
+    /// Cambia la capa del primitivo (p. ej. para pintarlo con otro estilo).
+    pub fn set_layer(&mut self, to: Layer) {
+        match self {
+            Self::Line { layer, .. }
+            | Self::Rect { layer, .. }
+            | Self::Circle { layer, .. }
+            | Self::Polygon { layer, .. }
+            | Self::Text { layer, .. } => *layer = to,
+        }
+    }
+
     /// Bounding box neutral del primitivo. Para `Text`, solo el ancla — medir
     /// el glifo real requiere métricas de fuente que no viven en viewer-core.
     pub fn bounding_box(&self) -> BoundingBox {

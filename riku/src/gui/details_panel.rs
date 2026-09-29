@@ -52,7 +52,10 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState) {
         }
     }
 
-    let layers = scene.layer_list();
+    // Una fila por nombre: una capa puede venir en dos claves (en un diff de
+    // esquemático, la atenuada y la del resaltado); ocultarla oculta las dos.
+    let mut seen = std::collections::HashSet::new();
+    let layers: Vec<_> = scene.layer_list().into_iter().filter(|(_, p)| seen.insert(p.name.clone())).collect();
     bs.layer_hover_panel = None;
     if layers.is_empty() {
         return;
