@@ -470,8 +470,8 @@ pub fn history(repo_path: &Path, from: &str, limit: usize, pairs: &[Pair], tools
             };
             steps.push(Step {
                 commit: short,
-                summary: c.summary().unwrap_or_default().to_string(),
-                author: c.author().name().unwrap_or_default().to_string(),
+                summary: String::from_utf8_lossy(c.summary_bytes().unwrap_or_default()).into_owned(),
+                author: String::from_utf8_lossy(c.author().name_bytes()).into_owned(),
                 time: c.time().seconds(),
                 result,
                 transition: None,
