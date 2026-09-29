@@ -309,6 +309,14 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
         .current_dir(&work.0)
         .output()
         .map_err(|e| tr!("lvs.tool_failed", tool = "netgen", error = e))?;
+    // `RIKU_LVS_KEEP=<carpeta>`: las netlists y el reporte de Netgen, para
+    // revisarlos a mano.
+    if let Some(keep) = std::env::var_os("RIKU_LVS_KEEP").map(PathBuf::from) {
+        let _ = std::fs::create_dir_all(&keep);
+        for f in ["schematic.spice", "layout.spice", "comp.out", "comp.json"] {
+            let _ = std::fs::copy(work.0.join(f), keep.join(f));
+        }
+    }
     let (json, text) = (std::fs::read_to_string(work.0.join("comp.json")), std::fs::read_to_string(work.0.join("comp.out")));
     let comparison = match (json, text) {
         (Ok(json), Ok(text)) => parse_netgen(&json, &text)?,
