@@ -278,6 +278,28 @@ riku render amp.sch --theme dark --size 2400x1500
 - **`riku render`** dibuja una sola versión: el archivo en disco (con la ruta tal como se escribe, sin necesitar un repo) o la de un commit con `--rev`.
 - Las formas de onda muestran las señales que más cambiaron (o las primeras, sin diff) y las expresiones que den una curva.
 
+## `riku lvs`: el layout contra el esquemático
+
+```bash
+riku lvs                                   # cada esquemático con su layout, en el disco
+riku lvs HEAD~1                            # en un commit
+riku lvs --sch xschem/amp.sch --layout layout/amp.gds [--cell amp]
+riku lvs -f json --ci                      # 0 coincide, 1 no coincide o parámetros distintos, 2 error
+```
+
+Compara la netlist del esquemático (`xschem --netlist`, con el PDK de sus símbolos) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Necesita `xschem` y `netgen` (vienen con iic-osic-tools; `riku doctor` dice si están).
+
+Qué esquemático va con qué layout: `--sch` y `--layout`; si no, `[[lvs]]` en `.riku.toml`; si no, los de igual nombre (`amp.sch` ↔ `amp.gds`, `.oas` o `.mag`).
+
+```toml
+[[lvs]]
+schematic = "xschem/amp.sch"
+layout = "layout/amp.gds"
+cell = "amp"          # opcional: sin ella, la top
+```
+
+El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
+
 ## `riku completions`
 
 ```bash

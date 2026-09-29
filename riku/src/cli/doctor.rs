@@ -146,6 +146,19 @@ pub(crate) fn sections(repo: &Path) -> Vec<Section> {
         })
         .collect();
     out.push(Section { title: tr!("doctor.modules"), items });
+
+    // `riku lvs` usa Xschem y Netgen; el resto de Riku no.
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    {
+        let items = ["xschem", "netgen"]
+            .into_iter()
+            .map(|t| match crate::lvs::find_tool(t) {
+                Some(p) => (Mark::Ok, format!("{t:10} {}", p.display())),
+                None => (Mark::Absent, tr!("doctor.lvs_missing", tool = t)),
+            })
+            .collect();
+        out.push(Section { title: "LVS".to_string(), items });
+    }
     out
 }
 
@@ -260,6 +273,7 @@ fn print_json(r: &DoctorReport) -> Result<(), String> {
         "tools": { "state": tools_state, "path": tools_path },
         "symbols": r.has_symbols,
         "modules": modules,
+        "lvs": lvs_tools(),
     });
     let text = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
     println!("{text}");
@@ -274,4 +288,15 @@ fn project_config(r: &DoctorReport) -> Option<(PathBuf, Result<(), String>)> {
         let res = crate::core::config::load(Some(root)).map(|_| ());
         (file, res)
     })
+}
+
+/// Dónde están las herramientas de `riku lvs` (`null` si faltan).
+fn lvs_tools() -> serde_json::Value {
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    {
+        let at = |t: &str| crate::lvs::find_tool(t).map(|p| p.display().to_string());
+        serde_json::json!({ "xschem": at("xschem"), "netgen": at("netgen") })
+    }
+    #[cfg(not(all(feature = "xschem", feature = "layout")))]
+    serde_json::Value::Null
 }

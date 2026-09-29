@@ -107,17 +107,19 @@ pub struct Tools {
 }
 
 pub fn tools() -> Result<Tools, String> {
-    let find = |name: &str| {
-        std::env::var_os("PATH")
-            .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
-            .unwrap_or_default()
-            .into_iter()
-            .chain([PathBuf::from("/foss/tools/bin")])
-            .map(|d| d.join(name))
-            .find(|p| p.is_file())
-            .ok_or_else(|| tr!("lvs.no_tool", tool = name))
-    };
+    let find = |name: &str| find_tool(name).ok_or_else(|| tr!("lvs.no_tool", tool = name));
     Ok(Tools { xschem: find("xschem")?, netgen: find("netgen")? })
+}
+
+/// Dónde está una herramienta: en el `PATH` o en `/foss/tools/bin`.
+pub fn find_tool(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .chain([PathBuf::from("/foss/tools/bin")])
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
 }
 
 // ─── Versión en el disco ─────────────────────────────────────────────────────
