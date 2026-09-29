@@ -340,6 +340,13 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
         Commands::Doctor { repo, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
         }
+        #[cfg(all(feature = "xschem", feature = "layout"))]
+        Commands::Lvs { repo, sch, layout, .. } => {
+            *repo = ctx.resolve_repo(std::mem::take(repo));
+            for f in [sch, layout].into_iter().flatten() {
+                *f = ctx.resolve_file(f);
+            }
+        }
         Commands::Status { repo, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
         }
