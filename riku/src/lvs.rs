@@ -308,10 +308,13 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
         .output()
         .map_err(|e| tr!("lvs.tool_failed", tool = "netgen", error = e))?;
     let (json, text) = (std::fs::read_to_string(work.0.join("comp.json")), std::fs::read_to_string(work.0.join("comp.out")));
-    let (Ok(json), Ok(text)) = (json, text) else {
-        return Err(tr!("lvs.tool_failed", tool = "netgen", error = tail(&out.stdout)));
+    let comparison = match (json, text) {
+        (Ok(json), Ok(text)) => parse_netgen(&json, &text)?,
+        // Sin JSON (p. ej. las celdas de arriba no se pudieron emparejar):
+        // el veredicto del texto, que es "no coinciden".
+        (Err(_), Ok(text)) if text.contains("Final result") => from_text(&text),
+        _ => return Err(tr!("lvs.tool_failed", tool = "netgen", error = tail(&out.stdout))),
     };
-    let comparison = parse_netgen(&json, &text)?;
     Ok(Report { pair: pair.clone(), layout_cell: layout.cell, pdk, comparison, warnings })
 }
 
@@ -405,15 +408,7 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
     } else {
         Verdict::Match
     };
-    // "Final result: …" y lo que le sigue hasta la primera línea en blanco.
-    let summary = out
-        .lines()
-        .skip_while(|l| !l.starts_with("Final result"))
-        .take_while(|l| !l.trim().is_empty())
-        .map(str::trim)
-        .filter(|l| *l != ".")
-        .map(str::to_string)
-        .collect();
+    let summary = summary_of(out);
     Ok(Comparison {
         result,
         summary,
@@ -430,6 +425,31 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
         unmatched_devices,
         properties,
     })
+}
+
+/// Un resultado de Netgen del que solo hay texto: no coinciden, y por qué.
+fn from_text(out: &str) -> Comparison {
+    Comparison {
+        result: Verdict::Mismatch,
+        summary: summary_of(out),
+        devices: Sides::default(),
+        nets: Sides::default(),
+        pins: Sides::default(),
+        unmatched_nets: Vec::new(),
+        unmatched_devices: Vec::new(),
+        properties: Vec::new(),
+    }
+}
+
+/// "Final result: …" y lo que le sigue hasta la primera línea en blanco.
+fn summary_of(out: &str) -> Vec<String> {
+    out.lines()
+        .skip_while(|l| !l.starts_with("Final result"))
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::trim)
+        .filter(|l| *l != "." && *l != "Final result:")
+        .map(str::to_string)
+        .collect()
 }
 
 /// `sky130_fd_pr__pfet_01v8:M1` → `M1` (el nombre de la instancia).
@@ -475,6 +495,16 @@ mod tests {
         assert_eq!(c.result, Verdict::Mismatch);
         assert_eq!(c.unmatched_nets, vec![Sides { layout: vec!["n4".into(), "Ib".into()], schematic: vec!["Vp".into()] }]);
         assert_eq!(c.unmatched_devices, vec![Sides { layout: vec!["0".into()], schematic: vec!["M6".into()] }]);
+    }
+
+    #[test]
+    fn sin_json_es_que_no_coinciden() {
+        let c = from_text("Final result: 
+Top level cell failed pin matching.
+
+LVS Done.
+");
+        assert_eq!((c.result, c.summary), (Verdict::Mismatch, vec!["Top level cell failed pin matching.".to_string()]));
     }
 
     #[test]
