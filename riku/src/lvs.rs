@@ -405,12 +405,13 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
     } else {
         Verdict::Match
     };
+    // "Final result: …" y lo que le sigue hasta la primera línea en blanco.
     let summary = out
         .lines()
         .skip_while(|l| !l.starts_with("Final result"))
+        .take_while(|l| !l.trim().is_empty())
         .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .take(3)
+        .filter(|l| *l != ".")
         .map(str::to_string)
         .collect();
     Ok(Comparison {
