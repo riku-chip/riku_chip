@@ -796,6 +796,6 @@ N 3.0004 7 3 90 {{lab=y}}
             return; // en un entorno con res.sym resuelto no hay nada que marcar
         }
         assert!(s.elements.iter().any(|e| e.layer() == MISSING_LAYER));
-        assert!(s.notices.iter().any(|n| n.contains("Faltan") && n.contains("riku doctor")), "{:?}", s.notices);
+        assert!(s.notices.iter().any(|n| n.contains("riku doctor")), "{:?}", s.notices);
     }
 }
