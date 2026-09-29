@@ -319,7 +319,7 @@ fn a_file_over_the_limit_is_an_error_not_empty() {
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     let f = &json["files"][0];
     assert_eq!(f["category"], "error", "{json}");
-    assert!(f["errors"][0].as_str().is_some_and(|e| e.contains("límite")), "{json}");
+    assert!(f["errors"][0].as_str().is_some_and(|e| e.contains(" MB")), "{json}");
 
     let out = Command::new(env!("CARGO_BIN_EXE_riku"))
         .args(["diff", r.file, "-f", "json", "--ci", "--repo"])
