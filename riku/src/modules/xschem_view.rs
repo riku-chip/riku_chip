@@ -763,7 +763,7 @@ N 3.0004 7 3 90 {{lab=y}}
         // Mismo nombre que la capa de base: se ocultan juntas.
         assert!(lit.iter().all(|p| s.layers.iter().any(|(k, q)| *k < HIGHLIGHT && q.name == p.name)));
         // R1 cambió: sus elementos están en el resaltado.
-        let r1 = b.elements_of("R1").count();
+        let r1 = b.elements_of("R1").flat_map(convert).count();
         let highlighted = s.elements.iter().filter(|e| e.layer() >= HIGHLIGHT).count();
         assert!(r1 > 0 && highlighted >= r1, "{highlighted} de {r1}");
     }
