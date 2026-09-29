@@ -299,7 +299,7 @@ layout = "layout/amp.gds"
 cell = "amp"          # opcional: sin ella, la top
 ```
 
-**Historial** (`--log`): recorre los últimos commits por el primer padre y marca `← dejó de coincidir` y `← volvió a coincidir`. Solo compara cuando cambió algo en las carpetas del esquemático o del layout; si no, repite el resultado. Los resultados se guardan en `~/.cache/riku/lvs` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`.
+**Historial** (`--log`): recorre los últimos commits por el primer padre y marca cada cambio de estado: `← dejó de coincidir`, `← empeoró` (las conexiones ya no coinciden: un corto o un abierto), `← mejoró` y `← volvió a coincidir`. Solo compara cuando cambió algo en las carpetas del esquemático o del layout; si no, repite el resultado. Los resultados se guardan en `~/.cache/riku/lvs` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`.
 
 El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
 

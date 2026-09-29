@@ -645,6 +645,8 @@ pub(super) fn run_lvs_log(
                 };
                 let mark = match s.transition {
                     Some(Transition::Broke) => format!("  ← {}", tr!("lvs.broke")),
+                    Some(Transition::Worse) => format!("  ← {}", tr!("lvs.worse")),
+                    Some(Transition::Better) => format!("  ← {}", tr!("lvs.better")),
                     Some(Transition::Fixed) => format!("  ← {}", tr!("lvs.fixed")),
                     None => String::new(),
                 };

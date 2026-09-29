@@ -362,8 +362,8 @@ pub struct Step {
     pub time: i64,
     #[serde(flatten)]
     pub result: StepResult,
-    /// Respecto del commit anterior (más viejo): `broke` si dejó de
-    /// coincidir, `fixed` si volvió a coincidir.
+    /// Respecto del commit anterior (más viejo) con resultado: ver
+    /// [`Transition`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
 }
@@ -371,8 +371,26 @@ pub struct Step {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Transition {
+    /// Coincidía y dejó de coincidir.
     Broke,
+    /// Tenía solo parámetros distintos y ahora tampoco coinciden las
+    /// conexiones (un corto, un abierto).
+    Worse,
+    /// Las conexiones vuelven a coincidir, con parámetros distintos.
+    Better,
+    /// Volvió a coincidir.
     Fixed,
+}
+
+impl Verdict {
+    /// De mejor a peor: coincide, parámetros distintos, no coincide.
+    fn severity(self) -> u8 {
+        match self {
+            Verdict::Match => 0,
+            Verdict::PropertyErrors => 1,
+            Verdict::Mismatch => 2,
+        }
+    }
 }
 
 /// Qué pasó en cada commit (del más nuevo al más viejo) respecto del
@@ -383,8 +401,11 @@ pub fn mark_transitions(steps: &mut [Step]) {
         let now = steps[i].result.verdict();
         let before = steps[i + 1..].iter().find_map(|s| s.result.verdict());
         steps[i].transition = match (before, now) {
-            (Some(Verdict::Match), Some(v)) if v != Verdict::Match => Some(Transition::Broke),
-            (Some(b), Some(Verdict::Match)) if b != Verdict::Match => Some(Transition::Fixed),
+            (Some(b), Some(v)) if b == v => None,
+            (Some(Verdict::Match), Some(_)) => Some(Transition::Broke),
+            (Some(_), Some(Verdict::Match)) => Some(Transition::Fixed),
+            (Some(b), Some(v)) if v.severity() > b.severity() => Some(Transition::Worse),
+            (Some(_), Some(_)) => Some(Transition::Better),
             _ => None,
         };
     }
@@ -696,10 +717,12 @@ LVS Done.
     fn marca_donde_se_rompio_y_donde_se_arreglo() {
         use Verdict::*;
         // Del más nuevo al más viejo.
-        let mut steps: Vec<Step> = [Some(Match), Some(Mismatch), None, Some(PropertyErrors), Some(Match)].into_iter().map(step).collect();
+        let mut steps: Vec<Step> =
+            [Some(Match), Some(PropertyErrors), Some(Mismatch), None, Some(PropertyErrors), Some(Match)].into_iter().map(step).collect();
         mark_transitions(&mut steps);
         let t: Vec<Option<Transition>> = steps.iter().map(|s| s.transition).collect();
-        assert_eq!(t, vec![Some(Transition::Fixed), None, None, Some(Transition::Broke), None]);
+        use Transition::*;
+        assert_eq!(t, vec![Some(Fixed), Some(Better), Some(Worse), None, Some(Broke), None]);
     }
 
     #[test]
