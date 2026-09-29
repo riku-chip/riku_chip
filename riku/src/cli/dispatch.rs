@@ -61,6 +61,8 @@ impl Commands {
                 *json || *format == ListFormat::Json
             }
             Commands::Doctor { format, .. } => *format == ListFormat::Json,
+            #[cfg(all(feature = "xschem", feature = "layout"))]
+            Commands::Lvs { format, .. } => *format == ListFormat::Json,
             _ => false,
         }
     }
@@ -120,6 +122,12 @@ impl Commands {
                 };
                 let o = Overrides { expressions: exprs, ..Overrides::default() };
                 commands::run_render(repo, &file, rev.as_deref(), req, o).map(|_| Outcome::Ok)
+            }
+
+            #[cfg(all(feature = "xschem", feature = "layout"))]
+            Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _ } => {
+                let pair = sch.zip(layout);
+                commands::run_lvs(repo, rev.as_deref(), pair, cell, format == ListFormat::Json)
             }
 
             Commands::Log {

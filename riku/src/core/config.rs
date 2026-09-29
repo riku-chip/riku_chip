@@ -34,6 +34,19 @@ pub struct ProjectConfig {
     pub layout: LayoutConfig,
     #[serde(default)]
     pub waveform: WaveformConfig,
+    /// Qué esquemático va con qué layout para `riku lvs`.
+    #[serde(default)]
+    pub lvs: Vec<LvsConfig>,
+}
+
+/// Un par de `riku lvs` (rutas relativas a la raíz del repositorio).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LvsConfig {
+    pub schematic: String,
+    pub layout: String,
+    /// Celda del layout; sin ella, la top.
+    pub cell: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

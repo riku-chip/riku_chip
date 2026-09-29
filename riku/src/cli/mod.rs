@@ -159,6 +159,24 @@ pub(crate) enum Commands {
         #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
         theme: ImageTheme,
     },
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    #[command(about = tr!("help.lvs"), after_help = tr!("help.examples_lvs"))]
+    Lvs {
+        #[arg(value_name = "REV", help = tr!("help.lvs_rev"))]
+        rev: Option<String>,
+        #[arg(short, long, default_value = ".", help = tr!("help.repo"))]
+        repo: PathBuf,
+        #[arg(long = "sch", value_name = "FILE", requires = "layout", help = tr!("help.lvs_sch"))]
+        sch: Option<String>,
+        #[arg(long, value_name = "FILE", requires = "sch", help = tr!("help.lvs_layout"))]
+        layout: Option<String>,
+        #[arg(long, value_name = "CELL", help = tr!("help.cell"))]
+        cell: Option<String>,
+        #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text, help = tr!("help.format_list"))]
+        format: ListFormat,
+        #[arg(long, help = tr!("help.lvs_ci"))]
+        ci: bool,
+    },
     #[command(about = tr!("help.log"), after_help = tr!("help.examples_log"))]
     Log {
         #[arg(help = tr!("help.log_file"))]
@@ -270,6 +288,8 @@ pub fn run() -> ExitCode {
     let ci_codes = match &cmd {
         Commands::Status { .. } => true,
         Commands::Diff { ci, .. } | Commands::Show { ci, .. } => *ci,
+        #[cfg(all(feature = "xschem", feature = "layout"))]
+        Commands::Lvs { ci, .. } => *ci,
         _ => false,
     };
     match cmd.execute() {

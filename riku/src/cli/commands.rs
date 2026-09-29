@@ -461,3 +461,126 @@ mod tests {
         assert!(resolve_targets(&args, &crate::modules::registry(), None, std::path::Path::new(".")).is_err());
     }
 }
+
+/// `riku lvs`: el layout contra el esquemático en una versión (ver
+/// [`crate::lvs`]). Sin `--sch`/`--layout`, los pares de `.riku.toml` o los
+/// de igual nombre.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+pub(super) fn run_lvs(
+    repo: PathBuf,
+    rev: Option<&str>,
+    pair: Option<(String, String)>,
+    cell: Option<String>,
+    json: bool,
+) -> Result<super::dispatch::Outcome, String> {
+    use super::dispatch::Outcome;
+    use crate::lvs::{self, Pair, Tree, Verdict};
+
+    let tools = lvs::tools()?;
+    let root = git2::Repository::discover(&repo).ok().and_then(|r| r.workdir().map(|w| w.to_path_buf())).unwrap_or_else(|| repo.clone());
+    let configured: Vec<Pair> = match pair {
+        Some((s, l)) => vec![Pair { schematic: repo_file(&repo, Some(&root), &s), layout: repo_file(&repo, Some(&root), &l), cell: cell.clone() }],
+        None => config::load(Some(&root))?
+            .lvs
+            .into_iter()
+            .map(|c| Pair { schematic: c.schematic, layout: c.layout, cell: c.cell.or_else(|| cell.clone()) })
+            .collect(),
+    };
+    let tree = match rev {
+        None => Tree::disk(&root),
+        Some(r) => Tree::commit(&repo, r)?,
+    };
+    let pairs: Vec<Pair> =
+        lvs::pairs(&tree.root, &configured).into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect();
+    if pairs.is_empty() {
+        return Err(tr!("lvs.none_found"));
+    }
+    let version = rev.unwrap_or("worktree");
+    let results: Vec<Result<lvs::Report, (Pair, String)>> =
+        pairs.iter().map(|p| lvs::run(&tree, p, &tools).map_err(|e| (p.clone(), e))).collect();
+
+    if json {
+        let items: Vec<serde_json::Value> = results
+            .iter()
+            .map(|r| match r {
+                Ok(rep) => serde_json::to_value(rep).unwrap_or_default(),
+                Err((p, e)) => serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "error": e }),
+            })
+            .collect();
+        super::format::print_enveloped(&serde_json::json!({ "schema": lvs::SCHEMA, "version": version, "results": items }), true)?;
+    } else {
+        for r in &results {
+            match r {
+                Ok(rep) => print_lvs(rep, version),
+                Err((p, e)) => println!("LVS  {} ↔ {}
+  {}
+", p.schematic, p.layout, tr!("lvs.error", error = e)),
+            }
+        }
+    }
+    Ok(if results.iter().any(Result::is_err) {
+        Outcome::Failed
+    } else if results.iter().any(|r| r.as_ref().is_ok_and(|rep| rep.comparison.result != Verdict::Match)) {
+        Outcome::Functional
+    } else {
+        Outcome::Clean
+    })
+}
+
+/// Un resultado de `riku lvs` en texto.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn print_lvs(r: &crate::lvs::Report, version: &str) {
+    use crate::lvs::Verdict;
+    let c = &r.comparison;
+    println!("LVS  {} ↔ {} ({}) · {version} · {}", r.pair.schematic, r.pair.layout, r.layout_cell, r.pdk);
+    let result = match c.result {
+        Verdict::Match => tr!("lvs.result_match"),
+        Verdict::PropertyErrors => tr!("lvs.result_properties"),
+        Verdict::Mismatch => tr!("lvs.result_mismatch"),
+    };
+    println!("  {result}");
+    let count = |m: &std::collections::BTreeMap<String, u64>| m.values().sum::<u64>();
+    println!("  {}", tr!("lvs.counts", dev_l = count(&c.devices.layout), dev_s = count(&c.devices.schematic), net_l = c.nets.layout, net_s = c.nets.schematic));
+    if !c.properties.is_empty() {
+        println!("  {}", tr!("lvs.properties", count = c.properties.len()));
+        for p in &c.properties {
+            let diffs: Vec<String> = p
+                .values
+                .iter()
+                .filter(|v| v.layout != v.schematic)
+                .map(|v| format!("{} {} ≠ {}", v.name, v.schematic, v.layout))
+                .collect();
+            println!("    {} ↔ {} ({}): {}", p.schematic, p.layout, p.model, diffs.join(", "));
+        }
+    }
+    let show = |label: String, groups: &[crate::lvs::Sides<Vec<String>>]| {
+        if groups.is_empty() {
+            return;
+        }
+        println!("  {label}");
+        for g in groups {
+            println!("    {} {} · {} {}", tr!("lvs.side_schematic"), list(&g.schematic), tr!("lvs.side_layout"), list(&g.layout));
+        }
+    };
+    show(tr!("lvs.unmatched_nets"), &c.unmatched_nets);
+    show(tr!("lvs.unmatched_devices"), &c.unmatched_devices);
+    if c.pins.layout.len() != c.pins.schematic.len() {
+        println!("  {}", tr!("lvs.pins", layout = list(&c.pins.layout), schematic = list(&c.pins.schematic)));
+    }
+    for w in &r.warnings {
+        println!("  [!] {w}");
+    }
+    if !c.summary.is_empty() {
+        println!("  Netgen: {}", c.summary.join(" "));
+    }
+    println!();
+}
+
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn list(items: &[String]) -> String {
+    if items.is_empty() {
+        "—".into()
+    } else {
+        items.join(", ")
+    }
+}

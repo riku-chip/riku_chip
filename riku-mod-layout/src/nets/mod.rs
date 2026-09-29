@@ -286,3 +286,42 @@ mod tests {
         assert_eq!(bodies.into_iter().collect::<Vec<_>>(), ["vccd1", "vssd1"]);
     }
 }
+
+/// La netlist SPICE de una celda de un layout, lista para compararla con la
+/// de un esquemático (LVS).
+#[derive(Clone, Debug)]
+pub struct LayoutSpice {
+    /// La celda comparada (la pedida, o la top).
+    pub cell: String,
+    /// `.subckt <celda> <pines>` con un transistor por finger (ver [`spice`]).
+    pub spice: String,
+    /// Avisos de la extracción (redes con dos nombres, etiquetas sueltas…).
+    pub warnings: Vec<String>,
+}
+
+/// [`LayoutSpice`] de `cell` (por defecto, la top) del layout `bytes`. `path`
+/// es su ruta: un `.mag` busca ahí sus sub-celdas, en `files` (la misma
+/// versión) y en el PDK. `unit`: el sufijo de W y L (ver [`spice`]).
+pub fn layout_spice(
+    bytes: &[u8],
+    path: &str,
+    files: Option<&dyn viewer_core::FileSource>,
+    cell: Option<&str>,
+    unit: &str,
+) -> Result<LayoutSpice, String> {
+    use crate::source::ReadError;
+    let message = |e: ReadError| match e {
+        ReadError::NotLayout => format!("{path}: no es un layout GDSII, OASIS ni Magic"),
+        ReadError::Parse(m) => format!("{path}: {m}"),
+    };
+    let side = crate::source::collect(bytes, Some(path), files).map_err(message)?.read(None).map_err(message)?;
+    let lib = &side.lib;
+    let top = match cell {
+        Some(name) => lib.find_cell(name).ok_or_else(|| format!("{path}: no tiene la celda {name}"))?,
+        None => crate::select_top_cell(lib).ok_or_else(|| format!("{path}: no tiene una celda top"))?,
+    };
+    let rules = devices::rules_for_library(lib, Some(path))
+        .ok_or_else(|| format!("{path}: no se reconoce el PDK (sin reglas de transistores)"))?;
+    let nl = cell_nets(lib, &top, rules, side.info.as_ref());
+    Ok(LayoutSpice { cell: top.name().to_string(), spice: spice(top.name(), &nl, rules, unit), warnings: nl.warnings.clone() })
+}
