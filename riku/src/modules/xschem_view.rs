@@ -23,6 +23,7 @@ use xschem_viewer::{DrawElement as X, HAlign as XH, LineDirection, ResolvedScene
 
 use super::xschem::{is_xschem, render_options_for, XschemModule};
 use super::xschem_hier as hier;
+use crate::i18n::tr;
 use super::xschem_pdk::{installed_pdks, pdk_root, PdkSource};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
 use riku_kernel::{DiffFiles, DiffOptions, DiskFiles, FileSource, FormatModule};
@@ -125,7 +126,7 @@ impl ViewerBackend for XschemViewer {
                 // Un sub-esquemático que ya no está: cómo era, con aviso.
                 let (ra, pdk) = resolve_in(&a, &current, files.before.as_ref())?;
                 let mut scene = scene_from(&ra, &pdk);
-                scene.notices.push(format!("{current} no está en la versión nueva: se muestra cómo era."));
+                scene.notices.push(tr!("xschem.not_in_new", path = current));
                 add_hierarchy(&mut scene, Some(&ha), &hb, Some(&changed), &current, &ra);
                 return Ok(scene);
             } else {
@@ -165,7 +166,7 @@ fn pick(entry: Option<String>, h: &hier::Hierarchy, other: Option<&hier::Hierarc
     match entry {
         None => Ok(h.top.clone()),
         Some(e) if h.nodes.contains_key(&e) || other.is_some_and(|o| o.nodes.contains_key(&e)) => Ok(e),
-        Some(e) => Err(ViewerError::Backend(format!("{e} no está en la jerarquía de {}", h.top))),
+        Some(e) => Err(ViewerError::Backend(tr!("xschem.not_in_hierarchy", entry = e, top = h.top))),
     }
 }
 
@@ -196,7 +197,7 @@ fn add_hierarchy(
             .collect();
         entries.sort_by(|x, y| y.is_root.cmp(&x.is_root).then_with(|| x.id.cmp(&y.id)));
         scene.entries = entries;
-        scene.metadata.push(("Jerarquía".into(), format!("{} esquemáticos", scene.entries.len())));
+        scene.metadata.push((tr!("meta.hierarchy"), tr!("meta.schematics", count = scene.entries.len())));
     }
     scene.current_entry = Some(current.to_string());
     let node = b.nodes.get(current).or_else(|| a.and_then(|a| a.nodes.get(current)));
@@ -247,7 +248,7 @@ fn resolve(content: &[u8]) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
 /// esquemático `path`) salen primero de `files`, la misma versión: en el
 /// diff de dos commits, cada lado con sus propios símbolos.
 fn resolve_in(content: &[u8], path: &str, files: Option<&Arc<dyn FileSource>>) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
-    let text = std::str::from_utf8(content).map_err(|e| ViewerError::Parse(format!("no es UTF-8: {e}")))?;
+    let text = std::str::from_utf8(content).map_err(|e| ViewerError::Parse(tr!("err.not_utf8", error = e)))?;
     let parsed = xschem_viewer::parser::parse(text).map_err(|e| ViewerError::Parse(e.to_string()))?;
     let (mut opts, pdk) = render_options_for(text);
     if let Some(files) = files.cloned() {
@@ -275,37 +276,32 @@ fn scene_from(rs: &ResolvedScene, pdk: &PdkSource) -> Scene {
     }
     scene.layers = layers.into_iter().map(|l| (l, layer_paint(l))).collect();
     scene.metadata = vec![
-        ("Elementos".into(), rs.elements.len().to_string()),
-        ("Wires".into(), rs.wires.len().to_string()),
+        (tr!("meta.elements"), rs.elements.len().to_string()),
+        (tr!("meta.wires"), rs.wires.len().to_string()),
     ];
     match pdk {
-        PdkSource::Env { path, extra } if extra.is_empty() => scene.metadata.push(("PDK".into(), pdk_name(path))),
+        PdkSource::Env { path, extra } if extra.is_empty() => scene.metadata.push((tr!("meta.pdk"), pdk_name(path))),
         PdkSource::Env { path, extra } => {
             let active = pdk_name(path);
             let others: Vec<&str> = extra.iter().map(|(n, _)| n.as_str()).collect();
-            scene.metadata.push(("PDK".into(), format!("{active} + {}", others.join(" + "))));
-            scene.notices.push(format!(
-                "El PDK activo es {active}, pero este esquemático usa símbolos de {}: se tomaron de ahí. \
-                 Para trabajar con él: sak-pdk {}",
-                others.join(", "),
-                others[0]
-            ));
+            scene.metadata.push((tr!("meta.pdk"), format!("{active} + {}", others.join(" + "))));
+            scene.notices.push(tr!("xschem.pdk_other", active = active, others = others.join(", "), first = others[0]));
         }
         PdkSource::Detected(found) => {
             let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
             let main = names[0];
-            scene.metadata.push(("PDK".into(), format!("{} (detectado)", names.join(" + "))));
+            scene.metadata.push((tr!("meta.pdk"), tr!("meta.detected", names = names.join(" + "))));
             let which = if names.len() == 1 {
-                format!("se usó {main}, que tiene los símbolos de este esquemático")
+                tr!("xschem.pdk_used_one", main = main)
             } else {
-                format!("el esquemático usa símbolos de varios PDKs: {}", names.join(", "))
+                tr!("xschem.pdk_used_many", names = names.join(", "))
             };
-            scene.notices.push(format!("$PDK no está definida: {which}. Para fijarlo: sak-pdk {main} (o export PDK={main})"));
+            scene.notices.push(tr!("xschem.pdk_unset", which = which, main = main));
         }
         PdkSource::Missing(_) => {}
     }
     if !rs.missing_symbols.is_empty() {
-        scene.metadata.push(("Símbolos sin resolver".into(), rs.missing_symbols.len().to_string()));
+        scene.metadata.push((tr!("meta.unresolved_symbols"), rs.missing_symbols.len().to_string()));
         scene.notices.push(missing_notice(&rs.missing_symbols, pdk));
     }
     scene
@@ -327,36 +323,29 @@ fn missing_notice(missing: &[String], pdk: &PdkSource) -> String {
         PdkSource::Missing(reason) => {
             let installed = pdk_root().map(|r| installed_pdks(&r)).unwrap_or_default();
             let hint = match installed.first() {
-                Some(first) => format!(
-                    "Elige el PDK del diseño, por ejemplo: sak-pdk {first} (instalados: {}).",
-                    installed.join(", ")
-                ),
-                None => "Define $PDK_ROOT y $PDK (p. ej. PDK_ROOT=/foss/pdks PDK=sky130A).".to_string(),
+                Some(first) => tr!("xschem.missing_hint_pdk", first = first, installed = installed.join(", ")),
+                None => tr!("xschem.missing_hint_env"),
             };
             format!("{reason}. {hint}")
         }
-        found => format!(
-            "No están en {} ni en las rutas de .xschemrc.",
-            found.paths().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        found => tr!(
+            "xschem.missing_not_in",
+            paths = found.paths().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
         ),
     };
-    format!(
-        "Faltan {} símbolos ({list}); se dibujan como marcadores rojos. {cause} Diagnóstico: riku doctor.",
-        missing.len()
-    )
+    tr!("xschem.missing", count = missing.len(), list = list, cause = cause)
 }
 
 /// Colores de Xschem (tema oscuro; el visor los adapta al tema claro).
 fn layer_paint(layer: Layer) -> LayerPaint {
     let (name, (r, g, b)) = match layer {
-        1 => ("wires", (100, 180, 255)),
-        2 => ("componentes", (200, 200, 100)),
-        3 => ("texto", (180, 180, 180)),
-        4 => ("pines", (100, 220, 100)),
-        MISSING_LAYER => ("símbolo faltante", (200, 80, 80)),
-        _ => ("", (160, 160, 160)),
+        1 => (tr!("layer.wires"), (100, 180, 255)),
+        2 => (tr!("layer.components"), (200, 200, 100)),
+        3 => (tr!("layer.text"), (180, 180, 180)),
+        4 => (tr!("layer.pins"), (100, 220, 100)),
+        MISSING_LAYER => (tr!("layer.missing_symbol"), (200, 80, 80)),
+        _ => (tr!("layer.n", n = layer), (160, 160, 160)),
     };
-    let name = if name.is_empty() { format!("capa {layer}") } else { name.to_string() };
     LayerPaint { name, fill: Rgba::new(r, g, b, 77), stroke: Rgba::new(r, g, b, 255), hidden: false }
 }
 
@@ -503,11 +492,11 @@ fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, rep
         scene.changes.push(item);
     }
     let summary = if functional + cosmetic == 0 {
-        "sin cambios".to_string()
+        tr!("meta.no_changes")
     } else {
-        format!("{functional} funcionales · {cosmetic} cosméticos")
+        tr!("diff.summary", functional = functional, cosmetic = cosmetic)
     };
-    scene.metadata.insert(0, ("Diff".into(), summary));
+    scene.metadata.insert(0, (tr!("meta.diff"), summary));
     scene
 }
 
@@ -539,8 +528,8 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
                 label: label.clone(),
                 shape: AnnotationShape::Box(bb),
             });
-            let detail = if moved_only { "trasladado".to_string() } else { param_changes(c) };
-            let label = if c.kind == ChangeKind::Renamed { format!("{label} (renombrado)") } else { label };
+            let detail = if moved_only { tr!("change.moved") } else { param_changes(c) };
+            let label = if c.kind == ChangeKind::Renamed { tr!("change.renamed", label = label) } else { label };
             Some((annotation, ChangeItem { kind, label, detail, bbox, cosmetic: c.cosmetic, error: false }))
         }
         Element::Net { name } => {
@@ -575,8 +564,8 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
             None,
             ChangeItem {
                 kind: VcKind::Modified,
-                label: "todo el esquemático (Move All)".into(),
-                detail: "reorganización cosmética".into(),
+                label: tr!("change.move_all"),
+                detail: tr!("change.move_all_detail"),
                 bbox: None,
                 cosmetic: true,
                 error: false,
@@ -588,7 +577,7 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
 
 /// `W: 1u → 2u · L: …` con los parámetros que cambiaron (sin posición).
 fn param_changes(c: &Change) -> String {
-    let inside = c.after(super::xschem::INSIDE_KEY).map(|v| format!("cambió por dentro: {v}"));
+    let inside = c.after(super::xschem::INSIDE_KEY).map(|v| tr!("diff.inside", path = v));
     let changed: BTreeMap<&str, String> = c
         .params()
         .filter(|d| d.changed() && d.key != super::xschem::INSIDE_KEY)
@@ -662,7 +651,7 @@ B 5 -22.5 -2.5 -17.5 2.5 {name=in dir=in}
         let change = |id: &str| top.entries().iter().find(|e| e.id == id).and_then(|e| e.change);
         assert_eq!(change("amp.sch"), Some(VcKind::Modified));
         assert_eq!(change("top.sch"), Some(VcKind::Modified), "por dentro");
-        assert!(top.changes().iter().any(|c| c.label.contains("x1") && c.detail.contains("cambió por dentro: amp.sch")), "{:?}", top.changes());
+        assert!(top.changes().iter().any(|c| c.label.contains("x1") && c.detail.contains(&tr!("diff.inside", path = "amp.sch"))), "{:?}", top.changes());
 
         let amp = block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), Some("amp.sch".into()), files, Default::default())).unwrap();
         assert_eq!(amp.current_entry(), Some("amp.sch"));
@@ -734,7 +723,9 @@ N 3.0004 7 3 90 {{lab=y}}
         // R1 cambió de valor: su detalle lo dice.
         let r1 = s.changes.iter().find(|c| c.label == "R1").unwrap();
         assert!(r1.detail.contains("value: 1k → 2k"), "{}", r1.detail);
-        assert!(s.metadata[0].0 == "Diff" && s.metadata[0].1.contains("funcionales"));
+        let functional = report.changes.iter().filter(|c| !c.cosmetic).count();
+        let cosmetic = report.changes.len() - functional;
+        assert_eq!(s.metadata[0], (tr!("meta.diff"), tr!("diff.summary", functional = functional, cosmetic = cosmetic)));
         // Toda marca de componente tiene su recuadro para poder encuadrarla.
         assert!(s.annotations.iter().any(|a| a.label == "net:nueva".trim_start_matches("net:")));
     }

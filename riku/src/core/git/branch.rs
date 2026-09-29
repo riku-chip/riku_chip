@@ -4,6 +4,7 @@ use git2::{Reference, Repository};
 
 use crate::core::domain::git_types::{BranchInfo, GitError};
 use crate::core::git::helpers::short_oid;
+use crate::i18n::tr;
 
 /// Información de la rama actual y su relación con upstream (si existe).
 pub(super) fn current_branch(repo: &Repository) -> Result<Option<BranchInfo>, GitError> {
@@ -27,7 +28,7 @@ pub(super) fn current_branch(repo: &Repository) -> Result<Option<BranchInfo>, Gi
     let name = if head.is_branch() {
         head.shorthand().unwrap_or("HEAD").to_string()
     } else {
-        "HEAD (detached)".to_string()
+        tr!("git.detached")
     };
 
     let (upstream, ahead, behind) = if head.is_branch() {

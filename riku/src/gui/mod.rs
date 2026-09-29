@@ -43,7 +43,7 @@ pub fn has_display() -> bool {
 /// el subcomando `gui`). Bloquea hasta que se cierra.
 pub fn run(args: Vec<String>) -> Result<(), String> {
     if cfg!(unix) && !has_display() {
-        return Err(tr!("error.no_display"));
+        return Err(tr!("err.no_display"));
     }
     let launch = launch::parse_args(args.into_iter());
     // Tamaño inicial pensado para layouts: el lienzo necesita espacio entre

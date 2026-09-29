@@ -14,13 +14,14 @@ use crate::core::analysis::pipeline;
 use crate::core::domain::git_types::GitError;
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::files;
+use crate::i18n::tr;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
     #[error(transparent)]
     Git(#[from] GitError),
     /// Un hilo no pudo abrir su propia conexión al repo (ver `parallel`).
-    #[error("no se pudo abrir otra conexión al repo: {0}")]
+    #[error("{}", tr!("analysis.connection", error = .0))]
     Connection(String),
 }
 
@@ -154,7 +155,7 @@ pub fn diff_pair<R: GitRepository + ?Sized>(
     // ruta mal escrita) no es "sin cambios".
     if a.is_missing() && b.is_missing() && before.version != Version::Absent && after.version != Version::Absent {
         let path = after.path;
-        report.warnings.push(format!("{path}: no existe en {} ni en {}", before.version.label(), after.version.label()));
+        report.warnings.push(tr!("err.not_in_either", file = path, a = before.version.label(), b = after.version.label()));
     }
     Ok(report)
 }
@@ -178,10 +179,7 @@ fn is_other_format(module: &dyn FormatModule, a: &Blob, b: &Blob) -> bool {
 /// Un archivo de otro formato: como uno sin módulo (`FileFormat::Unknown`).
 fn other_format(module: &dyn FormatModule, path: &str) -> FileChange {
     let mut report = FileChange::new(FileFormat::Unknown);
-    report.warnings.push(format!(
-        "{path}: no es un archivo de {} (otro formato con la misma extensión); no se compara.",
-        module.info().name
-    ));
+    report.warnings.push(tr!("analysis.other_format", file = path, format = module.info().name));
     report
 }
 

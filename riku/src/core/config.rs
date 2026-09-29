@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use riku_kernel::DiffOptions;
 use serde::Deserialize;
+use crate::i18n::tr;
 
 /// Nombre del archivo, en la raíz del repositorio.
 pub const FILE: &str = ".riku.toml";
@@ -74,7 +75,7 @@ pub fn parse_fraction(s: &str) -> Result<f64, String> {
         Some(n) => (n.trim(), true),
         None => (t, false),
     };
-    let v: f64 = num.parse().map_err(|_| format!("«{s}» no es un número (ej.: 0.001 o 0.1%)"))?;
+    let v: f64 = num.parse().map_err(|_| tr!("config.not_number", value = s))?;
     check_fraction(if percent { v / 100.0 } else { v }, s)
 }
 
@@ -82,7 +83,7 @@ fn check_fraction(v: f64, original: &str) -> Result<f64, String> {
     if v > 0.0 && v < 1.0 {
         Ok(v)
     } else {
-        Err(format!("tolerancia «{original}» fuera de rango: va entre 0 y 1 (o entre 0% y 100%)"))
+        Err(tr!("config.tolerance_range", value = original))
     }
 }
 

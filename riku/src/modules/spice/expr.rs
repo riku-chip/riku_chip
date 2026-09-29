@@ -26,6 +26,7 @@
 use std::fmt;
 
 use super::raw::{Plot, Variable};
+use crate::i18n::tr;
 
 // ─── Números complejos ─────────────────────────────────────────────────────
 
@@ -138,8 +139,8 @@ pub enum ExprError {
 impl fmt::Display for ExprError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Syntax(m) => write!(f, "expresión mal escrita: {m}"),
-            Self::Missing(n) => write!(f, "no existe la señal {n}"),
+            Self::Syntax(m) => f.write_str(&tr!("expr.syntax", detail = m)),
+            Self::Missing(n) => f.write_str(&tr!("expr.missing", signal = n)),
             Self::Eval(m) => f.write_str(m),
         }
     }
@@ -227,13 +228,13 @@ pub fn parse(input: &str) -> Result<Expression, ExprError> {
         _ => (None, input),
     };
     if text.is_empty() {
-        return Err(ExprError::Syntax("vacía".into()));
+        return Err(ExprError::Syntax(tr!("expr.empty")));
     }
     let mut p = Parser { s: text.chars().collect(), i: 0 };
     let node = p.expr()?;
     p.ws();
     if p.i < p.s.len() {
-        return Err(ExprError::Syntax(format!("sobra «{}»", p.s[p.i..].iter().collect::<String>())));
+        return Err(ExprError::Syntax(tr!("expr.extra", text = p.s[p.i..].iter().collect::<String>())));
     }
     Ok(Expression { name: name.unwrap_or_else(|| text.to_string()), text: text.to_string(), analysis, node })
 }
@@ -274,7 +275,7 @@ impl Parser {
     }
 
     fn expect(&mut self, c: char) -> Result<(), ExprError> {
-        if self.eat(c) { Ok(()) } else { syntax(format!("falta «{c}»")) }
+        if self.eat(c) { Ok(()) } else { syntax(tr!("expr.expected", token = c)) }
     }
 
     fn expr(&mut self) -> Result<Node, ExprError> {
@@ -331,7 +332,7 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Node, ExprError> {
-        let Some(c) = self.peek() else { return syntax("termina antes de tiempo") };
+        let Some(c) = self.peek() else { return syntax(tr!("expr.ends_early")) };
         if c.is_ascii_digit() || (c == '.' && self.s.get(self.i + 1).is_some_and(char::is_ascii_digit)) {
             return self.number();
         }
@@ -370,7 +371,7 @@ impl Parser {
                 _ => Node::Var(ident),
             });
         }
-        syntax(format!("no se esperaba «{c}»"))
+        syntax(tr!("expr.unexpected", token = c))
     }
 
     fn ident(&mut self) -> String {
@@ -423,7 +424,7 @@ impl Parser {
         match (kind, parts.as_slice()) {
             (_, [n]) if !n.is_empty() => Ok(Node::Var(format!("{kind}({n})"))),
             ("v", [a, b]) if !a.is_empty() && !b.is_empty() => Ok(Node::VDiff(a.to_string(), b.to_string())),
-            _ => syntax(format!("{kind}({inner}) no es una señal")),
+            _ => syntax(tr!("expr.not_signal", expr = format!("{kind}({inner})"))),
         }
     }
 
@@ -447,7 +448,7 @@ impl Parser {
             }
         }
         let text: String = self.s[start..self.i].iter().collect();
-        let mut v: f64 = text.parse().map_err(|_| ExprError::Syntax(format!("número inválido «{text}»")))?;
+        let mut v: f64 = text.parse().map_err(|_| ExprError::Syntax(tr!("expr.bad_number", text = text)))?;
         let letters_start = self.i;
         while self.i < self.s.len() && (self.s[self.i].is_alphabetic()) {
             self.i += 1;
@@ -608,19 +609,19 @@ impl Ctx<'_> {
                 let i = self.index(i)?;
                 match self.eval(v)? {
                     Val::Scalar(c) if i == 0 || i == -1 => Ok(Val::Scalar(c)),
-                    Val::Scalar(_) => eval_err("índice sobre un número"),
+                    Val::Scalar(_) => eval_err(tr!("expr.index_on_number")),
                     Val::Vector(vs) => {
-                        let k = wrap(i, vs.len()).ok_or_else(|| ExprError::Eval(format!("índice {i} fuera de rango (0..{})", vs.len())))?;
+                        let k = wrap(i, vs.len()).ok_or_else(|| ExprError::Eval(tr!("expr.index_out", index = i, len = vs.len())))?;
                         Ok(Val::Scalar(vs[k]))
                     }
                 }
             }
             Node::Slice(v, a, b) => {
                 let (a, b) = (self.index(a)?, self.index(b)?);
-                let Val::Vector(vs) = self.eval(v)? else { return eval_err("tramo sobre un número") };
+                let Val::Vector(vs) = self.eval(v)? else { return eval_err(tr!("expr.slice_on_number")) };
                 let n = vs.len();
                 let (Some(lo), Some(hi)) = (wrap(a, n), wrap(b, n)) else {
-                    return eval_err(format!("tramo [{a}:{b}] fuera de rango (0..{n})"));
+                    return eval_err(tr!("expr.slice_out", from = a, to = b, len = n));
                 };
                 Ok(Val::Vector(vs.iter().enumerate().map(|(k, c)| if k >= lo && k <= hi { *c } else { C::NAN }).collect()))
             }
@@ -631,27 +632,27 @@ impl Ctx<'_> {
     fn index(&self, n: &Node) -> Result<i64, ExprError> {
         match self.eval(n)? {
             Val::Scalar(c) if c.is_real() && c.re.is_finite() => Ok(c.re.round() as i64),
-            _ => eval_err("el índice debe ser un número"),
+            _ => eval_err(tr!("expr.index_not_number")),
         }
     }
 
     fn scalar(&self, n: &Node) -> Result<f64, ExprError> {
         match self.eval(n)? {
             Val::Scalar(c) => Ok(c.re),
-            Val::Vector(_) => eval_err("se esperaba un número, no una señal"),
+            Val::Vector(_) => eval_err(tr!("expr.expected_number")),
         }
     }
 
     fn vector(&self, n: &Node, f: &str) -> Result<Vec<C>, ExprError> {
         match self.eval(n)? {
             Val::Vector(v) => Ok(v),
-            Val::Scalar(_) => eval_err(format!("{f}() necesita una señal")),
+            Val::Scalar(_) => eval_err(tr!("expr.needs_signal", function = f)),
         }
     }
 
     fn call(&self, f: &str, args: &[Node]) -> Result<Val, ExprError> {
         let arity = |n: usize| -> Result<(), ExprError> {
-            if args.len() == n { Ok(()) } else { eval_err(format!("{f}() lleva {n} argumento(s)")) }
+            if args.len() == n { Ok(()) } else { eval_err(tr!("expr.arity", function = f, count = n)) }
         };
         let elementwise = |g: fn(C) -> C| -> Result<Val, ExprError> {
             arity(1)?;
@@ -705,7 +706,7 @@ impl Ctx<'_> {
                 let v = self.vector(&args[0], f)?;
                 let ms: Vec<f64> = v.iter().map(|c| metric(*c)).filter(|m| m.is_finite()).collect();
                 if ms.is_empty() {
-                    return eval_err(format!("{f}() sobre una señal sin valores"));
+                    return eval_err(tr!("expr.empty_signal", function = f));
                 }
                 let hi = ms.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                 let lo = ms.iter().copied().fold(f64::INFINITY, f64::min);
@@ -735,7 +736,7 @@ impl Ctx<'_> {
                 let (lo, hi) = (x0.min(x1), x0.max(x1));
                 Ok(Val::Vector(v.iter().zip(&self.x).map(|(c, &x)| if x >= lo && x <= hi { *c } else { C::NAN }).collect()))
             }
-            _ => Err(ExprError::Syntax(format!("función desconocida {f}()"))),
+            _ => Err(ExprError::Syntax(tr!("expr.unknown_function", function = f))),
         }
     }
 }
@@ -774,7 +775,7 @@ fn binary_with(a: Val, b: Val, g: impl Fn(C, C) -> C) -> Result<Val, ExprError> 
         (Val::Vector(xs), Val::Scalar(y)) => Val::Vector(xs.into_iter().map(|x| g(x, y)).collect()),
         (Val::Vector(xs), Val::Vector(ys)) => {
             if xs.len() != ys.len() {
-                return eval_err(format!("señales de distinto largo ({} y {})", xs.len(), ys.len()));
+                return eval_err(tr!("expr.length_mismatch", a = xs.len(), b = ys.len()));
             }
             Val::Vector(xs.into_iter().zip(ys).map(|(x, y)| g(x, y)).collect())
         }
@@ -833,7 +834,7 @@ fn mean(x: &[f64], y: &[C]) -> C {
 fn at(x: &[f64], y: &[C], x0: f64) -> Result<C, ExprError> {
     let n = x.len().min(y.len());
     if n == 0 || x0 < x[0] || x0 > x[n - 1] {
-        return eval_err(format!("at(): {x0:e} está fuera del eje"));
+        return eval_err(tr!("expr.at_out", x = format!("{x0:e}")));
     }
     let i = x[..n].partition_point(|&v| v < x0);
     if i == 0 {

@@ -18,6 +18,7 @@ use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
 use riku_kernel::Detail;
 use compare::{Status, Tolerance};
+use crate::i18n::tr;
 
 pub struct WaveformModule;
 
@@ -49,7 +50,7 @@ impl FormatModule for WaveformModule {
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "spice".into(),
-            version: "formas de onda (.raw de ngspice)".into(),
+            version: tr!("spice.info_version"),
             format: FileFormat::Waveform,
             extensions: vec![".raw".into()],
             available: true,
@@ -71,9 +72,11 @@ impl FormatModule for WaveformModule {
         for plot in compare::compare(&a, &b, tol) {
             if let (Some((a0, a1)), Some((b0, b1))) = plot.x_range {
                 if a0 != b0 || a1 != b1 {
-                    report.warnings.push(format!(
-                        "{}: el eje cambió de [{a0:e}, {a1:e}] a [{b0:e}, {b1:e}]; se compara el tramo común",
-                        plot.name
+                    report.warnings.push(tr!(
+                        "spice.axis_changed",
+                        plot = plot.name,
+                        before = format!("[{a0:e}, {a1:e}]"),
+                        after = format!("[{b0:e}, {b1:e}]")
                     ));
                 }
             }
@@ -131,7 +134,7 @@ fn signal_change(s: &compare::SignalDiff) -> Change {
         put("rel_diff", Value::Float(s.rel()));
     }
     if s.status == Status::Incomparable {
-        put("note", Value::Text("sin eje común para comparar".into()));
+        put("note", Value::Text(tr!("spice.no_common_axis")));
     }
     c
 }

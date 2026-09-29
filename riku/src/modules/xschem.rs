@@ -6,8 +6,7 @@ use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
 use super::xschem_hier as hier;
 use super::xschem_pdk as pdk;
-
-const MOVE_ALL_NOTE: &str = "reorganizacion cosmetica (Move All)";
+use crate::i18n::tr;
 
 /// Opciones de render canónicas para un esquemático: tema dark + símbolos de
 /// `.xschemrc` + símbolos del PDK (`$PDK_ROOT/$PDK`, o el PDK instalado que
@@ -32,14 +31,12 @@ fn parse_text(text: &str) -> Schematic {
 /// `FileChange`.
 fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result<&'a str, String> {
     let text = std::str::from_utf8(content).map_err(|_| {
-        format!("{path_hint} ({side}): contenido no es UTF-8 valido, se omite el diff semantico.")
+        tr!("xschem.side_not_utf8", file = path_hint, side = side)
     })?;
     // Vacío = el archivo no existía en ese commit (nuevo o eliminado): un
     // esquemático sin nada, así todo aparece añadido o eliminado.
     if !content.is_empty() && !is_xschem(content) {
-        return Err(format!(
-            "{path_hint} ({side}): no es formato Xschem, se omite el diff semantico."
-        ));
+        return Err(tr!("xschem.side_not_xschem", file = path_hint, side = side));
     }
     Ok(text)
 }
@@ -87,21 +84,21 @@ impl FormatModule for XschemModule {
         let pdk_status = match pdk::pdk_status() {
             pdk::PdkStatus::Found(_) => {
                 let name = std::env::var("PDK").unwrap_or_default();
-                format!("PDK: {} [ok]", name)
+                tr!("xschem.info_pdk_ok", name = name)
             }
             pdk::PdkStatus::Misconfigured(_) => {
                 let name = std::env::var("PDK").unwrap_or_default();
-                format!("PDK: {} [error: ruta no encontrada]", name)
+                tr!("xschem.info_pdk_missing", name = name)
             }
             pdk::PdkStatus::NotConfigured => match pdk::pdk_root() {
-                Some(_) => "PDK: se detecta por los símbolos de cada esquemático".to_string(),
-                None => "PDK: [no detectado, usa PDK_ROOT/PDK o .xschemrc]".to_string(),
+                Some(_) => tr!("xschem.info_pdk_detect"),
+                None => tr!("xschem.info_pdk_none"),
             },
         };
 
         let info = ModuleInfo {
             name: "xschem".into(),
-            version: format!("Native Renderer | {}", pdk_status),
+            version: tr!("xschem.info_version", pdk = pdk_status),
             format: FileFormat::Xschem,
             extensions: vec![".sch".to_string()],
             available: true,
@@ -137,7 +134,7 @@ impl FormatModule for XschemModule {
             report.changes.push(
                 Change::new(ChangeKind::Modified, Element::Whole)
                     .cosmetic(true)
-                    .with_detail("note", None, Some(MOVE_ALL_NOTE.into())),
+                    .with_detail("note", None, Some(tr!("change.move_all_detail").into())),
             );
         }
         report

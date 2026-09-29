@@ -9,6 +9,8 @@ use riku_mod_layout::{
     DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
 use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
+
+use crate::i18n::tr;
 use viewer_core::ViewerBackend;
 
 use crate::core::domain::models::{Bounds, Change, ChangeKind, Element, FileChange, FileFormat, Via};
@@ -138,12 +140,8 @@ fn net_change(n: &riku_mod_layout::nets::NetChange) -> Change {
 
 fn translate_error(e: GdsError, path_hint: &str) -> String {
     match e {
-        GdsError::NotGdsii { side } => format!(
-            "{path_hint} ({side}): no es un layout GDSII, OASIS ni Magic, se omite el diff."
-        ),
-        GdsError::Parse { side, msg } => format!(
-            "{path_hint} ({side}): no se pudo leer el layout: {msg}"
-        ),
+        GdsError::NotGdsii { side } => tr!("layout.side_not_layout", file = path_hint, side = side),
+        GdsError::Parse { side, msg } => tr!("layout.side_unreadable", file = path_hint, side = side, error = msg),
     }
 }
 
@@ -174,7 +172,7 @@ impl FormatModule for LayoutModule {
     fn info(&self) -> ModuleInfo {
         ModuleInfo {
             name: "layout".into(),
-            version: "riku-mod-layout (gdstk cxx; Magic en Rust)".into(),
+            version: tr!("layout.info_version"),
             format: FileFormat::Gds,
             extensions: vec![".gds".to_string(), ".oas".to_string(), ".mag".to_string()],
             available: true,

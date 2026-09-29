@@ -11,6 +11,7 @@ use crate::modules::spice::compare::{compare_plot, interp, pair_plots, SignalDif
 use crate::modules::spice::derived;
 use crate::modules::spice::expr::{self, Evaluated};
 use crate::modules::spice::raw::{Plot, RawFile, Variable};
+use crate::i18n::tr;
 
 const MAX_SIGNALS: usize = 3;
 const PALETTE: [&str; 6] = ["#4e9cf5", "#f58f3b", "#3cc47c", "#e04f6a", "#a77bf0", "#d4b83a"];
@@ -41,7 +42,7 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     // Primer análisis con curvas (el punto de operación tiene un solo punto).
     let Some((pair, (ia, ib))) = pairs.iter().copied().enumerate().find(|(_, (_, b))| b.is_some_and(|i| after.plots[i].points() > 1))
     else {
-        return empty_svg(style, "sin análisis con curvas");
+        return empty_svg(style, &tr!("image.no_curves"));
     };
     let (pa, pb) = (ia.map(|i| &a_file.plots[i]), ib.map(|i| &after.plots[i]).expect("par con B"));
     let complex = pb.complex;
@@ -91,7 +92,7 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     };
     chosen.truncate(MAX_SIGNALS);
     if chosen.is_empty() {
-        return empty_svg(style, "sin señales para mostrar");
+        return empty_svg(style, &tr!("image.no_signals"));
     }
 
     // Un grupo por unidad; en diff, cada grupo con su panel de error.
@@ -113,7 +114,8 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     let mut out = String::new();
     let _ = write!(out, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="DejaVu Sans, sans-serif">"#);
     let _ = write!(out, r#"<rect width="{w}" height="{h}" fill="{bg}"/>"#);
-    let caption = format!("{}  ·  {}{}", style.caption, pb.name, if is_diff { "  ·  B solid, A dashed" } else { "" });
+    let legend = if is_diff { format!("  ·  {}", tr!("image.b_solid_a_dashed")) } else { String::new() };
+    let caption = format!("{}  ·  {}{legend}", style.caption, pb.name);
     let _ = write!(out, r#"<text x="16" y="20" font-size="14" fill="{fg}">{}</text>"#, esc(&caption));
 
     let rows = groups.len() * if is_diff { 2 } else { 1 };

@@ -11,6 +11,7 @@ use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileF
 
 use super::labels;
 use super::types::{DetailEntry, DetailKind, DetailLevel, FileSummary, SummaryCategory};
+use crate::i18n::tr;
 
 impl FileSummary {
     /// Construye un summary desde un `FileChange` en nivel resumen.
@@ -153,8 +154,8 @@ fn param_changes(change: &Change) -> BTreeMap<String, String> {
         .filter_map(|d| {
             let text = match (&d.before, &d.after) {
                 (Some(b), Some(a)) if b != a => format!("{b} → {a}"),
-                (None, Some(a)) => format!("(nuevo) → {a}"),
-                (Some(b), None) => format!("{b} → (eliminado)"),
+                (None, Some(a)) => format!("{} → {a}", tr!("diff.new")),
+                (Some(b), None) => format!("{b} → {}", tr!("diff.deleted")),
                 _ => return None,
             };
             Some((d.key.clone(), text))

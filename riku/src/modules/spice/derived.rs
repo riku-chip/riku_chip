@@ -5,6 +5,7 @@
 use super::compare::{compare_scalar, compare_series, pair_plots, SignalDiff, Status, Tolerance};
 use super::expr::{Evaluated, ExprError, Expression};
 use super::raw::{Plot, RawFile};
+use crate::i18n::tr;
 
 /// Una expresión evaluada en un análisis emparejado.
 #[derive(Clone, Debug)]
@@ -60,7 +61,7 @@ pub fn evaluate(exprs: &[Expression], a: &RawFile, b: &RawFile, tol: Tolerance) 
         .filter(|(_, (used, _))| !**used)
         .map(|(e, (_, p))| match p {
             Some(err) => format!("{}: {err}", e.name),
-            None => format!("{}: no da valores en ningún análisis", e.name),
+            None => tr!("spice.expr_no_values", name = e.name),
         })
         .collect();
     (out, warnings)
@@ -138,7 +139,7 @@ mod tests {
         let exprs = vec![parse("gain = v(out)/v(in)").unwrap(), parse("peak = max(v(out))").unwrap(), parse("v(nada)*2").unwrap()];
         let (d, warnings) = evaluate(&exprs, &a, &b, Tolerance::default());
         assert_eq!(d.len(), 2, "la de v(nada) no aplica a este análisis");
-        assert_eq!(warnings, vec!["v(nada)*2: no existe la señal v(nada)".to_string()]);
+        assert_eq!(warnings, vec![format!("v(nada)*2: {}", tr!("expr.missing", signal = "v(nada)"))]);
         let gain = &d[0].diff;
         assert_eq!((gain.name.as_str(), gain.status), ("gain", Status::Compared));
         assert!((gain.max_abs - 0.1).abs() < 1e-12 && gain.at_x == 1.0 && !gain.within_tolerance);

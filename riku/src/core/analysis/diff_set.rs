@@ -25,6 +25,7 @@ use crate::core::analysis::show::ShowFile;
 use crate::core::domain::git_types::ChangeStatus;
 use crate::core::domain::models::{FileChange, FileFormat};
 use crate::core::domain::ports::{GitRepository, RepoRoot};
+use crate::i18n::tr;
 
 pub use crate::core::analysis::diff_pair::WORKTREE;
 
@@ -109,7 +110,7 @@ pub fn analyze_file<R: GitRepository + ?Sized>(
 ) -> Result<FileChange, AnalyzeError> {
     let Some(module) = modules.for_path(path) else {
         let mut report = FileChange::new(FileFormat::Unknown);
-        report.warnings.push(format!("{path}: no hay módulo de Riku para este formato."));
+        report.warnings.push(tr!("err.no_module", file = path));
         return Ok(report);
     };
     let (before, after) = (End::new(from.version(), path), End::new(to.version(), path));

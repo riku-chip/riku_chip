@@ -10,6 +10,7 @@
 //! que es lo que se mira y compara; la frecuencia queda como su parte real.
 
 use std::fmt;
+use crate::i18n::tr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RawFile {
@@ -131,7 +132,7 @@ pub fn parse(content: &[u8]) -> Result<RawFile, RawError> {
         pos = next;
     }
     if plots.is_empty() {
-        return err("archivo .raw sin análisis");
+        return err(tr!("raw.no_plots"));
     }
     Ok(RawFile { plots })
 }
@@ -158,7 +159,7 @@ fn parse_plot(content: &[u8], mut pos: usize) -> Result<(Plot, usize), RawError>
 
     loop {
         let Some((l, next)) = line(content, pos) else {
-            return err("cabecera .raw incompleta (falta Binary: o Values:)");
+            return err(tr!("raw.header_incomplete"));
         };
         pos = next;
         let (key, value) = match l.split_once(':') {
@@ -173,21 +174,21 @@ fn parse_plot(content: &[u8], mut pos: usize) -> Result<(Plot, usize), RawError>
             "No. Variables" => n_vars = value.parse().ok(),
             "No. Points" => n_points = value.parse().ok(),
             "Variables" => {
-                let n = n_vars.ok_or_else(|| RawError("Variables: antes de No. Variables:".into()))?;
+                let n = n_vars.ok_or_else(|| RawError(tr!("raw.variables_early")))?;
                 // Puede venir la primera variable en la misma línea.
                 let mut pending: Vec<String> = if value.is_empty() { vec![] } else { vec![value.to_string()] };
                 while vars.len() < n {
                     let text = match pending.pop() {
                         Some(t) => t,
                         None => {
-                            let (l, next) = line(content, pos).ok_or_else(|| RawError("lista de variables cortada".into()))?;
+                            let (l, next) = line(content, pos).ok_or_else(|| RawError(tr!("raw.variables_cut")))?;
                             pos = next;
                             l.to_string()
                         }
                     };
                     let mut parts = text.split_whitespace();
                     let (Some(_idx), Some(vname), Some(vkind)) = (parts.next(), parts.next(), parts.next()) else {
-                        return err(format!("variable mal formada: {text:?}"));
+                        return err(tr!("raw.bad_variable", text = format!("{text:?}")));
                     };
                     vars.push((vname.to_string(), vkind.to_string()));
                 }
@@ -195,7 +196,7 @@ fn parse_plot(content: &[u8], mut pos: usize) -> Result<(Plot, usize), RawError>
             "Binary" | "Values" => {
                 let n = vars.len();
                 if n == 0 {
-                    return err("plot sin variables");
+                    return err(tr!("raw.plot_no_variables"));
                 }
                 let expected = n_points.unwrap_or(usize::MAX);
                 let (columns, next) = if key == "Binary" {
@@ -254,7 +255,7 @@ fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: b
 fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex: bool) -> Result<(Vec<Vec<(f64, f64)>>, usize), RawError> {
     let mut columns: Vec<Vec<(f64, f64)>> = vec![Vec::new(); n];
     let parse_val = |_c: usize, tok: &str| -> Result<(f64, f64), RawError> {
-        let bad = || RawError(format!("valor no numérico: {tok:?}"));
+        let bad = || RawError(tr!("raw.not_number", value = format!("{tok:?}")));
         if complex {
             let (re, im) = tok.split_once(',').ok_or_else(bad)?;
             Ok((re.trim().parse().map_err(|_| bad())?, im.trim().parse().map_err(|_| bad())?))
@@ -289,7 +290,7 @@ fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex
                 // Más valores que variables: el archivo no es lo que dice
                 // la cabecera (antes, un índice fuera de rango y pánico).
                 if row.len() == n {
-                    return err(format!("punto {points}: más de {n} valores (No. Variables: {n})"));
+                    return err(tr!("raw.too_many_values", point = points, count = n));
                 }
                 row.push(parse_val(row.len(), tok)?);
             }
@@ -382,7 +383,7 @@ Values:
  1	1.0	2.0
 ";
         let e = parse(text.as_bytes()).unwrap_err();
-        assert!(e.to_string().contains("más de 2 valores"), "{e}");
+        assert!(e.to_string().contains(&tr!("raw.too_many_values", point = 0, count = 2)), "{e}");
         // Igual si el valor de más viene en la línea siguiente.
         let text = text.replace("	1.0	9.9
 ", "	1.0

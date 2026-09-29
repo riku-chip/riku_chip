@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::core::domain::git_types::{GitError, LARGE_BLOB_THRESHOLD};
 use crate::core::domain::ports::GitRepository;
+use crate::i18n::tr;
 
 /// Una versión de un archivo.
 #[derive(Debug, PartialEq, Eq)]
@@ -43,11 +44,7 @@ impl Blob {
 }
 
 fn too_large(path: &str, size: u64) -> String {
-    format!(
-        "{path}: {} MB, más que el límite de {} MB; no se compara",
-        size / (1024 * 1024),
-        LARGE_BLOB_THRESHOLD / (1024 * 1024)
-    )
+    tr!("blob.too_large", path = path, size = size / (1024 * 1024), limit = LARGE_BLOB_THRESHOLD / (1024 * 1024))
 }
 
 /// `path` en `commit`. Un error de Git que no es del archivo (commit
@@ -73,14 +70,14 @@ pub fn read_disk(workdir: Option<&Path>, path: &str) -> Blob {
     let full = root.join(path);
     match std::fs::metadata(&full) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Blob::Missing,
-        Err(e) => return Blob::Skipped(format!("{path}: no se pudo leer: {e}")),
+        Err(e) => return Blob::Skipped(tr!("blob.unreadable", path = path, error = e)),
         Ok(m) if m.len() > LARGE_BLOB_THRESHOLD as u64 => return Blob::Skipped(too_large(path, m.len())),
         Ok(_) => {}
     }
     match std::fs::read(&full) {
         Ok(bytes) => Blob::Bytes(bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Blob::Missing,
-        Err(e) => Blob::Skipped(format!("{path}: no se pudo leer: {e}")),
+        Err(e) => Blob::Skipped(tr!("blob.unreadable", path = path, error = e)),
     }
 }
 

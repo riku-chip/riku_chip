@@ -12,6 +12,7 @@
 //! Consumido por `cli::doctor`, el shell y `modules::xschem` (diff y visor).
 //! Solo usa std.
 
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,17 +97,14 @@ pub fn symbol_source_for(content: &str) -> PdkSource {
             PdkSource::Env { path, extra }
         }
         PdkStatus::Misconfigured(p) => {
-            PdkSource::Missing(format!("$PDK_ROOT/$PDK apunta a {}, que no existe", p.display()))
+            PdkSource::Missing(tr!("pdk.points_to_missing", path = p.display()))
         }
         PdkStatus::NotConfigured => match pdk_root() {
             Some(root) => match detect_pdks(&root, content) {
                 found if !found.is_empty() => PdkSource::Detected(found),
-                _ => PdkSource::Missing(format!(
-                    "$PDK no está definida y ningún PDK de {} tiene los símbolos de este esquemático",
-                    root.display()
-                )),
+                _ => PdkSource::Missing(tr!("pdk.none_has_symbols", root = root.display())),
             },
-            None => PdkSource::Missing("$PDK_ROOT y $PDK no están definidas".into()),
+            None => PdkSource::Missing(tr!("pdk.unset")),
         },
     }
 }

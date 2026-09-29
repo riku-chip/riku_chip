@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use crate::i18n::tr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitInfo {
@@ -101,15 +102,15 @@ pub struct BranchInfo {
 
 #[derive(Debug, Error)]
 pub enum GitError {
-    #[error("no se encontro un repo Git desde {0}")]
+    #[error("{}", tr!("git.repo_not_found", path = .0.display()))]
     RepositoryNotFound(PathBuf),
-    #[error("git error: {0}")]
+    #[error("{}", tr!("git.error", error = .0))]
     Git(#[from] git2::Error),
-    #[error("commit no encontrado: {0}")]
+    #[error("{}", tr!("git.commit_not_found", commit = .0))]
     CommitNotFound(String),
-    #[error("archivo no encontrado en commit {commit}: {path}")]
+    #[error("{}", tr!("git.blob_not_found", commit = .commit, path = .path))]
     BlobNotFound { commit: String, path: String },
-    #[error("blob demasiado grande ({size} bytes) en {path}")]
+    #[error("{}", tr!("git.large_blob", size = .size, path = .path))]
     LargeBlob { path: String, size: usize },
 }
 

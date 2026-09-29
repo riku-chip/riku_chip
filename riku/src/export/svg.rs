@@ -11,6 +11,7 @@ use viewer_core::{
     Annotation, AnnotationShape, BoundingBox, ChangeKind, DrawElement, HAlign, Layer, RenderableScene, TextStyle, VAlign,
     YAxis,
 };
+use crate::i18n::tr;
 
 /// Tamaño y tema de la imagen.
 #[derive(Clone, Debug)]
@@ -351,7 +352,7 @@ pub fn to_png(svg: &str) -> Result<Vec<u8>, String> {
     opt.fontdb_mut().load_system_fonts();
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| e.to_string())?;
     let size = tree.size().to_int_size();
-    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height()).ok_or("imagen de tamaño 0")?;
+    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height()).ok_or_else(|| tr!("image.zero_size"))?;
     resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
     pixmap.encode_png().map_err(|e| e.to_string())
 }
