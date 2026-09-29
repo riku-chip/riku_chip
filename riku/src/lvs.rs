@@ -353,6 +353,7 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
             .filter_map(|x| x.get(0)?.as_str())
             .filter(|n| !n.starts_with('('))
             .map(instance)
+            .filter(|n| !n.is_empty())
             .collect()
     };
     let groups = |key: &str| -> Vec<Sides<Vec<String>>> {
