@@ -288,7 +288,7 @@ riku lvs -f json --ci                      # 0 coincide, 1 no coincide o paráme
 riku lvs --log [-n 20] [REV]               # en cada commit desde REV (HEAD), y dónde dejó de coincidir
 ```
 
-Compara la netlist del esquemático (`xschem --netlist`, con el PDK de sus símbolos) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Necesita `xschem` y `netgen` (vienen con iic-osic-tools; `riku doctor` dice si están).
+Compara la netlist del esquemático (la escribe Riku, como Xschem en modo LVS, con los símbolos del PDK y del proyecto de esa versión) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Solo necesita `netgen` (viene con iic-osic-tools; `riku doctor` dice si está).
 
 Qué esquemático va con qué layout: `--sch` y `--layout`; si no, `[[lvs]]` en `.riku.toml`; si no, los de igual nombre (`amp.sch` ↔ `amp.gds`, `.oas` o `.mag`).
 

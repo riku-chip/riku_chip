@@ -12,7 +12,7 @@ use crate::i18n::tr;
 /// `.xschemrc` + símbolos del PDK (`$PDK_ROOT/$PDK`, o el PDK instalado que
 /// tiene los símbolos del archivo si `$PDK` no está definida). Fuente única
 /// para el diff y el visor: los dos encuentran los mismos símbolos.
-pub(super) fn render_options_for(text: &str) -> (xschem_viewer::RenderOptions, pdk::PdkSource) {
+pub(crate) fn render_options_for(text: &str) -> (xschem_viewer::RenderOptions, pdk::PdkSource) {
     let mut opts = xschem_viewer::RenderOptions::dark().with_sym_paths_from_xschemrc();
     let source = pdk::symbol_source_for(text);
     for path in source.paths() {

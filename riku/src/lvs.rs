@@ -2,8 +2,9 @@
 //!
 //! 1. La versión en el disco: el working tree, o los archivos de un commit en
 //!    una carpeta temporal (Xschem y Netgen leen del disco).
-//! 2. La netlist del esquemático con `xschem --netlist`, con el `xschemrc`
-//!    del PDK de sus símbolos (el mismo que elige el visor).
+//! 2. La netlist del esquemático con el netlister de `xschem-viewer-rust`
+//!    (`spice::netlist`, modo LVS), con los símbolos del PDK y del proyecto
+//!    de esa misma versión: no hace falta Xschem.
 //! 3. La del layout con `riku_mod_layout::nets::layout_spice`, sin
 //!    herramientas externas.
 //! 4. Netgen con el `setup.tcl` de ese PDK; su `comp.json` se lee en un
@@ -100,15 +101,14 @@ pub struct Report {
 
 // ─── Herramientas ────────────────────────────────────────────────────────────
 
-/// `xschem` y `netgen`: en el `PATH` o en `/foss/tools/bin` (iic-osic-tools).
+/// `netgen`: en el `PATH` o en `/foss/tools/bin` (iic-osic-tools). Es la
+/// única herramienta externa del LVS.
 pub struct Tools {
-    pub xschem: PathBuf,
     pub netgen: PathBuf,
 }
 
 pub fn tools() -> Result<Tools, String> {
-    let find = |name: &str| find_tool(name).ok_or_else(|| tr!("lvs.no_tool", tool = name));
-    Ok(Tools { xschem: find("xschem")?, netgen: find("netgen")? })
+    Ok(Tools { netgen: find_tool("netgen").ok_or_else(|| tr!("lvs.no_tool", tool = "netgen"))? })
 }
 
 /// Dónde está una herramienta: en el `PATH` o en `/foss/tools/bin`.
@@ -268,25 +268,25 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
     let work = TempDir::new("lvs")?;
     let mut warnings = Vec::new();
 
-    // Esquemático: `xschem --netlist` en su carpeta, con el PDK de sus símbolos.
+    // Esquemático: el netlister propio (modo LVS, con su `.subckt`). Los
+    // símbolos y sub-esquemáticos del proyecto salen de esta misma versión;
+    // los del PDK, de donde los busca el visor.
     let stem = sch_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let rc = pdk_dir.join("libs.tech/xschem/xschemrc");
-    let sch_dir = sch_path.parent().unwrap_or(&tree.root);
-    let out = Command::new(&tools.xschem)
-        .arg("--rcfile")
-        .arg(&rc)
-        .args(["--tcl", "set lvs_netlist 1; set top_subckt 1", "-n", "-s", "-q", "-x", "--no_x", "-o"])
-        .arg(&work.0)
-        .args(["-N", "schematic.spice"])
-        .arg(sch_path.file_name().unwrap_or_default())
-        .current_dir(sch_dir)
-        .env("PDK_ROOT", pdk_dir.parent().unwrap_or(&pdk_dir))
-        .env("PDK", &pdk)
-        .output()
-        .map_err(|e| tr!("lvs.tool_failed", tool = "xschem", error = e))?;
-    let sch_spice = std::fs::read_to_string(work.0.join("schematic.spice"))
-        .map_err(|_| tr!("lvs.tool_failed", tool = "xschem", error = tail(&out.stderr)))?;
-    warnings.extend(sch_spice.lines().filter(|l| l.contains("IS MISSING")).map(|l| tr!("lvs.missing_symbol", line = l.trim_start_matches('*').trim())));
+    let files: std::sync::Arc<dyn viewer_core::FileSource> = std::sync::Arc::new(viewer_core::DiskFiles::new(tree.root.clone()));
+    let (mut opts, _) = crate::modules::xschem::render_options_for(&text);
+    let (from, symbols) = (pair.schematic.clone(), files.clone());
+    opts = opts.with_symbol_lookup(std::sync::Arc::new(move |sym: &str| {
+        let found = crate::modules::xschem_hier::find(sym, &from, symbols.as_ref(), false)?;
+        symbols.read(&found).and_then(|b| String::from_utf8(b).ok())
+    }));
+    let lookup = |reference: &str, parent: &str| {
+        let found = crate::modules::xschem_hier::find(reference, parent, files.as_ref(), true)?;
+        Some((found.clone(), String::from_utf8(files.read(&found)?).ok()?))
+    };
+    let lvs_mode = xschem_viewer::spice::SpiceOptions { lvs: true, top_subckt: true };
+    let netlist = xschem_viewer::spice::netlist(&text, &pair.schematic, &stem, &opts, lvs_mode, &lookup)?;
+    warnings.extend(netlist.warnings.iter().map(|w| tr!("lvs.missing_symbol", line = w)));
+    std::fs::write(work.0.join("schematic.spice"), &netlist.text).map_err(|e| e.to_string())?;
 
     // Layout: la netlist que extrae riku. SKY130 usa `.option scale=1e-6`:
     // W y L sin sufijo, como su netlist de Xschem.

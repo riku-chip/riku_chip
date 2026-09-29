@@ -147,10 +147,10 @@ pub(crate) fn sections(repo: &Path) -> Vec<Section> {
         .collect();
     out.push(Section { title: tr!("doctor.modules"), items });
 
-    // `riku lvs` usa Xschem y Netgen; el resto de Riku no.
+    // `riku lvs` usa Netgen; el resto de Riku no.
     #[cfg(all(feature = "xschem", feature = "layout"))]
     {
-        let items = ["xschem", "netgen"]
+        let items = ["netgen"]
             .into_iter()
             .map(|t| match crate::lvs::find_tool(t) {
                 Some(p) => (Mark::Ok, format!("{t:10} {}", p.display())),
@@ -295,7 +295,7 @@ fn lvs_tools() -> serde_json::Value {
     #[cfg(all(feature = "xschem", feature = "layout"))]
     {
         let at = |t: &str| crate::lvs::find_tool(t).map(|p| p.display().to_string());
-        serde_json::json!({ "xschem": at("xschem"), "netgen": at("netgen") })
+        serde_json::json!({ "netgen": at("netgen") })
     }
     #[cfg(not(all(feature = "xschem", feature = "layout")))]
     serde_json::Value::Null
