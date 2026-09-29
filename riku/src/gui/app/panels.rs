@@ -250,9 +250,9 @@ impl RikuGuiApp {
                         .small().color(egui::Color32::from_gray(140)));
                     ui.separator();
                     let mut tab = current;
-                    view_selector(ui, &mut tab, DiffTab::Diff, "Diff");
-                    view_selector(ui, &mut tab, DiffTab::Before, "Before");
-                    view_selector(ui, &mut tab, DiffTab::After, "After");
+                    for t in [DiffTab::Diff, DiffTab::Before, DiffTab::After] {
+                        view_selector(ui, &mut tab, t, &t.label());
+                    }
                     if tab != current {
                         self.select_diff_tab(tab);
                     }
@@ -435,9 +435,9 @@ impl RikuGuiApp {
         ui.label(RichText::new(format!("{} → {}", w.label_a, w.label_b)).small().color(egui::Color32::from_gray(140)));
         ui.separator();
         for (tab, label, hint) in [
-            (DiffTab::Diff, "Diff", tr!("wave.tab_diff_hint")),
-            (DiffTab::Before, "Before", tr!("wave.tab_before_hint")),
-            (DiffTab::After, "After", tr!("wave.tab_after_hint")),
+            (DiffTab::Diff, DiffTab::Diff.label(), tr!("wave.tab_diff_hint")),
+            (DiffTab::Before, DiffTab::Before.label(), tr!("wave.tab_before_hint")),
+            (DiffTab::After, DiffTab::After.label(), tr!("wave.tab_after_hint")),
         ] {
             ui.radio_value(&mut w.tab, tab, label).on_hover_text(hint);
         }
@@ -461,12 +461,12 @@ impl RikuGuiApp {
                 parts.push(cell.to_string());
             }
             if let Some(tab) = bs.diff_tab() {
-                parts.push(tab.label().to_string());
+                parts.push(tab.label());
             }
         }
         #[cfg(feature = "spice")]
         if let Some(w) = self.content.wave().filter(|w| w.is_diff()) {
-            parts.push(w.tab.label().to_string());
+            parts.push(w.tab.label());
         }
         parts
     }

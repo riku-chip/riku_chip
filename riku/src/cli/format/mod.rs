@@ -26,7 +26,7 @@ pub(super) fn print_enveloped<T: serde::Serialize>(
     } else {
         serde_json::to_string(value)
     }
-    .map_err(|e| format!("error serializando JSON: {e}"))?;
+    .map_err(|e| crate::i18n::tr!("err.json", error = e))?;
     println!("{s}");
     Ok(())
 }

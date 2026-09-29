@@ -247,7 +247,7 @@ impl RikuGuiApp {
         } else if let (Some(file), Some(ca), Some(cb)) = (&launch.file, &launch.commit_a, &launch.commit_b) {
             let repo = launch.repo.as_deref().unwrap_or(Path::new("."));
             match app.load_backend_diff(repo, ca, cb, file, launch.cell.clone(), false) {
-                Ok(()) => app.status = format!("Diff {} → {}", ca, cb),
+                Ok(()) => app.status = tr!("status.diff_short", from = ca, to = cb),
                 Err(e) => app.fail(&tr!("error.diff"), e),
             }
         } else if let Some(path) = app.selected_path.clone() {

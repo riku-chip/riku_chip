@@ -96,8 +96,8 @@ fn print_geometry(c: &Change) {
     }
     let count = |k: &str| c.after(k).map_or_else(|| "0".to_string(), Value::to_string);
     let area = |k: &str| format!("{:.3}", c.after(k).and_then(Value::as_f64).unwrap_or(0.0));
-    println!("      +{} polys / +{} µm²", count("added_polygons"), area("added_area_um2"));
-    println!("      -{} polys / -{} µm²", count("removed_polygons"), area("removed_area_um2"));
+    println!("      {}", tr!("diff.polys_added", count = count("added_polygons"), area = area("added_area_um2")));
+    println!("      {}", tr!("diff.polys_removed", count = count("removed_polygons"), area = area("removed_area_um2")));
     if let Some(b) = c.location {
         println!("      bbox: ({:.3}, {:.3}) → ({:.3}, {:.3}) µm", b.min_x, b.min_y, b.max_x, b.max_y);
     }

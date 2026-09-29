@@ -39,7 +39,7 @@ fn print_commit(c: &LogCommit, level: DetailLevel) {
     } else {
         format!(" {}", format_refs(&c.refs))
     };
-    let merge_tag = if c.is_merge { " [merge]" } else { "" };
+    let merge_tag = if c.is_merge { crate::i18n::tr!("log.merge_tag") } else { String::new() };
 
     println!(
         "* {}{}{}  {}",

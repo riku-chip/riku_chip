@@ -242,7 +242,7 @@ impl RikuGuiApp {
         let file = PathBuf::from(&path);
         self.selected_path = Some(repo.join(&path));
         match self.load_backend_diff(&repo, &parent, &commit, &file, None, true) {
-            Ok(()) => self.status = format!("Diff {} → {} · {path}", short_hash(&parent), short_hash(&commit)),
+            Ok(()) => self.status = tr!("status.diff", from = short_hash(&parent), to = short_hash(&commit), path = path),
             Err(e) => self.fail(&tr!("error.diff"), e),
         }
     }
@@ -316,7 +316,7 @@ impl RikuGuiApp {
                 let name = loaded.backend.info().name;
                 let what = match &loaded.kind {
                     LoadKind::Single => tr!("status.opened", name = name),
-                    LoadKind::Diff { tab, .. } => tab.label().to_string(),
+                    LoadKind::Diff { tab, .. } => tab.label(),
                 };
                 self.status = match loaded.scene.current_entry() {
                     Some(entry) => format!("{what} · {entry}"),

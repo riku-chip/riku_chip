@@ -83,7 +83,7 @@ pub fn render(commits: &[LogCommit], level: DetailLevel, style: Style) -> Vec<St
         }
         cells[row.column] = Cell { text: if c.is_merge { g.merge } else { g.node }, lane: Some(row.lane) };
         let refs = if c.refs.is_empty() { String::new() } else { format!(" {}", format_refs(&c.refs)) };
-        let merge = if c.is_merge { " [merge]" } else { "" };
+        let merge = if c.is_merge { crate::i18n::tr!("log.merge_tag") } else { String::new() };
         out.push(format!("{}{}{refs}{merge}  {}", g.paint(&cells, true), c.info.short_id, first_line(&c.info.message)));
 
         // Líneas de detalle: siguen las ramas que salen de esta fila.

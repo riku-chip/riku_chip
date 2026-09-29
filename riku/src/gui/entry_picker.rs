@@ -52,7 +52,7 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr!("cells.title")).strong());
         ui.label(
-            RichText::new(format!("{roots} top / {}", entries.len()))
+            RichText::new(tr!("cells.count", roots = roots, total = entries.len()))
                 .small()
                 .color(Color32::from_gray(150)),
         );

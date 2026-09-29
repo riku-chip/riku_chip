@@ -25,7 +25,7 @@ fn print_header(report: &StatusReport) {
         let mut header = tr!("status.branch", branch = b.name, head = b.head_short);
         if let Some(up) = &b.upstream {
             let rel = describe_upstream(b.ahead, b.behind);
-            header.push_str(&format!(" — vs {up}: {rel}"));
+            header.push_str(&tr!("status.vs_upstream", upstream = up, relation = rel));
         }
         println!("{header}");
     } else {
@@ -141,7 +141,7 @@ fn print_full_report(rep: &FileChange) {
         let marker = super::common::marker_for_change(c.kind);
         let from = c.renamed_from.as_deref().filter(|_| c.kind == riku_kernel::ChangeKind::Renamed);
         let name = crate::core::analysis::summary::element_label(&c.element, from);
-        let cosmetic = if c.cosmetic { " [cosmetic]" } else { "" };
+        let cosmetic = if c.cosmetic { tr!("status.cosmetic_tag") } else { String::new() };
         println!("      {} {name}{cosmetic}", super::color::marker(marker));
     }
     if !rep.warnings.is_empty() {

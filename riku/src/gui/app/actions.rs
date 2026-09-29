@@ -115,7 +115,7 @@ impl RikuGuiApp {
         let Some(cs) = &self.change_set else { return };
         let (repo, a, b) = (cs.repo.clone(), cs.from.clone(), cs.to.clone());
         match self.load_backend_diff(&repo, &a, &b, Path::new(path), None, false) {
-            Ok(()) => self.status = format!("Diff {} → {} · {path}", short_hash(&a), short_hash(&b)),
+            Ok(()) => self.status = tr!("status.diff", from = short_hash(&a), to = short_hash(&b), path = path),
             Err(e) => self.fail(&tr!("error.diff"), e),
         }
     }
@@ -161,7 +161,7 @@ impl RikuGuiApp {
         self.change_set = None;
         let Some(repo) = self.history.repo().map(Path::to_path_buf) else { return };
         match self.load_backend_diff(&repo, "HEAD", WORKTREE, Path::new(rel), None, false) {
-            Ok(()) => self.status = format!("Diff HEAD → worktree · {rel}"),
+            Ok(()) => self.status = tr!("status.diff", from = "HEAD", to = "worktree", path = rel),
             Err(e) => self.fail(&tr!("error.diff"), e),
         }
     }
@@ -203,7 +203,7 @@ impl RikuGuiApp {
                         Some(file) => {
                             self.change_set = None;
                             match self.load_backend_diff(&repo, &a, &b, Path::new(&file), None, false) {
-                                Ok(()) => self.status = format!("Diff {} → {} · {file}", short_hash(&a), short_hash(&b)),
+                                Ok(()) => self.status = tr!("status.diff", from = short_hash(&a), to = short_hash(&b), path = file),
                                 Err(e) => self.fail(&tr!("error.diff"), e),
                             }
                         }

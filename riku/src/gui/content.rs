@@ -3,6 +3,7 @@
 //! `Option` independientes y podían quedar los dos llenos (una vista de ondas
 //! tapando el diff pedido, B7).
 
+use crate::gui::tr;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,12 +27,12 @@ pub(crate) enum DiffTab {
 }
 
 impl DiffTab {
-    /// Nombre visible de la vista.
-    pub(crate) fn label(self) -> &'static str {
+    /// Nombre visible de la vista, en el idioma de la interfaz.
+    pub(crate) fn label(self) -> String {
         match self {
-            DiffTab::Diff => "Diff",
-            DiffTab::Before => "Before",
-            DiffTab::After => "After",
+            DiffTab::Diff => tr!("tab.diff"),
+            DiffTab::Before => tr!("tab.before"),
+            DiffTab::After => tr!("tab.after"),
         }
     }
 }
