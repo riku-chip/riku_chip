@@ -35,7 +35,7 @@ Con algo abierto, en la barra: **Comparar…** (con ese archivo ya elegido) y **
 
 ## Ver un diff
 
-Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la diferencia y cada versión; cambiar de vista conserva el zoom para comparar la misma zona. En **Detalles**: **Resumen**, **Cambios** (un clic encuadra el cambio) y **Capas** (ocultar o mostrar; se mantiene al cambiar de celda). El panel **Celdas** lista las celdas de un layout y, en un esquemático, su jerarquía (el `.sch` y los sub-esquemáticos del proyecto que usa); tiene buscador, "solo top cells" (si hay más de una) y "solo con cambios", y en un diff marca lo que cambió, también por dentro. **Doble clic** en una instancia de una sub-celda o de un sub-esquemático la abre (el tooltip lo dice); para volver, un clic en la de arriba en **Celdas**. Lo propio de cada formato está en [`formatos.md`](formatos.md).
+Las vistas **Diff**, **Before** y **After** (panel **Vistas**) muestran la diferencia y cada versión; cambiar de vista conserva el zoom para comparar la misma zona. En **Detalles**: **Resumen**, **Cambios** (un clic encuadra el cambio) y **Capas** (ocultar o mostrar; se mantiene al cambiar de celda). El panel **Celdas** lista las celdas de un layout y, en un esquemático, su jerarquía (el `.sch` y los sub-esquemáticos del proyecto que usa); tiene buscador, "solo top cells" (si hay más de una) y "solo con cambios", y en un diff marca lo que cambió, también por dentro. **Doble clic** en una instancia de una sub-celda o de un sub-esquemático la abre (el tooltip lo dice); **← Volver** (junto a la ruta), **Backspace** o **Alt + ←** vuelven al nivel de arriba con la vista que tenía, un nivel por vez. Lo propio de cada formato está en [`formatos.md`](formatos.md).
 
 ## Controles
 

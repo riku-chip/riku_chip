@@ -162,6 +162,7 @@ impl RikuGuiApp {
                             ),
                             (tr!("shortcut.pinch"), tr!("shortcut.pinch_what")),
                             (tr!("shortcut.drag"), tr!("shortcut.drag_what")),
+                            ("Backspace / Alt + ←".to_string(), tr!("shortcut.back")),
                         ] {
                             ui.horizontal(|ui| {
                                 ui.monospace(format!("{k:>9}"));
@@ -337,9 +338,23 @@ impl RikuGuiApp {
 
             // ¿Dónde estoy? Ruta archivo › celda › vista sobre el lienzo.
             let crumbs = self.breadcrumb();
-            if !crumbs.is_empty() {
+            // "Volver" al nivel de donde se entró (sub-celda, sub-esquemático).
+            let back_to = self.content.scene().and_then(|bs| {
+                bs.back.last().map(|s| s.entry.clone().unwrap_or_else(|| {
+                    Path::new(&bs.path).file_name().unwrap_or_default().to_string_lossy().to_string()
+                }))
+            });
+            let mut go_back = false;
+            if !crumbs.is_empty() || back_to.is_some() {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::XS;
+                    if let Some(to) = &back_to {
+                        go_back = ui
+                            .button(tr!("nav.back"))
+                            .on_hover_text(tr!("nav.back_hint", to = to))
+                            .clicked();
+                        ui.add_space(space::XS);
+                    }
                     let last = crumbs.len() - 1;
                     for (i, c) in crumbs.iter().enumerate() {
                         let t = RichText::new(c);
@@ -350,6 +365,9 @@ impl RikuGuiApp {
                     }
                 });
                 ui.add_space(space::XS);
+            }
+            if go_back {
+                self.go_back();
             }
 
             // Formas de onda: su propia vista (ejes, unidades, A vs B).
@@ -372,7 +390,7 @@ impl RikuGuiApp {
             if let Some(bs) = self.content.scene_mut() {
                 self.readout = canvas::show(ui, bs, opts);
                 if let Some(entry) = self.readout.enter.take() {
-                    self.select_entry(&entry);
+                    self.enter_entry(&entry);
                 }
                 return;
             }
@@ -400,7 +418,7 @@ impl RikuGuiApp {
             _ => None,
         };
         if let Some(id) = picked {
-            self.select_entry(&id);
+            self.enter_entry(&id);
         }
     }
 

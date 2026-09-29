@@ -25,6 +25,9 @@ mod loading;
 mod panels;
 
 pub struct RikuGuiApp {
+    /// Al volver de una sub-celda: la vista que tenía la de arriba, para
+    /// reponerla cuando cargue (archivo y vista).
+    pending_view: Option<(String, viewer_core::Viewport)>,
     project_root: PathBuf,
     project_tree: ProjectEntry,
     selected_path: Option<PathBuf>,
@@ -189,6 +192,7 @@ impl RikuGuiApp {
         let history = HistoryPanel::new(&project_root, history_h);
 
         let mut app = Self {
+            pending_view: None,
             project_root,
             project_tree,
             selected_path,
@@ -307,6 +311,10 @@ impl RikuGuiApp {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.history.toggle();
+        }
+        // Volver al nivel de arriba (después de entrar a una sub-celda).
+        if ctx.input(|i| i.key_pressed(egui::Key::Backspace) || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft))) {
+            self.go_back();
         }
         // Esc suelta la capa y la red resaltadas.
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{friendly_error, short_hash, RikuGuiApp};
-use crate::gui::content::{Content, DiffContext, DiffTab, LoadKind, SceneState};
+use crate::gui::content::{BackStep, Content, DiffContext, DiffTab, LoadKind, SceneState};
 use crate::gui::history::model::Request as HistoryRequest;
 use crate::gui::loader::{Finished, LoadRequest};
 use crate::gui::toast::ToastKind;
@@ -188,6 +188,29 @@ impl RikuGuiApp {
         self.loader.start(req);
     }
 
+    /// Entra a otra celda o sub-esquemático del archivo abierto, recordando
+    /// de dónde se vino para [`Self::go_back`].
+    pub(super) fn enter_entry(&mut self, id: &str) {
+        if let Some(bs) = self.content.scene_mut() {
+            let entry = bs.scene.current_entry().map(str::to_string);
+            if entry.as_deref() == Some(id) {
+                return;
+            }
+            bs.back.push(BackStep { entry, viewport: bs.viewport });
+        }
+        self.select_entry(id);
+    }
+
+    /// Vuelve al nivel de donde se entró, con la vista que tenía.
+    pub(super) fn go_back(&mut self) {
+        let Some(bs) = self.content.scene_mut() else { return };
+        let Some(step) = bs.back.pop() else { return };
+        self.pending_view = Some((bs.path.clone(), step.viewport));
+        let label = step.entry.clone().unwrap_or_else(|| file_label(&bs.path));
+        self.status = tr!("status.loading_cell", cell = label);
+        self.reload_scene(step.entry, None, false);
+    }
+
     /// Carga otra celda del archivo abierto.
     pub(super) fn select_entry(&mut self, id: &str) {
         self.status = tr!("status.loading_cell", cell = id);
@@ -311,8 +334,17 @@ impl RikuGuiApp {
                 let prev = self.content.take_scene();
                 self.content = Content::Scene(SceneState::from_loaded(loaded, prev));
                 self.diff = diff;
+                // Al volver: la vista que tenía el nivel de arriba.
+                if let (Some((path, view)), Some(bs)) = (self.pending_view.take(), self.content.scene_mut()) {
+                    if bs.path == path {
+                        bs.viewport = view;
+                        bs.needs_fit = false;
+                        bs.fitted_size = None;
+                    }
+                }
             }
             Some(Finished::Failed { path, error }) => {
+                self.pending_view = None;
                 let name = Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
                 // Un archivo que no abre no debe ofrecerse como reciente.
                 self.recent.retain(|r| *r != path);
@@ -348,4 +380,9 @@ mod tests {
         assert_eq!(entry_in_tab(&renamed, "INV_X1", DiffTab::Diff, DiffTab::After), "INV_X1");
         assert_eq!(entry_in_tab(&renamed, "TOP", DiffTab::Diff, DiffTab::Before), "TOP");
     }
+}
+
+/// Nombre corto de un archivo para mostrar.
+fn file_label(path: &str) -> String {
+    Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string()
 }

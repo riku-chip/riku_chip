@@ -60,6 +60,15 @@ pub(crate) enum LoadKind {
     Diff { before: Arc<Vec<u8>>, files: DiffFiles, tab: DiffTab, renamed: Arc<[(String, String)]> },
 }
 
+/// Un paso atrás de la navegación dentro de un archivo: de qué entrada
+/// (celda, sub-esquemático) se vino y con qué vista.
+#[derive(Clone, Debug)]
+pub(crate) struct BackStep {
+    /// `None`: la entrada por defecto (la raíz).
+    pub entry: Option<String>,
+    pub viewport: Viewport,
+}
+
 /// Una escena cargada via `ViewerBackend` (todos los formatos salvo las
 /// ondas) con su vista y lo que el usuario eligió sobre ella.
 pub(crate) struct SceneState {
@@ -104,6 +113,9 @@ pub(crate) struct SceneState {
     pub pending_zoom: Option<f64>,
     /// Transición de vista en curso (spring interrumpible).
     pub anim: Option<ViewAnimation>,
+    /// De dónde se vino al entrar a una sub-celda o un sub-esquemático:
+    /// "Volver" desapila (como el "atrás" de un navegador).
+    pub back: Vec<BackStep>,
     /// Inercia del pan tras soltar un arrastre rápido.
     pub inertia: Option<Inertia>,
 }
@@ -147,6 +159,7 @@ impl SceneState {
                 pending_zoom: None,
                 anim: None,
                 inertia: None,
+                back: Vec::new(),
             },
         }
     }
