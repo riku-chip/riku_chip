@@ -111,6 +111,15 @@ pub(crate) fn layout_mark(probe: Option<&dyn NetProbe>, item: &Item) -> Mark {
     mark
 }
 
+/// Lo que se encuadra al elegir algo: al menos un tercio del dibujo, para
+/// ver a qué está conectado (un transistor solo llenaría el lienzo).
+fn with_context(b: BoundingBox, scene: &BoundingBox) -> BoundingBox {
+    let min = scene.width().max(scene.height()) / 3.0;
+    let (cx, cy) = ((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0);
+    let (hw, hh) = (b.width().max(min) / 2.0, b.height().max(min) / 2.0);
+    BoundingBox::from_points((cx - hw, cy - hh), (cx + hw, cy + hh))
+}
+
 /// Un wire como un rectángulo fino a lo largo del segmento.
 fn segment(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<(f64, f64)> {
     let (dx, dy) = (x2 - x1, y2 - y1);
@@ -243,7 +252,7 @@ impl LvsState {
         for (bs, mark) in [self.schematic.scene.as_mut(), self.layout.scene.as_mut()].into_iter().zip(marks) {
             let Some(bs) = bs else { continue };
             if frame {
-                bs.focus = mark.bbox();
+                bs.focus = mark.bbox().map(|b| with_context(b, &bs.scene.bbox()));
             }
             bs.mark = (!mark.is_empty()).then_some(mark);
         }
@@ -430,6 +439,18 @@ mod tests {
     fn sin_ubicacion_en_el_layout_no_se_marca() {
         let it = items(&comparison());
         assert!(layout_mark(None, &it[0]).is_empty());
+    }
+
+    #[test]
+    fn un_dispositivo_se_encuadra_con_contexto() {
+        let scene = BoundingBox::from_points((0.0, 0.0), (900.0, 600.0));
+        let b = with_context(BoundingBox::from_points((100.0, 100.0), (130.0, 160.0)), &scene);
+        // Al menos un tercio del lado mayor (300), centrado en el dispositivo.
+        assert_eq!((b.width(), b.height()), (300.0, 300.0));
+        assert_eq!(((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0), (115.0, 130.0));
+        // Algo grande queda como está.
+        let big = BoundingBox::from_points((0.0, 0.0), (800.0, 500.0));
+        assert_eq!(with_context(big, &scene), big);
     }
 
     #[test]
