@@ -65,6 +65,23 @@ No cubre: bloques de código que son programas en Tcl (bucles, `xschem` …); no
 - **Jerarquía:** entrar a un sub-esquemático o a una sub-celda en un lado lleva al par del otro lado, si existe.
 - **En un diff:** abrir el LVS de las dos versiones y ver qué discrepancias aparecieron o se arreglaron.
 
+### Qué ya hay (rama `lvs-visor`)
+
+- Botón **LVS** en la barra de arriba, con un esquemático o un layout abierto que tenga par (`lvs::pair_for`: `.riku.toml` o el mismo nombre). Abre `riku/src/gui/lvs_view.rs`: los dos lienzos lado a lado, el veredicto y la lista (parámetros, redes y dispositivos sin pareja). Netgen corre en otro hilo y cada escena carga aparte (`Loader::load_detached`).
+- **Lado del esquemático, completo:** un clic en algo de la lista lo resalta (redes: sus wires y pines; dispositivos: el recuadro de la instancia), atenúa el resto y lo encuadra con contexto. Esc lo suelta. Los nombres de Netgen llevan a la geometría con `Report::places` (`spice::Places`), que escribe el mismo netlister que vio Netgen: el mapeo es exacto, también para las nets sin nombre (`net3`).
+- **Lado del layout:** se ve y se navega, pero no resalta todavía (la lista lo avisa).
+
+### Lo que falta del layout (`riku-mod-layout`)
+
+La vista ya pregunta al `NetProbe` de la escena del layout por dos métodos de `viewer-core` que hoy devuelven `None`:
+
+```rust
+fn net_named(&self, spice_name: &str) -> Option<NetHit>;    // "Vout", "n12": sus polígonos
+fn device_named(&self, spice_name: &str) -> Option<NetHit>; // "19" (o "X19"/"M19"): su contorno
+```
+
+Los nombres son los de la netlist que compara Netgen (`nets::spice` / `layout_spice`): las redes por `Netlist::net_name` (la etiqueta, `VSUBS` o `n{i}`) y los dispositivos por su índice en `nl.devices`. `LayoutNets` hoy nombra las redes con `nets::net_label` (otros nombres), así que hace falta guardar también el nombre SPICE de cada red y, de cada dispositivo, su compuerta (`Device::gate`). En cuanto `LayoutNets` los implemente, el cross-probing del layout funciona sin tocar la GUI.
+
 ## Lo difícil
 
 - **Nombres.** Netgen empareja por conectividad y da los nombres de cada lado (`sky130_fd_pr__pfet_01v8:19 vs. …:M1`). Para resaltar hay que ir de ese nombre a la geometría: en el esquemático, el nombre de la instancia (`M1`) ya lleva a su recuadro; en el layout, `nets::spice` numera los transistores (`X19`) y hace falta guardar la posición de cada uno junto a su número.
