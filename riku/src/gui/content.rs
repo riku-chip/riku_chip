@@ -132,6 +132,8 @@ pub(crate) struct Mark {
     pub boxes: Vec<BoundingBox>,
 }
 
+// Las marcas las pone la vista de LVS (con los módulos de esquemático y layout).
+#[cfg_attr(not(all(feature = "xschem", feature = "layout")), allow(dead_code))]
 impl Mark {
     pub(crate) fn is_empty(&self) -> bool {
         self.fills.is_empty() && self.boxes.is_empty()
