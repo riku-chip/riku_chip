@@ -470,7 +470,8 @@ fn cache_dir() -> Option<PathBuf> {
 fn cache_file(signature: &str) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (env!("CARGO_PKG_VERSION"), signature).hash(&mut h);
+    // Con otra netlist (otra versión de Riku o del netlister), otro resultado.
+    (env!("CARGO_PKG_VERSION"), xschem_viewer::spice::VERSION, signature).hash(&mut h);
     Some(cache_dir()?.join(format!("{:016x}.json", h.finish())))
 }
 
