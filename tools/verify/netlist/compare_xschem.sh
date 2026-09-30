@@ -24,8 +24,11 @@ known="sky130A/test_carry_lookahead"
 for p in sky130A gf180mcuD ihp-sg13g2; do
   X=$ROOT/$p/libs.tech/xschem
   if [ ! -d "$X" ]; then echo "== $p: no instalado"; continue; fi
+  # `sak-pdk-script.sh` usa variables que pueden no estar definidas.
+  set +u
   # shellcheck disable=SC1091
   source sak-pdk-script.sh "$p" >/dev/null 2>&1
+  set -u
   setup=$(ls "$ROOT/$p"/libs.tech/netgen/*setup.tcl 2>/dev/null | head -1)
   # El xschemrc de IHP no pone su propia carpeta en la ruta de símbolos.
   printf 'source %s/xschemrc\nappend XSCHEM_LIBRARY_PATH :%s\n' "$X" "$X" > "$OUT/rc_$p"
