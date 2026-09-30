@@ -119,6 +119,34 @@ pub(crate) struct SceneState {
     pub back: Vec<BackStep>,
     /// Inercia del pan tras soltar un arrastre rápido.
     pub inertia: Option<Inertia>,
+    /// Lo que se resalta de un resultado del LVS (una red, un dispositivo):
+    /// el resto se atenúa. Se suelta con Esc.
+    pub mark: Option<Mark>,
+}
+
+/// Algo resaltado sobre la escena, en coordenadas de mundo: polígonos
+/// rellenos (una red) y recuadros (un dispositivo).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Mark {
+    pub fills: Vec<Vec<(f64, f64)>>,
+    pub boxes: Vec<BoundingBox>,
+}
+
+impl Mark {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.fills.is_empty() && self.boxes.is_empty()
+    }
+
+    /// Lo que ocupa, para encuadrarlo.
+    pub(crate) fn bbox(&self) -> Option<BoundingBox> {
+        let mut points = self.fills.iter().flatten().copied().chain(self.boxes.iter().flat_map(|b| [(b.min_x, b.min_y), (b.max_x, b.max_y)]));
+        let first = points.next()?;
+        let mut bb = BoundingBox::from_points(first, first);
+        for (x, y) in points {
+            bb.expand_point(x, y);
+        }
+        Some(bb)
+    }
 }
 
 impl SceneState {
@@ -135,6 +163,7 @@ impl SceneState {
                 needs_fit: loaded.refit || p.needs_fit,
                 // Otra celda u otra versión: la red resaltada ya no es la misma.
                 net_focus: None,
+                mark: None,
                 ..p
             },
             None => SceneState {
@@ -161,6 +190,7 @@ impl SceneState {
                 anim: None,
                 inertia: None,
                 back: Vec::new(),
+                mark: None,
             },
         }
     }
@@ -214,12 +244,23 @@ pub(crate) enum Content {
     /// Formas de onda (`.raw`): no pasan por `ViewerBackend`, tienen su vista.
     #[cfg(feature = "spice")]
     Wave(WaveView),
+    /// El LVS de un par: esquemático y layout lado a lado.
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    Lvs(Box<crate::gui::lvs_view::LvsState>),
 }
 
 impl Content {
     pub(crate) fn scene(&self) -> Option<&SceneState> {
         match self {
             Content::Scene(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    pub(crate) fn lvs_mut(&mut self) -> Option<&mut crate::gui::lvs_view::LvsState> {
+        match self {
+            Content::Lvs(s) => Some(s),
             _ => None,
         }
     }

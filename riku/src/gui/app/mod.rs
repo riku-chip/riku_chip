@@ -322,6 +322,10 @@ impl RikuGuiApp {
                 bs.layer_focus = None;
                 bs.net_focus = None;
             }
+            #[cfg(all(feature = "xschem", feature = "layout"))]
+            if let Some(st) = self.content.lvs_mut() {
+                st.clear();
+            }
         }
         // ↑/↓ recorren la lista del diff de todo el repo (si History está
         // abierto, son de History).
@@ -412,6 +416,12 @@ impl eframe::App for RikuGuiApp {
         // repaint para que el promise se consulte en el siguiente frame.
         self.poll_pending_load();
         self.poll_jobs(&ctx);
+        #[cfg(all(feature = "xschem", feature = "layout"))]
+        if let Some(st) = self.content.lvs_mut() {
+            if st.poll() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
         if let Some(cs) = &mut self.change_set {
             cs.poll();
         }

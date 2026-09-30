@@ -108,6 +108,23 @@ impl Loader {
         self.pending = Some(Promise::spawn_async(fut));
     }
 
+    /// Una carga aparte (un lado de la vista de LVS): no cancela ni la
+    /// cancela la principal; quien la pide la consulta.
+    #[cfg_attr(not(all(feature = "xschem", feature = "layout")), allow(dead_code))]
+    pub(crate) fn load_detached(
+        &self,
+        backend: Arc<dyn ViewerBackend>,
+        source: Arc<Vec<u8>>,
+        path: String,
+        entry: Option<String>,
+    ) -> Promise<Result<LoadedScene, ViewerError>> {
+        let _guard = self.runtime.enter();
+        Promise::spawn_async(async move {
+            let scene = backend.load_entry(source.as_ref().clone(), Some(path.clone()), entry, CancellationToken::new()).await?;
+            Ok(LoadedScene { scene, backend, source, path, kind: LoadKind::Single, refit: true, diff: None })
+        })
+    }
+
     /// Lo que terminó desde el último cuadro, si algo terminó.
     pub(crate) fn poll(&mut self) -> Option<Finished> {
         self.pending.as_ref()?.ready()?;

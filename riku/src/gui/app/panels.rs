@@ -99,6 +99,21 @@ impl RikuGuiApp {
                 {
                     self.open_compare();
                 }
+                #[cfg(all(feature = "xschem", feature = "layout"))]
+                {
+                    let lvs_file = self.lvs_candidate();
+                    let hint = if lvs_file.is_some() { tr!("toolbar.lvs_hint") } else { tr!("toolbar.lvs_none") };
+                    if ui
+                        .add_enabled(lvs_file.is_some(), egui::Button::new("LVS"))
+                        .on_hover_text(hint.clone())
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        if let Some(file) = lvs_file {
+                            self.open_lvs(&file);
+                        }
+                    }
+                }
                 let can_export = self.can_export() && self.export_job.is_none();
                 ui.add_enabled_ui(can_export, |ui| {
                     ui.menu_button(tr!("toolbar.export"), |ui| {
@@ -321,6 +336,26 @@ impl RikuGuiApp {
                     }
                     return;
                 }
+                #[cfg(all(feature = "xschem", feature = "layout"))]
+                {
+                    let mut close_to = None;
+                    let mut shown = false;
+                    if let Some(st) = self.content.lvs_mut() {
+                        shown = true;
+                        if ui.button(tr!("lvs_view.close")).on_hover_text(tr!("lvs_view.close_hint")).clicked() {
+                            close_to = Some(st.root.join(&st.pair.schematic));
+                        } else {
+                            ui.add_space(space::XS);
+                            crate::gui::lvs_view::show_list(ui, st);
+                        }
+                    }
+                    if let Some(schematic) = close_to {
+                        self.open_path(&schematic);
+                    }
+                    if shown {
+                        return;
+                    }
+                }
                 if let Some(bs) = self.content.scene_mut() {
                     details_panel::show(ui, bs);
                 } else {
@@ -387,6 +422,11 @@ impl RikuGuiApp {
                 block_px: self.block_px,
                 profile: self.profile,
             };
+            #[cfg(all(feature = "xschem", feature = "layout"))]
+            if let Some(st) = self.content.lvs_mut() {
+                crate::gui::lvs_view::show_central(ui, st, opts);
+                return;
+            }
             if let Some(bs) = self.content.scene_mut() {
                 self.readout = canvas::show(ui, bs, opts);
                 if let Some(entry) = self.readout.enter.take() {

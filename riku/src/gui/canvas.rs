@@ -192,6 +192,9 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
     if let Some(net) = &bs.net_focus {
         paint_net(&ui.painter_at(response.rect), &xf, net, ui.visuals());
     }
+    if let Some(mark) = &bs.mark {
+        paint_mark(&ui.painter_at(response.rect), &xf, mark, ui.visuals());
+    }
     // Doble clic en una instancia de una sub-celda o de un sub-esquemático:
     // entrar (la más interna, si se anidan).
     let scene = bs.scene.clone();
@@ -239,6 +242,23 @@ fn paint_net(painter: &egui::Painter, xf: &ScreenXform, net: &viewer_core::NetHi
         }
         let screen: Vec<egui::Pos2> = poly.iter().map(|&(x, y)| xf.to_screen(x, y)).collect();
         crate::gui::polygon_fill::paint_filled_polygon(painter, poly, screen, yellow.gamma_multiply(0.45), stroke);
+    }
+}
+
+/// Lo resaltado de un LVS: el resto atenuado, las redes rellenas y los
+/// dispositivos recuadrados, en el mismo amarillo que una red.
+fn paint_mark(painter: &egui::Painter, xf: &ScreenXform, mark: &crate::gui::content::Mark, visuals: &egui::Visuals) {
+    painter.rect_filled(painter.clip_rect(), 0.0, visuals.extreme_bg_color.gamma_multiply(0.65));
+    let yellow = egui::Color32::from_rgb(255, 205, 40);
+    let stroke = egui::Stroke::new(2.0, yellow);
+    for poly in mark.fills.iter().filter(|p| p.len() >= 3) {
+        let screen: Vec<egui::Pos2> = poly.iter().map(|&(x, y)| xf.to_screen(x, y)).collect();
+        crate::gui::polygon_fill::paint_filled_polygon(painter, poly, screen, yellow.gamma_multiply(0.6), egui::Stroke::new(1.0, yellow));
+    }
+    for b in &mark.boxes {
+        let rect = egui::Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y)).expand(3.0);
+        painter.rect_filled(rect, 2.0, yellow.gamma_multiply(0.12));
+        painter.rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Outside);
     }
 }
 

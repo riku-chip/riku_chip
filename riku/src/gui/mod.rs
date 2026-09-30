@@ -22,6 +22,8 @@ mod label_layout;
 mod launch;
 mod legend;
 mod loader;
+#[cfg(all(feature = "xschem", feature = "layout"))]
+mod lvs_view;
 mod motion;
 mod polygon_fill;
 mod project;

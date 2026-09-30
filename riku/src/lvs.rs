@@ -97,6 +97,10 @@ pub struct Report {
     #[serde(flatten)]
     pub comparison: Comparison,
     pub warnings: Vec<String>,
+    /// Dónde está en el esquemático cada net y dispositivo de su netlist
+    /// (para ir de lo que dice Netgen al dibujo). No va en el JSON.
+    #[serde(skip)]
+    pub places: xschem_viewer::spice::Places,
 }
 
 // ─── Herramientas ────────────────────────────────────────────────────────────
@@ -220,6 +224,23 @@ pub fn pairs(root: &Path, configured: &[Pair]) -> Vec<Pair> {
             Some(Pair { schematic: s, layout, cell: None })
         })
         .collect()
+}
+
+/// El par al que pertenece `file` (su esquemático o su layout) y la raíz del
+/// proyecto (la del repositorio, o su carpeta si no hay): los de
+/// `.riku.toml` o, si no hay, por nombre.
+pub fn pair_for(file: &Path) -> Option<(PathBuf, Pair)> {
+    let dir = file.parent()?;
+    let root = git2::Repository::discover(dir)
+        .ok()
+        .and_then(|r| r.workdir().map(Path::to_path_buf))
+        .unwrap_or_else(|| dir.to_path_buf());
+    let configured: Vec<Pair> = crate::core::config::load(Some(&root))
+        .map(|c| c.lvs.into_iter().map(|c| Pair { schematic: c.schematic, layout: c.layout, cell: c.cell }).collect())
+        .unwrap_or_default();
+    let target = std::fs::canonicalize(file).ok()?;
+    let same = |rel: &str| std::fs::canonicalize(root.join(rel)).is_ok_and(|p| p == target);
+    pairs(&root, &configured).into_iter().find(|p| same(&p.schematic) || same(&p.layout)).map(|p| (root, p))
 }
 
 /// Archivos bajo `dir` (sin carpetas ocultas ni `target`), relativos a `root`.
@@ -346,7 +367,7 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
         (Err(_), Ok(text)) if text.contains("Final result") => from_text(&text),
         _ => return Err(tr!("lvs.tool_failed", tool = "netgen", error = tail(&out.stdout))),
     };
-    Ok(Report { pair: pair.clone(), layout_cell: layout.cell, pdk, comparison, warnings })
+    Ok(Report { pair: pair.clone(), layout_cell: layout.cell, pdk, comparison, warnings, places: netlist.places })
 }
 
 /// Las últimas líneas de la salida de una herramienta, para un error.
@@ -736,6 +757,7 @@ LVS Done.
                         properties: vec![],
                     },
                     warnings: vec![],
+                    places: Default::default(),
                 }),
                 reused: false,
             },
@@ -813,5 +835,26 @@ LVS Done.
         assert_eq!(got, vec![Pair { schematic: "xschem/ota.sch".into(), layout: "layout/ota.gds".into(), cell: None }]);
         let cfg = vec![Pair { schematic: "a.sch".into(), layout: "b.mag".into(), cell: Some("c".into()) }];
         assert_eq!(pairs(Path::new("."), &cfg), cfg);
+    }
+
+    #[test]
+    fn el_par_de_un_archivo_abierto() {
+        let dir = std::env::temp_dir().join(format!("riku-lvs-pair-for-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        git2::Repository::init(&dir).unwrap();
+        for (p, body) in [("xschem/ota.sch", "v {xschem version=3.4.5 file_version=1.2}\n"), ("layout/ota.gds", ""), ("xschem/tb.sch", "v {xschem version=3.4.5 file_version=1.2}\n")] {
+            let path = dir.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let want = Pair { schematic: "xschem/ota.sch".into(), layout: "layout/ota.gds".into(), cell: None };
+        // Desde el esquemático o desde el layout, el mismo par; el testbench no tiene.
+        let from_sch = pair_for(&dir.join("xschem/ota.sch")).map(|(_, p)| p);
+        let from_gds = pair_for(&dir.join("layout/ota.gds")).map(|(_, p)| p);
+        let tb = pair_for(&dir.join("xschem/tb.sch"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(from_sch.as_ref(), Some(&want));
+        assert_eq!(from_gds.as_ref(), Some(&want));
+        assert!(tb.is_none());
     }
 }

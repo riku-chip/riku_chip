@@ -88,6 +88,19 @@ pub trait NetProbe: Send + Sync + std::fmt::Debug {
     /// elemento bajo el cursor, para elegir entre capas superpuestas (el
     /// metal, no el pozo de abajo).
     fn at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit>;
+
+    /// La red con ese nombre en la netlist SPICE que se extrae de esta
+    /// escena (la que compara el LVS: `Vout`, `n12`), para resaltar lo que
+    /// informa Netgen. `None` si no se sabe.
+    fn net_named(&self, _spice_name: &str) -> Option<NetHit> {
+        None
+    }
+
+    /// El dispositivo con ese nombre en esa netlist (`19`, `X19` o `M19`):
+    /// su contorno (la compuerta de un transistor). `None` si no se sabe.
+    fn device_named(&self, _spice_name: &str) -> Option<NetHit> {
+        None
+    }
 }
 
 /// Implementación trivial y eager: todos los elementos materializados en memoria.
@@ -284,6 +297,11 @@ pub trait RenderableScene: Send + Sync {
     fn net_at(&self, _x: f64, _y: f64, _layer: Option<Layer>) -> Option<NetHit> {
         None
     }
+
+    /// La conectividad de la escena, si la tiene (para buscar por nombre).
+    fn net_probe(&self) -> Option<Arc<dyn NetProbe>> {
+        None
+    }
 }
 
 impl RenderableScene for Scene {
@@ -353,6 +371,10 @@ impl RenderableScene for Scene {
 
     fn net_at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit> {
         self.nets.as_ref()?.at(x, y, layer)
+    }
+
+    fn net_probe(&self) -> Option<Arc<dyn NetProbe>> {
+        self.nets.clone()
     }
 
     fn visit<'a>(&'a self, viewport_bbox: &BoundingBox, visitor: &mut dyn FnMut(&'a DrawElement) -> bool) {

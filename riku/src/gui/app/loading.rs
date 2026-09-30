@@ -38,6 +38,34 @@ impl RikuGuiApp {
         }
     }
 
+    /// El archivo con el que abrir el LVS: el abierto, si es un esquemático
+    /// o un layout.
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    pub(super) fn lvs_candidate(&self) -> Option<PathBuf> {
+        let path = self.selected_path.as_ref()?;
+        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+        matches!(ext.as_str(), "sch" | "gds" | "oas" | "mag").then(|| path.clone())
+    }
+
+    /// La vista de LVS del par al que pertenece `file`.
+    #[cfg(all(feature = "xschem", feature = "layout"))]
+    pub(super) fn open_lvs(&mut self, file: &Path) {
+        match crate::lvs::pair_for(file) {
+            Some((root, pair)) => {
+                self.loader.cancel();
+                self.diff = None;
+                self.change_set = None;
+                self.status = tr!("lvs_view.status", schematic = pair.schematic, layout = pair.layout);
+                let st = crate::gui::lvs_view::LvsState::start(root, pair, &self.backends, &self.loader);
+                self.content = Content::Lvs(Box::new(st));
+            }
+            None => {
+                let name = file.file_name().unwrap_or_default().to_string_lossy().to_string();
+                self.notify(ToastKind::Warning, tr!("lvs_view.no_pair", file = name));
+            }
+        }
+    }
+
     /// Intenta cargar `path` via alguno de los backends registrados; `entry`
     /// elige una sub-vista (celda GDS) o `None` para la de por defecto.
     /// Retorna `true` si algún backend aceptó el archivo (la carga queda en vuelo).
