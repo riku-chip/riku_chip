@@ -14,7 +14,7 @@ Un LVS que solo dice "no coincide" cuesta arreglarlo. Hacen falta dos cosas que 
 | Pieza | Dónde | Estado |
 |---|---|---|
 | Netlist SPICE del layout (transistores con W y L, redes con nombre, pines) | `riku-mod-layout`: `nets::cell_nets` + `nets::spice`; ejemplo `examples/nets.rs` | hecha; verificada con Netgen contra las netlists de los PDK y contra Magic (`tools/verify/nets/`) |
-| Netlist del esquemático | `xschem --netlist` con el `xschemrc` del PDK del diseño y `set lvs_netlist 1; set top_subckt 1` | funciona sin pantalla en el contenedor; el PDK se elige como ya lo hace el visor (`xschem_pdk.rs`) |
+| Netlist del esquemático | `xschem-viewer-rust`: `spice::netlist` en modo LVS (como `xschem --netlist` con `lvs_netlist` y `top_subckt`), sin Xschem; ejemplo `examples/spice.rs` | hecha; verificada con Netgen contra la de Xschem en los ejemplos de los tres PDK (`tools/verify/netlist/`) |
 | Comparación | `netgen -batch lvs … <pdk>_setup.tcl out -json` | funciona: da `comp.out` y `comp.json` (`badnets`, `badelements`, `properties`, `pins`) |
 | Resaltar en el layout | `NetProbe` / `net_at`, clic en un polígono | hecho |
 | Resaltar en el esquemático | `component_bbox`, wires con su `lab`, atenuado del diff | hecho |
@@ -35,10 +35,22 @@ riku lvs [REV] [--sch x.sch] [--layout x.gds|x.mag] [--cell C] [-f text|json] [-
   layout = "layout/ota-5t.gds"
   cell = "ota-5t"
   ```
-- **Netlists:** del esquemático con `xschem --netlist` (del disco o de un commit, en una carpeta temporal con los archivos de esa versión); del layout con `nets::spice`, sin herramientas externas.
+- **Netlists:** las dos las escribe Riku, sin herramientas externas: la del esquemático con `spice::netlist` (con los símbolos del PDK y los archivos del proyecto de esa versión, del disco o de un commit), la del layout con `nets::spice`.
 - **Comparación:** Netgen con el `setup.tcl` del PDK (`$PDK_ROOT/<pdk>/libs.tech/netgen`). Riku lee el `comp.json`.
 - **Salida:** `riku-lvs/v1` en JSON: resultado (`match`, `property_errors`, `mismatch`), pines, y por cada discrepancia qué hay de cada lado (nombre en el esquemático, nombre en el layout, parámetros). Texto legible por defecto. `--ci`: sale con 1 si no coincide.
-- **Requisitos:** `xschem` y `netgen` instalados (están en iic-osic-tools). `riku doctor` dice si faltan. Sin ellos, `riku lvs` lo dice y no hace nada más; el resto de Riku no los necesita.
+- **Requisitos:** `netgen` instalado (está en iic-osic-tools); Xschem no hace falta. `riku doctor` dice si falta. Sin él, `riku lvs` lo dice y no hace nada más; el resto de Riku no lo necesita.
+
+### La netlist del esquemático, sin Xschem
+
+`spice::netlist` escribe lo mismo que Xschem en modo LVS. Verificado con `tools/verify/netlist/compare_xschem.sh`: Netgen da el mismo veredicto con la nuestra que con la de Xschem en todos los esquemáticos de ejemplo de GF180 (59) e IHP (59 que Netgen puede comparar) y en 59 de 60 de SKY130. Lo que cubre:
+
+- Conectividad por geometría (extremos, wires que se tocan, pines sobre wires), nombres de las etiquetas, `#net` viejos de Xschem sin unir nets, `.GLOBAL` de `vdd`/`gnd`.
+- `lvs_format`/`format` del símbolo o de la instancia; `@name`, `@pinlist`, `@@PIN`, `@symname`, atributos con el `template`; `clave=@x` vacía y `m=1` no se escriben; `tcleval(…)` con las variables del `xschemrc` del PDK (`$::SKYWATER_MODELS`, …), con `PDK_ROOT` y `PDK` de `sak-pdk`.
+- Sub-circuitos: `.subckt` con sus pines (y los de `extra` que son nets) y parámetros; `@x` de adentro con el template del símbolo; variantes `schematic=` de una instancia; `device_model`.
+- Buses (`A[3:0]`, `a,b,c`) e instancias vector (`x[3:0]`); pines repetidos; símbolos viejos con `G {…}`.
+- Bloques de código (`place=header` antes del `.subckt`) y el `S {…}` del esquemático.
+
+No cubre: bloques de código que son programas en Tcl (bucles, `xschem` …); no hay intérprete de Tcl.
 
 ## Fase 2: el LVS en el tiempo
 
@@ -65,7 +77,7 @@ riku lvs [REV] [--sch x.sch] [--layout x.gds|x.mag] [--cell C] [-f text|json] [-
 
 | Parte | Quién |
 |---|---|
-| Netlist del esquemático (`xschem --netlist` con el PDK y los archivos de una versión) | esquemáticos (Carlos) |
+| Netlist del esquemático (`spice::netlist` con el PDK y los archivos de una versión) | esquemáticos (Carlos) |
 | Netlist del layout con la posición de cada transistor y red por su nombre SPICE | layouts (Adriel) |
 | `riku lvs` (emparejar archivos, correr Netgen, leer `comp.json`, JSON y `--ci`) | cualquiera; toca el núcleo |
 | Historial del LVS y caché | núcleo |
