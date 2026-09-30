@@ -328,12 +328,22 @@ pub(crate) fn show_list(ui: &mut egui::Ui, st: &mut LvsState) {
         .small(),
     );
     ui.label(RichText::new(format!("{} · {}", report.pdk, report.layout_cell)).weak().small());
+    if !report.warnings.is_empty() {
+        ui.collapsing(tr!("lvs_view.warnings", count = report.warnings.len()), |ui| {
+            for w in &report.warnings {
+                ui.label(RichText::new(w).small());
+            }
+        });
+    }
     ui.add_space(space::S);
 
     if st.items.is_empty() {
         return;
     }
     ui.label(RichText::new(tr!("lvs_view.pick_hint")).weak().small());
+    if st.layout_unplaced() {
+        ui.label(RichText::new(tr!("lvs_view.layout_unplaced")).weak().small());
+    }
     let mut clicked = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let mut last = None;
@@ -359,18 +369,6 @@ pub(crate) fn show_list(ui: &mut egui::Ui, st: &mut LvsState) {
     });
     if let Some(i) = clicked {
         st.select(i);
-    }
-    if st.layout_unplaced() {
-        ui.add_space(space::XS);
-        ui.label(RichText::new(tr!("lvs_view.layout_unplaced")).weak().small());
-    }
-    if !report.warnings.is_empty() {
-        ui.add_space(space::XS);
-        ui.collapsing(tr!("lvs_view.warnings", count = report.warnings.len()), |ui| {
-            for w in &report.warnings {
-                ui.label(RichText::new(w).small());
-            }
-        });
     }
 }
 
