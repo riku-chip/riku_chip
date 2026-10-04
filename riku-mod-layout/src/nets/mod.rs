@@ -11,7 +11,7 @@ mod probe;
 
 pub use diff::{cell_net_changes, net_changes, net_label, pieces_changed, NetChange, NetChangeKind};
 pub use extract::{build, Net, NetLabel, NetPiece, Netlist, Resistor, Terminals};
-pub use netlist::{fingers, spice, Fingers};
+pub use netlist::{fingers, parallel_groups, spice, Fingers};
 pub use probe::LayoutNets;
 
 use std::collections::HashMap;

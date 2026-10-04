@@ -69,6 +69,23 @@ pub fn fingers(nl: &Netlist) -> Vec<Fingers> {
     groups.into_values().collect()
 }
 
+/// Los transistores en paralelo como los junta Netgen al comparar: mismo
+/// modelo, compuerta, cuerpo y par fuente/drenaje, **aunque cambie L** (a
+/// diferencia de [`fingers`]). Netgen nombra al conjunto por uno solo (el de
+/// índice menor), así que para mostrar lo que nombra hay que mostrar el
+/// grupo. Índices en `Netlist::devices`, en orden.
+///
+/// En el demo `ota`, los rellenos de L = 0,5 µm y de L = 1 µm de la misma
+/// rama son un solo dispositivo para Netgen.
+pub fn parallel_groups(nl: &Netlist) -> Vec<Vec<usize>> {
+    let mut groups: BTreeMap<(&str, usize, usize, usize, usize), Vec<usize>> = BTreeMap::new();
+    for (i, (dev, t)) in nl.devices.iter().enumerate() {
+        let (s, d) = (t.s.min(t.d), t.s.max(t.d));
+        groups.entry((dev.model.as_str(), t.g, s, d, t.b)).or_default().push(i);
+    }
+    groups.into_values().collect()
+}
+
 /// La celda como `.subckt` SPICE, un transistor por finger. `unit`: el
 /// sufijo de W y L en µm (`"u"`; `""` para las netlists de SKY130, que
 /// usan `.option scale=1e-6`).
