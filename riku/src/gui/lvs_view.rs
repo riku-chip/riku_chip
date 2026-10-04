@@ -333,7 +333,7 @@ impl LvsState {
         if let Some(Ok(s)) = self.manual.as_mut() {
             s.map.sort();
             let path = root.join(&s.map_path);
-            let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, s.map.to_text()));
+            let written = s.map.write(&path);
             self.message = Some(match written {
                 Ok(()) => {
                     s.exists = true;

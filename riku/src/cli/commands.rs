@@ -652,10 +652,7 @@ pub(super) fn run_lvs_map(
         }
         if suggest || update {
             let path = root.join(&s.map_path);
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            }
-            std::fs::write(&path, s.map.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
+            s.map.write(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             notes.push(tr!("lvs_map.saved", file = s.map_path));
             s.exists = true;
         }
