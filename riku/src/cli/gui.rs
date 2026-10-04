@@ -46,5 +46,3 @@ pub(super) fn run_here(args: Vec<String>) -> Result<(), String> {
         Err(crate::i18n::tr!("err.no_gui"))
     }
 }
-
-

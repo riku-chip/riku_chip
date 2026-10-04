@@ -15,7 +15,6 @@ use std::process::Command;
 use git2::{Repository, Signature};
 use serde_json::Value;
 
-
 use riku::core::domain::models::{ChangeKind, FileFormat};
 use riku::core::domain::ports::GitRepository;
 /// Formato por firma, según los módulos del ejecutable.
@@ -25,9 +24,7 @@ fn detect_format(content: &[u8]) -> FileFormat {
 use riku::core::git::git_service::GitService;
 
 fn fixture(name: &str) -> Vec<u8> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../riku-mod-layout/tests/fixtures")
-        .join(name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../riku-mod-layout/tests/fixtures").join(name);
     fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
@@ -39,16 +36,10 @@ fn commit_bytes(repo: &Repository, rel_path: &str, content: &[u8], message: &str
     index.write().unwrap();
     let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
     let sig = Signature::now("Riku", "riku@example.com").unwrap();
-    let parents: Vec<git2::Commit> = repo
-        .head()
-        .ok()
-        .and_then(|h| h.target())
-        .map(|oid| vec![repo.find_commit(oid).unwrap()])
-        .unwrap_or_default();
+    let parents: Vec<git2::Commit> =
+        repo.head().ok().and_then(|h| h.target()).map(|oid| vec![repo.find_commit(oid).unwrap()]).unwrap_or_default();
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
-        .unwrap()
-        .to_string()
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs).unwrap().to_string()
 }
 
 /// Repo con tres commits: sin el GDS, con la version A y con la version B.
@@ -67,10 +58,7 @@ fn gds_repo() -> GdsRepo {
 
 /// Repo con `layout.<ext>` en versiones A y B (`hier_inv_{a,b}.<ext>`).
 fn layout_repo(ext: &str) -> GdsRepo {
-    let dir = tempfile::Builder::new()
-        .prefix("riku-gds-e2e")
-        .tempdir_in(std::env::current_dir().unwrap())
-        .unwrap();
+    let dir = tempfile::Builder::new().prefix("riku-gds-e2e").tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let file: &'static str = if ext == "oas" { "layout.oas" } else { "layout.gds" };
     let repo = Repository::init(dir.path()).unwrap();
     let empty = commit_bytes(&repo, "README", b"riku", "init sin layout");
@@ -91,9 +79,8 @@ fn riku_json_as(repo: &GdsRepo, from: &str, to: &str, format: &str) -> Value {
         .output()
         .expect("ejecutar riku");
     assert!(out.status.success(), "riku diff falló: {}", String::from_utf8_lossy(&out.stderr));
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!("JSON inválido ({e}): {}", String::from_utf8_lossy(&out.stdout))
-    })
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("JSON inválido ({e}): {}", String::from_utf8_lossy(&out.stdout)))
 }
 
 /// El cambio cuyo elemento se llama `name` como en el texto de `riku diff`
@@ -217,10 +204,7 @@ fn cli_json_v2_has_typed_changes() {
     assert_eq!(json["schema"], "riku-diff/v2");
     assert_eq!(json["format"], "gds");
     let changes = json["changes"].as_array().expect("changes");
-    let top = changes
-        .iter()
-        .find(|c| c["element"]["cell"] == "TOP")
-        .unwrap_or_else(|| panic!("sin TOP: {json}"));
+    let top = changes.iter().find(|c| c["element"]["cell"] == "TOP").unwrap_or_else(|| panic!("sin TOP: {json}"));
     assert_eq!(top["kind"], "added");
     assert_eq!(top["element"]["type"], "geometry");
     assert_eq!((top["element"]["layer"].as_u64(), top["element"]["datatype"].as_u64()), (Some(1), Some(0)));
@@ -247,7 +231,8 @@ fn cli_log_and_status_json_are_v2() {
 
     let log = run(&["log", "--json", "--full"]);
     assert_eq!(log["schema"], "riku-log/v2");
-    let files: Vec<&Value> = log["commits"].as_array().unwrap().iter().flat_map(|c| c["files"].as_array().into_iter().flatten()).collect();
+    let files: Vec<&Value> =
+        log["commits"].as_array().unwrap().iter().flat_map(|c| c["files"].as_array().into_iter().flatten()).collect();
     let f = files.iter().find(|f| f["path"] == r.file).expect("layout.gds en el log");
     assert!(f["details"].as_array().unwrap().iter().all(typed), "{f}");
     assert!(f["full_report"]["changes"].as_array().unwrap().iter().all(typed), "{f}");

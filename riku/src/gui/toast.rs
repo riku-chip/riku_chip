@@ -38,7 +38,11 @@ impl ToastKind {
             Self::Warning => Color32::from_rgb(235, 180, 60),
             Self::Error => Color32::from_rgb(235, 90, 90),
         };
-        if dark { c } else { mix(c, Color32::BLACK, 0.25) }
+        if dark {
+            c
+        } else {
+            mix(c, Color32::BLACK, 0.25)
+        }
     }
 }
 
@@ -113,7 +117,8 @@ impl Toasts {
                                 let (bar, _) = ui.allocate_exact_size(egui::vec2(3.0, 18.0), egui::Sense::hover());
                                 ui.painter().rect_filled(bar, 2.0, accent);
                                 ui.add(egui::Label::new(RichText::new(&t.text)).wrap());
-                                if t.kind == ToastKind::Error && ui.small_button("✕").on_hover_text(tr!("toast.close")).clicked() {
+                                if t.kind == ToastKind::Error && ui.small_button("✕").on_hover_text(tr!("toast.close")).clicked()
+                                {
                                     close = Some(i);
                                 }
                             });

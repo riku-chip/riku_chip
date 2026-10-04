@@ -53,11 +53,7 @@ impl LayerKeys {
 
         let mut ordered: Vec<(u32, u32)> = tags.into_iter().collect();
         ordered.sort_by_key(|&t| (this.spec(gds_tag(t)).rank, t));
-        this.keys = ordered
-            .into_iter()
-            .enumerate()
-            .map(|(i, t)| (t, i.min(u16::MAX as usize) as Layer))
-            .collect();
+        this.keys = ordered.into_iter().enumerate().map(|(i, t)| (t, i.min(u16::MAX as usize) as Layer)).collect();
         this
     }
 
@@ -96,7 +92,12 @@ fn gds_tag((layer, datatype): (u32, u32)) -> GdsTag {
 fn layer_paint(tag: GdsTag, spec: LayerSpec, magic_name: Option<&str>) -> LayerPaint {
     let c = spec.color;
     let stroke = Rgba::new(c.r, c.g, c.b, 255);
-    LayerPaint { name: layer_label(tag, &spec, magic_name), fill: stroke.with_alpha(fill_alpha(spec.role)), stroke, hidden: false }
+    LayerPaint {
+        name: layer_label(tag, &spec, magic_name),
+        fill: stroke.with_alpha(fill_alpha(spec.role)),
+        stroke,
+        hidden: false,
+    }
 }
 
 pub(crate) fn layer_label(tag: GdsTag, spec: &LayerSpec, magic_name: Option<&str>) -> String {
@@ -106,4 +107,3 @@ pub(crate) fn layer_label(tag: GdsTag, spec: &LayerSpec, magic_name: Option<&str
         (None, None) => format!("{}/{}", tag.layer, tag.datatype),
     }
 }
-

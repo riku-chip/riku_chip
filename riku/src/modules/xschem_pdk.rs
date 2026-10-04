@@ -57,8 +57,7 @@ impl PdkSource {
 const PREFERRED: &[&str] = &["sky130A", "gf180mcuD", "ihp-sg13g2"];
 
 pub fn pdk_status() -> PdkStatus {
-    let (Some(root), Some(name)) = (std::env::var("PDK_ROOT").ok(), std::env::var("PDK").ok().filter(|p| !p.is_empty()))
-    else {
+    let (Some(root), Some(name)) = (std::env::var("PDK_ROOT").ok(), std::env::var("PDK").ok().filter(|p| !p.is_empty())) else {
         return PdkStatus::NotConfigured;
     };
     let path = Path::new(&root).join(&name).join("libs.tech/xschem");
@@ -96,9 +95,7 @@ pub fn symbol_source_for(content: &str) -> PdkSource {
             };
             PdkSource::Env { path, extra }
         }
-        PdkStatus::Misconfigured(p) => {
-            PdkSource::Missing(tr!("pdk.points_to_missing", path = p.display()))
-        }
+        PdkStatus::Misconfigured(p) => PdkSource::Missing(tr!("pdk.points_to_missing", path = p.display())),
         PdkStatus::NotConfigured => match pdk_root() {
             Some(root) => match detect_pdks(&root, content) {
                 found if !found.is_empty() => PdkSource::Detected(found),

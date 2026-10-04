@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eframe::egui;
-use viewer_core::{
-    backend::ViewerBackend, bbox::BoundingBox, element::Layer, scene::SceneHandle, viewport::Viewport, DiffFiles,
-};
+use viewer_core::{backend::ViewerBackend, bbox::BoundingBox, element::Layer, scene::SceneHandle, viewport::Viewport, DiffFiles};
 
 use crate::gui::loader::LoadedScene;
 use crate::gui::motion::{Inertia, ViewAnimation};
@@ -58,7 +56,12 @@ pub(crate) enum LoadKind {
     Single,
     /// `renamed`: entradas renombradas (antes, después), para abrir la misma
     /// en cada pestaña; las da la escena de diff.
-    Diff { before: Arc<Vec<u8>>, files: DiffFiles, tab: DiffTab, renamed: Arc<[(String, String)]> },
+    Diff {
+        before: Arc<Vec<u8>>,
+        files: DiffFiles,
+        tab: DiffTab,
+        renamed: Arc<[(String, String)]>,
+    },
 }
 
 /// Un paso atrás de la navegación dentro de un archivo: de qué entrada
@@ -141,7 +144,8 @@ impl Mark {
 
     /// Lo que ocupa, para encuadrarlo.
     pub(crate) fn bbox(&self) -> Option<BoundingBox> {
-        let mut points = self.fills.iter().flatten().copied().chain(self.boxes.iter().flat_map(|b| [(b.min_x, b.min_y), (b.max_x, b.max_y)]));
+        let mut points =
+            self.fills.iter().flatten().copied().chain(self.boxes.iter().flat_map(|b| [(b.min_x, b.min_y), (b.max_x, b.max_y)]));
         let first = points.next()?;
         let mut bb = BoundingBox::from_points(first, first);
         for (x, y) in points {
@@ -170,7 +174,13 @@ impl SceneState {
             },
             None => SceneState {
                 // Las capas de ayuda (transistores) empiezan ocultas.
-                hidden_layers: loaded.scene.layer_list().into_iter().filter(|(_, p)| p.hidden).map(|(_, p)| p.name.clone()).collect(),
+                hidden_layers: loaded
+                    .scene
+                    .layer_list()
+                    .into_iter()
+                    .filter(|(_, p)| p.hidden)
+                    .map(|(_, p)| p.name.clone())
+                    .collect(),
                 scene: loaded.scene,
                 viewport: Viewport::default(),
                 backend: loaded.backend,
@@ -199,12 +209,7 @@ impl SceneState {
 
     /// Claves de capa de la escena actual que están ocultas.
     pub(crate) fn hidden_keys(&self) -> HashSet<Layer> {
-        self.scene
-            .layer_list()
-            .into_iter()
-            .filter(|(_, p)| self.hidden_layers.contains(&p.name))
-            .map(|(k, _)| k)
-            .collect()
+        self.scene.layer_list().into_iter().filter(|(_, p)| self.hidden_layers.contains(&p.name)).map(|(k, _)| k).collect()
     }
 
     /// Nombre de la capa resaltada: la del puntero, o la fija.

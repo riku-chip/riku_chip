@@ -23,9 +23,9 @@ use xschem_viewer::{DrawElement as X, HAlign as XH, LineDirection, ResolvedScene
 
 use super::xschem::{is_xschem, render_options_for, XschemModule};
 use super::xschem_hier as hier;
-use crate::i18n::tr;
 use super::xschem_pdk::{installed_pdks, pdk_root, PdkSource};
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange};
+use crate::i18n::tr;
 use riku_kernel::{DiffFiles, DiffOptions, DiskFiles, FileSource, FormatModule};
 
 /// Capa sintética de los marcadores de símbolo faltante.
@@ -253,7 +253,11 @@ fn resolve(content: &[u8]) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
 /// Como [`resolve`]; los símbolos del proyecto (`amp.sym` junto al
 /// esquemático `path`) salen primero de `files`, la misma versión: en el
 /// diff de dos commits, cada lado con sus propios símbolos.
-fn resolve_in(content: &[u8], path: &str, files: Option<&Arc<dyn FileSource>>) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
+fn resolve_in(
+    content: &[u8],
+    path: &str,
+    files: Option<&Arc<dyn FileSource>>,
+) -> viewer_core::Result<(ResolvedScene, PdkSource)> {
     let text = std::str::from_utf8(content).map_err(|e| ViewerError::Parse(tr!("err.not_utf8", error = e)))?;
     let parsed = xschem_viewer::parser::parse(text).map_err(|e| ViewerError::Parse(e.to_string()))?;
     let (mut opts, pdk) = render_options_for(text);
@@ -281,10 +285,7 @@ fn scene_from(rs: &ResolvedScene, pdk: &PdkSource) -> Scene {
         }
     }
     scene.layers = layers.into_iter().map(|l| (l, layer_paint(l))).collect();
-    scene.metadata = vec![
-        (tr!("meta.elements"), rs.elements.len().to_string()),
-        (tr!("meta.wires"), rs.wires.len().to_string()),
-    ];
+    scene.metadata = vec![(tr!("meta.elements"), rs.elements.len().to_string()), (tr!("meta.wires"), rs.wires.len().to_string())];
     match pdk {
         PdkSource::Env { path, extra } if extra.is_empty() => scene.metadata.push((tr!("meta.pdk"), pdk_name(path))),
         PdkSource::Env { path, extra } => {
@@ -491,7 +492,11 @@ fn diff_scene(a: Option<&ResolvedScene>, b: &ResolvedScene, pdk: &PdkSource, rep
     let mut functional = 0;
     let mut cosmetic = 0;
     for c in &report.changes {
-        if c.cosmetic { cosmetic += 1 } else { functional += 1 }
+        if c.cosmetic {
+            cosmetic += 1
+        } else {
+            functional += 1
+        }
         let Some((annotation, item)) = mark(a, b, c) else { continue };
         if let Some(an) = annotation {
             scene.annotations.push(an);
@@ -522,9 +527,15 @@ fn highlight_changes(scene: &mut Scene, b: &ResolvedScene, report: &FileChange) 
         match &c.element {
             Element::Component { name } => changed.extend(b.elements_of(name).flat_map(convert)),
             Element::Net { name } if c.kind == ChangeKind::Added => {
-                changed.extend(b.wires.iter().filter(|w| w.4.as_deref() == Some(name.as_str())).map(|&(x1, y1, x2, y2, _)| {
-                    Vc::Line { x1, y1, x2, y2, layer: 1 }
-                }));
+                changed.extend(
+                    b.wires.iter().filter(|w| w.4.as_deref() == Some(name.as_str())).map(|&(x1, y1, x2, y2, _)| Vc::Line {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        layer: 1,
+                    }),
+                );
             }
             _ => {}
         }
@@ -597,7 +608,14 @@ fn mark(a: Option<&ResolvedScene>, b: &ResolvedScene, c: &Change) -> Option<(Opt
                 label: name.clone(),
                 shape: AnnotationShape::Segments(segs),
             });
-            let item = ChangeItem { kind, label: format!("net:{name}"), detail: String::new(), bbox, cosmetic: c.cosmetic, error: false };
+            let item = ChangeItem {
+                kind,
+                label: format!("net:{name}"),
+                detail: String::new(),
+                bbox,
+                cosmetic: c.cosmetic,
+                error: false,
+            };
             Some((annotation, item))
         }
         Element::Whole => Some((
@@ -655,14 +673,20 @@ N 0 0 100 0 {lab=out}
 ";
 
     fn project(r: &str) -> Arc<dyn FileSource> {
-        let amp = format!("v {{xschem version=3.4.5 file_version=1.2}}
+        let amp = format!(
+            "v {{xschem version=3.4.5 file_version=1.2}}
 C {{res.sym}} 0 0 0 0 {{name=R1 value={r}}}
-");
+"
+        );
         let sym = "v {xschem version=3.4.5 file_version=1.2}
 L 4 -20 0 20 0 {}
 B 5 -22.5 -2.5 -17.5 2.5 {name=in dir=in}
 ";
-        Arc::new(Mem(HashMap::from([("top.sch", TOP.as_bytes().to_vec()), ("amp.sch", amp.into_bytes()), ("amp.sym", sym.as_bytes().to_vec())])))
+        Arc::new(Mem(HashMap::from([
+            ("top.sch", TOP.as_bytes().to_vec()),
+            ("amp.sch", amp.into_bytes()),
+            ("amp.sym", sym.as_bytes().to_vec()),
+        ])))
     }
 
     fn block<T>(f: impl std::future::Future<Output = T>) -> T {
@@ -676,24 +700,55 @@ B 5 -22.5 -2.5 -17.5 2.5 {name=in dir=in}
         let ids: Vec<&str> = top.entries().iter().map(|e| e.id.as_str()).collect();
         assert_eq!(ids, ["top.sch", "amp.sch"], "la raíz primero");
         assert_eq!(top.current_entry(), Some("top.sch"));
-        assert_eq!(top.links().iter().map(|l| (l.entry.as_str(), l.label.as_str())).collect::<Vec<_>>(), [("amp.sch", "x1 (amp.sch)")]);
+        assert_eq!(
+            top.links().iter().map(|l| (l.entry.as_str(), l.label.as_str())).collect::<Vec<_>>(),
+            [("amp.sch", "x1 (amp.sch)")]
+        );
 
-        let amp = block(v.load_with(TOP.into(), Some("top.sch".into()), Some("amp.sch".into()), Some(project("1k")), Default::default())).unwrap();
+        let amp = block(v.load_with(
+            TOP.into(),
+            Some("top.sch".into()),
+            Some("amp.sch".into()),
+            Some(project("1k")),
+            Default::default(),
+        ))
+        .unwrap();
         assert_eq!(amp.current_entry(), Some("amp.sch"));
-        assert!(block(v.load_with(TOP.into(), Some("top.sch".into()), Some("otro.sch".into()), Some(project("1k")), Default::default())).is_err());
+        assert!(block(v.load_with(
+            TOP.into(),
+            Some("top.sch".into()),
+            Some("otro.sch".into()),
+            Some(project("1k")),
+            Default::default()
+        ))
+        .is_err());
     }
 
     #[test]
     fn el_diff_marca_el_sub_esquematico_y_su_padre() {
         let v = XschemViewer;
         let files = DiffFiles::new(Some(project("1k")), Some(project("2k")));
-        let top = block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), None, files.clone(), Default::default())).unwrap();
+        let top =
+            block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), None, files.clone(), Default::default()))
+                .unwrap();
         let change = |id: &str| top.entries().iter().find(|e| e.id == id).and_then(|e| e.change);
         assert_eq!(change("amp.sch"), Some(VcKind::Modified));
         assert_eq!(change("top.sch"), Some(VcKind::Modified), "por dentro");
-        assert!(top.changes().iter().any(|c| c.label.contains("x1") && c.detail.contains(&tr!("diff.inside", path = "amp.sch"))), "{:?}", top.changes());
+        assert!(
+            top.changes().iter().any(|c| c.label.contains("x1") && c.detail.contains(&tr!("diff.inside", path = "amp.sch"))),
+            "{:?}",
+            top.changes()
+        );
 
-        let amp = block(v.load_diff_with(TOP.into(), TOP.into(), Some("top.sch".into()), Some("amp.sch".into()), files, Default::default())).unwrap();
+        let amp = block(v.load_diff_with(
+            TOP.into(),
+            TOP.into(),
+            Some("top.sch".into()),
+            Some("amp.sch".into()),
+            files,
+            Default::default(),
+        ))
+        .unwrap();
         assert_eq!(amp.current_entry(), Some("amp.sch"));
         assert!(amp.changes().iter().any(|c| c.label.contains("R1")), "el diff de amp.sch: {:?}", amp.changes());
     }
@@ -735,18 +790,29 @@ C {res.sym} 40 0 0 0 {name=R1 value=2k}\n";
     fn a_wire_kept_reversed_or_within_tolerance_is_not_a_ghost() {
         let head = "v {xschem version=3.0.0 file_version=1.2}
 ";
-        let a = format!("{head}N 0 0 100 0 {{lab=x}}
+        let a = format!(
+            "{head}N 0 0 100 0 {{lab=x}}
 N 0 50 100 50 {{lab=old}}
 N 3 7 3 90 {{lab=y}}
-");
+"
+        );
         // El primero invertido, el tercero corrido menos que la tolerancia.
-        let b = format!("{head}N 100 0 0 0 {{lab=x}}
+        let b = format!(
+            "{head}N 100 0 0 0 {{lab=x}}
 N 3.0004 7 3 90 {{lab=y}}
-");
+"
+        );
         let (ra, (rb, pdk)) = (resolve(a.as_bytes()).unwrap().0, resolve(b.as_bytes()).unwrap());
         let report = XschemModule::new().diff(a.as_bytes(), b.as_bytes(), "t.sch", &DiffOptions::default());
         let s = diff_scene(Some(&ra), &rb, &pdk, &report);
-        let ghosts: Vec<f64> = s.ghost.iter().filter_map(|g| match g { Vc::Line { y1, .. } => Some(*y1), _ => None }).collect();
+        let ghosts: Vec<f64> = s
+            .ghost
+            .iter()
+            .filter_map(|g| match g {
+                Vc::Line { y1, .. } => Some(*y1),
+                _ => None,
+            })
+            .collect();
         assert_eq!(ghosts, vec![50.0], "solo el wire que ya no está");
     }
 

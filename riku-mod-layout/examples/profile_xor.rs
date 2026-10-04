@@ -16,7 +16,8 @@ fn area(v: &[OwnedPolygon]) -> f64 {
     v.iter()
         .map(|p| {
             let n = p.points.len();
-            (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>().abs() / 2.0
+            (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>().abs()
+                / 2.0
         })
         .sum()
 }
@@ -83,10 +84,7 @@ fn instance_polys(lib: &Library, name: &str, tag: GdsTag) -> Vec<OwnedPolygon> {
         let r = top.references().find(|r| r.cell_name() == name).expect("instancia");
         r.get_polygons().with_filter(tag.layer, tag.datatype).build()
     };
-    flat
-        .polygons()
-        .map(|p| OwnedPolygon { layer: p.layer(), datatype: p.datatype(), points: p.points().collect() })
-        .collect()
+    flat.polygons().map(|p| OwnedPolygon { layer: p.layer(), datatype: p.datatype(), points: p.points().collect() }).collect()
 }
 
 fn main() {
@@ -112,7 +110,13 @@ fn main() {
         let whole = xor_split_owned(&pa, &pb, tag);
         let t_whole = t.elapsed();
         let (ref_add, ref_rem) = (area(&whole.added), area(&whole.removed));
-        println!("entero: {t_whole:.2?} · +{:.3} −{:.3} µm² ({} + {} polígonos)", ref_add, ref_rem, whole.added.len(), whole.removed.len());
+        println!(
+            "entero: {t_whole:.2?} · +{:.3} −{:.3} µm² ({} + {} polígonos)",
+            ref_add,
+            ref_rem,
+            whole.added.len(),
+            whole.removed.len()
+        );
         (ref_add, ref_rem)
     };
 

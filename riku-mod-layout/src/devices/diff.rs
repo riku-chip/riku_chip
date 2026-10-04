@@ -62,9 +62,15 @@ pub fn device_changes(cell: &str, a: &[Device], b: &[Device], unit_um: f64) -> V
         match hit {
             Some((i, da)) => {
                 used[i] = true;
-                let same = da.model == db.model && (da.w_um - db.w_um).abs() <= TOLERANCE_UM && (da.l_um - db.l_um).abs() <= TOLERANCE_UM;
+                let same = da.model == db.model
+                    && (da.w_um - db.w_um).abs() <= TOLERANCE_UM
+                    && (da.l_um - db.l_um).abs() <= TOLERANCE_UM;
                 if !same {
-                    out.push(DeviceChange { cell: cell.to_string(), before: Some(desc(da, unit_um)), after: Some(desc(db, unit_um)) });
+                    out.push(DeviceChange {
+                        cell: cell.to_string(),
+                        before: Some(desc(da, unit_um)),
+                        after: Some(desc(db, unit_um)),
+                    });
                 }
             }
             None => out.push(DeviceChange { cell: cell.to_string(), before: None, after: Some(desc(db, unit_um)) }),
@@ -140,7 +146,8 @@ mod tests {
         // El primero se agrandó, el segundo igual, el tercero se quitó y hay uno nuevo.
         let b = [dev("nfet", 0.0, 0.84), dev("nfet", 1.0, 0.65), dev("nfet", 5.0, 0.42)];
         let ch = device_changes("INV", &a, &b, 1.0);
-        let summary: Vec<(Option<f64>, Option<f64>)> = ch.iter().map(|c| (c.before.as_ref().map(|d| d.w_um), c.after.as_ref().map(|d| d.w_um))).collect();
+        let summary: Vec<(Option<f64>, Option<f64>)> =
+            ch.iter().map(|c| (c.before.as_ref().map(|d| d.w_um), c.after.as_ref().map(|d| d.w_um))).collect();
         assert_eq!(summary, [(Some(0.42), Some(0.84)), (None, Some(0.42)), (Some(1.0), None)]);
         assert!(ch.iter().all(|c| c.cell == "INV"));
         assert!(device_changes("INV", &a, &a, 1.0).is_empty(), "sin cambios");

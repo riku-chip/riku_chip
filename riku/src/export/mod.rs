@@ -72,10 +72,8 @@ pub fn image(
     let svg_text = if is_raw(path) {
         raw_svg(path, before.as_deref(), &after, diff, &style)?
     } else {
-        let module = modules
-            .for_path(path)
-            .or_else(|| modules.detect(&after))
-            .ok_or_else(|| tr!("err.no_module", file = path))?;
+        let module =
+            modules.for_path(path).or_else(|| modules.detect(&after)).ok_or_else(|| tr!("err.no_module", file = path))?;
         let backend = module.viewer().ok_or_else(|| tr!("err.no_image", file = path))?;
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
         let token = CancellationToken::new();

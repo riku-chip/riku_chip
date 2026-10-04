@@ -443,7 +443,12 @@ fn pick_own(pieces: &Pieces<'_>, which: &[usize], own: &[u64]) -> (Vec<OwnedPoly
 ///
 /// El tercer valor es `true` si Clipper falló en algún cuadrante: el
 /// resultado puede estar incompleto.
-pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &PairPrints) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, bool) {
+pub(crate) fn xor_layer(
+    ca: &Cell<'_>,
+    cb: &Cell<'_>,
+    key: LayerKey,
+    pair: &PairPrints,
+) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, bool) {
     let empty = Vec::new();
     let (pa, pb) = (pair.a.get(&key).unwrap_or(&empty), pair.b.get(&key).unwrap_or(&empty));
     let (own_a, own_b) = multiset_diff(pa, pb);
@@ -458,8 +463,7 @@ pub(crate) fn xor_layer(ca: &Cell<'_>, cb: &Cell<'_>, key: LayerKey, pair: &Pair
     let t = std::time::Instant::now();
 
     let (sa, sb) = (Pieces::new(ca, Some(key)), Pieces::new(cb, Some(key)));
-    let ((a_own, a_at), (b_own, _)) =
-        rayon::join(|| pick_own(&sa, &pair.only_a, &own_a), || pick_own(&sb, &pair.only_b, &own_b));
+    let ((a_own, a_at), (b_own, _)) = rayon::join(|| pick_own(&sa, &pair.only_a, &own_a), || pick_own(&sb, &pair.only_b, &own_b));
 
     // Comunes de A que tocan lo propio de algún lado.
     let targets: Vec<[f64; 4]> = a_own.iter().chain(&b_own).map(owned_bbox).collect();
@@ -522,7 +526,12 @@ const MAX_DEPTH: u32 = 8;
 /// Un polígono de diferencia que cruza un borde de cuadrante sale partido;
 /// las áreas y los bbox no cambian. Devuelve también la cantidad de hojas
 /// y si Clipper falló en alguna.
-fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, usize, bool) {
+fn tiled_xor(
+    a: &[OwnedPolygon],
+    b: &[OwnedPolygon],
+    key: LayerKey,
+    leaf: usize,
+) -> (Vec<OwnedPolygon>, Vec<OwnedPolygon>, usize, bool) {
     if a.len() + b.len() <= 2 * leaf {
         let split = xor_split_owned(a, b, key.into());
         return (split.added, split.removed, 1, split.error.is_some());
@@ -538,7 +547,9 @@ fn tiled_xor(a: &[OwnedPolygon], b: &[OwnedPolygon], key: LayerKey, leaf: usize)
     let parts: Vec<(Vec<OwnedPolygon>, Vec<OwnedPolygon>, bool)> = leaves
         .par_iter()
         .map(|(rect, ia, ib)| {
-            let pick = |polys: &[OwnedPolygon], idx: &[u32]| -> Vec<OwnedPolygon> { idx.iter().map(|&i| polys[i as usize].clone()).collect() };
+            let pick = |polys: &[OwnedPolygon], idx: &[u32]| -> Vec<OwnedPolygon> {
+                idx.iter().map(|&i| polys[i as usize].clone()).collect()
+            };
             let split = xor_split_owned(&pick(a, ia), &pick(b, ib), key.into());
             let cut = |v: Vec<OwnedPolygon>| -> Vec<OwnedPolygon> { v.iter().filter_map(|p| clip_to_rect(p, rect)).collect() };
             let failed = split.error.is_some();
@@ -574,7 +585,8 @@ impl Sides<'_> {
             return;
         }
         let (mx, my) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
-        let quads = [[rect[0], rect[1], mx, my], [mx, rect[1], rect[2], my], [rect[0], my, mx, rect[3]], [mx, my, rect[2], rect[3]]];
+        let quads =
+            [[rect[0], rect[1], mx, my], [mx, rect[1], rect[2], my], [rect[0], my, mx, rect[3]], [mx, my, rect[2], rect[3]]];
         for q in quads {
             let touches = |b: &[f64; 4]| b[0] <= q[2] && b[2] >= q[0] && b[1] <= q[3] && b[3] >= q[1];
             let sub_a: Vec<u32> = ia.iter().copied().filter(|&i| touches(&self.a[i as usize])).collect();
@@ -851,11 +863,16 @@ mod tests {
             v.iter()
                 .map(|p| {
                     let n = p.points.len();
-                    (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>().abs() / 2.0
+                    (0..n)
+                        .map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y)
+                        .sum::<f64>()
+                        .abs()
+                        / 2.0
                 })
                 .sum()
         };
-        let pairs = [("hier_inv_a.gds", "hier_inv_b.gds"), ("multi_inst_a.gds", "multi_inst_b.gds"), ("rename_a.gds", "rename_b.gds")];
+        let pairs =
+            [("hier_inv_a.gds", "hier_inv_b.gds"), ("multi_inst_a.gds", "multi_inst_b.gds"), ("rename_a.gds", "rename_b.gds")];
         let mut compared = 0;
         for (a, b) in pairs {
             let (la, lb) = (Library::from_bytes_any(&fixture(a)).unwrap(), Library::from_bytes_any(&fixture(b)).unwrap());
@@ -869,7 +886,11 @@ mod tests {
                         continue;
                     }
                     let (x, y) = (xor_layer(&ca, &cb, *key, &twins), xor_layer(&ca, &cb, *key, &all));
-                    assert!((area(&x.0) - area(&y.0)).abs() < 1e-9 && (area(&x.1) - area(&y.1)).abs() < 1e-9, "{a} {} {key:?}", ca.name());
+                    assert!(
+                        (area(&x.0) - area(&y.0)).abs() < 1e-9 && (area(&x.1) - area(&y.1)).abs() < 1e-9,
+                        "{a} {} {key:?}",
+                        ca.name()
+                    );
                     compared += 1;
                 }
             }
@@ -892,7 +913,11 @@ mod tests {
         v.iter()
             .map(|p| {
                 let n = p.points.len();
-                (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>().abs() / 2.0
+                (0..n)
+                    .map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y)
+                    .sum::<f64>()
+                    .abs()
+                    / 2.0
             })
             .sum()
     }

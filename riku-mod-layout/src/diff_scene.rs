@@ -36,16 +36,9 @@ pub(crate) struct CachedDiff<'a> {
 }
 
 impl CachedDiff<'_> {
-    fn get<T: serde::Serialize + serde::de::DeserializeOwned>(
-        &self,
-        kind: &str,
-        params: &str,
-        compute: impl FnOnce() -> T,
-    ) -> T {
+    fn get<T: serde::Serialize + serde::de::DeserializeOwned>(&self, kind: &str, params: &str, compute: impl FnOnce() -> T) -> T {
         let params = format!("{}{params}", self.read_params);
-        let r = self.cache.get_or_compute(kind, &self.inputs, &params, || {
-            Ok::<_, std::convert::Infallible>(compute())
-        });
+        let r = self.cache.get_or_compute(kind, &self.inputs, &params, || Ok::<_, std::convert::Infallible>(compute()));
         match r {
             Ok((v, _)) => v,
             Err(never) => match never {},
@@ -131,9 +124,8 @@ pub(crate) fn build_diff_scene(
         _ => name.as_str(),
     };
     let params = format!("{name_a}\n{name}\n{}", cfg.cosmetic_threshold_um2);
-    let diff: CellDiff = cached
-        .get("cell", &params, || CellDiffDto::from(&diff_cell_as(lib_a, name_a, lib_b, &name, &cfg)))
-        .into();
+    let diff: CellDiff =
+        cached.get("cell", &params, || CellDiffDto::from(&diff_cell_as(lib_a, name_a, lib_b, &name, &cfg))).into();
     let unit_factor = base_lib.unit() / 1e-6;
 
     // Capas del overlay, al final de la lista (y por encima al pintar).
@@ -143,10 +135,9 @@ pub(crate) fn build_diff_scene(
         k_removed,
         LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1, hidden: false },
     );
-    scene.layers.insert(
-        k_added,
-        LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1, hidden: false },
-    );
+    scene
+        .layers
+        .insert(k_added, LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1, hidden: false });
     let polygon = |p: &gdstk_rs::OwnedPolygon, layer| DrawElement::Polygon {
         points: p.points.iter().map(|q| (q.x, q.y)).collect(),
         layer,
@@ -347,4 +338,3 @@ pub(crate) fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
     });
     ChangeItem { kind, label, detail, bbox, cosmetic: p.cosmetic, error: false }
 }
-

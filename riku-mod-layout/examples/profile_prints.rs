@@ -105,14 +105,16 @@ fn main() {
     // ── 1. Reparto de las referencias ──
     println!("\n== Referencias de la top (polígonos aplanados de cada una)");
     let t = Instant::now();
-    let mut per_ref: Vec<(u64, String)> = cell
-        .references()
-        .map(|r| (r.get_polygons().build().count(), r.cell_name().to_string()))
-        .collect();
+    let mut per_ref: Vec<(u64, String)> =
+        cell.references().map(|r| (r.get_polygons().build().count(), r.cell_name().to_string())).collect();
     let own = cell.get_polygons().depth(0).build().count();
     let total: u64 = per_ref.iter().map(|x| x.0).sum::<u64>() + own;
     per_ref.sort_by(|a, b| b.0.cmp(&a.0));
-    println!("total {total} · propios {own} ({:.1} %) · contar tardó {:.2}s", 100.0 * own as f64 / total as f64, t.elapsed().as_secs_f64());
+    println!(
+        "total {total} · propios {own} ({:.1} %) · contar tardó {:.2}s",
+        100.0 * own as f64 / total as f64,
+        t.elapsed().as_secs_f64()
+    );
     for (n, name) in per_ref.iter().take(10) {
         println!("  {n:>10}  {:5.1} %  {name}", 100.0 * *n as f64 / total as f64);
     }
@@ -126,32 +128,36 @@ fn main() {
     let mut whole: Prints = BTreeMap::new();
     let mut buf = Vec::new();
     if !skip_whole {
-    println!("\n== Huella entera");
-    let rss0 = rss_mb();
-    let t = Instant::now();
-    let flat = cell.get_polygons().build();
-    let t_flat = t.elapsed().as_secs_f64();
-    let n = flat.count();
-    let rss1 = rss_mb();
-    println!("aplanar: {t_flat:.2}s · {n} polígonos · +{:.0} MB → {:.0} B/polígono", rss1 - rss0, (rss1 - rss0) * 1024.0 * 1024.0 / n as f64);
+        println!("\n== Huella entera");
+        let rss0 = rss_mb();
+        let t = Instant::now();
+        let flat = cell.get_polygons().build();
+        let t_flat = t.elapsed().as_secs_f64();
+        let n = flat.count();
+        let rss1 = rss_mb();
+        println!(
+            "aplanar: {t_flat:.2}s · {n} polígonos · +{:.0} MB → {:.0} B/polígono",
+            rss1 - rss0,
+            (rss1 - rss0) * 1024.0 * 1024.0 / n as f64
+        );
 
-    let t = Instant::now();
-    let mut a: Prints = BTreeMap::new();
-    for p in flat.polygons() {
-        a.entry((p.layer(), p.datatype())).or_default().push(hash_alloc(&p));
-    }
-    let t_hash_alloc = t.elapsed().as_secs_f64();
-    let t = Instant::now();
-    prints_of(&flat, &mut buf, &mut whole);
-    let t_hash_buf = t.elapsed().as_secs_f64();
-    let t = Instant::now();
-    sort_all(&mut whole);
-    let t_sort = t.elapsed().as_secs_f64();
-    sort_all(&mut a);
-    assert_eq!(a, whole, "hash con Vec nuevo y con buffer deben coincidir");
-    println!("hashear: {t_hash_alloc:.2}s con Vec nuevo · {t_hash_buf:.2}s con buffer · ordenar {t_sort:.2}s");
-    drop(flat);
-    println!("tras soltar el aplanado: RSS {:.0} MB (pico {:.0} MB)", rss_mb(), peak_mb());
+        let t = Instant::now();
+        let mut a: Prints = BTreeMap::new();
+        for p in flat.polygons() {
+            a.entry((p.layer(), p.datatype())).or_default().push(hash_alloc(&p));
+        }
+        let t_hash_alloc = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        prints_of(&flat, &mut buf, &mut whole);
+        let t_hash_buf = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        sort_all(&mut whole);
+        let t_sort = t.elapsed().as_secs_f64();
+        sort_all(&mut a);
+        assert_eq!(a, whole, "hash con Vec nuevo y con buffer deben coincidir");
+        println!("hashear: {t_hash_alloc:.2}s con Vec nuevo · {t_hash_buf:.2}s con buffer · ordenar {t_sort:.2}s");
+        drop(flat);
+        println!("tras soltar el aplanado: RSS {:.0} MB (pico {:.0} MB)", rss_mb(), peak_mb());
     }
 
     // ── 3. Por pedazos, un hilo: mismos hashes ──
@@ -170,42 +176,52 @@ fn main() {
     }
     sort_all(&mut chunked);
     println!("1 hilo: {:.2}s · RSS máximo durante los pedazos {:.0} MB", t.elapsed().as_secs_f64(), peak_chunk);
-    if skip_whole { whole = chunked.clone(); } else { println!("iguales a la huella entera: {}", chunked == whole); }
+    if skip_whole {
+        whole = chunked.clone();
+    } else {
+        println!("iguales a la huella entera: {}", chunked == whole);
+    }
 
     // ── 4. Por pedazos, en paralelo ──
     let refs: Vec<gdstk_rs::Reference<'_>> = cell.references().collect();
     for threads in [1, 2, 4, 6, threads] {
-    let next = AtomicUsize::new(0);
-    let t = Instant::now();
-    let parts: Vec<Prints> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..threads)
-            .map(|_| {
-                s.spawn(|| {
-                    let mut out: Prints = BTreeMap::new();
-                    let mut buf = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i > refs.len() {
-                            break;
+        let next = AtomicUsize::new(0);
+        let t = Instant::now();
+        let parts: Vec<Prints> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..threads)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mut out: Prints = BTreeMap::new();
+                        let mut buf = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            if i > refs.len() {
+                                break;
+                            }
+                            let f =
+                                if i == 0 { cell.get_polygons().depth(0).build() } else { refs[i - 1].get_polygons().build() };
+                            prints_of(&f, &mut buf, &mut out);
                         }
-                        let f = if i == 0 { cell.get_polygons().depth(0).build() } else { refs[i - 1].get_polygons().build() };
-                        prints_of(&f, &mut buf, &mut out);
-                    }
-                    out
+                        out
+                    })
                 })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
-    let t_par = t.elapsed().as_secs_f64();
-    let t = Instant::now();
-    let mut merged: Prints = BTreeMap::new();
-    for p in parts {
-        for (k, v) in p {
-            merged.entry(k).or_default().extend(v);
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let t_par = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        let mut merged: Prints = BTreeMap::new();
+        for p in parts {
+            for (k, v) in p {
+                merged.entry(k).or_default().extend(v);
+            }
         }
-    }
-    sort_all(&mut merged);
-    println!("{threads} hilos: {t_par:.2}s + juntar y ordenar {:.2}s · iguales: {} · pico del proceso {:.0} MB", t.elapsed().as_secs_f64(), merged == whole, peak_mb());
+        sort_all(&mut merged);
+        println!(
+            "{threads} hilos: {t_par:.2}s + juntar y ordenar {:.2}s · iguales: {} · pico del proceso {:.0} MB",
+            t.elapsed().as_secs_f64(),
+            merged == whole,
+            peak_mb()
+        );
     }
 }

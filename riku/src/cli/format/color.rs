@@ -14,7 +14,11 @@ fn enabled() -> bool {
 }
 
 fn paint(s: &str, code: &str) -> String {
-    if enabled() { format!("\x1b[{code}m{s}\x1b[0m") } else { s.to_string() }
+    if enabled() {
+        format!("\x1b[{code}m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
 }
 
 pub fn green(s: &str) -> String {

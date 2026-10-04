@@ -37,11 +37,7 @@ impl ShellContext {
     }
 
     fn cd(&mut self, target: &str) {
-        let next = if std::path::Path::new(target).is_absolute() {
-            PathBuf::from(target)
-        } else {
-            self.cwd.join(target)
-        };
+        let next = if std::path::Path::new(target).is_absolute() { PathBuf::from(target) } else { self.cwd.join(target) };
         match next.canonicalize() {
             Ok(p) if p.is_dir() => {
                 self.cwd = p.clone();
@@ -55,11 +51,7 @@ impl ShellContext {
     fn ls(&self, target: Option<&str>) {
         let dir = match target {
             Some(t) => {
-                let p = if std::path::Path::new(t).is_absolute() {
-                    PathBuf::from(t)
-                } else {
-                    self.cwd.join(t)
-                };
+                let p = if std::path::Path::new(t).is_absolute() { PathBuf::from(t) } else { self.cwd.join(t) };
                 match p.canonicalize() {
                     Ok(p) => p,
                     Err(_) => {
@@ -91,20 +83,11 @@ impl ShellContext {
         let known = crate::modules::registry().openable();
         for entry in &entries {
             let path = entry.path();
-            let openable = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| known.iter().any(|o| e.eq_ignore_ascii_case(o)));
+            let openable =
+                path.extension().and_then(|e| e.to_str()).is_some_and(|e| known.iter().any(|o| e.eq_ignore_ascii_case(o)));
             if openable {
-                let in_git = self
-                    .repo
-                    .as_ref()
-                    .map(|r| {
-                        r.workdir()
-                            .and_then(|wd| path.strip_prefix(wd).ok())
-                            .is_some()
-                    })
-                    .unwrap_or(false);
+                let in_git =
+                    self.repo.as_ref().map(|r| r.workdir().and_then(|wd| path.strip_prefix(wd).ok()).is_some()).unwrap_or(false);
                 let tag = if in_git { "[git]" } else { "     " };
                 println!("  {tag}  {}", entry.file_name().to_string_lossy());
                 found = true;
@@ -117,21 +100,13 @@ impl ShellContext {
     }
 
     fn prompt(&self) -> String {
-        let dir = self
-            .cwd
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| self.cwd.display().to_string());
+        let dir = self.cwd.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.cwd.display().to_string());
         let repo_mark = if self.repo.is_some() { " (git)" } else { "" };
         format!("riku {dir}{repo_mark}> ")
     }
 
     fn repo_path(&self) -> PathBuf {
-        self.repo
-            .as_ref()
-            .and_then(|r| r.workdir())
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| self.cwd.clone())
+        self.repo.as_ref().and_then(|r| r.workdir()).map(|p| p.to_path_buf()).unwrap_or_else(|| self.cwd.clone())
     }
 
     /// Si el usuario pasó `--repo .` (o no lo pasó), usa el repo del shell;
@@ -153,10 +128,7 @@ impl ShellContext {
 fn shell_status_line(ctx: &ShellContext) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let pdk = match pdk_status() {
-        PdkStatus::Found(_) => format!(
-            "PDK: {} [ok]",
-            std::env::var("PDK").unwrap_or_default()
-        ),
+        PdkStatus::Found(_) => format!("PDK: {} [ok]", std::env::var("PDK").unwrap_or_default()),
         PdkStatus::Misconfigured(_) | PdkStatus::NotConfigured => {
             tr!("shell.pdk_none")
         }
@@ -187,9 +159,7 @@ pub(super) fn run_shell() -> Result<(), String> {
         let prompt = ctx.prompt();
         let line = match rl.readline(&prompt) {
             Ok(l) => l,
-            Err(
-                rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof,
-            ) => break,
+            Err(rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof) => break,
             Err(e) => return Err(e.to_string()),
         };
 
@@ -275,13 +245,7 @@ fn dispatch_shell_command(ctx: &mut ShellContext, words: Vec<String>) {
             }
         }
         Err(e) => {
-            println!(
-                "  {}",
-                e.to_string()
-                    .lines()
-                    .next()
-                    .unwrap_or(&tr!("shell.unknown_cmd"))
-            );
+            println!("  {}", e.to_string().lines().next().unwrap_or(&tr!("shell.unknown_cmd")));
         }
     }
 }
@@ -321,17 +285,13 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 }
             }
         }
-        Commands::Show {
-            repo, file_path, ..
-        } => {
+        Commands::Show { repo, file_path, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
             if let Some(f) = file_path.as_mut() {
                 *f = ctx.resolve_file(f);
             }
         }
-        Commands::Log {
-            repo, file_path, ..
-        } => {
+        Commands::Log { repo, file_path, .. } => {
             *repo = ctx.resolve_repo(std::mem::take(repo));
             if let Some(f) = file_path.as_mut() {
                 *f = ctx.resolve_file(f);

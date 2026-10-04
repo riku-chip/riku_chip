@@ -41,27 +41,14 @@ pub fn filter_entries(entries: &[ViewEntry], f: Filter<'_>) -> Vec<usize> {
 }
 
 /// Dibuja el selector. Retorna el id elegido con un clic (si hubo).
-pub fn show(
-    ui: &mut egui::Ui,
-    entries: &[ViewEntry],
-    current: Option<&str>,
-    state: PickerState<'_>,
-) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, entries: &[ViewEntry], current: Option<&str>, state: PickerState<'_>) -> Option<String> {
     let roots = entries.iter().filter(|e| e.is_root).count();
     let changed = entries.iter().filter(|e| e.change.is_some()).count();
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr!("cells.title")).strong());
-        ui.label(
-            RichText::new(tr!("cells.count", roots = roots, total = entries.len()))
-                .small()
-                .color(Color32::from_gray(150)),
-        );
+        ui.label(RichText::new(tr!("cells.count", roots = roots, total = entries.len())).small().color(Color32::from_gray(150)));
     });
-    ui.add(
-        egui::TextEdit::singleline(state.query)
-            .hint_text(tr!("cells.search"))
-            .desired_width(f32::INFINITY),
-    );
+    ui.add(egui::TextEdit::singleline(state.query).hint_text(tr!("cells.search")).desired_width(f32::INFINITY));
     // Con una sola raíz (una jerarquía), filtrar por raíces dejaría solo esa.
     if roots > 1 {
         ui.checkbox(state.only_roots, tr!("cells.only_top"));
@@ -77,32 +64,28 @@ pub fn show(
     };
     let visible = filter_entries(entries, filter);
     if visible.is_empty() {
-        let hint = if filter.only_changed && filter.only_roots {
-            tr!("cells.no_match_hint")
-        } else {
-            tr!("cells.no_match")
-        };
+        let hint = if filter.only_changed && filter.only_roots { tr!("cells.no_match_hint") } else { tr!("cells.no_match") };
         ui.label(RichText::new(hint).italics().color(Color32::from_gray(140)));
         return None;
     }
 
     let mut picked = None;
     let row_h = ui.spacing().interact_size.y;
-    egui::ScrollArea::vertical()
-        .id_salt("entry_picker")
-        .auto_shrink([false, false])
-        .show_rows(ui, row_h, visible.len(), |ui, range| {
+    egui::ScrollArea::vertical().id_salt("entry_picker").auto_shrink([false, false]).show_rows(
+        ui,
+        row_h,
+        visible.len(),
+        |ui, range| {
             for &i in &visible[range] {
                 let e = &entries[i];
                 let selected = current == Some(e.id.as_str());
-                let resp = ui
-                    .add(egui::Button::selectable(selected, row_text(ui, e)).truncate())
-                    .on_hover_text(hover_text(e));
+                let resp = ui.add(egui::Button::selectable(selected, row_text(ui, e)).truncate()).on_hover_text(hover_text(e));
                 if resp.clicked() && !selected {
                     picked = Some(e.id.clone());
                 }
             }
-        });
+        },
+    );
     picked
 }
 

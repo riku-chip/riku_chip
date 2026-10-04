@@ -6,10 +6,10 @@
 //! clap (en `cli/mod.rs`) y el brazo correspondiente de `execute`.
 
 use super::commands::{self, Changes};
-use crate::core::config::Overrides;
 use super::doctor;
 use super::gui;
 use super::{Commands, ImageFormat, ImageTheme, ListFormat, OutputFormat};
+use crate::core::config::Overrides;
 
 /// Resultado de ejecutar un comando, agnóstico al modo (CLI directa vs REPL).
 /// El caller decide cómo mapearlo a exit codes (o ignorarlo, en el shell).
@@ -57,9 +57,7 @@ impl Commands {
             Commands::Diff { format, .. } | Commands::Show { format, .. } => {
                 matches!(format, OutputFormat::Json)
             }
-            Commands::Log { format, json, .. } | Commands::Status { format, json, .. } => {
-                *json || *format == ListFormat::Json
-            }
+            Commands::Log { format, json, .. } | Commands::Status { format, json, .. } => *json || *format == ListFormat::Json,
             Commands::Doctor { format, .. } => *format == ListFormat::Json,
             #[cfg(all(feature = "xschem", feature = "layout"))]
             Commands::Lvs { format, .. } => *format == ListFormat::Json,
@@ -166,26 +164,18 @@ impl Commands {
 
             Commands::Doctor { repo, format } => doctor::run(repo, format == ListFormat::Json).map(|_| Outcome::Ok),
 
-            Commands::Status {
-                repo,
-                include_unknown,
-                format,
-                json,
-                compact,
-                detail,
-                full,
-                paths,
-                ci: _,
-            } => commands::run_status(commands::StatusArgs {
-                repo,
-                include_unknown,
-                json: json || format == ListFormat::Json,
-                compact,
-                detail,
-                full,
-                paths,
-            })
-            .map(Outcome::from),
+            Commands::Status { repo, include_unknown, format, json, compact, detail, full, paths, ci: _ } => {
+                commands::run_status(commands::StatusArgs {
+                    repo,
+                    include_unknown,
+                    json: json || format == ListFormat::Json,
+                    compact,
+                    detail,
+                    full,
+                    paths,
+                })
+                .map(Outcome::from)
+            }
 
             Commands::Demo { name, dir, list } => super::demo::run(name, dir, list).map(|_| Outcome::Ok),
 

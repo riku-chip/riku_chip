@@ -53,7 +53,11 @@ const POWER_NETS: &[&str] = &["VPWR", "VGND", "VDD", "VSS", "VCC", "VEE", "VDDIO
 pub fn label_rank(text: &str) -> u8 {
     let t = text.to_ascii_uppercase();
     let power = POWER_NETS.contains(&t.as_str()) || t.starts_with("VDD") || t.starts_with("VSS");
-    if power { 0 } else { 1 }
+    if power {
+        0
+    } else {
+        1
+    }
 }
 
 /// Une etiquetas con el mismo anclaje sin repetir textos iguales. Dentro de
@@ -115,11 +119,7 @@ fn slots(anchor: Pos2, size: Vec2) -> [Rect; 4] {
 /// Coloca las etiquetas sin solaparse. `measure` da el tamaño del texto en
 /// pantalla. Retorna las colocadas y cuántas se omitieron por falta de lugar.
 /// Etiquetas con el anclaje fuera de `clip` no cuentan (no están a la vista).
-pub fn place(
-    cands: Vec<LabelCandidate>,
-    measure: impl Fn(&str) -> Vec2,
-    clip: Rect,
-) -> (Vec<PlacedLabel>, usize) {
+pub fn place(cands: Vec<LabelCandidate>, measure: impl Fn(&str) -> Vec2, clip: Rect) -> (Vec<PlacedLabel>, usize) {
     let mut placed: Vec<PlacedLabel> = Vec::new();
     // Pastillas ya colocadas por celda de la grilla: una nueva solo se
     // compara con las de su zona.
@@ -137,9 +137,8 @@ pub fn place(
             continue;
         }
         let size = measure(&c.text) + PILL_PADDING * 2.0;
-        let free = |r: &Rect| {
-            cells(*r).filter_map(|k| grid.get(&k)).flatten().all(|&i| !placed[i].rect.expand(MARGIN).intersects(*r))
-        };
+        let free =
+            |r: &Rect| cells(*r).filter_map(|k| grid.get(&k)).flatten().all(|&i| !placed[i].rect.expand(MARGIN).intersects(*r));
         match slots(c.anchor, size).into_iter().find(free) {
             Some(rect) => {
                 for k in cells(rect.expand(MARGIN)) {
@@ -233,11 +232,7 @@ mod tests {
     #[test]
     fn earlier_labels_win_the_space() {
         // Mismo lugar disputado: gana el primero (prioridad del backend).
-        let (p, _) = place(
-            vec![cand(100.0, 100.0, "PIN"), cand(104.0, 100.0, "decorativo")],
-            measure,
-            screen(),
-        );
+        let (p, _) = place(vec![cand(100.0, 100.0, "PIN"), cand(104.0, 100.0, "decorativo")], measure, screen());
         assert_eq!(p[0].text, "PIN");
         assert!(p[0].rect.max.y < 100.0, "el pin conserva la posición preferida");
     }
@@ -301,7 +296,8 @@ mod tests {
         let cands: Vec<LabelCandidate> = (0..3000)
             .map(|i| {
                 // Muchos anclajes repetidos o casi (fusión) y zonas densas.
-                let (x, y) = if i % 5 == 0 { (100.0 + (i % 7) as f32, 100.0) } else { (rnd() * 820.0 - 10.0, rnd() * 620.0 - 10.0) };
+                let (x, y) =
+                    if i % 5 == 0 { (100.0 + (i % 7) as f32, 100.0) } else { (rnd() * 820.0 - 10.0, rnd() * 620.0 - 10.0) };
                 cand(x, y, names[i % names.len()])
             })
             .collect();

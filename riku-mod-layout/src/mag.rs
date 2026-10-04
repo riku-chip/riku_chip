@@ -272,7 +272,13 @@ pub fn port_changes(a: Option<&MagInfo>, b: Option<&MagInfo>) -> Vec<PortChange>
                 (Some(x), Some(y)) => x.functional() == y.functional(),
                 _ => false,
             };
-            out.push(PortChange { cell: cell.to_string(), name: name.to_string(), before: x.cloned(), after: y.cloned(), cosmetic });
+            out.push(PortChange {
+                cell: cell.to_string(),
+                name: name.to_string(),
+                before: x.cloned(),
+                after: y.cloned(),
+                cosmetic,
+            });
         }
     }
     out
@@ -285,11 +291,7 @@ pub fn notices(info: &MagInfo) -> Vec<String> {
         let mut m = info.missing.clone();
         m.sort();
         m.dedup();
-        out.push(format!(
-            "{} celda(s) de Magic sin archivo, comparadas vacías: {}",
-            m.len(),
-            m.join(", ")
-        ));
+        out.push(format!("{} celda(s) de Magic sin archivo, comparadas vacías: {}", m.len(), m.join(", ")));
     }
     out.extend(info.warnings.iter().cloned());
     out

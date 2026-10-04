@@ -163,10 +163,8 @@ impl Tree {
     /// se saltean (no son esquemáticos ni layouts que se puedan comparar).
     pub fn commit(repo: &Path, rev: &str) -> Result<Self, String> {
         let r = git2::Repository::discover(repo).map_err(|e| e.message().to_string())?;
-        let tree = r
-            .revparse_single(rev)
-            .and_then(|o| o.peel_to_tree())
-            .map_err(|_| tr!("git.commit_not_found", commit = rev))?;
+        let tree =
+            r.revparse_single(rev).and_then(|o| o.peel_to_tree()).map_err(|_| tr!("git.commit_not_found", commit = rev))?;
         let temp = TempDir::new("lvs-tree")?;
         let limit = crate::core::domain::git_types::LARGE_BLOB_THRESHOLD;
         let mut failed = None;
@@ -179,7 +177,8 @@ impl Tree {
                 return git2::TreeWalkResult::Ok;
             }
             let path = temp.0.join(dir).join(entry.name().unwrap_or_default());
-            let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, blob.content()));
+            let written =
+                path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, blob.content()));
             if let Err(e) = written {
                 failed = Some(format!("{}: {e}", path.display()));
                 return git2::TreeWalkResult::Abort;
@@ -385,7 +384,9 @@ fn tail(bytes: &[u8]) -> String {
 pub enum StepResult {
     /// El esquemático o el layout no están en ese commit.
     Missing,
-    Error { error: String },
+    Error {
+        error: String,
+    },
     Done {
         #[serde(flatten)]
         report: Box<Report>,
@@ -499,9 +500,16 @@ fn cache_file(signature: &str) -> Option<PathBuf> {
 /// El LVS de cada par en los últimos `limit` commits desde `from` (por el
 /// primer padre, del más nuevo al más viejo). Solo compara cuando el par
 /// cambió; si no, repite el resultado (de este historial o de la caché).
-pub fn history(repo_path: &Path, from: &str, limit: usize, pairs: &[Pair], tools: &Tools) -> Result<Vec<(Pair, Vec<Step>)>, String> {
+pub fn history(
+    repo_path: &Path,
+    from: &str,
+    limit: usize,
+    pairs: &[Pair],
+    tools: &Tools,
+) -> Result<Vec<(Pair, Vec<Step>)>, String> {
     let repo = git2::Repository::discover(repo_path).map_err(|e| e.message().to_string())?;
-    let start = repo.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
+    let start =
+        repo.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
     let mut commits = vec![start];
     while commits.len() < limit {
         let Ok(parent) = commits[commits.len() - 1].parent(0) else { break };
@@ -566,11 +574,7 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
     let side = |v: &Value, i: usize| v.get(i).cloned().unwrap_or(Value::Null);
 
     let devices = |v: &Value| -> BTreeMap<String, u64> {
-        v.as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|d| Some((d.get(0)?.as_str()?.to_string(), d.get(1)?.as_u64()?)))
-            .collect()
+        v.as_array().into_iter().flatten().filter_map(|d| Some((d.get(0)?.as_str()?.to_string(), d.get(1)?.as_u64()?))).collect()
     };
     let strings = |v: &Value| -> Vec<String> {
         v.as_array().into_iter().flatten().map(|s| s.as_str().map_or_else(|| s.to_string(), str::to_string)).collect()
@@ -631,7 +635,10 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
         .collect::<Vec<_>>();
 
     let (unmatched_nets, unmatched_devices) = (groups("badnets"), groups("badelements"));
-    let failed = out.contains("Netlists do not match") || out.contains("failed") || !unmatched_nets.is_empty() || !unmatched_devices.is_empty();
+    let failed = out.contains("Netlists do not match")
+        || out.contains("failed")
+        || !unmatched_nets.is_empty()
+        || !unmatched_devices.is_empty();
     let result = if failed {
         Verdict::Mismatch
     } else if !properties.is_empty() || out.contains("Property errors were found") {
@@ -643,7 +650,10 @@ pub fn parse_netgen(json: &str, out: &str) -> Result<Comparison, String> {
     Ok(Comparison {
         result,
         summary,
-        devices: Sides { layout: devices(&side(top.get("devices").unwrap_or(&Value::Null), 0)), schematic: devices(&side(top.get("devices").unwrap_or(&Value::Null), 1)) },
+        devices: Sides {
+            layout: devices(&side(top.get("devices").unwrap_or(&Value::Null), 0)),
+            schematic: devices(&side(top.get("devices").unwrap_or(&Value::Null), 1)),
+        },
         nets: Sides {
             layout: top.get("nets").and_then(|n| n.get(0)).and_then(Value::as_u64).unwrap_or(0),
             schematic: top.get("nets").and_then(|n| n.get(1)).and_then(Value::as_u64).unwrap_or(0),
@@ -730,11 +740,13 @@ mod tests {
 
     #[test]
     fn sin_json_es_que_no_coinciden() {
-        let c = from_text("Final result: 
+        let c = from_text(
+            "Final result: 
 Top level cell failed pin matching.
 
 LVS Done.
-");
+",
+        );
         assert_eq!((c.result, c.summary), (Verdict::Mismatch, vec!["Top level cell failed pin matching.".to_string()]));
     }
 
@@ -769,8 +781,10 @@ LVS Done.
     fn marca_donde_se_rompio_y_donde_se_arreglo() {
         use Verdict::*;
         // Del más nuevo al más viejo.
-        let mut steps: Vec<Step> =
-            [Some(Match), Some(PropertyErrors), Some(Mismatch), None, Some(PropertyErrors), Some(Match)].into_iter().map(step).collect();
+        let mut steps: Vec<Step> = [Some(Match), Some(PropertyErrors), Some(Mismatch), None, Some(PropertyErrors), Some(Match)]
+            .into_iter()
+            .map(step)
+            .collect();
         mark_transitions(&mut steps);
         let t: Vec<Option<Transition>> = steps.iter().map(|s| s.transition).collect();
         use Transition::*;
@@ -842,7 +856,11 @@ LVS Done.
         let dir = std::env::temp_dir().join(format!("riku-lvs-pair-for-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         git2::Repository::init(&dir).unwrap();
-        for (p, body) in [("xschem/ota.sch", "v {xschem version=3.4.5 file_version=1.2}\n"), ("layout/ota.gds", ""), ("xschem/tb.sch", "v {xschem version=3.4.5 file_version=1.2}\n")] {
+        for (p, body) in [
+            ("xschem/ota.sch", "v {xschem version=3.4.5 file_version=1.2}\n"),
+            ("layout/ota.gds", ""),
+            ("xschem/tb.sch", "v {xschem version=3.4.5 file_version=1.2}\n"),
+        ] {
             let path = dir.join(p);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, body).unwrap();

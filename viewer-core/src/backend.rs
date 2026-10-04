@@ -49,12 +49,7 @@ pub trait ViewerBackend: Send + Sync {
     /// Se espera que las implementaciones ejecuten el trabajo pesado dentro de
     /// `tokio::task::spawn_blocking` y propaguen el `JoinError` como
     /// [`ViewerError::Join`].
-    async fn load(
-        &self,
-        content: Vec<u8>,
-        path_hint: Option<String>,
-        token: CancellationToken,
-    ) -> Result<SceneHandle>;
+    async fn load(&self, content: Vec<u8>, path_hint: Option<String>, token: CancellationToken) -> Result<SceneHandle>;
 
     /// Carga una sub-vista concreta del archivo (ver [`crate::scene::ViewEntry`]).
     /// `None` = la que el backend elige por defecto, igual que [`Self::load`].
@@ -146,10 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn default_load_entry_delegates_to_load() {
-        let s = Plain
-            .load_entry(Vec::new(), None, Some("X".into()), CancellationToken::new())
-            .await
-            .expect("load_entry");
+        let s = Plain.load_entry(Vec::new(), None, Some("X".into()), CancellationToken::new()).await.expect("load_entry");
         assert!(s.entries().is_empty());
         assert!(s.current_entry().is_none());
         assert!(s.changes().is_empty());

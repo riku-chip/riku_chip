@@ -11,9 +11,9 @@
 //! reusando los mismos formateadores que `status` para consistencia.
 
 use super::common::{format_counts, print_detail, warning_lines};
-pub(crate) use crate::text::format_timestamp;
 use crate::core::analysis::log::{LogCommit, LogReport};
 use crate::core::analysis::summary::{DetailLevel, FileSummary};
+pub(crate) use crate::text::format_timestamp;
 
 pub fn print(report: &LogReport, level: DetailLevel) {
     for w in &report.warnings {
@@ -34,25 +34,11 @@ pub fn print(report: &LogReport, level: DetailLevel) {
 }
 
 fn print_commit(c: &LogCommit, level: DetailLevel) {
-    let refs = if c.refs.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", format_refs(&c.refs))
-    };
+    let refs = if c.refs.is_empty() { String::new() } else { format!(" {}", format_refs(&c.refs)) };
     let merge_tag = if c.is_merge { crate::i18n::tr!("log.merge_tag") } else { String::new() };
 
-    println!(
-        "* {}{}{}  {}",
-        c.info.short_id,
-        refs,
-        merge_tag,
-        first_line(&c.info.message)
-    );
-    println!(
-        "          {} · {}",
-        c.info.author,
-        format_timestamp(c.info.timestamp)
-    );
+    println!("* {}{}{}  {}", c.info.short_id, refs, merge_tag, first_line(&c.info.message));
+    println!("          {} · {}", c.info.author, format_timestamp(c.info.timestamp));
 
     if c.is_merge {
         println!("          {}", crate::i18n::tr!("log.merge_no_diff"));
@@ -86,8 +72,6 @@ pub(super) fn format_refs(refs: &[String]) -> String {
     });
     format!("({})", sorted.join(", "))
 }
-
-
 
 fn print_file_line(f: &FileSummary, level: DetailLevel) {
     println!("          {}  {}", f.path, format_counts(f, true));

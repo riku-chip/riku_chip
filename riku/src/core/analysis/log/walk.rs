@@ -5,8 +5,8 @@ use std::path::Path;
 use riku_kernel::{FileChange, Registry};
 
 use crate::core::analysis::diff_pair::{diff_pair, End, OnError, Version};
-use crate::core::analysis::{graph, parallel};
 use crate::core::analysis::summary::{FileSummary, SummaryCategory};
+use crate::core::analysis::{graph, parallel};
 use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitWithParents, LogQuery};
 use crate::core::domain::ports::GitRepository;
 use crate::core::git::git_service::GitService;
@@ -17,11 +17,7 @@ use super::types::{LogCommit, LogError, LogOptions, LogReport};
 // ─── Entry points ────────────────────────────────────────────────────────────
 
 /// Abre el repo desde path y aplica `LogOptions`.
-pub fn analyze_with_options_path(
-    repo_path: &Path,
-    opts: &LogOptions,
-    modules: &Registry,
-) -> Result<LogReport, LogError> {
+pub fn analyze_with_options_path(repo_path: &Path, opts: &LogOptions, modules: &Registry) -> Result<LogReport, LogError> {
     let svc = GitService::open(repo_path)?;
     walk_with_summary(&svc, opts, modules)
 }
@@ -32,12 +28,7 @@ pub fn walk_with_summary<R: GitRepository + ?Sized>(
     modules: &Registry,
 ) -> Result<LogReport, LogError> {
     // El filtro por `paths` va en el recorrido de Git, antes del límite.
-    let query = LogQuery {
-        paths: &opts.paths,
-        limit: opts.limit,
-        start: opts.start.as_deref(),
-        topological: opts.graph,
-    };
+    let query = LogQuery { paths: &opts.paths, limit: opts.limit, start: opts.start.as_deref(), topological: opts.graph };
     let raw = repo.get_commits_with_options(&query)?;
     // El DAG cargado (oid y padres), para el grafo.
     let dag: Vec<(String, Vec<String>)> =
@@ -127,12 +118,7 @@ struct Planned {
 
 /// Primera pasada: qué archivos cambió el commit respecto a su primer padre
 /// y el costo estimado de compararlos (por el tamaño de sus blobs).
-fn plan<R: GitRepository + ?Sized>(
-    repo: &R,
-    raw: CommitWithParents,
-    opts: &LogOptions,
-    modules: &Registry,
-) -> (Planned, u64) {
+fn plan<R: GitRepository + ?Sized>(repo: &R, raw: CommitWithParents, opts: &LogOptions, modules: &Registry) -> (Planned, u64) {
     let mut warnings = Vec::new();
     // Root commit y merges: en v1 no se hace diff por archivo.
     let files = match raw.parents.first() {
@@ -140,9 +126,7 @@ fn plan<R: GitRepository + ?Sized>(
             Ok(list) => {
                 let matcher = PathMatcher::new(&opts.paths);
                 // Formatos sin módulo no se listan en log.
-                list.into_iter()
-                    .filter(|cf| matcher.matches(&cf.path) && modules.for_path(&cf.path).is_some())
-                    .collect()
+                list.into_iter().filter(|cf| matcher.matches(&cf.path) && modules.for_path(&cf.path).is_some()).collect()
             }
             Err(e) => {
                 warnings.push(format!("commit {}: {e}", raw.info.oid));
@@ -226,9 +210,7 @@ fn build_log_commit_without_files(
 mod tests {
     use super::super::types::EnvelopedLogReport;
     use super::*;
-    use crate::core::domain::git_types::{
-        BranchInfo, ChangedFile, CommitChanges, CommitInfo, GitError, WorkingChange,
-    };
+    use crate::core::domain::git_types::{BranchInfo, ChangedFile, CommitChanges, CommitInfo, GitError, WorkingChange};
 
     struct MockRepo {
         commits: Vec<CommitWithParents>,
@@ -242,17 +224,10 @@ mod tests {
             self.blobs
                 .get(&(commit_ish.to_string(), file_path.to_string()))
                 .cloned()
-                .ok_or_else(|| GitError::BlobNotFound {
-                    commit: commit_ish.to_string(),
-                    path: file_path.to_string(),
-                })
+                .ok_or_else(|| GitError::BlobNotFound { commit: commit_ish.to_string(), path: file_path.to_string() })
         }
         fn get_changed_files(&self, a: &str, b: &str) -> Result<Vec<ChangedFile>, GitError> {
-            Ok(self
-                .changed
-                .get(&(a.to_string(), b.to_string()))
-                .cloned()
-                .unwrap_or_default())
+            Ok(self.changed.get(&(a.to_string(), b.to_string())).cloned().unwrap_or_default())
         }
         fn working_tree_changes(&self) -> Result<Vec<WorkingChange>, GitError> {
             Ok(Vec::new())
@@ -260,10 +235,7 @@ mod tests {
         fn current_branch(&self) -> Result<Option<BranchInfo>, GitError> {
             Ok(None)
         }
-        fn get_commits_with_options(
-            &self,
-            _query: &LogQuery<'_>,
-        ) -> Result<Vec<CommitWithParents>, GitError> {
+        fn get_commits_with_options(&self, _query: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError> {
             Ok(self.commits.clone())
         }
         fn refs_by_oid(&self) -> Result<std::collections::HashMap<String, Vec<String>>, GitError> {
@@ -317,16 +289,9 @@ mod tests {
     #[test]
     fn refs_se_anotan_por_oid() {
         let mut refs = std::collections::HashMap::new();
-        refs.insert(
-            "abc1234".to_string(),
-            vec!["main".to_string(), "HEAD".to_string()],
-        );
-        let repo = MockRepo {
-            commits: vec![ci("abc1234", &["parent"])],
-            blobs: Default::default(),
-            changed: Default::default(),
-            refs,
-        };
+        refs.insert("abc1234".to_string(), vec!["main".to_string(), "HEAD".to_string()]);
+        let repo =
+            MockRepo { commits: vec![ci("abc1234", &["parent"])], blobs: Default::default(), changed: Default::default(), refs };
         let report = walk_with_summary(&repo, &LogOptions::default(), &crate::modules::registry()).unwrap();
         assert!(report.commits[0].refs.contains(&"main".to_string()));
         assert!(report.commits[0].refs.contains(&"HEAD".to_string()));
@@ -341,20 +306,14 @@ mod tests {
             changed: Default::default(), // sin entradas → 0 cambios
             refs: Default::default(),
         };
-        let opts = LogOptions {
-            paths: vec!["*.sch".to_string()],
-            ..Default::default()
-        };
+        let opts = LogOptions { paths: vec!["*.sch".to_string()], ..Default::default() };
         let report = walk_with_summary(&repo, &opts, &crate::modules::registry()).unwrap();
         assert!(report.commits.is_empty());
     }
 
     #[test]
     fn json_envelope_lleva_schema() {
-        let report = LogReport {
-            commits: vec![],
-            warnings: vec![],
-        };
+        let report = LogReport { commits: vec![], warnings: vec![] };
         let env = EnvelopedLogReport::from(&report);
         let v: serde_json::Value = serde_json::to_value(&env).unwrap();
         assert_eq!(v["schema"], "riku-log/v2");

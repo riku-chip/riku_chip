@@ -2,10 +2,10 @@
 //! `git show`) y el diff de texto de cada archivo con módulo.
 
 use super::diff_text;
-use crate::i18n::tr;
 use super::log_text::format_timestamp;
 use crate::core::analysis::show::{ShowFile, ShowReport};
 use crate::core::domain::git_types::ChangeStatus;
+use crate::i18n::tr;
 
 pub fn print(report: &ShowReport) -> Result<(), String> {
     let info = &report.commit.info;

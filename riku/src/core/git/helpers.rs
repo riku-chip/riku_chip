@@ -16,10 +16,7 @@ pub(super) fn commit_info_from(commit: &Commit<'_>) -> CommitInfo {
     }
 }
 
-pub(super) fn resolve_commit<'r>(
-    repo: &'r Repository,
-    commit_ish: &str,
-) -> Result<Commit<'r>, GitError> {
+pub(super) fn resolve_commit<'r>(repo: &'r Repository, commit_ish: &str) -> Result<Commit<'r>, GitError> {
     // Un commit que no existe es el error más común (un typo, una rama de
     // otro clon): decirlo claro, no con el texto de libgit2.
     let not_found = |_| GitError::CommitNotFound(commit_ish.to_string());

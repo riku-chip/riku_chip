@@ -55,11 +55,7 @@ struct Camera {
 
 impl Camera {
     fn of(vp: &Viewport, w: f64, h: f64) -> Self {
-        Self {
-            cx: (w * 0.5 - vp.pan_x) / vp.scale,
-            cy: (h * 0.5 - vp.pan_y) / vp.scale,
-            ln_scale: vp.scale.ln(),
-        }
+        Self { cx: (w * 0.5 - vp.pan_x) / vp.scale, cy: (h * 0.5 - vp.pan_y) / vp.scale, ln_scale: vp.scale.ln() }
     }
 
     fn viewport(&self, w: f64, h: f64) -> Viewport {
@@ -218,7 +214,9 @@ mod tests {
         loop {
             let ((dx, _), alive) = it.step(1.0 / 60.0);
             travel += dx;
-            if !alive { break; }
+            if !alive {
+                break;
+            }
         }
         let expected = projected_travel(1200.0);
         // Se corta al bajar de 8 px/s: queda un residuo mínimo sin recorrer.

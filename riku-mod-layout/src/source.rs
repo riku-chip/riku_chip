@@ -93,7 +93,12 @@ impl Raw<'_> {
 /// comparan tal cual, y un layout en nm contra el mismo en µm diferiría
 /// entero. Se relee A en la unidad de B (el lado "después"); si A es Magic
 /// (que no se relee así), B en la de A.
-pub(crate) fn same_unit(ra: Option<&Raw<'_>>, a: &mut Option<Side>, rb: Option<&Raw<'_>>, b: &mut Option<Side>) -> Result<(), ReadError> {
+pub(crate) fn same_unit(
+    ra: Option<&Raw<'_>>,
+    a: &mut Option<Side>,
+    rb: Option<&Raw<'_>>,
+    b: &mut Option<Side>,
+) -> Result<(), ReadError> {
     let (Some(sa), Some(sb)) = (a.as_mut(), b.as_mut()) else { return Ok(()) };
     let (ua, ub) = (sa.lib.unit(), sb.lib.unit());
     if (ua - ub).abs() <= 1e-9 * ua.max(ub) {

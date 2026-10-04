@@ -11,17 +11,17 @@ use crate::core::config::{self, Overrides};
 use crate::i18n::tr;
 
 use crate::core::analysis::diff_set::{self, Side};
-use crate::core::analysis::show::analyze_show;
-use crate::core::domain::ports::{GitRepository, RepoRoot};
-use crate::core::domain::models::FileChange;
-use crate::core::git::git_service::GitService;
 use crate::core::analysis::log;
+use crate::core::analysis::show::analyze_show;
 use crate::core::analysis::status::{self, StatusOptions};
 use crate::core::analysis::summary::{DetailLevel, SummaryCategory};
+use crate::core::domain::models::FileChange;
+use crate::core::domain::ports::{GitRepository, RepoRoot};
+use crate::core::git::git_service::GitService;
 
-use super::OutputFormat;
 use super::format;
 use super::gui;
+use super::OutputFormat;
 
 // ─── Diff ────────────────────────────────────────────────────────────────────
 
@@ -69,8 +69,8 @@ pub(super) fn run_diff(
             Ok(Changes::of_reports([&report]))
         }
         None => {
-            let report = diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts)
-                .map_err(|e| e.to_string())?;
+            let report =
+                diff_set::analyze_all(&svc, workdir.as_deref(), &from, &to, &modules, &opts).map_err(|e| e.to_string())?;
             match format {
                 OutputFormat::Json => format::diff_set::print_json(&report, pretty)?,
                 _ => format::diff_set::print_text(&report)?,
@@ -111,12 +111,7 @@ fn export_between(
 
 /// `file` en una versión: `None` si no existe ahí; error si existe pero no
 /// se puede leer (no se dibuja como si estuviera vacío).
-fn read_version(
-    svc: &GitService,
-    workdir: Option<&std::path::Path>,
-    side: &Side,
-    file: &str,
-) -> Result<Option<Vec<u8>>, String> {
+fn read_version(svc: &GitService, workdir: Option<&std::path::Path>, side: &Side, file: &str) -> Result<Option<Vec<u8>>, String> {
     use crate::core::analysis::blob_io::Blob;
     match diff_set::read_side(svc, workdir, side, file).map_err(|e| e.to_string())? {
         Blob::Bytes(b) => Ok(Some(b)),
@@ -196,9 +191,8 @@ fn resolve_targets(
     workdir: Option<&std::path::Path>,
     base: &std::path::Path,
 ) -> Result<(Side, Side, Option<String>), String> {
-    let is_file = |t: &str| {
-        modules.for_path(t).is_some() || base.join(t).is_file() || workdir.is_some_and(|w| w.join(t).is_file())
-    };
+    let is_file =
+        |t: &str| modules.for_path(t).is_some() || base.join(t).is_file() || workdir.is_some_and(|w| w.join(t).is_file());
     let rev = |t: &str| Side::Rev(t.to_string());
     Ok(match targets {
         [] => (rev("HEAD"), Side::WorkTree, None),
@@ -225,7 +219,11 @@ pub(super) enum Changes {
 
 impl Changes {
     fn of(functional: bool) -> Self {
-        if functional { Changes::Functional } else { Changes::Clean }
+        if functional {
+            Changes::Functional
+        } else {
+            Changes::Clean
+        }
     }
 
     /// Un error en cualquier archivo pesa más que los cambios.
@@ -403,11 +401,7 @@ pub(super) struct StatusArgs {
 pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     let level = DetailLevel::from_flags(args.detail, args.full);
 
-    let opts = StatusOptions {
-        level,
-        paths: args.paths,
-        diff: config::options_for(&args.repo, Overrides::default())?,
-    };
+    let opts = StatusOptions { level, paths: args.paths, diff: config::options_for(&args.repo, Overrides::default())? };
     let report = status::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
 
     if args.json {
@@ -421,7 +415,6 @@ pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     }
     Ok(Changes::of(report.has_semantic_changes()))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -499,14 +492,22 @@ pub(super) fn run_lvs(
                 Err((p, e)) => serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "error": e }),
             })
             .collect();
-        super::format::print_enveloped(&serde_json::json!({ "schema": lvs::SCHEMA, "version": version, "results": items }), true)?;
+        super::format::print_enveloped(
+            &serde_json::json!({ "schema": lvs::SCHEMA, "version": version, "results": items }),
+            true,
+        )?;
     } else {
         for r in &results {
             match r {
                 Ok(rep) => print_lvs(rep, version),
-                Err((p, e)) => println!("LVS  {} ↔ {}
+                Err((p, e)) => println!(
+                    "LVS  {} ↔ {}
   {}
-", p.schematic, p.layout, tr!("lvs.error", error = e)),
+",
+                    p.schematic,
+                    p.layout,
+                    tr!("lvs.error", error = e)
+                ),
             }
         }
     }
@@ -532,7 +533,16 @@ fn print_lvs(r: &crate::lvs::Report, version: &str) {
     };
     println!("  {result}");
     let count = |m: &std::collections::BTreeMap<String, u64>| m.values().sum::<u64>();
-    println!("  {}", tr!("lvs.counts", dev_l = count(&c.devices.layout), dev_s = count(&c.devices.schematic), net_l = c.nets.layout, net_s = c.nets.schematic));
+    println!(
+        "  {}",
+        tr!(
+            "lvs.counts",
+            dev_l = count(&c.devices.layout),
+            dev_s = count(&c.devices.schematic),
+            net_l = c.nets.layout,
+            net_s = c.nets.schematic
+        )
+    );
     if !c.properties.is_empty() {
         println!("  {}", tr!("lvs.properties", count = c.properties.len()));
         for p in &c.properties {
@@ -586,9 +596,16 @@ fn lvs_configured(
     cell: &Option<String>,
 ) -> Result<(PathBuf, Vec<crate::lvs::Pair>), String> {
     use crate::lvs::Pair;
-    let root = git2::Repository::discover(repo).ok().and_then(|r| r.workdir().map(|w| w.to_path_buf())).unwrap_or_else(|| repo.to_path_buf());
+    let root = git2::Repository::discover(repo)
+        .ok()
+        .and_then(|r| r.workdir().map(|w| w.to_path_buf()))
+        .unwrap_or_else(|| repo.to_path_buf());
     let configured = match pair {
-        Some((s, l)) => vec![Pair { schematic: repo_file(repo, Some(&root), &s), layout: repo_file(repo, Some(&root), &l), cell: cell.clone() }],
+        Some((s, l)) => vec![Pair {
+            schematic: repo_file(repo, Some(&root), &s),
+            layout: repo_file(repo, Some(&root), &l),
+            cell: cell.clone(),
+        }],
         None => config::load(Some(&root))?
             .lvs
             .into_iter()

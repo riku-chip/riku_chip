@@ -302,10 +302,6 @@ mod tests {
     fn tempdir() -> PathBuf {
         use std::sync::atomic::{AtomicU32, Ordering};
         static N: AtomicU32 = AtomicU32::new(0);
-        std::env::temp_dir().join(format!(
-            "riku-cache-test-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ))
+        std::env::temp_dir().join(format!("riku-cache-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)))
     }
 }

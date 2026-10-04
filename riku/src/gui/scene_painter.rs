@@ -37,12 +37,12 @@ use crate::gui::tr;
 /// propio `LayerPaint` — suficiente para inspección genérica.
 fn neutral_layer_color(layer: Layer) -> Color32 {
     match layer {
-        1 => Color32::from_rgb(180, 180, 200),    // wire/primary
-        2 => Color32::from_rgb(120, 120, 140),    // grid
-        3 => Color32::from_rgb(220, 220, 160),    // text
-        4 => Color32::from_rgb(120, 200, 255),    // pin
-        5 => Color32::from_rgb(180, 200, 255),    // label
-        6 => Color32::from_rgb(220, 180, 120),    // component
+        1 => Color32::from_rgb(180, 180, 200), // wire/primary
+        2 => Color32::from_rgb(120, 120, 140), // grid
+        3 => Color32::from_rgb(220, 220, 160), // text
+        4 => Color32::from_rgb(120, 200, 255), // pin
+        5 => Color32::from_rgb(180, 200, 255), // label
+        6 => Color32::from_rgb(220, 180, 120), // component
         _ => {
             // Hash simple para layers desconocidos (GDS puede tener muchos).
             let r = ((layer.wrapping_mul(131)) & 0xFF) as u8;
@@ -116,11 +116,7 @@ impl ScreenXform {
 
     /// Pantalla → mundo (inverso de `to_screen`).
     pub fn to_world(&self, pos: Pos2) -> (f64, f64) {
-        let (x, vy) = screen_to_world(
-            &self.vp,
-            (pos.x - self.rect.min.x) as f64,
-            (pos.y - self.rect.min.y) as f64,
-        );
+        let (x, vy) = screen_to_world(&self.vp, (pos.x - self.rect.min.x) as f64, (pos.y - self.rect.min.y) as f64);
         (x, self.y_axis.flip_y(vy))
     }
 
@@ -148,16 +144,16 @@ pub fn fit_bbox(vp: &mut Viewport, world_bbox: &BoundingBox, y_axis: YAxis, rect
 /// solo contorno (boundary, implantes) cubren celdas enteras y taparían todo:
 /// solo se eligen si no hay nada relleno debajo. Ignora capas ocultas,
 /// líneas y textos.
-pub fn pick_at<'a>(
-    scene: &'a dyn RenderableScene,
-    (x, y): (f64, f64),
-    hidden: &HashSet<Layer>,
-) -> Option<&'a DrawElement> {
+pub fn pick_at<'a>(scene: &'a dyn RenderableScene, (x, y): (f64, f64), hidden: &HashSet<Layer>) -> Option<&'a DrawElement> {
     let (mut filled, mut outline) = (None, None);
     let mut consider = |el: &'a DrawElement| {
         if !hidden.contains(&el.layer()) && el.contains_point(x, y) {
             let see_through = scene.layer_paint(el.layer()).is_some_and(|p| p.fill.a == 0);
-            if see_through { outline = Some(el) } else { filled = Some(el) }
+            if see_through {
+                outline = Some(el)
+            } else {
+                filled = Some(el)
+            }
         }
     };
     match scene.indexed() {
@@ -178,13 +174,7 @@ pub fn pick_at<'a>(
 
 /// Texto del tooltip para el elemento bajo `pos` (pantalla), o `None` si no
 /// hay ninguno: capa, área y tamaño, con la unidad de la escena.
-pub fn hover_info(
-    scene: &dyn RenderableScene,
-    vp: &Viewport,
-    rect: Rect,
-    pos: Pos2,
-    hidden: &HashSet<Layer>,
-) -> Option<String> {
+pub fn hover_info(scene: &dyn RenderableScene, vp: &Viewport, rect: Rect, pos: Pos2, hidden: &HashSet<Layer>) -> Option<String> {
     let xf = ScreenXform::new(rect, vp, scene.y_axis());
     let el = pick_at(scene, xf.to_world(pos), hidden)?;
     let layer = match scene.layer_paint(el.layer()) {
@@ -278,13 +268,7 @@ pub fn paint_scene(
     painter.rect_filled(rect, 0.0, theme.background);
 
     if scene.is_empty() {
-        painter.text(
-            rect.center(),
-            Align2::CENTER_CENTER,
-            tr!("canvas.empty_scene"),
-            FontId::proportional(16.0),
-            theme.muted,
-        );
+        painter.text(rect.center(), Align2::CENTER_CENTER, tr!("canvas.empty_scene"), FontId::proportional(16.0), theme.muted);
         return PaintStats::default();
     }
 
@@ -316,10 +300,7 @@ pub fn paint_scene(
                 if opts.labels && natural >= LABEL_MIN_NATURAL_PX {
                     let (_, stroke) = layer_colors(scene, el.layer());
                     let px = natural.clamp(*LABEL_PX.start(), *LABEL_PX.end());
-                    labels.push((
-                        LabelCandidate { anchor: xf.to_screen(*x, *y), text: content.clone(), color: stroke },
-                        px,
-                    ));
+                    labels.push((LabelCandidate { anchor: xf.to_screen(*x, *y), text: content.clone(), color: stroke }, px));
                 }
             }
             _ => draw_element(&painter, &xf, vp.scale, scene, el, &theme, opts.focus),
@@ -585,12 +566,7 @@ fn over(src: Color32, dst: Color32) -> Color32 {
 /// Coloca y dibuja las etiquetas: punto en el anclaje exacto y pastilla con
 /// halo del color del lienzo, borde del color de la capa y texto con
 /// contraste garantizado. Retorna cuántas se omitieron por solaparse.
-fn paint_labels(
-    painter: &egui::Painter,
-    labels: Vec<(LabelCandidate, f32)>,
-    clip: Rect,
-    theme: &CanvasTheme,
-) -> usize {
+fn paint_labels(painter: &egui::Painter, labels: Vec<(LabelCandidate, f32)>, clip: Rect, theme: &CanvasTheme) -> usize {
     if labels.is_empty() {
         return 0;
     }
@@ -604,20 +580,8 @@ fn paint_labels(
     for l in &placed {
         let dot = Stroke::new(1.5_f32, theme.label_halo);
         painter.circle(l.anchor, 2.5, theme.layer_colors(l.color, l.color).1, dot);
-        painter.rect(
-            l.rect,
-            3.0,
-            theme.label_halo,
-            Stroke::new(1.0_f32, l.color.gamma_multiply(0.7)),
-            StrokeKind::Inside,
-        );
-        painter.text(
-            l.rect.min + PILL_PADDING,
-            Align2::LEFT_TOP,
-            &l.text,
-            font.clone(),
-            theme.label_text(l.color),
-        );
+        painter.rect(l.rect, 3.0, theme.label_halo, Stroke::new(1.0_f32, l.color.gamma_multiply(0.7)), StrokeKind::Inside);
+        painter.text(l.rect.min + PILL_PADDING, Align2::LEFT_TOP, &l.text, font.clone(), theme.label_text(l.color));
     }
     hidden
 }
@@ -656,7 +620,9 @@ fn draw_element(
             }
         }
         DrawElement::Polygon { points, filled, .. } => {
-            if points.len() < 2 { return; }
+            if points.len() < 2 {
+                return;
+            }
             let pts: Vec<Pos2> = points.iter().map(|(x, y)| xf.to_screen(*x, *y)).collect();
             if *filled && pts.len() >= 3 {
                 paint_filled_polygon(painter, points, pts, fill, stroke);
@@ -698,7 +664,11 @@ fn draw_text(painter: &egui::Painter, xf: &ScreenXform, scale: f64, el: &DrawEle
 /// Gris de los fantasmas de la versión anterior: visible sin competir con
 /// la versión actual.
 fn ghost_color(theme: &CanvasTheme) -> Color32 {
-    if theme.dark { Color32::from_gray(95) } else { Color32::from_gray(185) }
+    if theme.dark {
+        Color32::from_gray(95)
+    } else {
+        Color32::from_gray(185)
+    }
 }
 
 /// Un elemento de la versión anterior, solo en contorno y en un color.
@@ -831,12 +801,15 @@ mod tests {
         s.world_unit = Some("µm".into());
         s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0, layer: 1, filled: true });
         s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 4.0, h: 2.0, layer: 2, filled: true });
-        s.layers.insert(2, viewer_core::paint::LayerPaint {
-            name: "met1 68/20".into(),
-            fill: Rgba::new(0, 0, 255, 90),
-            stroke: Rgba::new(0, 0, 255, 255),
-            hidden: false,
-        });
+        s.layers.insert(
+            2,
+            viewer_core::paint::LayerPaint {
+                name: "met1 68/20".into(),
+                fill: Rgba::new(0, 0, 255, 90),
+                stroke: Rgba::new(0, 0, 255, 255),
+                hidden: false,
+            },
+        );
         s
     }
 
@@ -880,12 +853,15 @@ mod tests {
         // Boundary de solo contorno (relleno transparente) pintado encima de todo.
         let mut scene = stacked_scene();
         scene.push(DrawElement::Rect { x: -1.0, y: -1.0, w: 30.0, h: 30.0, layer: 9, filled: true });
-        scene.layers.insert(9, viewer_core::paint::LayerPaint {
-            name: "prBoundary".into(),
-            fill: Rgba::new(150, 0, 230, 0),
-            stroke: Rgba::new(150, 0, 230, 255),
-            hidden: false,
-        });
+        scene.layers.insert(
+            9,
+            viewer_core::paint::LayerPaint {
+                name: "prBoundary".into(),
+                fill: Rgba::new(150, 0, 230, 0),
+                stroke: Rgba::new(150, 0, 230, 255),
+                hidden: false,
+            },
+        );
         let none = HashSet::new();
         assert_eq!(pick_at(&scene, (1.0, 1.0), &none).map(|e| e.layer()), Some(2));
         assert_eq!(pick_at(&scene, (20.0, 20.0), &none).map(|e| e.layer()), Some(9), "fuera de todo lo relleno");
@@ -927,12 +903,15 @@ mod tests {
     #[test]
     fn scene_paint_overrides_neutral_palette() {
         let mut scene = square_scene(YAxis::Up);
-        scene.layers.insert(1, viewer_core::paint::LayerPaint {
-            name: "met1 68/20".into(),
-            fill: Rgba::new(60, 130, 240, 90),
-            stroke: Rgba::new(60, 130, 240, 255),
-            hidden: false,
-        });
+        scene.layers.insert(
+            1,
+            viewer_core::paint::LayerPaint {
+                name: "met1 68/20".into(),
+                fill: Rgba::new(60, 130, 240, 90),
+                stroke: Rgba::new(60, 130, 240, 255),
+                hidden: false,
+            },
+        );
         let (fill, stroke) = layer_colors(&scene, 1);
         assert!(fill.a() < 255 && stroke.a() == 255);
         let (nf, _) = layer_colors(&scene, 7);
@@ -959,13 +938,22 @@ mod tests {
         let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0));
         let ctx = egui::Context::default();
         let views = [("encuadrado", 1.0), ("x10", 10.0), ("x100", 100.0)];
-        let cases = views.iter().map(|&(n, z)| (n, z, &single)).chain(diff.iter().flat_map(|d| views.iter().map(move |&(n, z)| (n, z, d))));
+        let cases = views
+            .iter()
+            .map(|&(n, z)| (n, z, &single))
+            .chain(diff.iter().flat_map(|d| views.iter().map(move |&(n, z)| (n, z, d))));
         for (i, (name, zoom, scene)) in cases.enumerate() {
             let name = if i < views.len() { name.to_string() } else { format!("diff {name}") };
             let mut vp = Viewport::default();
             fit_scene(&mut vp, scene.as_ref(), rect);
             zoom_at_screen(&mut vp, zoom, rect.center(), rect);
-            let opts = PaintOptions { theme: CanvasTheme::from_visuals(&egui::Visuals::dark()), labels: true, lod: true, block_px: viewer_core::index::BLOCK_PX, focus: None };
+            let opts = PaintOptions {
+                theme: CanvasTheme::from_visuals(&egui::Visuals::dark()),
+                labels: true,
+                lod: true,
+                block_px: viewer_core::index::BLOCK_PX,
+                focus: None,
+            };
             let mut times = Vec::new();
             let mut stats = PaintStats::default();
             for _ in 0..12 {
@@ -977,7 +965,12 @@ mod tests {
                 });
             }
             times.sort();
-            eprintln!("[cuadro] {name:<10} mediana {:?} · {} elementos · nivel {:?}", times[times.len() / 2], stats.elements, stats.lod_level);
+            eprintln!(
+                "[cuadro] {name:<10} mediana {:?} · {} elementos · nivel {:?}",
+                times[times.len() / 2],
+                stats.elements,
+                stats.lod_level
+            );
         }
     }
 }

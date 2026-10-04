@@ -177,9 +177,7 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
         }
     }
     let um = |b: [f64; 4]| b.map(|v| v * unit_um);
-    let place = |bbox: [f64; 4]| {
-        changed.iter().filter(|c| overlaps(**c, bbox)).copied().reduce(union_box).unwrap_or(bbox)
-    };
+    let place = |bbox: [f64; 4]| changed.iter().filter(|c| overlaps(**c, bbox)).copied().reduce(union_box).unwrap_or(bbox);
     let mut out = Vec::new();
     for (ga, gb) in groups.values() {
         let mut before: Vec<String> = ga.iter().map(|&i| net_label(a, i, unit_um)).collect();
@@ -190,14 +188,21 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
         let bbox_a = ga.iter().map(|&i| um(a.nets[i].bbox)).reduce(union_box);
         if ga.len() > 1 {
             let bbox = place(bbox_b.or(bbox_a).unwrap_or_default());
-            out.push(NetChange { cell: cell.into(), kind: NetChangeKind::Short, before: before.clone(), after: after.clone(), bbox_um: bbox });
+            out.push(NetChange {
+                cell: cell.into(),
+                kind: NetChangeKind::Short,
+                before: before.clone(),
+                after: after.clone(),
+                bbox_um: bbox,
+            });
         }
         if gb.len() > 1 {
             let bbox = place(bbox_a.or(bbox_b).unwrap_or_default());
             let fixed = match ga.as_slice() {
                 [i] => {
                     let had = &a.nets[*i].labels;
-                    had.len() > 1 && gb.iter().all(|&j| !b.nets[j].labels.is_empty() && b.nets[j].labels.iter().all(|l| had.contains(l)))
+                    had.len() > 1
+                        && gb.iter().all(|&j| !b.nets[j].labels.is_empty() && b.nets[j].labels.iter().all(|l| had.contains(l)))
                 }
                 _ => false,
             };
@@ -254,7 +259,11 @@ pub fn pieces_changed(a: &Netlist, b: &Netlist) -> bool {
             let (Some(pt), Some((grid, nets))) = (interior_point(&p.poly.points), to.get(p.magic.as_str())) else { continue };
             if let Some(i) = grid.find(pt.0, pt.1) {
                 let other = nets[i as usize];
-                if flip { join(other, na + p.net) } else { join(p.net, na + other) }
+                if flip {
+                    join(other, na + p.net)
+                } else {
+                    join(p.net, na + other)
+                }
             }
         }
     }
@@ -262,7 +271,11 @@ pub fn pieces_changed(a: &Netlist, b: &Netlist) -> bool {
     for n in 0..parent.len() {
         let r = find(&mut parent, n);
         let e = count.entry(r).or_default();
-        if n < na { e.0 += 1 } else { e.1 += 1 }
+        if n < na {
+            e.0 += 1
+        } else {
+            e.1 += 1
+        }
     }
     count.values().any(|&(x, y)| x > 1 || y > 1)
 }
@@ -294,7 +307,13 @@ mod tests {
     use gdstk_rs::{OwnedPolygon, Point2D};
 
     fn net(name: Option<&str>) -> Net {
-        Net { name: name.map(String::from), labels: name.into_iter().map(String::from).collect(), port: true, substrate: false, bbox: [0.0, 0.0, 1.0, 1.0] }
+        Net {
+            name: name.map(String::from),
+            labels: name.into_iter().map(String::from).collect(),
+            port: true,
+            substrate: false,
+            bbox: [0.0, 0.0, 1.0, 1.0],
+        }
     }
 
     fn dev(x: f64) -> Device {
@@ -302,7 +321,11 @@ mod tests {
         Device {
             model: "sky130_fd_pr__nfet_01v8".into(),
             magic: "nfet".into(),
-            gate: OwnedPolygon { layer: 0, datatype: 0, points: vec![p(x, 0.0), p(x + 0.15, 0.0), p(x + 0.15, 0.65), p(x, 0.65)] },
+            gate: OwnedPolygon {
+                layer: 0,
+                datatype: 0,
+                points: vec![p(x, 0.0), p(x + 0.15, 0.0), p(x + 0.15, 0.65), p(x, 0.65)],
+            },
             at: (x + 0.075, 0.3),
             w_um: 0.65,
             l_um: 0.15,
@@ -354,7 +377,10 @@ mod tests {
         );
         let ch = net_changes("C", &before(), &b, 1.0, &[[0.5, 0.5, 0.6, 0.6], [9.0, 9.0, 9.5, 9.5]]);
         assert_eq!(ch.len(), 1, "{ch:?}");
-        assert_eq!((ch[0].kind, ch[0].before.clone(), ch[0].after.clone()), (NetChangeKind::Short, vec!["A1".to_string(), "Y0".into()], vec!["A1".to_string()]));
+        assert_eq!(
+            (ch[0].kind, ch[0].before.clone(), ch[0].after.clone()),
+            (NetChangeKind::Short, vec!["A1".to_string(), "Y0".into()], vec!["A1".to_string()])
+        );
         assert_eq!(ch[0].bbox_um, [0.5, 0.5, 0.6, 0.6], "el cambio de geometría que toca la red");
     }
 
@@ -381,7 +407,13 @@ mod tests {
         // ser dos, cada una con su etiqueta.
         let nets = vec![
             net(Some("A0")),
-            Net { name: Some("A1".into()), labels: vec!["A1".into(), "Y0".into()], port: true, substrate: false, bbox: [0.0, 0.0, 1.0, 1.0] },
+            Net {
+                name: Some("A1".into()),
+                labels: vec!["A1".into(), "Y0".into()],
+                port: true,
+                substrate: false,
+                bbox: [0.0, 0.0, 1.0, 1.0],
+            },
             net(Some("Y1")),
             net(Some("VGND")),
         ];
@@ -403,6 +435,9 @@ mod tests {
         b.labels[1].text = "OUT".into();
         let ch = net_changes("C", &before(), &b, 1.0, &[]);
         assert_eq!(ch.len(), 1, "{ch:?}");
-        assert_eq!((ch[0].kind, ch[0].before.clone(), ch[0].after.clone()), (NetChangeKind::Renamed, vec!["Y0".to_string()], vec!["OUT".to_string()]));
+        assert_eq!(
+            (ch[0].kind, ch[0].before.clone(), ch[0].after.clone()),
+            (NetChangeKind::Renamed, vec!["Y0".to_string()], vec!["OUT".to_string()])
+        );
     }
 }

@@ -92,7 +92,15 @@ pub fn spice(cell: &str, nl: &Netlist, rules: &DeviceRules, unit: &str) -> Strin
     }
     for (i, (r, [a, b])) in nl.resistors.iter().enumerate() {
         let x = if r.subckt { "XR" } else { "R" };
-        let _ = writeln!(out, "{x}{i} {} {} {} w={}{unit} l={}{unit}", nl.net_name(*a), nl.net_name(*b), r.model, num(r.w_um), num(r.l_um));
+        let _ = writeln!(
+            out,
+            "{x}{i} {} {} {} w={}{unit} l={}{unit}",
+            nl.net_name(*a),
+            nl.net_name(*b),
+            r.model,
+            num(r.w_um),
+            num(r.l_um)
+        );
     }
     out.push_str(".ends\n");
     out
@@ -112,7 +120,13 @@ mod tests {
     use gdstk_rs::OwnedPolygon;
 
     fn net(name: Option<&str>, port: bool, substrate: bool) -> Net {
-        Net { name: name.map(String::from), labels: name.into_iter().map(String::from).collect(), port, substrate, bbox: [0.0; 4] }
+        Net {
+            name: name.map(String::from),
+            labels: name.into_iter().map(String::from).collect(),
+            port,
+            substrate,
+            bbox: [0.0; 4],
+        }
     }
 
     fn dev(model: &str, w: f64) -> Device {

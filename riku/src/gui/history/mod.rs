@@ -130,13 +130,8 @@ impl HistoryPanel {
     pub fn reload(&mut self) {
         let Some(repo) = self.repo.clone() else { return };
         let paths: Vec<String> = self.model.filter.split_whitespace().map(str::to_string).collect();
-        let opts = LogOptions {
-            limit: Some(self.model.limit()),
-            paths,
-            graph: true,
-            skip_summaries: true,
-            ..LogOptions::default()
-        };
+        let opts =
+            LogOptions { limit: Some(self.model.limit()), paths, graph: true, skip_summaries: true, ..LogOptions::default() };
         self.error = None;
         self.summary_job = None;
         self.graph_job = Some(spawn("riku-history", self.ctx.clone(), move || {
@@ -307,9 +302,7 @@ impl HistoryPanel {
             ui.label(RichText::new(tr!("history.title")).strong());
             ui.add_space(space::S);
             let edit = ui.add(
-                egui::TextEdit::singleline(&mut self.filter_text)
-                    .hint_text(tr!("history.filter_hint"))
-                    .desired_width(180.0),
+                egui::TextEdit::singleline(&mut self.filter_text).hint_text(tr!("history.filter_hint")).desired_width(180.0),
             );
             let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let cleared = edit.changed() && self.filter_text.trim().is_empty() && !self.model.filter.is_empty();
@@ -383,17 +376,12 @@ impl HistoryPanel {
         let painter = ui.painter().clone();
         let highlight = painter.add(egui::Shape::Noop);
         let first = range.start.saturating_sub(1);
-        let graph_cols = (first..range.end)
-            .filter_map(|i| self.model.commits[i].graph.as_ref())
-            .map(geometry::width)
-            .max()
-            .unwrap_or(1);
+        let graph_cols =
+            (first..range.end).filter_map(|i| self.model.commits[i].graph.as_ref()).map(geometry::width).max().unwrap_or(1);
         let graph_w = graph_cols as f32 * m.col_w + space::S;
         let x0 = ui.max_rect().left() + space::XS;
         let top0 = ui.cursor().top();
-        let now_unix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64);
+        let now_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         // Los resúmenes aparecen con un fundido corto, sin mover nada.
         let fade = match (self.summaries_at, reduce_motion) {
             (Some(t), false) => ((now - t) / 0.2).clamp(0.0, 1.0) as f32,
@@ -433,7 +421,8 @@ impl HistoryPanel {
                 let head = r == "HEAD";
                 let text_color = if head { v.selection.stroke.color } else { color };
                 let g = text_galley(&painter, r, egui::FontId::proportional(11.0), text_color, 160.0);
-                let chip = egui::Rect::from_min_size(Pos2::new(x, mid - 8.0), egui::vec2(g.size().x + 2.0 * space::XS + 2.0, 16.0));
+                let chip =
+                    egui::Rect::from_min_size(Pos2::new(x, mid - 8.0), egui::vec2(g.size().x + 2.0 * space::XS + 2.0, 16.0));
                 if head {
                     painter.rect_filled(chip, 6.0, v.selection.bg_fill);
                 } else {
@@ -467,7 +456,12 @@ impl HistoryPanel {
             let mg = text_galley(&painter, first_line, egui::FontId::proportional(13.0), v.text_color(), msg_w);
             painter.galley(Pos2::new(x, mid - mg.size().y / 2.0), mg, v.text_color());
 
-            let resp = resp.on_hover_text_at_pointer(format!("{}\n{} · {}", c.info.message.trim(), c.info.author, full_date(c.info.timestamp)));
+            let resp = resp.on_hover_text_at_pointer(format!(
+                "{}\n{} · {}",
+                c.info.message.trim(),
+                c.info.author,
+                full_date(c.info.timestamp)
+            ));
             let _ = resp;
         }
         self.hover_lane = hover_lane;
@@ -631,8 +625,15 @@ fn take_ready<T: Send + 'static>(job: &mut Option<Job<T>>) -> Option<Result<T, S
 }
 
 /// Texto de una línea recortado con "…" al ancho dado.
-fn text_galley(painter: &egui::Painter, text: &str, font: egui::FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::single_section(text.to_string(), egui::TextFormat { font_id: font, color, ..Default::default() });
+fn text_galley(
+    painter: &egui::Painter,
+    text: &str,
+    font: egui::FontId,
+    color: Color32,
+    max_w: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job =
+        egui::text::LayoutJob::single_section(text.to_string(), egui::TextFormat { font_id: font, color, ..Default::default() });
     job.wrap = egui::text::TextWrapping { max_width: max_w, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     painter.layout_job(job)
 }
@@ -649,16 +650,8 @@ pub fn lane_color(lane: usize, dark: bool) -> Color32 {
         (64, 200, 214),
         (255, 118, 105),
     ];
-    const LIGHT: [(u8, u8, u8); 8] = [
-        (0, 102, 204),
-        (199, 96, 0),
-        (22, 128, 72),
-        (191, 38, 104),
-        (110, 64, 201),
-        (150, 110, 0),
-        (0, 120, 138),
-        (196, 50, 38),
-    ];
+    const LIGHT: [(u8, u8, u8); 8] =
+        [(0, 102, 204), (199, 96, 0), (22, 128, 72), (191, 38, 104), (110, 64, 201), (150, 110, 0), (0, 120, 138), (196, 50, 38)];
     let (r, g, b) = if dark { DARK[lane % 8] } else { LIGHT[lane % 8] };
     Color32::from_rgb(r, g, b)
 }
@@ -684,7 +677,16 @@ fn tally(files: &[FileSummary]) -> (i64, i64, i64) {
 /// +añadidos −eliminados ~modificados en los colores de cambio. El color
 /// nunca va solo: los signos dicen lo mismo.
 #[allow(clippy::too_many_arguments)]
-fn paint_badge(painter: &egui::Painter, right: f32, mid: f32, width: f32, files: &[FileSummary], dark: bool, fade: f32, weak: Color32) {
+fn paint_badge(
+    painter: &egui::Painter,
+    right: f32,
+    mid: f32,
+    width: f32,
+    files: &[FileSummary],
+    dark: bool,
+    fade: f32,
+    weak: Color32,
+) {
     if files.is_empty() {
         return;
     }
@@ -700,10 +702,8 @@ fn paint_badge(painter: &egui::Painter, right: f32, mid: f32, width: f32, files:
             }
         }
     }
-    let mut exts: Vec<String> = files
-        .iter()
-        .filter_map(|f| Path::new(&f.path).extension().map(|e| e.to_string_lossy().to_lowercase()))
-        .collect();
+    let mut exts: Vec<String> =
+        files.iter().filter_map(|f| Path::new(&f.path).extension().map(|e| e.to_string_lossy().to_lowercase())).collect();
     exts.dedup();
     exts.truncate(3);
     let mut x = right;
@@ -714,7 +714,13 @@ fn paint_badge(painter: &egui::Painter, right: f32, mid: f32, width: f32, files:
         x -= space::XS;
     }
     if !exts.is_empty() {
-        let g = text_galley(painter, &exts.join(" · "), egui::FontId::proportional(11.0), weak.gamma_multiply(fade), (x - (right - width)).max(0.0));
+        let g = text_galley(
+            painter,
+            &exts.join(" · "),
+            egui::FontId::proportional(11.0),
+            weak.gamma_multiply(fade),
+            (x - (right - width)).max(0.0),
+        );
         x -= g.size().x + space::XS;
         painter.galley(Pos2::new(x, mid - g.size().y / 2.0), g, weak);
     }

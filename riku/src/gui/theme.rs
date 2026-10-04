@@ -134,7 +134,11 @@ pub fn change_color(kind: viewer_core::diff::ChangeKind, dark: bool) -> Color32 
         K::Removed => Color32::from_rgb(240, 100, 100),
         K::Modified => Color32::from_rgb(230, 190, 80),
     };
-    if dark { c } else { mix(c, Color32::BLACK, 0.45) }
+    if dark {
+        c
+    } else {
+        mix(c, Color32::BLACK, 0.45)
+    }
 }
 
 /// Interpolación lineal por canal en sRGB (suficiente para ajustes de UI).
@@ -152,7 +156,11 @@ pub fn luminance(c: Color32) -> f32 {
     let [r, g, b, _] = c.to_srgba_unmultiplied();
     let lin = |v: u8| {
         let s = v as f32 / 255.0;
-        if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
     };
     0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
@@ -169,23 +177,20 @@ mod tests {
     use super::*;
 
     fn themes() -> [CanvasTheme; 2] {
-        [
-            CanvasTheme::from_visuals(&egui::Visuals::dark()),
-            CanvasTheme::from_visuals(&egui::Visuals::light()),
-        ]
+        [CanvasTheme::from_visuals(&egui::Visuals::dark()), CanvasTheme::from_visuals(&egui::Visuals::light())]
     }
 
     /// Los colores de capa de los PDKs soportados, incluidos los más
     /// problemáticos (amarillo de GF180 en claro, azul oscuro en oscuro).
     const LAYER_COLORS: [(u8, u8, u8); 8] = [
-        (160, 110, 230), // sky130 li1
-        (60, 130, 240),  // sky130 met1
-        (230, 50, 50),   // sky130 poly
+        (160, 110, 230),    // sky130 li1
+        (60, 130, 240),     // sky130 met1
+        (230, 50, 50),      // sky130 poly
         (0xed, 0xdd, 0x07), // gf180 Metal1
         (0x2e, 0x95, 0x21), // gf180 Poly2
         (0x39, 0xbf, 0xff), // ihp Metal1
         (0x80, 0x31, 0x7c), // gf180 Metal4
-        (220, 220, 160), // texto
+        (220, 220, 160),    // texto
     ];
 
     #[test]

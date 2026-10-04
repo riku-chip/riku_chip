@@ -203,7 +203,9 @@ impl RikuGuiApp {
                         Some(file) => {
                             self.change_set = None;
                             match self.load_backend_diff(&repo, &a, &b, Path::new(&file), None, false) {
-                                Ok(()) => self.status = tr!("status.diff", from = short_hash(&a), to = short_hash(&b), path = file),
+                                Ok(()) => {
+                                    self.status = tr!("status.diff", from = short_hash(&a), to = short_hash(&b), path = file)
+                                }
                                 Err(e) => self.fail(&tr!("error.diff"), e),
                             }
                         }
@@ -254,9 +256,10 @@ impl RikuGuiApp {
                     (bs.path.clone(), None, bs.source.as_ref().clone(), files, "worktree".to_string())
                 }
                 LoadKind::Diff { before, files, .. } => {
-                    let label = self.diff.as_ref().map_or_else(String::new, |d| {
-                        format!("{} → {}", short_hash(&d.commit_a), short_hash(&d.commit_b))
-                    });
+                    let label = self
+                        .diff
+                        .as_ref()
+                        .map_or_else(String::new, |d| format!("{} → {}", short_hash(&d.commit_a), short_hash(&d.commit_b)));
                     (bs.path.clone(), Some(before.as_ref().clone()), bs.source.as_ref().clone(), files.clone(), label)
                 }
             }
@@ -314,8 +317,7 @@ fn collect_files(entry: &ProjectEntry, repo: &Path, openable: &[String], out: &m
 fn repo_refs(repo: &Path) -> Vec<String> {
     use crate::core::domain::ports::GitRepository;
     let Ok(svc) = crate::core::git::git_service::GitService::open(repo) else { return Vec::new() };
-    let mut refs: Vec<String> =
-        svc.refs_by_oid().unwrap_or_default().into_values().flatten().filter(|r| r != "HEAD").collect();
+    let mut refs: Vec<String> = svc.refs_by_oid().unwrap_or_default().into_values().flatten().filter(|r| r != "HEAD").collect();
     refs.sort();
     refs.dedup();
     refs

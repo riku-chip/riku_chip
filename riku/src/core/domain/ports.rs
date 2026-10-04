@@ -17,11 +17,7 @@ pub type Reopener = Arc<dyn Fn() -> Result<Box<dyn GitRepository + Send>, GitErr
 pub trait GitRepository {
     fn get_blob(&self, commit_ish: &str, file_path: &str) -> Result<Vec<u8>, GitError>;
 
-    fn get_changed_files(
-        &self,
-        commit_a: &str,
-        commit_b: &str,
-    ) -> Result<Vec<ChangedFile>, GitError>;
+    fn get_changed_files(&self, commit_a: &str, commit_b: &str) -> Result<Vec<ChangedFile>, GitError>;
 
     /// Cambios en el working tree respecto a HEAD.
     fn working_tree_changes(&self) -> Result<Vec<WorkingChange>, GitError>;
@@ -30,10 +26,7 @@ pub trait GitRepository {
     fn current_branch(&self) -> Result<Option<BranchInfo>, GitError>;
 
     /// Commits con sus padres, filtrados y limitados según `query`.
-    fn get_commits_with_options(
-        &self,
-        query: &LogQuery<'_>,
-    ) -> Result<Vec<CommitWithParents>, GitError>;
+    fn get_commits_with_options(&self, query: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError>;
 
     /// Mapa `oid → [refs]` para anotar el log.
     fn refs_by_oid(&self) -> Result<HashMap<String, Vec<String>>, GitError>;

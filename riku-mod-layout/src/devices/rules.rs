@@ -291,7 +291,13 @@ impl DeviceRules {
                     }
                     out
                 };
-                let t = DeviceType { magic: d.name.clone(), models: m.models.clone(), sd: expand(&m.sd), sub: expand(&m.sub), subckt: m.subckt };
+                let t = DeviceType {
+                    magic: d.name.clone(),
+                    models: m.models.clone(),
+                    sd: expand(&m.sd),
+                    sub: expand(&m.sub),
+                    subckt: m.subckt,
+                };
                 Some((i, t))
             })
             .collect();
@@ -394,7 +400,8 @@ impl DeviceRules {
 
     /// Los tipos que conducen (los de `connect`), sin `space`.
     pub fn conductors(&self) -> Vec<String> {
-        let mut out: Vec<String> = self.connect.iter().flat_map(|(a, b)| a.iter().chain(b)).filter(|t| *t != "space").cloned().collect();
+        let mut out: Vec<String> =
+            self.connect.iter().flat_map(|(a, b)| a.iter().chain(b)).filter(|t| *t != "space").cloned().collect();
         out.sort();
         out.dedup();
         out
@@ -415,8 +422,12 @@ impl DeviceRules {
     /// Las capas GDS de pines (`labels LIPIN port`): una etiqueta sobre un
     /// polígono de estas capas es un pin, como en Magic.
     pub fn port_layers(&self) -> Vec<GdsLayer> {
-        let mut out: Vec<GdsLayer> =
-            self.defs.iter().flat_map(|d| d.labels.iter().filter(|(_, p)| *p)).flat_map(|(n, _)| self.gds_layers(n).iter().copied()).collect();
+        let mut out: Vec<GdsLayer> = self
+            .defs
+            .iter()
+            .flat_map(|d| d.labels.iter().filter(|(_, p)| *p))
+            .flat_map(|(n, _)| self.gds_layers(n).iter().copied())
+            .collect();
         out.sort_unstable();
         out.dedup();
         out
@@ -574,7 +585,11 @@ impl DeviceRules {
     /// `cifinput`, con el índice de su `layer`.
     pub fn devices_at(&self, inside: &dyn Fn(GdsLayer) -> bool) -> Vec<(usize, &DeviceType)> {
         let mut memo = HashMap::new();
-        self.devices.iter().filter(|(d, _)| self.eval_def(*d, None, inside, &mut memo, &mut Vec::new())).map(|(d, t)| (*d, t)).collect()
+        self.devices
+            .iter()
+            .filter(|(d, _)| self.eval_def(*d, None, inside, &mut memo, &mut Vec::new()))
+            .map(|(d, t)| (*d, t))
+            .collect()
     }
 
     /// La regla de esa `layer` agranda o achica la región: en un punto no
@@ -606,14 +621,26 @@ impl DeviceRules {
         state
     }
 
-    fn any_in(&self, names: &[String], inside: &dyn Fn(GdsLayer) -> bool, memo: &mut HashMap<String, bool>, visiting: &mut Vec<String>) -> bool {
+    fn any_in(
+        &self,
+        names: &[String],
+        inside: &dyn Fn(GdsLayer) -> bool,
+        memo: &mut HashMap<String, bool>,
+        visiting: &mut Vec<String>,
+    ) -> bool {
         names.iter().any(|n| self.name_in(n, inside, memo, visiting))
     }
 
     /// El punto está en el nombre `n`: su capa GDS, su `templayer` o lo que
     /// otras le suman con `copyup`. Un nombre que se refiere a sí mismo (por
     /// un ciclo de `copyup`) no suma.
-    fn name_in(&self, n: &str, inside: &dyn Fn(GdsLayer) -> bool, memo: &mut HashMap<String, bool>, visiting: &mut Vec<String>) -> bool {
+    fn name_in(
+        &self,
+        n: &str,
+        inside: &dyn Fn(GdsLayer) -> bool,
+        memo: &mut HashMap<String, bool>,
+        visiting: &mut Vec<String>,
+    ) -> bool {
         if let Some(&v) = memo.get(n) {
             return v;
         }
@@ -663,7 +690,8 @@ struct Models {
 /// `extract`: `device msubcircuit MODELO tipos sd [sd…] sustrato nodo…`.
 fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashMap<String, Models> {
     let canon = |n: &str| canonical.get(n).cloned().unwrap_or_else(|| n.to_string());
-    let names = |t: &str| t.split(',').map(|t| canon(t.trim_start_matches('*').split('/').next().unwrap_or(""))).collect::<Vec<_>>();
+    let names =
+        |t: &str| t.split(',').map(|t| canon(t.trim_start_matches('*').split('/').next().unwrap_or(""))).collect::<Vec<_>>();
     let mut out: HashMap<String, Models> = HashMap::new();
     for line in lines {
         let w: Vec<&str> = line.split_whitespace().collect();
@@ -680,7 +708,14 @@ fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashM
         let after = 4 + w[4..].iter().take_while(|t| Some(**t) == sd_field).count();
         let sub: Vec<String> = w
             .get(after)
-            .filter(|t| sd_field.is_some() && !t.starts_with('$') && !t.contains('=') && !t.contains('<') && !t.contains('>') && **t != "error")
+            .filter(|t| {
+                sd_field.is_some()
+                    && !t.starts_with('$')
+                    && !t.contains('=')
+                    && !t.contains('<')
+                    && !t.contains('>')
+                    && **t != "error"
+            })
             .map(|t| names(t))
             .unwrap_or_default();
         for t in w[3].split(',') {
@@ -941,14 +976,20 @@ end
     fn terminals_and_substrate_come_from_the_device_lines() {
         let r = DeviceRules::parse(TECH).expect("reglas");
         let nfet = r.device_type("nfet").unwrap();
-        assert_eq!((nfet.sd.as_slice(), nfet.sub.as_slice()), (&["ndiff".to_string()][..], &["pwell".to_string(), "space".to_string()][..]));
+        assert_eq!(
+            (nfet.sd.as_slice(), nfet.sub.as_slice()),
+            (&["ndiff".to_string()][..], &["pwell".to_string(), "space".to_string()][..])
+        );
         assert!(nfet.subckt);
         let pfet = r.device_type("pfet").unwrap();
         assert_eq!(pfet.sub, ["nwell"]);
         // Como en GF180: fuente y drenaje sin `*`.
         let m = device_models(&["device mosfet m nfetgf ndiff,ndc ndiff,ndc pwell error".to_string()], &HashMap::new());
         let gf = &m["nfetgf"];
-        assert_eq!((gf.sd.as_slice(), gf.sub.as_slice(), gf.subckt), (&["ndiff".to_string(), "ndc".to_string()][..], &["pwell".to_string()][..], false));
+        assert_eq!(
+            (gf.sd.as_slice(), gf.sub.as_slice(), gf.subckt),
+            (&["ndiff".to_string(), "ndc".to_string()][..], &["pwell".to_string()][..], false)
+        );
         let lvt = r.device_type("nfetlvt").unwrap();
         assert_eq!((lvt.sd.len(), lvt.sub.len()), (1, 0), "sin sustrato en la línea");
         // El orden de pintado y los planos.
@@ -960,7 +1001,8 @@ end
     #[test]
     fn resistors_come_from_their_device_lines() {
         let r = DeviceRules::parse(TECH).expect("reglas");
-        let got: Vec<(&str, Option<&str>, bool)> = r.resistors.iter().map(|x| (x.magic.as_str(), x.model.as_deref(), x.subckt)).collect();
+        let got: Vec<(&str, Option<&str>, bool)> =
+            r.resistors.iter().map(|x| (x.magic.as_str(), x.model.as_deref(), x.subckt)).collect();
         assert_eq!(got, [("rpoly", Some("mini__res")), ("rm1", None)].map(|(m, x)| (m, x, false)));
         assert_eq!(r.resistors[0].terminals, ["pc", "poly"], "*poly: el poly y su contacto");
     }
@@ -971,7 +1013,8 @@ end
         assert_eq!(r.contact_residues("mcon"), ["locali", "metal1"]);
         assert_eq!(r.contact_residues("ndcontact2"), ["ndiff", "locali"], "alias de types");
         assert!(r.contact_residues("metal1").is_empty());
-        let group = |t: &str| r.connect.iter().find(|(a, _)| a.iter().any(|x| x == t)).map(|(a, _)| a.clone()).unwrap_or_default();
+        let group =
+            |t: &str| r.connect.iter().find(|(a, _)| a.iter().any(|x| x == t)).map(|(a, _)| a.clone()).unwrap_or_default();
         // `*locali`: la capa y los contactos que la tocan.
         let mut li = group("locali");
         li.sort();
@@ -982,7 +1025,10 @@ end
         poly.sort();
         assert_eq!(poly, ["nmos", "nmoslvt", "pc", "pmos", "poly"], "en nombres canónicos");
         assert!(r.conductors().contains(&"metal1".to_string()) && !r.conductors().contains(&"space".to_string()));
-        assert_eq!(r.substrate, (vec!["psc".into(), "psubstratepdiff".into(), "space".into(), "pwell".into()], vec!["dnwell".into()]));
+        assert_eq!(
+            r.substrate,
+            (vec!["psc".into(), "psubstratepdiff".into(), "space".into(), "pwell".into()], vec!["dnwell".into()])
+        );
     }
 
     #[test]

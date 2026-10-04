@@ -179,7 +179,10 @@ mod tests {
     #[test]
     fn y_del_contenedor_a_windows() {
         let m = mounts();
-        assert_eq!(to_windows(Path::new("/foss/designs/riku_chip/docs"), &m).as_deref(), Some(r"C:\Users\Usuario\eda\designs\riku_chip\docs"));
+        assert_eq!(
+            to_windows(Path::new("/foss/designs/riku_chip/docs"), &m).as_deref(),
+            Some(r"C:\Users\Usuario\eda\designs\riku_chip\docs")
+        );
         assert_eq!(to_windows(Path::new("/foss/designs"), &m).as_deref(), Some(r"C:\Users\Usuario\eda\designs"));
         assert_eq!(to_windows(Path::new("/headless"), &m), None);
     }

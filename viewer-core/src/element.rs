@@ -101,18 +101,9 @@ impl DrawElement {
     /// el glifo real requiere métricas de fuente que no viven en viewer-core.
     pub fn bounding_box(&self) -> BoundingBox {
         match self {
-            Self::Line { x1, y1, x2, y2, .. } => {
-                BoundingBox::from_points((*x1, *y1), (*x2, *y2))
-            }
-            Self::Rect { x, y, w, h, .. } => {
-                BoundingBox::from_points((*x, *y), (*x + *w, *y + *h))
-            }
-            Self::Circle { cx, cy, r, .. } => BoundingBox {
-                min_x: *cx - *r,
-                min_y: *cy - *r,
-                max_x: *cx + *r,
-                max_y: *cy + *r,
-            },
+            Self::Line { x1, y1, x2, y2, .. } => BoundingBox::from_points((*x1, *y1), (*x2, *y2)),
+            Self::Rect { x, y, w, h, .. } => BoundingBox::from_points((*x, *y), (*x + *w, *y + *h)),
+            Self::Circle { cx, cy, r, .. } => BoundingBox { min_x: *cx - *r, min_y: *cy - *r, max_x: *cx + *r, max_y: *cy + *r },
             Self::Polygon { points, .. } => {
                 let mut bb = BoundingBox::empty();
                 for (x, y) in points {
@@ -133,9 +124,7 @@ impl DrawElement {
     /// los anillos "keyhole" de GDS (el hueco queda fuera).
     pub fn contains_point(&self, px: f64, py: f64) -> bool {
         match self {
-            Self::Rect { x, y, w, h, .. } => {
-                BoundingBox::from_points((*x, *y), (*x + *w, *y + *h)).contains(px, py)
-            }
+            Self::Rect { x, y, w, h, .. } => BoundingBox::from_points((*x, *y), (*x + *w, *y + *h)).contains(px, py),
             Self::Circle { cx, cy, r, .. } => (px - cx).powi(2) + (py - cy).powi(2) <= r * r,
             Self::Polygon { points, .. } => {
                 if points.len() < 3 {
@@ -199,8 +188,16 @@ mod tests {
     fn keyhole_ring_excludes_hole() {
         // Anillo 10x10 con hueco 6x6 codificado con corte (como en GDS).
         let ring = poly(&[
-            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 2.0),
-            (2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0), (0.0, 2.0),
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 2.0),
+            (2.0, 2.0),
+            (2.0, 8.0),
+            (8.0, 8.0),
+            (8.0, 2.0),
+            (0.0, 2.0),
         ]);
         assert!(ring.contains_point(1.0, 5.0));
         assert!(!ring.contains_point(5.0, 5.0), "el hueco no es parte del polígono");

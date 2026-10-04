@@ -20,9 +20,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::i18n::tr;
 use riku_kernel::DiffOptions;
 use serde::Deserialize;
-use crate::i18n::tr;
 
 /// Nombre del archivo, en la raíz del repositorio.
 pub const FILE: &str = ".riku.toml";

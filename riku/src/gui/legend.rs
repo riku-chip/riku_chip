@@ -24,12 +24,8 @@ fn rows<'a>(layers: &[(Layer, &'a LayerPaint)], in_view: &HashSet<Layer>) -> (Ve
     let mut seen = HashSet::new();
     // Una fila por nombre: una capa puede venir en dos claves (en un diff de
     // esquemático, la atenuada y la del resaltado).
-    let all: Vec<&LayerPaint> = layers
-        .iter()
-        .filter(|(k, _)| in_view.contains(k))
-        .map(|(_, p)| *p)
-        .filter(|p| seen.insert(p.name.as_str()))
-        .collect();
+    let all: Vec<&LayerPaint> =
+        layers.iter().filter(|(k, _)| in_view.contains(k)).map(|(_, p)| *p).filter(|p| seen.insert(p.name.as_str())).collect();
     let more = all.len().saturating_sub(MAX_ROWS);
     (all.into_iter().take(MAX_ROWS).collect(), more)
 }

@@ -94,10 +94,12 @@ fn title(ui: &mut egui::Ui, text: String) {
 fn project_card(ui: &mut egui::Ui, input: &HomeInput<'_>, action: &mut Option<HomeAction>) {
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            let name = input.root.file_name().map_or_else(|| input.root.display().to_string(), |n| n.to_string_lossy().to_string());
+            let name =
+                input.root.file_name().map_or_else(|| input.root.display().to_string(), |n| n.to_string_lossy().to_string());
             ui.label(RichText::new(name).size(17.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let open = egui::Button::new(RichText::new(tr!("home.open_folder")).strong()).fill(ui.visuals().selection.bg_fill);
+                let open =
+                    egui::Button::new(RichText::new(tr!("home.open_folder")).strong()).fill(ui.visuals().selection.bg_fill);
                 if ui.add(open).on_hover_text(tr!("home.open_folder_hint")).clicked() {
                     *action = Some(HomeAction::PickFolder);
                 }
@@ -118,11 +120,8 @@ fn project_card(ui: &mut egui::Ui, input: &HomeInput<'_>, action: &mut Option<Ho
         };
         ui.label(repo_line);
 
-        let others: Vec<&String> = input
-            .recent_dirs
-            .iter()
-            .filter(|d| Path::new(d) != input.root && Path::new(d).is_dir())
-            .collect();
+        let others: Vec<&String> =
+            input.recent_dirs.iter().filter(|d| Path::new(d) != input.root && Path::new(d).is_dir()).collect();
         if !others.is_empty() {
             ui.add_space(space::S);
             ui.horizontal_wrapped(|ui| {
@@ -248,11 +247,14 @@ fn changes_card(ui: &mut egui::Ui, status: &StatusView<'_>, action: &mut Option<
                 ui.label(RichText::new(tr!("home.clean_hint")).weak());
             }
             StatusView::Ready(r) => {
-                egui::ScrollArea::vertical().id_salt("home_changes").max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
-                    for f in &r.files {
-                        change_row(ui, f, action);
-                    }
-                });
+                egui::ScrollArea::vertical().id_salt("home_changes").max_height(240.0).auto_shrink([false, true]).show(
+                    ui,
+                    |ui| {
+                        for f in &r.files {
+                            change_row(ui, f, action);
+                        }
+                    },
+                );
             }
         }
     });

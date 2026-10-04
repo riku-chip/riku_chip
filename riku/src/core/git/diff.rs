@@ -3,16 +3,11 @@ use git2::{Diff, DiffOptions, Repository};
 use crate::core::domain::git_types::{ChangeStatus, ChangedFile, CommitChanges, CommitWithParents, GitError};
 use crate::core::git::helpers::{commit_info_from, resolve_commit};
 
-pub(super) fn get_changed_files(
-    repo: &Repository,
-    commit_a: &str,
-    commit_b: &str,
-) -> Result<Vec<ChangedFile>, GitError> {
+pub(super) fn get_changed_files(repo: &Repository, commit_a: &str, commit_b: &str) -> Result<Vec<ChangedFile>, GitError> {
     let tree_a = resolve_commit(repo, commit_a)?.tree()?;
     let tree_b = resolve_commit(repo, commit_b)?.tree()?;
     let mut options = DiffOptions::new();
-    let diff =
-        repo.diff_tree_to_tree(Some(&tree_a), Some(&tree_b), Some(&mut options))?;
+    let diff = repo.diff_tree_to_tree(Some(&tree_a), Some(&tree_b), Some(&mut options))?;
     changed_files(diff)
 }
 

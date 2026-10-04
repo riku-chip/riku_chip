@@ -137,9 +137,7 @@ impl Origins {
             .map(|(b, target, at)| (area(b), target.as_str(), at.x, at.y))
             .min_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
         match best {
-            Some((_, target, x, y)) => {
-                Origin { path: vec![self.cell.clone(), target.to_string()], instance_at: Some((x, y)) }
-            }
+            Some((_, target, x, y)) => Origin { path: vec![self.cell.clone(), target.to_string()], instance_at: Some((x, y)) },
             None => root(),
         }
     }

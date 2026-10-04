@@ -66,10 +66,6 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         ..Default::default()
     };
 
-    eframe::run_native(
-        "Riku GUI",
-        options,
-        Box::new(move |cc| Ok(Box::new(app::RikuGuiApp::new(cc, launch)))),
-    )
-    .map_err(|e| e.to_string())
+    eframe::run_native("Riku GUI", options, Box::new(move |cc| Ok(Box::new(app::RikuGuiApp::new(cc, launch)))))
+        .map_err(|e| e.to_string())
 }

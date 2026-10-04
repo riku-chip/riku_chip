@@ -88,9 +88,7 @@ impl RikuGuiApp {
         };
         let path_str = path.to_string_lossy().to_string();
 
-        let backend = self.backends.iter()
-            .find(|b| b.accepts(&content, Some(&path_str)))
-            .cloned();
+        let backend = self.backends.iter().find(|b| b.accepts(&content, Some(&path_str))).cloned();
         let Some(backend) = backend else { return false };
 
         self.loader.start(LoadRequest {
@@ -172,7 +170,9 @@ impl RikuGuiApp {
             return Ok(());
         }
 
-        let backend = self.backends.iter()
+        let backend = self
+            .backends
+            .iter()
             .find(|b| b.accepts(&after, Some(&file_str)))
             .cloned()
             .ok_or_else(|| tr!("error.no_viewer", file = file_str))?;
@@ -353,9 +353,10 @@ impl RikuGuiApp {
                 // Confirmar solo lo que el usuario pidió cargar (archivo o
                 // celda nuevos), no cada cambio de pestaña del diff.
                 if loaded.refit {
-                    let shown = loaded.scene.current_entry().map(str::to_string).unwrap_or_else(|| {
-                        Path::new(&loaded.path).file_name().unwrap_or_default().to_string_lossy().to_string()
-                    });
+                    let shown =
+                        loaded.scene.current_entry().map(str::to_string).unwrap_or_else(|| {
+                            Path::new(&loaded.path).file_name().unwrap_or_default().to_string_lossy().to_string()
+                        });
                     self.notify(ToastKind::Success, tr!("toast.loaded", what = shown));
                 }
                 let diff = loaded.diff.clone();

@@ -6,12 +6,12 @@
 use std::fmt::Write;
 
 use super::svg::Style;
-use crate::text::eng;
+use crate::i18n::tr;
 use crate::modules::spice::compare::{compare_plot, interp, pair_plots, SignalDiff, Status, Tolerance};
 use crate::modules::spice::derived;
 use crate::modules::spice::expr::{self, Evaluated};
 use crate::modules::spice::raw::{Plot, RawFile, Variable};
-use crate::i18n::tr;
+use crate::text::eng;
 
 const MAX_SIGNALS: usize = 3;
 const PALETTE: [&str; 6] = ["#4e9cf5", "#f58f3b", "#3cc47c", "#e04f6a", "#a77bf0", "#d4b83a"];
@@ -40,7 +40,8 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     let a_file = before.unwrap_or(&empty);
     let pairs = pair_plots(a_file, after);
     // Primer análisis con curvas (el punto de operación tiene un solo punto).
-    let Some((pair, (ia, ib))) = pairs.iter().copied().enumerate().find(|(_, (_, b))| b.is_some_and(|i| after.plots[i].points() > 1))
+    let Some((pair, (ia, ib))) =
+        pairs.iter().copied().enumerate().find(|(_, (_, b))| b.is_some_and(|i| after.plots[i].points() > 1))
     else {
         return empty_svg(style, &tr!("image.no_curves"));
     };
@@ -112,7 +113,10 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     let fg = if style.dark { "#e6e6e6" } else { "#1e1e1e" };
     let grid = if style.dark { "#34343a" } else { "#dcdcd6" };
     let mut out = String::new();
-    let _ = write!(out, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="DejaVu Sans, sans-serif">"#);
+    let _ = write!(
+        out,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="DejaVu Sans, sans-serif">"#
+    );
     let _ = write!(out, r#"<rect width="{w}" height="{h}" fill="{bg}"/>"#);
     let legend = if is_diff { format!("  ·  {}", tr!("image.b_solid_a_dashed")) } else { String::new() };
     let caption = format!("{}  ·  {}{legend}", style.caption, pb.name);
@@ -151,9 +155,22 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
                     err.push((error_points(xa, ya, xb, yb, tx), PALETTE[i % PALETTE.len()], false));
                 }
             }
-            let legend: Vec<(String, &str)> = curves.iter().map(|(i, c)| (format!("Δ {}", c.name), PALETTE[i % PALETTE.len()])).collect();
+            let legend: Vec<(String, &str)> =
+                curves.iter().map(|(i, c)| (format!("Δ {}", c.name), PALETTE[i % PALETTE.len()])).collect();
             let label = if unit.is_empty() { "B − A".to_string() } else { format!("B − A [{unit}]") };
-            panel(&mut out, (left, y_top, w - left - right, row_h), (x0, x1), &err, &label, unit, &legend, log_x, x_unit, fg, grid);
+            panel(
+                &mut out,
+                (left, y_top, w - left - right, row_h),
+                (x0, x1),
+                &err,
+                &label,
+                unit,
+                &legend,
+                log_x,
+                x_unit,
+                fg,
+                grid,
+            );
             row += 1;
         }
     }
@@ -196,11 +213,7 @@ fn error_points(xa: &[f64], ya: &[f64], xb: &[f64], yb: &[f64], tx: impl Fn(f64)
     let mut grid: Vec<f64> = xa.iter().chain(xb).copied().filter(|&x| x >= lo && x <= hi).collect();
     grid.sort_by(f64::total_cmp);
     grid.dedup();
-    let pts = grid
-        .iter()
-        .map(|&x| (tx(x), interp(xb, yb, x) - interp(xa, ya, x)))
-        .filter(|(_, e)| e.is_finite())
-        .collect();
+    let pts = grid.iter().map(|&x| (tx(x), interp(xb, yb, x) - interp(xa, ya, x))).filter(|(_, e)| e.is_finite()).collect();
     decimate(pts, 3000)
 }
 
@@ -227,7 +240,15 @@ fn nice_step(span: f64, n: f64) -> f64 {
     let raw = (span / n).abs().max(1e-300);
     let mag = 10f64.powf(raw.log10().floor());
     let f = raw / mag;
-    mag * if f < 1.5 { 1.0 } else if f < 3.5 { 2.0 } else if f < 7.5 { 5.0 } else { 10.0 }
+    mag * if f < 1.5 {
+        1.0
+    } else if f < 3.5 {
+        2.0
+    } else if f < 7.5 {
+        5.0
+    } else {
+        10.0
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -271,7 +292,13 @@ fn panel(
         let v_label = if v.abs() < step * 1e-6 { 0.0 } else { v };
         let y = sy(v);
         let _ = write!(out, r#"<line x1="{px:.1}" y1="{y:.1}" x2="{:.1}" y2="{y:.1}" stroke="{grid}"/>"#, px + pw);
-        let _ = write!(out, r#"<text x="{:.1}" y="{:.1}" font-size="10" fill="{fg}" text-anchor="end">{}</text>"#, px - 4.0, y + 3.5, esc(&short(v_label, unit)));
+        let _ = write!(
+            out,
+            r#"<text x="{:.1}" y="{:.1}" font-size="10" fill="{fg}" text-anchor="end">{}</text>"#,
+            px - 4.0,
+            y + 3.5,
+            esc(&short(v_label, unit))
+        );
         v += step;
     }
     // Marcas del eje X (décadas en escala log).
@@ -281,7 +308,12 @@ fn panel(
         let x = sx(v);
         let _ = write!(out, r#"<line x1="{x:.1}" y1="{py:.1}" x2="{x:.1}" y2="{:.1}" stroke="{grid}"/>"#, py + ph);
         let value = if log_x { 10f64.powf(v) } else { v };
-        let _ = write!(out, r#"<text x="{x:.1}" y="{:.1}" font-size="10" fill="{fg}" text-anchor="middle">{}</text>"#, py + ph + 13.0, esc(&short(value, x_unit)));
+        let _ = write!(
+            out,
+            r#"<text x="{x:.1}" y="{:.1}" font-size="10" fill="{fg}" text-anchor="middle">{}</text>"#,
+            py + ph + 13.0,
+            esc(&short(value, x_unit))
+        );
         v += step;
     }
     let _ = write!(
@@ -305,7 +337,8 @@ fn panel(
     for (i, (name, color)) in legend.iter().enumerate() {
         let y = py + 14.0 + i as f64 * 14.0;
         let x = px + pw - 8.0;
-        let _ = write!(out, r#"<text x="{x:.1}" y="{y:.1}" font-size="11" fill="{color}" text-anchor="end">{}</text>"#, esc(name));
+        let _ =
+            write!(out, r#"<text x="{x:.1}" y="{y:.1}" font-size="11" fill="{color}" text-anchor="end">{}</text>"#, esc(name));
     }
 }
 

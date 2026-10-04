@@ -29,10 +29,7 @@ const RECENT_COMMITS: usize = 20;
 pub(super) fn complete(line: &str, pos: usize, cwd: &Path) -> (usize, Vec<String>) {
     let head = &line[..pos];
     // El separador puede ocupar más de un byte (un espacio no separable).
-    let start = head
-        .char_indices()
-        .rfind(|(_, c)| c.is_whitespace())
-        .map_or(0, |(i, c)| i + c.len_utf8());
+    let start = head.char_indices().rfind(|(_, c)| c.is_whitespace()).map_or(0, |(i, c)| i + c.len_utf8());
     let word = &head[start..];
     let before: Vec<&str> = head[..start].split_whitespace().collect();
 
@@ -94,11 +91,8 @@ fn paths(cwd: &Path, word: &str, dirs_only: bool) -> Vec<String> {
                 return None;
             }
             let is_dir = e.path().is_dir();
-            let openable = e
-                .path()
-                .extension()
-                .and_then(|x| x.to_str())
-                .is_some_and(|x| known.iter().any(|o| x.eq_ignore_ascii_case(o)));
+            let openable =
+                e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| known.iter().any(|o| x.eq_ignore_ascii_case(o)));
             match (is_dir, dirs_only) {
                 (true, _) => Some(format!("{dir_part}{name}/")),
                 (false, false) if openable => Some(format!("{dir_part}{name}")),

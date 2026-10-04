@@ -8,7 +8,14 @@ use crate::core::domain::models::FileChange;
 
 pub const DIFF_SCHEMA: &str = "riku-diff/v2";
 
-pub fn print(report: &FileChange, warnings: &[String], file_path: &str, from: &str, to: &str, pretty: bool) -> Result<(), String> {
+pub fn print(
+    report: &FileChange,
+    warnings: &[String],
+    file_path: &str,
+    from: &str,
+    to: &str,
+    pretty: bool,
+) -> Result<(), String> {
     let payload = json!({
         "schema": DIFF_SCHEMA,
         "file": file_path,

@@ -23,19 +23,13 @@ pub struct LayerKey {
 
 impl From<GdsTag> for LayerKey {
     fn from(t: GdsTag) -> Self {
-        Self {
-            layer: t.layer,
-            datatype: t.datatype,
-        }
+        Self { layer: t.layer, datatype: t.datatype }
     }
 }
 
 impl From<LayerKey> for GdsTag {
     fn from(k: LayerKey) -> Self {
-        GdsTag {
-            layer: k.layer,
-            datatype: k.datatype,
-        }
+        GdsTag { layer: k.layer, datatype: k.datatype }
     }
 }
 
@@ -126,9 +120,7 @@ pub struct DiffConfig {
 
 impl Default for DiffConfig {
     fn default() -> Self {
-        Self {
-            cosmetic_threshold_um2: DEFAULT_COSMETIC_THRESHOLD_UM2,
-        }
+        Self { cosmetic_threshold_um2: DEFAULT_COSMETIC_THRESHOLD_UM2 }
     }
 }
 
@@ -146,10 +138,8 @@ pub(crate) fn check_acyclic(lib: &Library) -> Result<(), String> {
     let cells: Vec<_> = lib.cells().collect();
     let index: HashMap<&str, usize> = cells.iter().enumerate().map(|(i, c)| (c.name(), i)).collect();
     // Hijos de cada celda (solo los que están en el archivo).
-    let children: Vec<Vec<usize>> = cells
-        .iter()
-        .map(|c| c.references().filter_map(|r| index.get(r.cell_name()).copied()).collect())
-        .collect();
+    let children: Vec<Vec<usize>> =
+        cells.iter().map(|c| c.references().filter_map(|r| index.get(r.cell_name()).copied()).collect()).collect();
     #[derive(Clone, Copy, PartialEq)]
     enum Mark {
         New,
@@ -168,21 +158,19 @@ pub(crate) fn check_acyclic(lib: &Library) -> Result<(), String> {
             let (cell, next) = *top;
             top.1 += 1;
             match children[cell].get(next) {
-                Some(&child) => {
-                    match mark[child] {
-                        Mark::New => {
-                            mark[child] = Mark::Open;
-                            stack.push((child, 0));
-                        }
-                        Mark::Open => {
-                            let start = stack.iter().position(|&(c, _)| c == child).unwrap_or(0);
-                            let mut path: Vec<&str> = stack[start..].iter().map(|&(c, _)| cells[c].name()).collect();
-                            path.push(cells[child].name());
-                            return Err(format!("ciclo de celdas (el archivo está dañado): {}", path.join(" → ")));
-                        }
-                        Mark::Done => {}
+                Some(&child) => match mark[child] {
+                    Mark::New => {
+                        mark[child] = Mark::Open;
+                        stack.push((child, 0));
                     }
-                }
+                    Mark::Open => {
+                        let start = stack.iter().position(|&(c, _)| c == child).unwrap_or(0);
+                        let mut path: Vec<&str> = stack[start..].iter().map(|&(c, _)| cells[c].name()).collect();
+                        path.push(cells[child].name());
+                        return Err(format!("ciclo de celdas (el archivo está dañado): {}", path.join(" → ")));
+                    }
+                    Mark::Done => {}
+                },
                 None => {
                     mark[cell] = Mark::Done;
                     stack.pop();
@@ -234,10 +222,8 @@ pub fn diff_layout_sides(
             let (mut la, mut lb) = (la?, lb?);
             source::same_unit(ra.as_ref(), &mut la, rb.as_ref(), &mut lb).map_err(|e| side_error(e, "A"))?;
             let mut report = diff_libraries(la.as_ref().map(|s| &*s.lib), lb.as_ref().map(|s| &*s.lib), cfg);
-            report.ports = crate::mag::port_changes(
-                la.as_ref().and_then(|s| s.info.as_ref()),
-                lb.as_ref().and_then(|s| s.info.as_ref()),
-            );
+            report.ports =
+                crate::mag::port_changes(la.as_ref().and_then(|s| s.info.as_ref()), lb.as_ref().and_then(|s| s.info.as_ref()));
             for (label, side) in [("antes", &la), ("después", &lb)] {
                 if let Some(s) = side {
                     report.warnings.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
@@ -263,11 +249,12 @@ fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffRe
     let magic: HashMap<(u32, u32), String> = lb.layer_names().into_iter().map(|(t, n)| ((t.layer, t.datatype), n)).collect();
     let relevant = |k: &LayerKey| {
         used.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
-            || magic.get(&(k.layer, k.datatype)).is_some_and(|n| {
-                rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n))
-            })
+            || magic
+                .get(&(k.layer, k.datatype))
+                .is_some_and(|n| rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n)))
     };
-    let cells: BTreeSet<&str> = report.geometry.iter().filter(|g| own_change(g) && relevant(&g.layer)).map(|g| g.cell.as_str()).collect();
+    let cells: BTreeSet<&str> =
+        report.geometry.iter().filter(|g| own_change(g) && relevant(&g.layer)).map(|g| g.cell.as_str()).collect();
     let cells: Vec<&str> = cells.into_iter().collect();
     let found: Vec<(&str, Option<Vec<crate::devices::DeviceChange>>)> = cells
         .par_iter()
@@ -478,29 +465,15 @@ fn sum_area_um2(polys: &[OwnedPolygon], unit_factor: f64) -> f64 {
     polys.iter().map(|p| polygon_area_um2(p, unit_factor)).fold(0.0, |acc, a| acc + a)
 }
 
-fn union_bbox_um(
-    added: &[OwnedPolygon],
-    removed: &[OwnedPolygon],
-    unit_factor: f64,
-) -> Option<BBoxUm> {
+fn union_bbox_um(added: &[OwnedPolygon], removed: &[OwnedPolygon], unit_factor: f64) -> Option<BBoxUm> {
     let mut bbox: Option<BBoxUm> = None;
     for p in added.iter().chain(removed.iter()) {
         for pt in &p.points {
             let x = pt.x * unit_factor;
             let y = pt.y * unit_factor;
             bbox = Some(match bbox {
-                None => BBoxUm {
-                    min_x: x,
-                    min_y: y,
-                    max_x: x,
-                    max_y: y,
-                },
-                Some(b) => BBoxUm {
-                    min_x: b.min_x.min(x),
-                    min_y: b.min_y.min(y),
-                    max_x: b.max_x.max(x),
-                    max_y: b.max_y.max(y),
-                },
+                None => BBoxUm { min_x: x, min_y: y, max_x: x, max_y: y },
+                Some(b) => BBoxUm { min_x: b.min_x.min(x), min_y: b.min_y.min(y), max_x: b.max_x.max(x), max_y: b.max_y.max(y) },
             });
         }
     }
@@ -542,12 +515,8 @@ pub(crate) fn read_notes(lib: &Library) -> Vec<String> {
 /// Los cambios llevan el nombre de su capa si el archivo lo da.
 pub(crate) fn diff_libraries(lib_a: Option<&Library>, lib_b: Option<&Library>, cfg: &DiffConfig) -> GdsDiffReport {
     let mut report = diff_libraries_unnamed(lib_a, lib_b, cfg);
-    let names: HashMap<LayerKey, String> = lib_a
-        .into_iter()
-        .chain(lib_b)
-        .flat_map(|l| l.layer_names())
-        .map(|(t, n)| (LayerKey::from(t), n))
-        .collect();
+    let names: HashMap<LayerKey, String> =
+        lib_a.into_iter().chain(lib_b).flat_map(|l| l.layer_names()).map(|(t, n)| (LayerKey::from(t), n)).collect();
     if !names.is_empty() {
         for g in &mut report.geometry {
             g.layer_name = names.get(&g.layer).cloned();
@@ -666,7 +635,12 @@ impl CellDiff {
     pub fn failure_notes(&self, cell: &str) -> Vec<String> {
         self.failed_layers
             .iter()
-            .map(|k| format!("{cell}, capa {}/{}: falló la operación booleana (Clipper); el cambio de esa capa puede estar incompleto", k.layer, k.datatype))
+            .map(|k| {
+                format!(
+                    "{cell}, capa {}/{}: falló la operación booleana (Clipper); el cambio de esa capa puede estar incompleto",
+                    k.layer, k.datatype
+                )
+            })
             .collect()
     }
 }
@@ -674,12 +648,7 @@ impl CellDiff {
 /// Diff de la cell `name` entre dos libraries. Un lado `None` (archivo que
 /// no existia) o una cell ausente de un lado cuentan como vacios: todo lo
 /// del otro lado es anadido o removido.
-pub fn diff_cell(
-    lib_a: Option<&Library>,
-    lib_b: Option<&Library>,
-    name: &str,
-    cfg: &DiffConfig,
-) -> CellDiff {
+pub fn diff_cell(lib_a: Option<&Library>, lib_b: Option<&Library>, name: &str, cfg: &DiffConfig) -> CellDiff {
     diff_cell_as(lib_a, name, lib_b, name, cfg)
 }
 
@@ -693,12 +662,7 @@ pub(crate) fn diff_cell_as(
     cfg: &DiffConfig,
 ) -> CellDiff {
     let unit_factor = lib_b.or(lib_a).map_or(1.0, |l| l.unit() / 1e-6);
-    let layers: BTreeSet<LayerKey> = lib_a
-        .into_iter()
-        .chain(lib_b)
-        .flat_map(|l| l.layers())
-        .map(LayerKey::from)
-        .collect();
+    let layers: BTreeSet<LayerKey> = lib_a.into_iter().chain(lib_b).flat_map(|l| l.layers()).map(LayerKey::from).collect();
     let ca = lib_a.and_then(|l| l.find_cell(name_a));
     let cb = lib_b.and_then(|l| l.find_cell(name_b));
     // Con las huellas jerarquicas, las instancias gemelas no se aplanan.
@@ -742,17 +706,12 @@ fn diff_one_cell(
     };
     // Las capas que difieren, en paralelo; `collect` conserva el orden de
     // `layers`, asi la salida no depende de que hilo termina primero.
-    let keys: Vec<&LayerKey> = layers
-        .iter()
-        .filter(|key| prints.is_none_or(|p| p.a.get(*key) != p.b.get(*key)))
-        .collect();
+    let keys: Vec<&LayerKey> = layers.iter().filter(|key| prints.is_none_or(|p| p.a.get(*key) != p.b.get(*key))).collect();
     // Las instancias de cada lado, para atribuir los poligonos del XOR; se
     // arman una vez por cell (la primera capa que las necesita).
     let origins = (std::sync::OnceLock::new(), std::sync::OnceLock::new());
-    let per_layer: Vec<(Option<(Vec<GdsGeomDiff>, LayerPolygons)>, bool)> = keys
-        .par_iter()
-        .map(|key| diff_layer(name, ca, cb, **key, unit_factor, cfg, prints, &origins))
-        .collect();
+    let per_layer: Vec<(Option<(Vec<GdsGeomDiff>, LayerPolygons)>, bool)> =
+        keys.par_iter().map(|key| diff_layer(name, ca, cb, **key, unit_factor, cfg, prints, &origins)).collect();
     let mut out = CellDiff::default();
     for ((diff, failed), key) in per_layer.into_iter().zip(&keys) {
         if failed {
@@ -916,7 +875,9 @@ pub enum CellChange {
     Removed,
     Modified,
     /// Misma geometria con otro nombre; `from` es el nombre en A.
-    Renamed { from: String },
+    Renamed {
+        from: String,
+    },
 }
 
 /// Empareja cells que desaparecen de A con cells que aparecen en B y tienen
@@ -925,12 +886,7 @@ pub enum CellChange {
 ///
 /// La huella propone y el XOR confirma. Si una huella se repite (varias
 /// candidatas) no se adivina, y las cells sin geometria nunca se emparejan.
-fn detect_renames(
-    la: &Library,
-    lb: &Library,
-    removed: &BTreeSet<String>,
-    added: &BTreeSet<String>,
-) -> Vec<(String, String)> {
+fn detect_renames(la: &Library, lb: &Library, removed: &BTreeSet<String>, added: &BTreeSet<String>) -> Vec<(String, String)> {
     let by_fp = |lib: &Library, names: &BTreeSet<String>| {
         let prints: Vec<(LayerPrints, &String)> = names
             .par_iter()
@@ -1077,10 +1033,7 @@ mod tests {
     }
 
     fn fixture_bytes(name: &str) -> Vec<u8> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join(name);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(name);
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 
@@ -1113,11 +1066,7 @@ mod tests {
     #[test]
     fn empty_side_means_file_added_or_removed() {
         let lib = proof_lib_bytes();
-        let cells: BTreeSet<String> = Library::from_bytes(&lib)
-            .unwrap()
-            .cells()
-            .map(|c| c.name().to_string())
-            .collect();
+        let cells: BTreeSet<String> = Library::from_bytes(&lib).unwrap().cells().map(|c| c.name().to_string()).collect();
         let added = diff_gds(&[], &lib).expect("archivo nuevo");
         assert_eq!(added.cells_added.iter().cloned().collect::<BTreeSet<_>>(), cells);
         assert!(added.cells_removed.is_empty() && added.geometry.is_empty());
@@ -1154,16 +1103,8 @@ mod tests {
         assert!(r.cells_added.is_empty());
         assert!(r.cells_removed.is_empty());
 
-        let dt0 = r
-            .geometry
-            .iter()
-            .find(|g| g.layer == LayerKey { layer: 1, datatype: 0 })
-            .expect("entry para datatype=0");
-        let dt1 = r
-            .geometry
-            .iter()
-            .find(|g| g.layer == LayerKey { layer: 1, datatype: 1 })
-            .expect("entry para datatype=1");
+        let dt0 = r.geometry.iter().find(|g| g.layer == LayerKey { layer: 1, datatype: 0 }).expect("entry para datatype=0");
+        let dt1 = r.geometry.iter().find(|g| g.layer == LayerKey { layer: 1, datatype: 1 }).expect("entry para datatype=1");
         assert_eq!(dt0.removed_polygons, 1);
         assert_eq!(dt0.added_polygons, 0);
         assert_eq!(dt1.removed_polygons, 0);
@@ -1231,7 +1172,10 @@ mod tests {
         let r = nand2_diff("nand2_a.gds", "nand2_short.gds");
         assert_eq!(r.nets.len(), 1, "{:?}", r.nets);
         let n = &r.nets[0];
-        assert_eq!((n.kind, n.before.clone(), n.after.clone()), (NetChangeKind::Short, vec!["B".to_string(), "Y".into()], vec!["B = Y".to_string()]));
+        assert_eq!(
+            (n.kind, n.before.clone(), n.after.clone()),
+            (NetChangeKind::Short, vec!["B".to_string(), "Y".into()], vec!["B = Y".to_string()])
+        );
         // Dónde: el li agregado, lo que no se superpone con el que había.
         let want = [0.43, 1.10, 0.60, 1.28];
         assert!(n.bbox_um.iter().zip(want).all(|(x, y)| (x - y).abs() < 1e-6), "{:?}", n.bbox_um);
@@ -1316,8 +1260,7 @@ mod tests {
         let d = diff_cell(Some(&a), Some(&b), "ARR", &DiffConfig::default());
         let mut at: Vec<(f64, f64)> = d.geometry.iter().filter_map(|g| g.instance_at_um).collect();
         at.sort_by(|p, q| p.partial_cmp(q).unwrap());
-        let expected: Vec<(f64, f64)> =
-            [0.0, 10.0, 20.0].iter().flat_map(|&x| [(x, 0.0), (x, 5.0)]).collect();
+        let expected: Vec<(f64, f64)> = [0.0, 10.0, 20.0].iter().flat_map(|&x| [(x, 0.0), (x, 5.0)]).collect();
         assert_eq!(at, expected);
         for g in &d.geometry {
             let (x, y) = g.instance_at_um.unwrap();
@@ -1353,17 +1296,10 @@ mod tests {
         assert!(r.cells_added.is_empty());
         assert!(r.cells_removed.is_empty());
 
-        let top_changes: Vec<&GdsGeomDiff> =
-            r.geometry.iter().filter(|g| g.cell == "TOP").collect();
-        assert!(
-            !top_changes.is_empty(),
-            "TOP debe reportar cambios via flatten (regresion de XOR jerarquico)",
-        );
+        let top_changes: Vec<&GdsGeomDiff> = r.geometry.iter().filter(|g| g.cell == "TOP").collect();
+        assert!(!top_changes.is_empty(), "TOP debe reportar cambios via flatten (regresion de XOR jerarquico)",);
 
-        let entry = top_changes
-            .iter()
-            .find(|g| g.layer == LayerKey { layer: 1, datatype: 0 })
-            .expect("entry TOP layer 1/0");
+        let entry = top_changes.iter().find(|g| g.layer == LayerKey { layer: 1, datatype: 0 }).expect("entry TOP layer 1/0");
         assert_eq!(entry.added_polygons, 1);
         assert_eq!(entry.removed_polygons, 0);
         assert!(entry.flattened, "entry de TOP via SREF debe tener flattened=true");
@@ -1405,9 +1341,7 @@ mod tests {
         // queda bajo el umbral y debe marcarse cosmetico.
         let a = fixture_bytes("datatype_a.gds");
         let b = fixture_bytes("datatype_b.gds");
-        let cfg = DiffConfig {
-            cosmetic_threshold_um2: 200.0,
-        };
+        let cfg = DiffConfig { cosmetic_threshold_um2: 200.0 };
         let r = diff_gds_with_config(&a, &b, &cfg).expect("diff");
         assert!(r.geometry.iter().all(|g| g.cosmetic));
     }

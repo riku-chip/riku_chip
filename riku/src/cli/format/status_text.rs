@@ -6,10 +6,10 @@
 //! - `Completo`: imprime el `FileChange` íntegro tras el resumen.
 
 use super::common::{format_counts, print_detail, warning_lines};
-use crate::i18n::tr;
 use crate::core::analysis::status::StatusReport;
 use crate::core::analysis::summary::{DetailLevel, FileSummary, SummaryCategory};
 use crate::core::domain::models::FileChange;
+use crate::i18n::tr;
 
 /// Imprime el reporte completo en stdout, los warnings en stderr.
 pub fn print(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
@@ -55,9 +55,7 @@ fn print_categorized(report: &StatusReport, level: DetailLevel, include_unknown:
         return;
     }
 
-    let by = |cat: SummaryCategory| -> Vec<&FileSummary> {
-        report.files.iter().filter(|f| f.category == cat).collect()
-    };
+    let by = |cat: SummaryCategory| -> Vec<&FileSummary> { report.files.iter().filter(|f| f.category == cat).collect() };
 
     let semantic = by(SummaryCategory::Semantic);
     let cosmetic = by(SummaryCategory::Cosmetic);

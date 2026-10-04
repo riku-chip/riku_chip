@@ -32,12 +32,8 @@ mod tests {
     use gdstk_rs::Library;
 
     fn fixture(name: &str) -> Library {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join(name);
-        let bytes = std::fs::read(&path)
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(name);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         Library::from_bytes(&bytes).expect("parse fixture")
     }
 

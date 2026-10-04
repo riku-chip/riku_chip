@@ -42,7 +42,13 @@ mod tests {
 
     impl FormatModule for Warns {
         fn info(&self) -> ModuleInfo {
-            ModuleInfo { name: "w".into(), version: "test".into(), format: FileFormat::Gds, extensions: vec![".w".into()], available: true }
+            ModuleInfo {
+                name: "w".into(),
+                version: "test".into(),
+                format: FileFormat::Gds,
+                extensions: vec![".w".into()],
+                available: true,
+            }
         }
         fn detect(&self, _: &[u8]) -> bool {
             true

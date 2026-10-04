@@ -145,58 +145,52 @@ fn section(
     if let Some(n) = count {
         job.append(&n.to_string(), space::S, egui::TextFormat::simple(font, weak));
     }
-    egui::CollapsingHeader::new(job)
-        .id_salt(id)
-        .default_open(default_open)
-        .show(ui, |ui| {
-            add_contents(ui);
-            ui.add_space(space::XS);
-        });
+    egui::CollapsingHeader::new(job).id_salt(id).default_open(default_open).show(ui, |ui| {
+        add_contents(ui);
+        ui.add_space(space::XS);
+    });
 }
 
 /// Lista de cambios (relevantes primero; los cosméticos en gris). Un clic en
 /// un cambio con ubicación retorna su bbox para encuadrarlo.
 fn change_items(ui: &mut egui::Ui, changes: &[ChangeItem]) -> Option<BoundingBox> {
     let mut picked = None;
-    egui::ScrollArea::vertical()
-        .id_salt("change_list")
-        .max_height(220.0)
-        .show(ui, |ui| {
-            for c in changes {
-                let sign = match c.kind {
-                    _ if c.error => "!",
-                    ChangeKind::Added => "+",
-                    ChangeKind::Removed => "−",
-                    ChangeKind::Modified => "~",
-                };
-                // Un abierto o un corto: en rojo (el color de lo quitado) y en negrita.
-                let kind = if c.error { ChangeKind::Removed } else { c.kind };
-                let color = crate::gui::theme::change_color(kind, ui.visuals().dark_mode);
-                let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
-                let mut text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
-                if c.error {
-                    text = text.strong();
-                }
-                let resp = ui.add(
-                    egui::Label::new(text)
-                        .truncate()
-                        .sense(if c.bbox.is_some() { egui::Sense::click() } else { egui::Sense::hover() }),
-                );
-                if c.bbox.is_some() {
-                    resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
-                }
-                if !c.detail.is_empty() {
-                    ui.label(RichText::new(&c.detail).small().color(dim(ui.visuals().weak_text_color())));
-                }
-                let hover = match (c.cosmetic, c.bbox.is_some()) {
-                    (true, _) => tr!("change.cosmetic_hint"),
-                    (false, true) => tr!("change.go_hint"),
-                    (false, false) => tr!("change.no_location"),
-                };
-                if resp.on_hover_text(hover).clicked() {
-                    picked = c.bbox;
-                }
+    egui::ScrollArea::vertical().id_salt("change_list").max_height(220.0).show(ui, |ui| {
+        for c in changes {
+            let sign = match c.kind {
+                _ if c.error => "!",
+                ChangeKind::Added => "+",
+                ChangeKind::Removed => "−",
+                ChangeKind::Modified => "~",
+            };
+            // Un abierto o un corto: en rojo (el color de lo quitado) y en negrita.
+            let kind = if c.error { ChangeKind::Removed } else { c.kind };
+            let color = crate::gui::theme::change_color(kind, ui.visuals().dark_mode);
+            let dim = |col: egui::Color32| if c.cosmetic { col.gamma_multiply(0.45) } else { col };
+            let mut text = RichText::new(format!("{sign} {}", c.label)).color(dim(color));
+            if c.error {
+                text = text.strong();
             }
-        });
+            let resp = ui.add(egui::Label::new(text).truncate().sense(if c.bbox.is_some() {
+                egui::Sense::click()
+            } else {
+                egui::Sense::hover()
+            }));
+            if c.bbox.is_some() {
+                resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+            }
+            if !c.detail.is_empty() {
+                ui.label(RichText::new(&c.detail).small().color(dim(ui.visuals().weak_text_color())));
+            }
+            let hover = match (c.cosmetic, c.bbox.is_some()) {
+                (true, _) => tr!("change.cosmetic_hint"),
+                (false, true) => tr!("change.go_hint"),
+                (false, false) => tr!("change.no_location"),
+            };
+            if resp.on_hover_text(hover).clicked() {
+                picked = c.bbox;
+            }
+        }
+    });
     picked
 }

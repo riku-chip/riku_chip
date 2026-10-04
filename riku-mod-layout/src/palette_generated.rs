@@ -3,8 +3,8 @@
 // Capas completas de cada PDK (nombre y color del .lyp). `layer_spec` las
 // usa solo para capas que no estan en las tablas curadas de palette.rs.
 
-use crate::palette::{pl, rgb, PdkLayer};
 use crate::palette::LayerRole::{Device as D, Outline as O};
+use crate::palette::{pl, rgb, PdkLayer};
 
 /// 116 capas de `gf180mcuD/libs.tech/klayout/tech/gf180mcu.lyp`.
 pub(crate) const GF180_LYP: &[PdkLayer] = &[

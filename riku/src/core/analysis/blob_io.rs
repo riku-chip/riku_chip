@@ -94,13 +94,10 @@ mod tests {
 
     impl MockRepo {
         fn new() -> Self {
-            Self {
-                responses: HashMap::new(),
-            }
+            Self { responses: HashMap::new() }
         }
         fn set(&mut self, commit: &str, path: &str, result: Result<Vec<u8>, GitError>) {
-            self.responses
-                .insert((commit.to_string(), path.to_string()), result);
+            self.responses.insert((commit.to_string(), path.to_string()), result);
         }
     }
 
@@ -108,14 +105,10 @@ mod tests {
         fn get_blob(&self, commit: &str, path: &str) -> Result<Vec<u8>, GitError> {
             match self.responses.get(&(commit.to_string(), path.to_string())) {
                 Some(Ok(bytes)) => Ok(bytes.clone()),
-                Some(Err(GitError::BlobNotFound { commit, path })) => Err(GitError::BlobNotFound {
-                    commit: commit.clone(),
-                    path: path.clone(),
-                }),
-                Some(Err(GitError::LargeBlob { path, size })) => Err(GitError::LargeBlob {
-                    path: path.clone(),
-                    size: *size,
-                }),
+                Some(Err(GitError::BlobNotFound { commit, path })) => {
+                    Err(GitError::BlobNotFound { commit: commit.clone(), path: path.clone() })
+                }
+                Some(Err(GitError::LargeBlob { path, size })) => Err(GitError::LargeBlob { path: path.clone(), size: *size }),
                 Some(Err(GitError::CommitNotFound(s))) => Err(GitError::CommitNotFound(s.clone())),
                 Some(Err(_)) | None => Err(GitError::CommitNotFound("mock-default".to_string())),
             }

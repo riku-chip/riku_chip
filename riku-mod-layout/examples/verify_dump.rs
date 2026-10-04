@@ -64,8 +64,7 @@ fn xor(a: &str, b: &str, cell: &str) {
         e.0 += g.added_area_um2;
         e.1 += g.removed_area_um2;
     }
-    let mut rows: Vec<String> =
-        per_layer.iter().map(|((l, d), (add, rem))| format!("{l}/{d} +{add:.6} -{rem:.6}")).collect();
+    let mut rows: Vec<String> = per_layer.iter().map(|((l, d), (add, rem))| format!("{l}/{d} +{add:.6} -{rem:.6}")).collect();
     rows.sort();
     for r in rows {
         println!("{r}");

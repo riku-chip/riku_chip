@@ -23,16 +23,8 @@ async fn main() {
     let path = std::env::args().nth(1).expect("uso: profile_view <layout>");
     let bytes = std::fs::read(&path).expect("no se pudo leer el archivo");
     let t = Instant::now();
-    let scene = GdsBackend::new()
-        .load(bytes, Some(path.clone()), CancellationToken::new())
-        .await
-        .expect("no se pudo cargar");
-    println!(
-        "escena: {} elementos en {:.2}s · RSS {:.0} MB",
-        scene.len(),
-        t.elapsed().as_secs_f64(),
-        rss_mb()
-    );
+    let scene = GdsBackend::new().load(bytes, Some(path.clone()), CancellationToken::new()).await.expect("no se pudo cargar");
+    println!("escena: {} elementos en {:.2}s · RSS {:.0} MB", scene.len(), t.elapsed().as_secs_f64(), rss_mb());
     for (k, v) in scene.metadata() {
         println!("  {k}: {v}");
     }

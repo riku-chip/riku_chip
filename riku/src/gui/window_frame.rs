@@ -192,11 +192,9 @@ pub(crate) fn resize_edges(ctx: &egui::Context) {
         ("resize_e", Rect::from_min_max(pos2(screen.right() - EDGE, screen.top()), screen.right_bottom())),
     ];
     for (id, rect) in strips {
-        egui::Area::new(egui::Id::new(id))
-            .order(egui::Order::Foreground)
-            .fixed_pos(rect.min)
-            .interactable(true)
-            .show(ctx, |ui| {
+        egui::Area::new(egui::Id::new(id)).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(
+            ctx,
+            |ui| {
                 let (_, resp) = ui.allocate_exact_size(rect.size(), Sense::drag());
                 let Some(pos) = resp.hover_pos().or_else(|| resp.interact_pointer_pos()) else { return };
                 let dir = direction(screen, pos);
@@ -204,7 +202,8 @@ pub(crate) fn resize_edges(ctx: &egui::Context) {
                 if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_pressed()) {
                     ui.ctx().send_viewport_cmd(ViewportCommand::BeginResize(dir));
                 }
-            });
+            },
+        );
     }
 }
 

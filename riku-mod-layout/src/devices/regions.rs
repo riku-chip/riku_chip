@@ -183,7 +183,8 @@ mod tests {
             .iter()
             .map(|p| {
                 let n = p.points.len();
-                (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>() / 2.0
+                (0..n).map(|i| p.points[i].x * p.points[(i + 1) % n].y - p.points[(i + 1) % n].x * p.points[i].y).sum::<f64>()
+                    / 2.0
             })
             .sum::<f64>()
             .abs()
@@ -215,7 +216,10 @@ mod tests {
     fn grow_and_shrink_close_the_gaps_of_a_well() {
         // Dos tomas separadas 0,2 µm (en nm): `pwell2` las agranda 0,13 µm
         // (en la regla, 13 centimicrones) y las achica: quedan unidas.
-        let tech = TECH.replace(" layer pwell DIFF,TAP\n and-not NWELL\n", " layer pwell DIFF,TAP\n and-not NWELL\n layer pwell2 TAP\n grow 13\n shrink 13\n");
+        let tech = TECH.replace(
+            " layer pwell DIFF,TAP\n and-not NWELL\n",
+            " layer pwell DIFF,TAP\n and-not NWELL\n layer pwell2 TAP\n grow 13\n shrink 13\n",
+        );
         let rules = DeviceRules::parse(&tech).unwrap();
         let layers = LayerPolys::new([rect((65, 44), 0.0, 0.0, 1000.0, 500.0), rect((65, 44), 1200.0, 0.0, 2000.0, 500.0)]);
         let mut ev = RegionEval::new(&rules, &layers, 1e-3);

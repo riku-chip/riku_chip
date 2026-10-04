@@ -90,8 +90,7 @@ mod tests {
 
     const SQUARE: [(f64, f64); 4] = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
     /// L de 3x3 menos la esquina superior derecha 2x2 → área 5.
-    const L_SHAPE: [(f64, f64); 6] =
-        [(0.0, 0.0), (3.0, 0.0), (3.0, 1.0), (1.0, 1.0), (1.0, 3.0), (0.0, 3.0)];
+    const L_SHAPE: [(f64, f64); 6] = [(0.0, 0.0), (3.0, 0.0), (3.0, 1.0), (1.0, 1.0), (1.0, 3.0), (0.0, 3.0)];
 
     #[test]
     fn convexity_detection() {
@@ -118,8 +117,16 @@ mod tests {
         // Anillo 10x10 con hueco 6x6 codificado como un solo polígono con
         // corte (así llegan los guard rings desde GDS). Área = 100 - 36.
         let ring = [
-            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 2.0),
-            (2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0), (0.0, 2.0),
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 2.0),
+            (2.0, 2.0),
+            (2.0, 8.0),
+            (8.0, 8.0),
+            (8.0, 2.0),
+            (0.0, 2.0),
         ];
         let pts = &ring[..];
         let idx = triangulate(pts);

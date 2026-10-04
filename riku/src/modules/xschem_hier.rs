@@ -75,9 +75,9 @@ pub fn sub_instances(text: &str, path: &str, files: &dyn FileSource) -> Vec<SubI
 /// `rel` junto a `from` o desde la raíz de la versión, si existe (y es un
 /// esquemático de Xschem, si `xschem`).
 pub(crate) fn find(rel: &str, from: &str, files: &dyn FileSource, xschem: bool) -> Option<String> {
-    [join_relative(from, rel), join_relative("", rel)].into_iter().find(|p| {
-        files.read(p).is_some_and(|b| !xschem || is_xschem(&b))
-    })
+    [join_relative(from, rel), join_relative("", rel)]
+        .into_iter()
+        .find(|p| files.read(p).is_some_and(|b| !xschem || is_xschem(&b)))
 }
 
 /// La jerarquía de `top` (con su contenido `top_bytes`) en `files`. Sin
@@ -197,7 +197,10 @@ mod tests {
         Mem(HashMap::from([
             ("top.sch".to_string(), sch("C {amp.sym} 0 0 0 0 {name=x1}\nC {res.sym} 100 0 0 0 {name=R1 value=1k}\n")),
             ("amp.sym".to_string(), sch("B 5 -2.5 -2.5 2.5 2.5 {name=in dir=in}\n")),
-            ("amp.sch".to_string(), sch(&format!("C {{lib/mirror.sym}} 0 0 0 0 {{name=x2}}\nC {{res.sym}} 0 0 0 0 {{name=R5 value={amp_r}}}\n"))),
+            (
+                "amp.sch".to_string(),
+                sch(&format!("C {{lib/mirror.sym}} 0 0 0 0 {{name=x2}}\nC {{res.sym}} 0 0 0 0 {{name=R5 value={amp_r}}}\n")),
+            ),
             ("lib/mirror.sym".to_string(), sch("")),
             ("lib/mirror.sch".to_string(), sch(&format!("C {{nfet.sym}} 0 0 0 0 {{name=M1 W={mirror_w}}}\n"))),
         ]))

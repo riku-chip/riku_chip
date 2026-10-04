@@ -283,7 +283,11 @@ impl SceneIndex {
                         area2 += a.0 * c.1 - c.0 * a.1;
                         perimeter += (c.0 - a.0).hypot(c.1 - a.1);
                     }
-                    if perimeter > 0.0 { (area2.abs() / perimeter) as f32 } else { 0.0 }
+                    if perimeter > 0.0 {
+                        (area2.abs() / perimeter) as f32
+                    } else {
+                        0.0
+                    }
                 }
                 // Textos: su alto (para descartar los ilegibles en la consulta).
                 DrawElement::Text { size, .. } => *size as f32,
@@ -365,11 +369,8 @@ impl SceneIndex {
         }
 
         index.bucket_counts = buckets.iter().map(Vec::len).collect();
-        index.grids = buckets
-            .iter()
-            .enumerate()
-            .map(|(b, items)| (!items.is_empty()).then(|| index.build_grid(b, items)))
-            .collect();
+        index.grids =
+            buckets.iter().enumerate().map(|(b, items)| (!items.is_empty()).then(|| index.build_grid(b, items))).collect();
         let coverage = [0, 1].map(|s| index.build_coverage(elements, &adds[s], outline_layer, SPANS[s]));
         index.coverage = coverage;
         index
@@ -558,9 +559,8 @@ impl SceneIndex {
         let w = (q.bbox.max_x.min(self.x0 + side) - q.bbox.min_x.max(self.x0)).max(0.0);
         let h = (q.bbox.max_y.min(self.y0 + side) - q.bbox.min_y.max(self.y0)).max(0.0);
         let fraction = (w * h / (side * side)).min(1.0);
-        let estimate = |first_bucket: usize| -> f64 {
-            self.bucket_counts.iter().skip(first_bucket).sum::<usize>() as f64 * fraction
-        };
+        let estimate =
+            |first_bucket: usize| -> f64 { self.bucket_counts.iter().skip(first_bucket).sum::<usize>() as f64 * fraction };
         if estimate(0) <= q.budget as f64 {
             return None;
         }
@@ -601,9 +601,8 @@ impl SceneIndex {
         };
         let first_bucket = out.level.map_or(0, |l| (l + SPANS[out.span] + 1).min(self.grids.len()));
         let (qx0, qy0, qx1, qy1) = (q.bbox.min_x, q.bbox.min_y, q.bbox.max_x, q.bbox.max_y);
-        let touches = |b: &[f32; 4]| {
-            f64::from(b[0]) <= qx1 && f64::from(b[2]) >= qx0 && f64::from(b[1]) <= qy1 && f64::from(b[3]) >= qy0
-        };
+        let touches =
+            |b: &[f32; 4]| f64::from(b[0]) <= qx1 && f64::from(b[2]) >= qx0 && f64::from(b[1]) <= qy1 && f64::from(b[3]) >= qy0;
 
         for grid in self.grids[first_bucket..].iter().flatten() {
             let (gx0, gx1) = self.span(grid.n, grid.cell, qx0, qx1, self.x0);
@@ -634,7 +633,8 @@ impl SceneIndex {
         for &i in &self.always {
             let el = &elements[i as usize];
             let b = &self.bboxes[i as usize];
-            let tiny_text = matches!(el, DrawElement::Text { .. }) && f64::from(self.width[i as usize]) < q.min_text_px * q.px_world;
+            let tiny_text =
+                matches!(el, DrawElement::Text { .. }) && f64::from(self.width[i as usize]) < q.min_text_px * q.px_world;
             if !hidden(el.layer()) && !tiny_text && (b[0].is_nan() || touches(b)) {
                 out.elements.push(i);
             }
@@ -752,8 +752,7 @@ mod tests {
 
     #[test]
     fn far_zoom_summarizes_small_elements_and_near_zoom_does_not() {
-        let els: Vec<DrawElement> =
-            (0..400).map(|i| rect((i % 20) as f64 * 10.0, (i / 20) as f64 * 10.0, 0.1, 3)).collect();
+        let els: Vec<DrawElement> = (0..400).map(|i| rect((i % 20) as f64 * 10.0, (i / 20) as f64 * 10.0, 0.1, 3)).collect();
         let bb = scene(&els);
         let idx = SceneIndex::build(&els, &bb, &|_| false);
         // Un píxel = 5 unidades: los cuadrados de 0,1 no se dibujan uno a uno,
@@ -859,9 +858,7 @@ mod tests {
         assert_eq!(v.elements, vec![0], "el cable no va uno a uno");
         let view = idx.coverage(v.level.unwrap(), v.span).unwrap();
         let layer = view.layers().find(|l| l.layer == 5).expect("el cable está en la pirámide");
-        let cell_of = |x: f64, y: f64| {
-            (((x - view.origin.0) / view.cell) as usize, ((y - view.origin.1) / view.cell) as usize)
-        };
+        let cell_of = |x: f64, y: f64| (((x - view.origin.0) / view.cell) as usize, ((y - view.origin.1) / view.cell) as usize);
         let (ax, ay) = cell_of(50.0, 0.05);
         let (bx, by) = cell_of(99.95, 50.0);
         assert!(layer.is_set(ax, ay) && layer.is_set(bx, by), "marca su recorrido");
@@ -873,8 +870,7 @@ mod tests {
 
     #[test]
     fn small_views_are_never_summarized_and_crowded_ones_get_coarser() {
-        let els: Vec<DrawElement> =
-            (0..40_000).map(|i| rect((i % 200) as f64 * 5.0, (i / 200) as f64 * 5.0, 2.0, 1)).collect();
+        let els: Vec<DrawElement> = (0..40_000).map(|i| rect((i % 200) as f64 * 5.0, (i / 200) as f64 * 5.0, 2.0, 1)).collect();
         let bb = scene(&els);
         let idx = SceneIndex::build(&els, &bb, &|_| false);
         let q = |bbox, px_world| LodQuery { budget: 30_000, ..query(bbox, px_world, true) };

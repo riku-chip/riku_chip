@@ -91,14 +91,15 @@ impl Process {
             .map(|l| Entry { tag: l.tag, name: l.name.to_string(), color: l.color, role: l.role })
             .collect();
         match tech.filter(|t| !t.layers.is_empty()) {
-            Some(t) => layers.extend(
-                t.layers.iter().map(|l| Entry { tag: l.tag, name: l.name.clone(), color: l.color, role: l.role }),
-            ),
-            None => layers.extend(
-                palette::generated(pdk)
-                    .iter()
-                    .map(|l| Entry { tag: l.tag, name: l.name.to_string(), color: l.color, role: l.role }),
-            ),
+            Some(t) => {
+                layers.extend(t.layers.iter().map(|l| Entry { tag: l.tag, name: l.name.clone(), color: l.color, role: l.role }))
+            }
+            None => layers.extend(palette::generated(pdk).iter().map(|l| Entry {
+                tag: l.tag,
+                name: l.name.to_string(),
+                color: l.color,
+                role: l.role,
+            })),
         }
         let mut index = HashMap::new();
         for (i, l) in layers.iter().enumerate() {

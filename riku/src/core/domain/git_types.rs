@@ -6,9 +6,9 @@
 
 use std::path::PathBuf;
 
+use crate::i18n::tr;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use crate::i18n::tr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitInfo {

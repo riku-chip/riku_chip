@@ -198,7 +198,13 @@ mod tests {
             .iter()
             .zip(layout(&d))
             .map(|((oid, parents), row)| LogCommit {
-                info: CommitInfo { oid: oid.clone(), short_id: oid.clone(), message: oid.clone(), author: "t".into(), timestamp: 0 },
+                info: CommitInfo {
+                    oid: oid.clone(),
+                    short_id: oid.clone(),
+                    message: oid.clone(),
+                    author: "t".into(),
+                    timestamp: 0,
+                },
                 parents: parents.clone(),
                 refs: Vec::new(),
                 is_merge: parents.len() > 1,

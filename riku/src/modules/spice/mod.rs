@@ -16,9 +16,9 @@ pub mod raw;
 use riku_kernel::{DiffOptions, FormatModule, ModuleInfo};
 
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
-use riku_kernel::Detail;
-use compare::{Status, Tolerance};
 use crate::i18n::tr;
+use compare::{Status, Tolerance};
+use riku_kernel::Detail;
 
 pub struct WaveformModule;
 

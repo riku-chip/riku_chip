@@ -230,7 +230,9 @@ fn log_and_status_read_sub_cells_from_their_own_version() {
     let json = serde_json::to_value(EnvelopedLogReport::from(&log)).unwrap();
     let commits = json["commits"].as_array().unwrap();
     assert_eq!(commits.len(), 4);
-    let files_of = |i: usize| commits[3 - i]["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    let files_of = |i: usize| {
+        commits[3 - i]["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
     assert_eq!(files_of(1), ["chip/inv.mag"]);
 
     // Lo mismo con 1 y 4 hilos.

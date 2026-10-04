@@ -9,10 +9,10 @@ mod extract;
 mod netlist;
 mod probe;
 
-pub use extract::{build, Net, NetLabel, NetPiece, Netlist, Resistor, Terminals};
-pub use probe::LayoutNets;
 pub use diff::{cell_net_changes, net_changes, net_label, pieces_changed, NetChange, NetChangeKind};
+pub use extract::{build, Net, NetLabel, NetPiece, Netlist, Resistor, Terminals};
 pub use netlist::{fingers, spice, Fingers};
+pub use probe::LayoutNets;
 
 use std::collections::HashMap;
 
@@ -73,7 +73,8 @@ impl<'a> WindowGrid<'a> {
         if big {
             return self.windows.iter().any(overlap);
         }
-        Self::keys(self.origin, self.cell, b).any(|k| self.cells.get(&k).is_some_and(|ids| ids.iter().any(|&i| overlap(&self.windows[i as usize]))))
+        Self::keys(self.origin, self.cell, b)
+            .any(|k| self.cells.get(&k).is_some_and(|ids| ids.iter().any(|&i| overlap(&self.windows[i as usize]))))
     }
 }
 
@@ -102,7 +103,11 @@ fn clip_to(polys: Vec<OwnedPolygon>, windows: &[[f64; 4]]) -> Vec<OwnedPolygon> 
 
 /// La región de cada tipo buscado sin lo que le pintan encima los tipos
 /// posteriores de su plano (ver [`DeviceRules::layer_index`]).
-fn paint_order(rules: &DeviceRules, types: &[String], evaluated: &[(String, Vec<OwnedPolygon>)]) -> Vec<(String, Vec<OwnedPolygon>)> {
+fn paint_order(
+    rules: &DeviceRules,
+    types: &[String],
+    evaluated: &[(String, Vec<OwnedPolygon>)],
+) -> Vec<(String, Vec<OwnedPolygon>)> {
     evaluated
         .par_iter()
         .filter(|(t, r)| types.contains(t) && !r.is_empty())
@@ -110,7 +115,9 @@ fn paint_order(rules: &DeviceRules, types: &[String], evaluated: &[(String, Vec<
             let (plane, idx) = (rules.plane(t), rules.layer_index(t));
             let over: Vec<OwnedPolygon> = evaluated
                 .iter()
-                .filter(|(u, ur)| u != t && !ur.is_empty() && plane.is_some() && rules.plane(u) == plane && rules.layer_index(u) > idx)
+                .filter(|(u, ur)| {
+                    u != t && !ur.is_empty() && plane.is_some() && rules.plane(u) == plane && rules.layer_index(u) > idx
+                })
                 .flat_map(|(_, ur)| ur.iter().cloned())
                 .collect();
             if over.is_empty() {
@@ -165,7 +172,8 @@ pub fn cell_nets_in(
 
     let (regions, mut labels, devices) = if names.values().any(|n| rules.device_type(n).is_some()) {
         // Magic: cada capa es un tipo.
-        let tags: Vec<(u32, u32)> = names.iter().filter(|(_, n)| types.iter().any(|t| t == rules.canonical(n))).map(|(&t, _)| t).collect();
+        let tags: Vec<(u32, u32)> =
+            names.iter().filter(|(_, n)| types.iter().any(|t| t == rules.canonical(n))).map(|(&t, _)| t).collect();
         let mut by_type: HashMap<String, Vec<OwnedPolygon>> = HashMap::new();
         let polys = clip(devices::flatten(cell, &tags));
         for p in &polys {
@@ -174,8 +182,9 @@ pub fn cell_nets_in(
                 by_type.entry(rules.canonical(n).to_string()).or_default().push(p);
             }
         }
-        let ports: Option<Vec<String>> =
-            magic.and_then(|m| m.cells.iter().find(|c| c.name == cell.name())).map(|c| c.ports.iter().map(|p| p.name.clone()).collect());
+        let ports: Option<Vec<String>> = magic
+            .and_then(|m| m.cells.iter().find(|c| c.name == cell.name()))
+            .map(|c| c.ports.iter().map(|p| p.name.clone()).collect());
         let labels: Vec<NetLabel> = own_labels
             .into_iter()
             .filter_map(|(tag, text, at)| {

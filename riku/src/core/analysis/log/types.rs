@@ -54,9 +54,7 @@ pub struct LogCommit {
 
 impl LogCommit {
     pub fn has_semantic_changes(&self) -> bool {
-        self.files
-            .iter()
-            .any(|f| matches!(f.category, SummaryCategory::Semantic))
+        self.files.iter().any(|f| matches!(f.category, SummaryCategory::Semantic))
     }
 }
 

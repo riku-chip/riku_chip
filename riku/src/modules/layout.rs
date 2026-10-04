@@ -4,11 +4,10 @@
 
 use std::sync::Arc;
 
-use riku_mod_layout::{
-    diff_layout_sides, DiffCache, DiffConfig, GdsError, GdsGeomDiff, LayoutSide,
-    DEFAULT_COSMETIC_THRESHOLD_UM2,
-};
 use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
+use riku_mod_layout::{
+    diff_layout_sides, DiffCache, DiffConfig, GdsError, GdsGeomDiff, LayoutSide, DEFAULT_COSMETIC_THRESHOLD_UM2,
+};
 
 use crate::i18n::tr;
 use viewer_core::ViewerBackend;
@@ -197,9 +196,7 @@ impl FormatModule for LayoutModule {
     ) -> FileChange {
         let mut report = FileChange::new(FileFormat::Gds);
 
-        let cfg = DiffConfig {
-            cosmetic_threshold_um2: opts.cosmetic_threshold.unwrap_or(DEFAULT_COSMETIC_THRESHOLD_UM2),
-        };
+        let cfg = DiffConfig { cosmetic_threshold_um2: opts.cosmetic_threshold.unwrap_or(DEFAULT_COSMETIC_THRESHOLD_UM2) };
         let off = DiffCache::disabled();
         let cache = if opts.use_cache { &self.cache } else { &off };
         let a = LayoutSide { bytes: content_a, files: files.before.as_deref() };
@@ -252,8 +249,7 @@ mod tests {
             .join("gdstk")
             .join("tests")
             .join("proof_lib.gds");
-        std::fs::read(&path)
-            .unwrap_or_else(|e| panic!("no se pudo leer {}: {e}", path.display()))
+        std::fs::read(&path).unwrap_or_else(|e| panic!("no se pudo leer {}: {e}", path.display()))
     }
 
     #[test]
@@ -297,11 +293,7 @@ mod tests {
         let gds = proof_lib_bytes();
         let report = LayoutModule::new().diff(&gds, &gds, "x.gds", &DiffOptions::default());
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
-        assert!(
-            report.is_empty(),
-            "self-vs-self debe ser empty: {:?}",
-            report.changes
-        );
+        assert!(report.is_empty(), "self-vs-self debe ser empty: {:?}", report.changes);
     }
 
     fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -322,16 +314,9 @@ mod tests {
         let b = fixture_bytes("datatype_b.gds");
         let opts = DiffOptions { cosmetic_threshold: Some(200.0), ..Default::default() };
         let report = LayoutModule::new().diff(&a, &b, "datatype.gds", &opts);
-        let geom: Vec<&Change> = report
-            .changes
-            .iter()
-            .filter(|c| matches!(c.element, Element::Geometry { .. }))
-            .collect();
+        let geom: Vec<&Change> = report.changes.iter().filter(|c| matches!(c.element, Element::Geometry { .. })).collect();
         assert!(!geom.is_empty(), "deberia haber entries geom");
-        assert!(
-            geom.iter().all(|c| c.cosmetic),
-            "todos los entries geom deben ser cosmetic con threshold alto"
-        );
+        assert!(geom.iter().all(|c| c.cosmetic), "todos los entries geom deben ser cosmetic con threshold alto");
     }
 
     #[test]
@@ -340,16 +325,9 @@ mod tests {
         let a = fixture_bytes("datatype_a.gds");
         let b = fixture_bytes("datatype_b.gds");
         let report = LayoutModule::new().diff(&a, &b, "datatype.gds", &DiffOptions::default());
-        let geom: Vec<&Change> = report
-            .changes
-            .iter()
-            .filter(|c| matches!(c.element, Element::Geometry { .. }))
-            .collect();
+        let geom: Vec<&Change> = report.changes.iter().filter(|c| matches!(c.element, Element::Geometry { .. })).collect();
         assert!(!geom.is_empty());
-        assert!(
-            geom.iter().any(|c| !c.cosmetic),
-            "al menos un entry geom no deberia ser cosmetic con threshold bajo"
-        );
+        assert!(geom.iter().any(|c| !c.cosmetic), "al menos un entry geom no deberia ser cosmetic con threshold bajo");
     }
 
     #[test]
@@ -361,9 +339,7 @@ mod tests {
     }
 
     fn renderer_fixture(name: &str) -> Vec<u8> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../riku-mod-layout/tests/fixtures")
-            .join(name);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../riku-mod-layout/tests/fixtures").join(name);
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 

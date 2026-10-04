@@ -4,7 +4,7 @@
 //! marker y del `format_counts`. Aquí viven las versiones únicas; los
 //! formateadores solo difieren en composición e indentación.
 
-use crate::core::analysis::summary::{DetailEntry, FileSummary, SummaryCategory, label_for};
+use crate::core::analysis::summary::{label_for, DetailEntry, FileSummary, SummaryCategory};
 use crate::core::domain::models::ChangeKind;
 use crate::i18n::tr;
 

@@ -28,9 +28,10 @@ pub(crate) fn run(name: Option<String>, dir: Option<PathBuf>, list: bool) -> Res
         return Ok(());
     }
     let chosen: Vec<&Demo> = match &name {
-        Some(n) => vec![DEMOS.iter().find(|d| d.name == n).ok_or_else(|| {
-            tr!("demo.unknown", name = n, names = DEMOS.iter().map(|d| d.name).collect::<Vec<_>>().join(", "))
-        })?],
+        Some(n) => vec![DEMOS
+            .iter()
+            .find(|d| d.name == n)
+            .ok_or_else(|| tr!("demo.unknown", name = n, names = DEMOS.iter().map(|d| d.name).collect::<Vec<_>>().join(", ")))?],
         None => DEMOS.iter().collect(),
     };
     let root = match dir {

@@ -17,8 +17,8 @@ use crate::gui::motion::theme_fade_alpha;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::{space, CanvasTheme};
 use crate::gui::toast::{ToastKind, Toasts};
-use actions::RepoStatus;
 use crate::gui::{i18n, tr};
+use actions::RepoStatus;
 
 mod actions;
 mod loading;
@@ -127,19 +127,11 @@ impl RikuGuiApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: LaunchArgs) -> Self {
         // Load a system font explicitly — egui's embedded font sometimes fails with glow backend
         let mut fonts = egui::FontDefinitions::default();
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
-        ] {
+        for path in ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf"] {
             if let Ok(bytes) = std::fs::read(path) {
-                fonts.font_data.insert(
-                    "system".to_owned(),
-                    egui::FontData::from_owned(bytes).into(),
-                );
-                fonts.families.entry(egui::FontFamily::Proportional)
-                    .or_default().insert(0, "system".to_owned());
-                fonts.families.entry(egui::FontFamily::Monospace)
-                    .or_default().insert(0, "system".to_owned());
+                fonts.font_data.insert("system".to_owned(), egui::FontData::from_owned(bytes).into());
+                fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "system".to_owned());
+                fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "system".to_owned());
                 break;
             }
         }
@@ -159,9 +151,7 @@ impl RikuGuiApp {
             _ => (cwd.clone(), None),
         };
 
-        let pref = |key: &str, default: bool| {
-            cc.storage.and_then(|s| eframe::get_value::<bool>(s, key)).unwrap_or(default)
-        };
+        let pref = |key: &str, default: bool| cc.storage.and_then(|s| eframe::get_value::<bool>(s, key)).unwrap_or(default);
         let show_labels = pref(PREF_LABELS, true);
         let show_legend = pref(PREF_LEGEND, true);
         let show_all_files = pref(PREF_ALL_FILES, false);
@@ -370,7 +360,6 @@ impl RikuGuiApp {
             }
         }
     }
-
 }
 
 impl eframe::App for RikuGuiApp {
@@ -405,9 +394,8 @@ impl eframe::App for RikuGuiApp {
         self.last_dark = Some(dark);
 
         // Arrastrar un archivo desde el explorador lo abre.
-        let dropped = ctx.input(|i| {
-            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).find(|p| !p.as_os_str().is_empty())
-        });
+        let dropped =
+            ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).find(|p| !p.as_os_str().is_empty()));
         if let Some(path) = dropped {
             self.open_path(&path);
         }

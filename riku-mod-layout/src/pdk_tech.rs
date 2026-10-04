@@ -152,10 +152,7 @@ fn best<'t>(
 /// Lee el `.lyp` y el `.tech` de un PDK. `None` si no tiene ninguno.
 pub fn load(dir: &Path) -> Option<Tech> {
     let name = dir.file_name()?.to_string_lossy().to_string();
-    let layers = find_lyp(dir)
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|t| parse_lyp(&t))
-        .unwrap_or_default();
+    let layers = find_lyp(dir).and_then(|p| std::fs::read_to_string(p).ok()).map(|t| parse_lyp(&t)).unwrap_or_default();
     let magic_dir = dir.join("libs.tech").join("magic");
     let (magic, lambda) = read_tech(&magic_dir, &name, 0).map(|t| parse_magic_tech(&t)).unwrap_or_default();
     if layers.is_empty() && magic.is_empty() && lambda.is_none() {
@@ -280,9 +277,7 @@ fn role_of(name: &str, hollow: bool) -> LayerRole {
 /// primer estilo de `cifoutput`, el que escribe el GDS.
 pub fn parse_magic_tech(text: &str) -> (HashMap<String, MagicType>, Option<f64>) {
     let sections = sections(text);
-    let get = |s: &'static str| {
-        sections.iter().filter(move |(n, _)| n == s).flat_map(|(_, l)| l.iter().map(String::as_str))
-    };
+    let get = |s: &'static str| sections.iter().filter(move |(n, _)| n == s).flat_map(|(_, l)| l.iter().map(String::as_str));
 
     // Tipo (o alias de `types`) → nombre canónico; y el grupo de nombres.
     let mut canonical: HashMap<&str, &str> = HashMap::new();
@@ -456,7 +451,10 @@ mod tests {
         let layers = parse_lyp(LYP);
         let t = Tech::new("x".into(), layers, HashMap::new(), None);
         let (i, met1) = t.layer((68, 20)).unwrap();
-        assert_eq!((i, met1.name.as_str(), met1.color, met1.role), (0, "met1.drawing", Color::rgba(0x39, 0xbf, 0xff, 255), LayerRole::Device));
+        assert_eq!(
+            (i, met1.name.as_str(), met1.color, met1.role),
+            (0, "met1.drawing", Color::rgba(0x39, 0xbf, 0xff, 255), LayerRole::Device)
+        );
         assert_eq!(t.layer((68, 16)).unwrap().1.role, LayerRole::Outline);
         assert_eq!(t.layer((21, 0)).unwrap().1.role, LayerRole::Well);
         assert_eq!(t.layer((40, 0)).unwrap().1.role, LayerRole::Outline, "sin tramado");
@@ -532,7 +530,10 @@ end
         let process: &'static Process = Box::leak(Box::new(Process::build(Pdk::Generic, Some(tech))));
         assert_eq!(process.name, "acme");
         let gds = process.layer_spec(GdsTag { layer: 7, datatype: 0 });
-        assert_eq!((gds.name, gds.color, gds.role), (Some("met1.drawing"), Color::rgba(0x39, 0xbf, 0xff, 255), LayerRole::Device));
+        assert_eq!(
+            (gds.name, gds.color, gds.role),
+            (Some("met1.drawing"), Color::rgba(0x39, 0xbf, 0xff, 255), LayerRole::Device)
+        );
         let mag = process.magic_spec("m1", GdsTag { layer: 1 << 30, datatype: 0 });
         assert_eq!((mag.color, mag.rank), (gds.color, gds.rank));
     }

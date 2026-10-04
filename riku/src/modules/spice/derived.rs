@@ -97,13 +97,23 @@ fn compare(
         Evaluated::Signal(_) => None,
     };
     match (va, vb) {
-        (Some(Evaluated::Signal(sa)), Some(Evaluated::Signal(_))) | (Some(Evaluated::Signal(sa)), None) => {
-            compare_series(plot_name, &e.name, sa.unit(complex), x_unit, series(pa, va.unwrap()), vb.and_then(|v| series(pb, v)), tol)
+        (Some(Evaluated::Signal(sa)), Some(Evaluated::Signal(_))) | (Some(Evaluated::Signal(sa)), None) => compare_series(
+            plot_name,
+            &e.name,
+            sa.unit(complex),
+            x_unit,
+            series(pa, va.unwrap()),
+            vb.and_then(|v| series(pb, v)),
+            tol,
+        ),
+        (None, Some(Evaluated::Signal(sb))) => {
+            compare_series(plot_name, &e.name, sb.unit(complex), x_unit, None, series(pb, vb.unwrap()), tol)
         }
-        (None, Some(Evaluated::Signal(sb))) => compare_series(plot_name, &e.name, sb.unit(complex), x_unit, None, series(pb, vb.unwrap()), tol),
         (Some(Evaluated::Scalar(_, u)), Some(Evaluated::Scalar(..)))
         | (Some(Evaluated::Scalar(_, u)), None)
-        | (None, Some(Evaluated::Scalar(_, u))) => compare_scalar(plot_name, &e.name, u, va.and_then(scalar), vb.and_then(scalar), tol),
+        | (None, Some(Evaluated::Scalar(_, u))) => {
+            compare_scalar(plot_name, &e.name, u, va.and_then(scalar), vb.and_then(scalar), tol)
+        }
         // Señal en una versión y número en la otra: no se pueden comparar.
         _ => {
             let mut d = compare_scalar(plot_name, &e.name, "", None, None, tol);
@@ -136,7 +146,8 @@ mod tests {
     fn gain_changes_are_found_and_missing_signals_are_skipped() {
         let a = raw(vec![1.0, 1.0, 1.0], vec![0.5, 0.5, 0.5]);
         let b = raw(vec![1.0, 1.0, 1.0], vec![0.5, 0.6, 0.5]);
-        let exprs = vec![parse("gain = v(out)/v(in)").unwrap(), parse("peak = max(v(out))").unwrap(), parse("v(nada)*2").unwrap()];
+        let exprs =
+            vec![parse("gain = v(out)/v(in)").unwrap(), parse("peak = max(v(out))").unwrap(), parse("v(nada)*2").unwrap()];
         let (d, warnings) = evaluate(&exprs, &a, &b, Tolerance::default());
         assert_eq!(d.len(), 2, "la de v(nada) no aplica a este análisis");
         assert_eq!(warnings, vec![format!("v(nada)*2: {}", tr!("expr.missing", signal = "v(nada)"))]);

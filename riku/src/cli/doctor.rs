@@ -44,20 +44,11 @@ fn analyze(repo: &Path) -> DoctorReport {
     let pdk = pdk_status();
     let tools = tools_status();
 
-    let has_symbols = xschemrc.is_some()
-        || matches!(pdk, PdkStatus::Found(_))
-        || matches!(tools, ToolsStatus::Found(_));
+    let has_symbols = xschemrc.is_some() || matches!(pdk, PdkStatus::Found(_)) || matches!(tools, ToolsStatus::Found(_));
 
     let drivers = crate::modules::registry().modules().iter().map(|m| m.info()).collect();
 
-    DoctorReport {
-        repo_workdir,
-        xschemrc,
-        pdk,
-        tools,
-        has_symbols,
-        drivers,
-    }
+    DoctorReport { repo_workdir, xschemrc, pdk, tools, has_symbols, drivers }
 }
 
 fn locate_xschemrc() -> Option<PathBuf> {
@@ -65,9 +56,7 @@ fn locate_xschemrc() -> Option<PathBuf> {
     if local.exists() {
         return Some(local);
     }
-    dirs::home_dir()
-        .map(|h| h.join(".xschemrc"))
-        .filter(|p| p.exists())
+    dirs::home_dir().map(|h| h.join(".xschemrc")).filter(|p| p.exists())
 }
 
 fn tools_status() -> ToolsStatus {
@@ -163,9 +152,12 @@ pub(crate) fn sections(repo: &Path) -> Vec<Section> {
 }
 
 fn print(sections: &[Section]) {
-    println!("
+    println!(
+        "
 {}
-", tr!("doctor.title"));
+",
+        tr!("doctor.title")
+    );
     for (i, section) in sections.iter().enumerate() {
         if i > 0 {
             println!();
@@ -175,9 +167,12 @@ fn print(sections: &[Section]) {
             println!("  {}  {text}", mark.tag());
         }
     }
-    println!("
+    println!(
+        "
 {}
-", tr!("doctor.ready"));
+",
+        tr!("doctor.ready")
+    );
 }
 
 fn xschemrc_item(xschemrc: &Option<PathBuf>) -> (Mark, String) {

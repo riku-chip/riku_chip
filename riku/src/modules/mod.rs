@@ -18,9 +18,9 @@ pub mod spice;
 #[cfg(feature = "xschem")]
 pub mod xschem;
 #[cfg(feature = "xschem")]
-pub mod xschem_view;
-#[cfg(feature = "xschem")]
 pub mod xschem_hier;
+#[cfg(feature = "xschem")]
+pub mod xschem_view;
 // Solo std: el diagnóstico de PDK de `riku doctor` funciona sin el módulo.
 pub mod xschem_pdk;
 

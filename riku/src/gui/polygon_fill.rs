@@ -13,13 +13,7 @@ use eframe::egui::{self, Color32, Pos2, Shape, Stroke};
 use viewer_core::fill::{is_convex, triangulate};
 
 /// Pinta `world` (ya proyectado a `screen`, mismo orden) con relleno y contorno.
-pub fn paint_filled_polygon(
-    painter: &egui::Painter,
-    world: &[(f64, f64)],
-    screen: Vec<Pos2>,
-    fill: Color32,
-    stroke: Stroke,
-) {
+pub fn paint_filled_polygon(painter: &egui::Painter, world: &[(f64, f64)], screen: Vec<Pos2>, fill: Color32, stroke: Stroke) {
     // Capas de solo contorno (implantes, marcadores…): no triangular.
     if fill.a() == 0 {
         painter.add(Shape::closed_line(screen, stroke));

@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use xschem_viewer::semantic::{ChangeKind as XsKind, ComponentDiff, SemanticSchematic as Schematic};
 
-use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
-use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
 use super::xschem_hier as hier;
 use super::xschem_pdk as pdk;
+use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, FileFormat, Value};
 use crate::i18n::tr;
+use riku_kernel::{DiffFiles, DiffOptions, FormatModule, ModuleInfo};
 
 /// Opciones de render canónicas para un esquemático: tema dark + símbolos de
 /// `.xschemrc` + símbolos del PDK (`$PDK_ROOT/$PDK`, o el PDK instalado que
@@ -30,9 +30,7 @@ fn parse_text(text: &str) -> Schematic {
 /// antes de llamar al parser; cualquier error se propaga como warning del
 /// `FileChange`.
 fn validate_xschem<'a>(content: &'a [u8], side: &str, path_hint: &str) -> Result<&'a str, String> {
-    let text = std::str::from_utf8(content).map_err(|_| {
-        tr!("xschem.side_not_utf8", file = path_hint, side = side)
-    })?;
+    let text = std::str::from_utf8(content).map_err(|_| tr!("xschem.side_not_utf8", file = path_hint, side = side))?;
     // Vacío = el archivo no existía en ese commit (nuevo o eliminado): un
     // esquemático sin nada, así todo aparece añadido o eliminado.
     if !content.is_empty() && !is_xschem(content) {
@@ -59,9 +57,7 @@ pub struct XschemModule {
 
 impl XschemModule {
     pub fn new() -> Self {
-        Self {
-            cached_info: std::sync::OnceLock::new(),
-        }
+        Self { cached_info: std::sync::OnceLock::new() }
     }
 }
 
@@ -131,11 +127,11 @@ impl FormatModule for XschemModule {
             report.changes.push(Change::new(ChangeKind::Removed, Element::Net { name: net }));
         }
         if result.is_move_all {
-            report.changes.push(
-                Change::new(ChangeKind::Modified, Element::Whole)
-                    .cosmetic(true)
-                    .with_detail("note", None, Some(tr!("change.move_all_detail").into())),
-            );
+            report.changes.push(Change::new(ChangeKind::Modified, Element::Whole).cosmetic(true).with_detail(
+                "note",
+                None,
+                Some(tr!("change.move_all_detail").into()),
+            ));
         }
         report
     }
@@ -143,14 +139,7 @@ impl FormatModule for XschemModule {
     /// Como [`Self::diff`], y además las instancias cuyo sub-esquemático
     /// del proyecto cambió en la misma versión (por sí mismo o por dentro):
     /// salen modificadas con `inside` = qué cambió (`amp.sch → mirror.sch`).
-    fn diff_with(
-        &self,
-        before: &[u8],
-        after: &[u8],
-        path_hint: &str,
-        opts: &DiffOptions,
-        files: &DiffFiles,
-    ) -> FileChange {
+    fn diff_with(&self, before: &[u8], after: &[u8], path_hint: &str, opts: &DiffOptions, files: &DiffFiles) -> FileChange {
         let mut report = self.diff(before, after, path_hint, opts);
         if report.error.is_none() {
             note_changes_inside(&mut report, before, after, path_hint, files);
@@ -212,9 +201,9 @@ fn note_changes_inside(report: &mut FileChange, before: &[u8], after: &[u8], pat
     let (ha, hb) = (hier::collect(before, path, Some(fa)), hier::collect(after, path, Some(fb)));
     let changed = hier::changes(&ha, &hb);
     let subs = |h: &hier::Hierarchy| -> BTreeMap<String, String> {
-        h.nodes.get(path).map_or_else(BTreeMap::new, |n| {
-            n.children.iter().map(|c| (c.instance.clone(), c.schematic.clone())).collect()
-        })
+        h.nodes
+            .get(path)
+            .map_or_else(BTreeMap::new, |n| n.children.iter().map(|c| (c.instance.clone(), c.schematic.clone())).collect())
     };
     let (sa, sb) = (subs(&ha), subs(&hb));
     for (instance, schematic) in &sb {
@@ -223,10 +212,7 @@ fn note_changes_inside(report: &mut FileChange, before: &[u8], after: &[u8], pat
         }
         let inside = Some(Value::Text(hier::inside_path(schematic, &ha, &hb, &changed)));
         let functional = functional_inside(schematic, &ha, &hb, &changed);
-        let existing = report
-            .changes
-            .iter_mut()
-            .find(|c| matches!(&c.element, Element::Component { name } if name == instance));
+        let existing = report.changes.iter_mut().find(|c| matches!(&c.element, Element::Component { name } if name == instance));
         match existing {
             Some(c) => {
                 c.details.push(riku_kernel::Detail::new(INSIDE_KEY, None, inside));
@@ -244,12 +230,7 @@ fn note_changes_inside(report: &mut FileChange, before: &[u8], after: &[u8], pat
 /// Si algo de lo que cambió dentro de `schematic` (él o sus
 /// sub-esquemáticos) es funcional. Solo cosmético (un Move All, textos
 /// movidos) no cambia el circuito: la instancia cambia solo en lo cosmético.
-fn functional_inside(
-    schematic: &str,
-    a: &hier::Hierarchy,
-    b: &hier::Hierarchy,
-    changed: &BTreeMap<String, ChangeKind>,
-) -> bool {
+fn functional_inside(schematic: &str, a: &hier::Hierarchy, b: &hier::Hierarchy, changed: &BTreeMap<String, ChangeKind>) -> bool {
     let mut stack = vec![schematic.to_string()];
     let mut seen = BTreeSet::new();
     while let Some(p) = stack.pop() {
@@ -341,11 +322,7 @@ N 0 0 10 0 {lab=OUT}\n";
     fn diff_warns_on_non_xschem_b() {
         let svg = br#"<svg xmlns='http://www.w3.org/2000/svg'></svg>"#;
         let report = driver().diff(VALID_SCH, svg, "x.sch", &DiffOptions::default());
-        assert!(
-            report.changes.is_empty(),
-            "no debe reportar 'todo removido' falso: {:?}",
-            report.changes
-        );
+        assert!(report.changes.is_empty(), "no debe reportar 'todo removido' falso: {:?}", report.changes);
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
         let err = report.error.as_deref().unwrap_or_default();
         assert!(
@@ -377,13 +354,27 @@ N 0 0 10 0 {lab=OUT}\n";
         }
         let top = b"v {xschem version=3.4.5 file_version=1.2}
 C {amp.sym} 0 0 0 0 {name=x1}
-".to_vec();
-        let amp = |r: &str| format!("v {{xschem version=3.4.5 file_version=1.2}}
+"
+        .to_vec();
+        let amp = |r: &str| {
+            format!(
+                "v {{xschem version=3.4.5 file_version=1.2}}
 C {{res.sym}} 0 0 0 0 {{name=R1 value={r}}}
-").into_bytes();
+"
+            )
+            .into_bytes()
+        };
         let version = |r: &str| -> Arc<dyn riku_kernel::FileSource> {
-            Arc::new(Mem(HashMap::from([("top.sch", top.clone()), ("amp.sch", amp(r)), ("amp.sym", b"v {xschem version=3.4.5}
-".to_vec())])))
+            Arc::new(Mem(HashMap::from([
+                ("top.sch", top.clone()),
+                ("amp.sch", amp(r)),
+                (
+                    "amp.sym",
+                    b"v {xschem version=3.4.5}
+"
+                    .to_vec(),
+                ),
+            ])))
         };
         let files = DiffFiles::new(Some(version("1k")), Some(version("2k")));
         let report = driver().diff_with(&top, &top, "top.sch", &DiffOptions::default(), &files);

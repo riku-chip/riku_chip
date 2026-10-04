@@ -5,10 +5,9 @@ use std::sync::Arc;
 use git2::Repository;
 
 use crate::core::domain::git_types::{
-    BranchInfo, ChangedFile, CommitChanges, CommitWithParents, GitError, LogQuery,
-    WorkingChange,
+    BranchInfo, ChangedFile, CommitChanges, CommitWithParents, GitError, LogQuery, WorkingChange,
 };
-use crate::core::domain::ports::{GitRepository, RepoRoot, Reopener};
+use crate::core::domain::ports::{GitRepository, Reopener, RepoRoot};
 use crate::core::git::{blob, branch, commit_log, diff, working_tree};
 
 pub struct GitService {
@@ -42,11 +41,7 @@ impl GitRepository for GitService {
         blob::get_blob(&self.repo, commit_ish, file_path)
     }
 
-    fn get_changed_files(
-        &self,
-        commit_a: &str,
-        commit_b: &str,
-    ) -> Result<Vec<ChangedFile>, GitError> {
+    fn get_changed_files(&self, commit_a: &str, commit_b: &str) -> Result<Vec<ChangedFile>, GitError> {
         diff::get_changed_files(&self.repo, commit_a, commit_b)
     }
 
@@ -58,10 +53,7 @@ impl GitRepository for GitService {
         branch::current_branch(&self.repo)
     }
 
-    fn get_commits_with_options(
-        &self,
-        query: &LogQuery<'_>,
-    ) -> Result<Vec<CommitWithParents>, GitError> {
+    fn get_commits_with_options(&self, query: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError> {
         commit_log::get_commits_with_options(&self.repo, query)
     }
 
@@ -79,8 +71,6 @@ impl GitRepository for GitService {
 
     fn reopener(&self) -> Option<Reopener> {
         let git_dir = self.repo.path().to_path_buf();
-        Some(Arc::new(move || -> Result<Box<dyn GitRepository + Send>, GitError> {
-            Ok(Box::new(GitService::open(&git_dir)?))
-        }))
+        Some(Arc::new(move || -> Result<Box<dyn GitRepository + Send>, GitError> { Ok(Box::new(GitService::open(&git_dir)?)) }))
     }
 }

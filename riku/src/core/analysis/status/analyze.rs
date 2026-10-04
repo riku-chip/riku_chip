@@ -71,11 +71,7 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
     }
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(StatusReport {
-        branch,
-        files,
-        warnings,
-    })
+    Ok(StatusReport { branch, files, warnings })
 }
 
 // ─── Resumen por archivo ─────────────────────────────────────────────────────
@@ -117,7 +113,6 @@ fn summarize_change<R: GitRepository + ?Sized>(
     }
 }
 
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -140,10 +135,7 @@ mod tests {
             self.head_blobs
                 .get(file_path)
                 .cloned()
-                .ok_or_else(|| GitError::BlobNotFound {
-                    commit: "HEAD".to_string(),
-                    path: file_path.to_string(),
-                })
+                .ok_or_else(|| GitError::BlobNotFound { commit: "HEAD".to_string(), path: file_path.to_string() })
         }
         fn get_changed_files(&self, _: &str, _: &str) -> Result<Vec<ChangedFile>, GitError> {
             Ok(Vec::new())
@@ -168,11 +160,7 @@ mod tests {
     #[test]
     fn archivo_sin_driver_se_marca_unknown() {
         let repo = MockRepo {
-            changes: vec![WorkingChange {
-                path: "Makefile".to_string(),
-                status: ChangeStatus::Modified,
-                old_path: None,
-            }],
+            changes: vec![WorkingChange { path: "Makefile".to_string(), status: ChangeStatus::Modified, old_path: None }],
             head_blobs: Default::default(),
             branch: None,
         };
@@ -186,16 +174,8 @@ mod tests {
     fn lista_se_ordena_por_path() {
         let repo = MockRepo {
             changes: vec![
-                WorkingChange {
-                    path: "z.txt".into(),
-                    status: ChangeStatus::Modified,
-                    old_path: None,
-                },
-                WorkingChange {
-                    path: "a.txt".into(),
-                    status: ChangeStatus::Modified,
-                    old_path: None,
-                },
+                WorkingChange { path: "z.txt".into(), status: ChangeStatus::Modified, old_path: None },
+                WorkingChange { path: "a.txt".into(), status: ChangeStatus::Modified, old_path: None },
             ],
             head_blobs: Default::default(),
             branch: None,
@@ -209,30 +189,14 @@ mod tests {
     fn paths_filtra_por_glob() {
         let repo = MockRepo {
             changes: vec![
-                WorkingChange {
-                    path: "amp_ota.sch".into(),
-                    status: ChangeStatus::Modified,
-                    old_path: None,
-                },
-                WorkingChange {
-                    path: "filtro.sch".into(),
-                    status: ChangeStatus::Modified,
-                    old_path: None,
-                },
-                WorkingChange {
-                    path: "Makefile".into(),
-                    status: ChangeStatus::Modified,
-                    old_path: None,
-                },
+                WorkingChange { path: "amp_ota.sch".into(), status: ChangeStatus::Modified, old_path: None },
+                WorkingChange { path: "filtro.sch".into(), status: ChangeStatus::Modified, old_path: None },
+                WorkingChange { path: "Makefile".into(), status: ChangeStatus::Modified, old_path: None },
             ],
             head_blobs: Default::default(),
             branch: None,
         };
-        let opts = StatusOptions {
-            level: DetailLevel::Resumen,
-            paths: vec!["amp_*.sch".to_string()],
-            ..Default::default()
-        };
+        let opts = StatusOptions { level: DetailLevel::Resumen, paths: vec!["amp_*.sch".to_string()], ..Default::default() };
         let report = analyze_with_options(&repo, None, &opts, &crate::modules::registry()).unwrap();
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].path, "amp_ota.sch");
@@ -253,10 +217,7 @@ mod tests {
             }),
         };
         let report = analyze_with_options(&repo, None, &StatusOptions::default(), &crate::modules::registry()).unwrap();
-        assert_eq!(
-            report.branch.as_ref().map(|b| b.name.as_str()),
-            Some("feature-amp")
-        );
+        assert_eq!(report.branch.as_ref().map(|b| b.name.as_str()), Some("feature-amp"));
     }
 
     // ── Tests del contrato JSON (schema riku-status/v2) ──────────────────
@@ -347,17 +308,8 @@ mod tests {
         let report = fixture_report();
         let v = serde_json::to_value(EnvelopedStatusReport::from(&report)).unwrap();
         let file = &v["files"][0];
-        assert!(
-            file.get("details").is_none(),
-            "details vacío no debe aparecer"
-        );
-        assert!(
-            file.get("full_report").is_none(),
-            "full_report ausente no debe aparecer"
-        );
-        assert!(
-            file.get("errors").is_none(),
-            "errors vacío no debe aparecer"
-        );
+        assert!(file.get("details").is_none(), "details vacío no debe aparecer");
+        assert!(file.get("full_report").is_none(), "full_report ausente no debe aparecer");
+        assert!(file.get("errors").is_none(), "errors vacío no debe aparecer");
     }
 }

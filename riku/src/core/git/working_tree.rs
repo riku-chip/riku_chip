@@ -9,11 +9,7 @@ use crate::core::domain::git_types::{ChangeStatus, GitError, WorkingChange};
 /// se pueden añadir métodos separados, pero la versión 1 los unifica.
 pub(super) fn working_tree_changes(repo: &Repository) -> Result<Vec<WorkingChange>, GitError> {
     let mut options = git2::StatusOptions::new();
-    options
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .renames_head_to_index(true)
-        .renames_index_to_workdir(true);
+    options.include_untracked(true).recurse_untracked_dirs(true).renames_head_to_index(true).renames_index_to_workdir(true);
     let statuses = repo.statuses(Some(&mut options))?;
 
     let mut results = Vec::new();
@@ -22,8 +18,7 @@ pub(super) fn working_tree_changes(repo: &Repository) -> Result<Vec<WorkingChang
         if st.is_ignored() {
             continue;
         }
-        let (status, old_path) =
-            classify_status(st, entry.head_to_index(), entry.index_to_workdir());
+        let (status, old_path) = classify_status(st, entry.head_to_index(), entry.index_to_workdir());
         // En un renombre, `entry.path()` es la ruta vieja: la nueva está en
         // el delta (el último que hay: índice → disco, o HEAD → índice).
         let new_path = old_path.as_ref().and_then(|_| {
@@ -36,11 +31,7 @@ pub(super) fn working_tree_changes(repo: &Repository) -> Result<Vec<WorkingChang
             Some(p) => p,
             None => continue,
         };
-        results.push(WorkingChange {
-            path,
-            status,
-            old_path,
-        });
+        results.push(WorkingChange { path, status, old_path });
     }
     Ok(results)
 }

@@ -12,10 +12,10 @@ use crate::gui::content::{Content, DiffTab, SceneState};
 use crate::gui::details_panel;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::space;
-use crate::gui::window_frame;
-use crate::gui::{i18n, tr};
 #[cfg(feature = "spice")]
 use crate::gui::wave_view;
+use crate::gui::window_frame;
+use crate::gui::{i18n, tr};
 
 impl RikuGuiApp {
     /// Acciones, de izquierda a derecha por uso; ajustes y tema a la derecha.
@@ -57,11 +57,7 @@ impl RikuGuiApp {
                 {
                     self.request_fit();
                 }
-                if ui
-                    .button(tr!("toolbar.reload"))
-                    .on_hover_text(tr!("toolbar.reload_hint"))
-                    .clicked()
-                {
+                if ui.button(tr!("toolbar.reload")).on_hover_text(tr!("toolbar.reload_hint")).clicked() {
                     self.refresh_tree();
                     // El archivo abierto se relee del disco en la misma sub-vista.
                     self.reload_backend();
@@ -72,10 +68,8 @@ impl RikuGuiApp {
                     }
                 }
                 ui.separator();
-                ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels"))
-                    .on_hover_text(tr!("toolbar.labels_hint"));
-                ui.toggle_value(&mut self.show_legend, tr!("toolbar.legend"))
-                    .on_hover_text(tr!("toolbar.legend_hint"));
+                ui.toggle_value(&mut self.show_labels, tr!("toolbar.labels")).on_hover_text(tr!("toolbar.labels_hint"));
+                ui.toggle_value(&mut self.show_legend, tr!("toolbar.legend")).on_hover_text(tr!("toolbar.legend_hint"));
                 let has_repo = self.history.repo().is_some();
                 let mut open = self.history.open;
                 let hint = if has_repo { tr!("toolbar.history_hint") } else { tr!("toolbar.history_no_repo") };
@@ -139,8 +133,7 @@ impl RikuGuiApp {
                     ui.menu_button(tr!("settings.menu"), |ui| {
                         ui.checkbox(&mut self.reduce_motion, tr!("settings.reduce_motion"))
                             .on_hover_text(tr!("settings.reduce_motion_hint"));
-                        ui.checkbox(&mut self.simplify, tr!("settings.simplify"))
-                            .on_hover_text(tr!("settings.simplify_hint"));
+                        ui.checkbox(&mut self.simplify, tr!("settings.simplify")).on_hover_text(tr!("settings.simplify_hint"));
                         ui.horizontal(|ui| {
                             ui.label(tr!("settings.scroll")).on_hover_text(tr!("settings.scroll_hint"));
                             ui.selectable_value(&mut self.scroll_pans, false, tr!("settings.scroll_zoom"));
@@ -204,9 +197,7 @@ impl RikuGuiApp {
                 ui.label(if self.error.is_some() { status.color(ui.visuals().error_fg_color) } else { status });
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let unit = self.content.scene()
-                        .and_then(|bs| bs.scene.world_unit().map(str::to_string))
-                        .unwrap_or_default();
+                    let unit = self.content.scene().and_then(|bs| bs.scene.world_unit().map(str::to_string)).unwrap_or_default();
                     if let Some(px) = self.readout.px_world {
                         ui.label(RichText::new(format!("1 px = {} {unit}", fmt_len(px))).weak());
                     }
@@ -229,139 +220,131 @@ impl RikuGuiApp {
 
     /// Proyecto (o las vistas de un diff) y el selector de celdas.
     pub(super) fn left_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("left_panel")
-            .resizable(true)
-            .default_size(200.0)
-            .max_size(side_panel_max(ui))
-            .show(ui, |ui| {
-                // Diff de todo el repo: la lista arriba; debajo, las vistas del
-                // archivo abierto.
-                let mut req = None;
-                if let Some(cs) = self.change_set.as_mut() {
-                    req = cs.show(ui);
-                    ui.separator();
-                }
-                match req {
-                    Some(crate::gui::change_set::Request::Open(path)) => self.open_change_set_file(&path),
-                    Some(crate::gui::change_set::Request::Close) => self.change_set = None,
-                    None => {}
-                }
-                // Formas de onda comparadas: mismas vistas que los demás formatos.
-                // Entre commits reemplazan al árbol; comparando dos archivos del
-                // proyecto, el árbol sigue abajo para abrir otro.
-                #[cfg(feature = "spice")]
-                let wave_tabs = self.show_wave_tabs(ui);
-                #[cfg(not(feature = "spice"))]
-                let wave_tabs = false;
+        egui::Panel::left("left_panel").resizable(true).default_size(200.0).max_size(side_panel_max(ui)).show(ui, |ui| {
+            // Diff de todo el repo: la lista arriba; debajo, las vistas del
+            // archivo abierto.
+            let mut req = None;
+            if let Some(cs) = self.change_set.as_mut() {
+                req = cs.show(ui);
+                ui.separator();
+            }
+            match req {
+                Some(crate::gui::change_set::Request::Open(path)) => self.open_change_set_file(&path),
+                Some(crate::gui::change_set::Request::Close) => self.change_set = None,
+                None => {}
+            }
+            // Formas de onda comparadas: mismas vistas que los demás formatos.
+            // Entre commits reemplazan al árbol; comparando dos archivos del
+            // proyecto, el árbol sigue abajo para abrir otro.
+            #[cfg(feature = "spice")]
+            let wave_tabs = self.show_wave_tabs(ui);
+            #[cfg(not(feature = "spice"))]
+            let wave_tabs = false;
 
-                // Modo diff: selector de vistas (Diff/Before/After); cada una es otra carga.
-                if let (Some(ctx), Some(current)) = (self.diff.as_ref(), self.content.scene().and_then(SceneState::diff_tab)) {
-                    ui.heading(tr!("panel.views"));
-                    ui.label(RichText::new(ctx.file.file_name()
-                        .unwrap_or_default().to_string_lossy().as_ref())
-                        .color(egui::Color32::from_gray(180)));
-                    ui.label(RichText::new(format!("{} → {}",
-                        short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)))
-                        .small().color(egui::Color32::from_gray(140)));
-                    ui.separator();
-                    let mut tab = current;
-                    for t in [DiffTab::Diff, DiffTab::Before, DiffTab::After] {
-                        view_selector(ui, &mut tab, t, &t.label());
-                    }
-                    if tab != current {
-                        self.select_diff_tab(tab);
-                    }
-                    self.show_entry_picker(ui);
-                } else if !(wave_tabs && self.diff.is_some()) {
-                    if wave_tabs {
-                        ui.separator();
-                    }
-                    // Modo archivo único: árbol de proyecto
-                    ui.heading(tr!("panel.project"));
-                    let root = self.project_root.display().to_string();
-                    ui.add(egui::Label::new(RichText::new(&root).small().weak()).truncate())
-                        .on_hover_text(&root);
-                    if ui.small_button(tr!("panel.open_folder")).on_hover_text(tr!("home.open_folder_hint")).clicked() {
-                        self.folder_picker = Some(crate::gui::folder_picker::FolderPicker::new(&self.project_root));
-                    }
-                    if ui
-                        .checkbox(&mut self.show_all_files, tr!("panel.all_files"))
-                        .on_hover_text(tr!("panel.all_files_hint", exts = self.openable_text()))
-                        .changed()
-                    {
-                        self.refresh_tree();
-                    }
-                    ui.separator();
-                    let tree = self.project_tree.clone();
-                    let selected_path = self.selected_path.clone();
-                    // Con scroll propio: un árbol más alto que la ventana
-                    // agrandaba toda la UI y el lienzo quedaba fuera de pantalla.
-                    // Si abajo va el selector de celdas, el árbol cede espacio.
-                    let has_picker = self.content.scene().is_some_and(|bs| bs.scene.entries().len() > 1);
-                    let tree_h = ui.available_height() * if has_picker { 0.4 } else { 1.0 };
-                    egui::ScrollArea::vertical()
-                        .id_salt("project_tree")
-                        .max_height(tree_h)
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            let mut open_path = |path: &Path| self.open_path(path);
-                            show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
-                        });
-                    self.show_entry_picker(ui);
+            // Modo diff: selector de vistas (Diff/Before/After); cada una es otra carga.
+            if let (Some(ctx), Some(current)) = (self.diff.as_ref(), self.content.scene().and_then(SceneState::diff_tab)) {
+                ui.heading(tr!("panel.views"));
+                ui.label(
+                    RichText::new(ctx.file.file_name().unwrap_or_default().to_string_lossy().as_ref())
+                        .color(egui::Color32::from_gray(180)),
+                );
+                ui.label(
+                    RichText::new(format!("{} → {}", short_hash(&ctx.commit_a), short_hash(&ctx.commit_b)))
+                        .small()
+                        .color(egui::Color32::from_gray(140)),
+                );
+                ui.separator();
+                let mut tab = current;
+                for t in [DiffTab::Diff, DiffTab::Before, DiffTab::After] {
+                    view_selector(ui, &mut tab, t, &t.label());
                 }
-            });
+                if tab != current {
+                    self.select_diff_tab(tab);
+                }
+                self.show_entry_picker(ui);
+            } else if !(wave_tabs && self.diff.is_some()) {
+                if wave_tabs {
+                    ui.separator();
+                }
+                // Modo archivo único: árbol de proyecto
+                ui.heading(tr!("panel.project"));
+                let root = self.project_root.display().to_string();
+                ui.add(egui::Label::new(RichText::new(&root).small().weak()).truncate()).on_hover_text(&root);
+                if ui.small_button(tr!("panel.open_folder")).on_hover_text(tr!("home.open_folder_hint")).clicked() {
+                    self.folder_picker = Some(crate::gui::folder_picker::FolderPicker::new(&self.project_root));
+                }
+                if ui
+                    .checkbox(&mut self.show_all_files, tr!("panel.all_files"))
+                    .on_hover_text(tr!("panel.all_files_hint", exts = self.openable_text()))
+                    .changed()
+                {
+                    self.refresh_tree();
+                }
+                ui.separator();
+                let tree = self.project_tree.clone();
+                let selected_path = self.selected_path.clone();
+                // Con scroll propio: un árbol más alto que la ventana
+                // agrandaba toda la UI y el lienzo quedaba fuera de pantalla.
+                // Si abajo va el selector de celdas, el árbol cede espacio.
+                let has_picker = self.content.scene().is_some_and(|bs| bs.scene.entries().len() > 1);
+                let tree_h = ui.available_height() * if has_picker { 0.4 } else { 1.0 };
+                egui::ScrollArea::vertical().id_salt("project_tree").max_height(tree_h).auto_shrink([false, true]).show(
+                    ui,
+                    |ui| {
+                        let mut open_path = |path: &Path| self.open_path(path);
+                        show_entry_tree(ui, &tree, selected_path.as_deref(), &mut open_path);
+                    },
+                );
+                self.show_entry_picker(ui);
+            }
+        });
     }
 
     /// Detalles de lo que se ve.
     pub(super) fn right_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::right("info_panel")
-            .resizable(true)
-            .default_size(220.0)
-            .max_size(side_panel_max(ui))
-            .show(ui, |ui| {
-                ui.heading(tr!("panel.details"));
-                if let Some(path) = &self.selected_path {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    ui.add(egui::Label::new(RichText::new(&name).strong()).truncate())
-                        .on_hover_text(path.display().to_string());
-                }
-                ui.add_space(space::XS);
+        egui::Panel::right("info_panel").resizable(true).default_size(220.0).max_size(side_panel_max(ui)).show(ui, |ui| {
+            ui.heading(tr!("panel.details"));
+            if let Some(path) = &self.selected_path {
+                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                ui.add(egui::Label::new(RichText::new(&name).strong()).truncate()).on_hover_text(path.display().to_string());
+            }
+            ui.add_space(space::XS);
 
-                #[cfg(feature = "spice")]
-                if let Some(view) = self.content.wave_mut() {
-                    let candidates = wave_view::raw_files(&self.project_tree);
-                    wave_view::show_details(ui, view, &candidates);
-                    if view.take_exprs_changed() {
-                        self.wave_exprs = view.expr_texts().to_vec();
+            #[cfg(feature = "spice")]
+            if let Some(view) = self.content.wave_mut() {
+                let candidates = wave_view::raw_files(&self.project_tree);
+                wave_view::show_details(ui, view, &candidates);
+                if view.take_exprs_changed() {
+                    self.wave_exprs = view.expr_texts().to_vec();
+                }
+                return;
+            }
+            #[cfg(all(feature = "xschem", feature = "layout"))]
+            {
+                let mut close_to = None;
+                let mut shown = false;
+                if let Some(st) = self.content.lvs_mut() {
+                    shown = true;
+                    if ui.button(tr!("lvs_view.close")).on_hover_text(tr!("lvs_view.close_hint")).clicked() {
+                        close_to = Some(st.root.join(&st.pair.schematic));
+                    } else {
+                        ui.add_space(space::XS);
+                        crate::gui::lvs_view::show_list(ui, st);
                     }
+                }
+                if let Some(schematic) = close_to {
+                    self.open_path(&schematic);
+                }
+                if shown {
                     return;
                 }
-                #[cfg(all(feature = "xschem", feature = "layout"))]
-                {
-                    let mut close_to = None;
-                    let mut shown = false;
-                    if let Some(st) = self.content.lvs_mut() {
-                        shown = true;
-                        if ui.button(tr!("lvs_view.close")).on_hover_text(tr!("lvs_view.close_hint")).clicked() {
-                            close_to = Some(st.root.join(&st.pair.schematic));
-                        } else {
-                            ui.add_space(space::XS);
-                            crate::gui::lvs_view::show_list(ui, st);
-                        }
-                    }
-                    if let Some(schematic) = close_to {
-                        self.open_path(&schematic);
-                    }
-                    if shown {
-                        return;
-                    }
-                }
-                if let Some(bs) = self.content.scene_mut() {
-                    details_panel::show(ui, bs);
-                } else {
-                    ui.label(RichText::new(tr!("panel.nothing_open")).weak());
-                }
-            });
+            }
+            if let Some(bs) = self.content.scene_mut() {
+                details_panel::show(ui, bs);
+            } else {
+                ui.label(RichText::new(tr!("panel.nothing_open")).weak());
+            }
+        });
     }
 
     /// Lienzo, ondas o la pantalla inicial.
@@ -375,19 +358,18 @@ impl RikuGuiApp {
             let crumbs = self.breadcrumb();
             // "Volver" al nivel de donde se entró (sub-celda, sub-esquemático).
             let back_to = self.content.scene().and_then(|bs| {
-                bs.back.last().map(|s| s.entry.clone().unwrap_or_else(|| {
-                    Path::new(&bs.path).file_name().unwrap_or_default().to_string_lossy().to_string()
-                }))
+                bs.back.last().map(|s| {
+                    s.entry
+                        .clone()
+                        .unwrap_or_else(|| Path::new(&bs.path).file_name().unwrap_or_default().to_string_lossy().to_string())
+                })
             });
             let mut go_back = false;
             if !crumbs.is_empty() || back_to.is_some() {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::XS;
                     if let Some(to) = &back_to {
-                        go_back = ui
-                            .button(tr!("nav.back"))
-                            .on_hover_text(tr!("nav.back_hint", to = to))
-                            .clicked();
+                        go_back = ui.button(tr!("nav.back")).on_hover_text(tr!("nav.back_hint", to = to)).clicked();
                         ui.add_space(space::XS);
                     }
                     let last = crumbs.len() - 1;
@@ -469,8 +451,9 @@ impl RikuGuiApp {
         let Some(w) = self.content.wave_mut().filter(|w| w.is_diff()) else { return false };
         ui.heading(tr!("panel.views"));
         if let Some(p) = &self.selected_path {
-            ui.label(RichText::new(p.file_name().unwrap_or_default().to_string_lossy().as_ref())
-                .color(egui::Color32::from_gray(180)));
+            ui.label(
+                RichText::new(p.file_name().unwrap_or_default().to_string_lossy().as_ref()).color(egui::Color32::from_gray(180)),
+            );
         }
         ui.label(RichText::new(format!("{} → {}", w.label_a, w.label_b)).small().color(egui::Color32::from_gray(140)));
         ui.separator();
@@ -550,23 +533,17 @@ fn fmt_len(v: f64) -> String {
     format!("{v:.decimals$}")
 }
 
-fn show_entry_tree<F>(
-    ui: &mut egui::Ui,
-    entry: &ProjectEntry,
-    selected: Option<&Path>,
-    on_select: &mut F,
-) where
+fn show_entry_tree<F>(ui: &mut egui::Ui, entry: &ProjectEntry, selected: Option<&Path>, on_select: &mut F)
+where
     F: FnMut(&Path),
 {
     match entry {
         ProjectEntry::Directory { path, name, children } => {
-            egui::CollapsingHeader::new(name)
-                .default_open(selected.map_or(false, |s| s.starts_with(path)))
-                .show(ui, |ui| {
-                    for child in children {
-                        show_entry_tree(ui, child, selected, on_select);
-                    }
-                });
+            egui::CollapsingHeader::new(name).default_open(selected.map_or(false, |s| s.starts_with(path))).show(ui, |ui| {
+                for child in children {
+                    show_entry_tree(ui, child, selected, on_select);
+                }
+            });
         }
         ProjectEntry::File { path, name } => {
             if ui.selectable_label(selected == Some(path.as_path()), name).clicked() {

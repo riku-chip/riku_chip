@@ -5,10 +5,10 @@
 use serde_json::json;
 
 use super::color;
-use crate::i18n::tr;
 use super::show_json::file_json;
 use super::show_text::print_files;
 use crate::core::analysis::diff_set::DiffSetReport;
+use crate::i18n::tr;
 
 pub const DIFF_SET_SCHEMA: &str = "riku-diff-set/v1";
 

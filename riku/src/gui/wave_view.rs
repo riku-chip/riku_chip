@@ -17,7 +17,6 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, RichText};
 use egui_plot::{GridMark, Legend, Line, LineStyle, Plot, PlotPoints};
 
-use crate::text::eng;
 use crate::gui::content::DiffTab;
 use crate::gui::project::ProjectEntry;
 use crate::gui::theme::space;
@@ -26,6 +25,7 @@ use crate::modules::spice::compare::{self, interp, PlotDiff, SignalDiff, Status,
 use crate::modules::spice::derived::{self, Derived};
 use crate::modules::spice::expr::{self, Evaluated};
 use crate::modules::spice::raw::{self, RawFile, Variable};
+use crate::text::eng;
 
 /// Puntos por curva que se mandan a dibujar: con más, egui_plot se vuelve
 /// lento y en pantalla no se distinguen (se conserva el mín/máx por tramo).
@@ -133,7 +133,8 @@ impl WaveView {
         let pairs: Vec<_> = compare::pair_plots(before.as_ref().unwrap_or(&empty), &after)
             .into_iter()
             .map(|(a, b)| {
-                let name = b.map(|i| after.plots[i].name.clone())
+                let name = b
+                    .map(|i| after.plots[i].name.clone())
                     .or_else(|| a.and_then(|i| before.as_ref().map(|f| f.plots[i].name.clone())))
                     .unwrap_or_default();
                 (name, a, b)
@@ -149,10 +150,7 @@ impl WaveView {
             None => Vec::new(),
         };
         // Primer análisis con curvas (el punto de operación tiene un solo punto).
-        let plot = pairs
-            .iter()
-            .position(|(_, _, b)| b.is_some_and(|i| after.plots[i].points() > 1))
-            .unwrap_or(0);
+        let plot = pairs.iter().position(|(_, _, b)| b.is_some_and(|i| after.plots[i].points() > 1)).unwrap_or(0);
         let lookup = (0..pairs.len())
             .map(|i| {
                 let side = |p: Option<&raw::Plot>| p.map(|p| p.signals().iter().map(|s| s.name.clone()).collect::<Vec<_>>());
@@ -366,7 +364,8 @@ impl WaveView {
             let mut names = self.signal_names(idx);
             names.retain(|n| !is_internal(n) || self.is_derived(idx, n));
             if self.is_diff() {
-                let key = |n: &String| self.diff_of(idx, n).map_or(0.0, |d| if Self::changed(d) { d.rel().max(1e-9) } else { 0.0 });
+                let key =
+                    |n: &String| self.diff_of(idx, n).map_or(0.0, |d| if Self::changed(d) { d.rel().max(1e-9) } else { 0.0 });
                 names.sort_by(|a, b| key(b).total_cmp(&key(a)));
             }
             if self.is_diff() && self.changed_count(idx) > 0 {
@@ -595,9 +594,7 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
     // Un gráfico por unidad (V, A, dB…): mezclar voltios con microamperios
     // en el mismo eje aplana la curva chica.
     let unit_of = |view: &WaveView, n: &str| {
-        view.var(true, idx, n)
-            .or_else(|| view.var(false, idx, n))
-            .map_or(String::new(), |s| s.unit(complex).to_string())
+        view.var(true, idx, n).or_else(|| view.var(false, idx, n)).map_or(String::new(), |s| s.unit(complex).to_string())
     };
     let mut groups: Vec<(String, Vec<(usize, String)>)> = Vec::new();
     for (i, n) in shown {
@@ -659,7 +656,20 @@ pub fn show_plot(ui: &mut egui::Ui, view: &mut WaveView) {
             }
             ui.add_space(gap);
             let y_label = if unit.is_empty() { "B − A".to_string() } else { format!("B − A [{unit}]") };
-            wave_plot(ui, ("riku_wave_err", idx, unit.as_str()), row_h, link, reset, Extent::default(), log_x, &x_unit, &x_label, &y_label, unit, err);
+            wave_plot(
+                ui,
+                ("riku_wave_err", idx, unit.as_str()),
+                row_h,
+                link,
+                reset,
+                Extent::default(),
+                log_x,
+                &x_unit,
+                &x_label,
+                &y_label,
+                unit,
+                err,
+            );
             row += 1;
         }
     }
@@ -827,7 +837,11 @@ fn show_operating_point(ui: &mut egui::Ui, view: &mut WaveView) {
                         Status::Removed => tr!("wave.removed"),
                         Status::Incomparable => "—".into(),
                     };
-                    ui.label(if changed { RichText::new(text).color(ui.visuals().warn_fg_color) } else { RichText::new(text).weak() });
+                    ui.label(if changed {
+                        RichText::new(text).color(ui.visuals().warn_fg_color)
+                    } else {
+                        RichText::new(text).weak()
+                    });
                 }
                 ui.end_row();
             }
@@ -847,9 +861,7 @@ fn show_expressions(ui: &mut egui::Ui, view: &mut WaveView) {
     ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let add = ui.button("+").on_hover_text(tr!("wave.expr_add")).clicked();
         let resp = ui.add(
-            egui::TextEdit::singleline(&mut view.expr_input)
-                .hint_text(tr!("wave.expr_hint"))
-                .desired_width(ui.available_width()),
+            egui::TextEdit::singleline(&mut view.expr_input).hint_text(tr!("wave.expr_hint")).desired_width(ui.available_width()),
         );
         let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if add || enter {
@@ -954,7 +966,8 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     if view.is_diff() {
         let n = view.changed_count(idx);
         let total = view.signal_names(idx).len();
-        let text = if n == 0 { tr!("wave.count_equal", total = total) } else { tr!("wave.count_changed", count = n, total = total) };
+        let text =
+            if n == 0 { tr!("wave.count_equal", total = total) } else { tr!("wave.count_changed", count = n, total = total) };
         ui.label(RichText::new(text).strong());
         ui.checkbox(&mut view.only_changed, tr!("wave.only_changed"));
         if view.tab == DiffTab::Diff {
@@ -964,8 +977,7 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     show_expressions(ui, view);
     ui.add_space(space::XS);
 
-    ui.checkbox(&mut view.hide_internal, tr!("wave.hide_internal"))
-        .on_hover_text(tr!("wave.hide_internal_hint"));
+    ui.checkbox(&mut view.hide_internal, tr!("wave.hide_internal")).on_hover_text(tr!("wave.hide_internal_hint"));
     ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text(tr!("wave.filter")));
 
     let mut names = view.signal_names(idx);
@@ -1000,45 +1012,57 @@ pub fn show_details(ui: &mut egui::Ui, view: &mut WaveView, candidates: &[PathBu
     // Solo las filas a la vista: con miles de señales, armar todas cada
     // cuadro no tiene sentido.
     let row_h = ui.spacing().interact_size.y;
-    egui::ScrollArea::vertical().id_salt("wave_signals").auto_shrink([false, false]).show_rows(ui, row_h, names.len(), |ui, rows| {
-        for n in &names[rows] {
-            let key = n.to_lowercase();
-            let color = color_for(color_index.get(n.as_str()).copied().unwrap_or(0));
-            let mut on = view.selection(idx).contains(&key);
-            let diff = view.diff_of(idx, n).cloned();
-            ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 2.0, if on { color } else { color.gamma_multiply(0.25) });
-                let label = if view.is_derived(idx, n) { format!("ƒ {n}") } else { n.clone() };
-                let mut resp = ui.checkbox(&mut on, label);
-                if let Some(text) = view.derived.iter().find(|d| d.pair == idx && d.diff.name == *n).and_then(|d| d.diff.expression.as_ref()) {
-                    resp = resp.on_hover_text(format!("= {text}"));
-                }
-                if resp.changed() {
-                    let sel = view.selection(idx);
-                    if on {
-                        sel.insert(key.clone());
-                    } else {
-                        sel.remove(&key);
+    egui::ScrollArea::vertical().id_salt("wave_signals").auto_shrink([false, false]).show_rows(
+        ui,
+        row_h,
+        names.len(),
+        |ui, rows| {
+            for n in &names[rows] {
+                let key = n.to_lowercase();
+                let color = color_for(color_index.get(n.as_str()).copied().unwrap_or(0));
+                let mut on = view.selection(idx).contains(&key);
+                let diff = view.diff_of(idx, n).cloned();
+                ui.horizontal(|ui| {
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 2.0, if on { color } else { color.gamma_multiply(0.25) });
+                    let label = if view.is_derived(idx, n) { format!("ƒ {n}") } else { n.clone() };
+                    let mut resp = ui.checkbox(&mut on, label);
+                    if let Some(text) =
+                        view.derived.iter().find(|d| d.pair == idx && d.diff.name == *n).and_then(|d| d.diff.expression.as_ref())
+                    {
+                        resp = resp.on_hover_text(format!("= {text}"));
                     }
-                }
-                if let Some(d) = &diff {
-                    let (text, hover) = match d.status {
-                        Status::Compared => (
-                            format!("{:.2} %", d.rel() * 100.0),
-                            tr!("wave.diff_hint", max = eng(d.max_abs, d.unit), at = eng(d.at_x, d.x_unit), rms = eng(d.rms, d.unit)),
-                        ),
-                        Status::Added => (tr!("wave.new"), tr!("wave.only_in_b")),
-                        Status::Removed => (tr!("wave.removed"), tr!("wave.only_in_a")),
-                        Status::Incomparable => ("?".into(), tr!("wave.no_common_axis")),
-                    };
-                    let rt = RichText::new(text).small();
-                    let rt = if WaveView::changed(d) { rt.color(ui.visuals().warn_fg_color) } else { rt.weak() };
-                    ui.label(rt).on_hover_text(hover);
-                }
-            });
-        }
-    });
+                    if resp.changed() {
+                        let sel = view.selection(idx);
+                        if on {
+                            sel.insert(key.clone());
+                        } else {
+                            sel.remove(&key);
+                        }
+                    }
+                    if let Some(d) = &diff {
+                        let (text, hover) = match d.status {
+                            Status::Compared => (
+                                format!("{:.2} %", d.rel() * 100.0),
+                                tr!(
+                                    "wave.diff_hint",
+                                    max = eng(d.max_abs, d.unit),
+                                    at = eng(d.at_x, d.x_unit),
+                                    rms = eng(d.rms, d.unit)
+                                ),
+                            ),
+                            Status::Added => (tr!("wave.new"), tr!("wave.only_in_b")),
+                            Status::Removed => (tr!("wave.removed"), tr!("wave.only_in_a")),
+                            Status::Incomparable => ("?".into(), tr!("wave.no_common_axis")),
+                        };
+                        let rt = RichText::new(text).small();
+                        let rt = if WaveView::changed(d) { rt.color(ui.visuals().warn_fg_color) } else { rt.weak() };
+                        ui.label(rt).on_hover_text(hover);
+                    }
+                });
+            }
+        },
+    );
 }
 
 #[cfg(test)]
@@ -1107,7 +1131,11 @@ mod tests {
             let vars: Vec<(&str, &str)> = vars.iter().map(|(a, b)| (a.as_str(), *b)).collect();
             let points = 200;
             let cols = |k: f64| -> Vec<Vec<f64>> {
-                (0..=n).map(|c| (0..points).map(|p| if c == 0 { p as f64 } else { (p as f64 * 0.01 + c as f64 * k).sin() }).collect()).collect()
+                (0..=n)
+                    .map(|c| {
+                        (0..points).map(|p| if c == 0 { p as f64 } else { (p as f64 * 0.01 + c as f64 * k).sin() }).collect()
+                    })
+                    .collect()
             };
             let a = raw::parse(&binary_raw("Transient Analysis", &vars, &cols(0.0))).unwrap();
             let b = raw::parse(&binary_raw("Transient Analysis", &vars, &cols(1e-3))).unwrap();

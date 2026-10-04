@@ -17,9 +17,12 @@ impl BoxGrid {
     /// infinitos y todo caería en una sola celda.
     pub(crate) fn new(boxes: &[[f64; 4]]) -> Self {
         let valid = |b: &[f64; 4]| b.iter().all(|v| v.is_finite()) && b[0] <= b[2] && b[1] <= b[3];
-        let bounds = boxes.iter().filter(|b| valid(b)).fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, x| {
-            [b[0].min(x[0]), b[1].min(x[1]), b[2].max(x[2]), b[3].max(x[3])]
-        });
+        let bounds = boxes
+            .iter()
+            .filter(|b| valid(b))
+            .fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, x| {
+                [b[0].min(x[0]), b[1].min(x[1]), b[2].max(x[2]), b[3].max(x[3])]
+            });
         let n = ((boxes.len() as f64).sqrt().ceil() as usize).clamp(1, 1024);
         let mut grid = Self { bounds, n, cells: vec![Vec::new(); n * n], boxes: boxes.to_vec() };
         for (k, b) in boxes.iter().enumerate().filter(|(_, b)| valid(b)) {

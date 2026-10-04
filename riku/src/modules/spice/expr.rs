@@ -275,7 +275,11 @@ impl Parser {
     }
 
     fn expect(&mut self, c: char) -> Result<(), ExprError> {
-        if self.eat(c) { Ok(()) } else { syntax(tr!("expr.expected", token = c)) }
+        if self.eat(c) {
+            Ok(())
+        } else {
+            syntax(tr!("expr.expected", token = c))
+        }
     }
 
     fn expr(&mut self) -> Result<Node, ExprError> {
@@ -513,7 +517,11 @@ impl Expression {
                     .iter()
                     .map(|c| {
                         let c = if c.is_finite() { *c } else { C::NAN };
-                        if complex { 20.0 * c.abs().max(1e-300).log10() } else { c.re }
+                        if complex {
+                            20.0 * c.abs().max(1e-300).log10()
+                        } else {
+                            c.re
+                        }
                     })
                     .collect();
                 let kind = match kind {
@@ -611,7 +619,8 @@ impl Ctx<'_> {
                     Val::Scalar(c) if i == 0 || i == -1 => Ok(Val::Scalar(c)),
                     Val::Scalar(_) => eval_err(tr!("expr.index_on_number")),
                     Val::Vector(vs) => {
-                        let k = wrap(i, vs.len()).ok_or_else(|| ExprError::Eval(tr!("expr.index_out", index = i, len = vs.len())))?;
+                        let k =
+                            wrap(i, vs.len()).ok_or_else(|| ExprError::Eval(tr!("expr.index_out", index = i, len = vs.len())))?;
                         Ok(Val::Scalar(vs[k]))
                     }
                 }
@@ -652,7 +661,11 @@ impl Ctx<'_> {
 
     fn call(&self, f: &str, args: &[Node]) -> Result<Val, ExprError> {
         let arity = |n: usize| -> Result<(), ExprError> {
-            if args.len() == n { Ok(()) } else { eval_err(tr!("expr.arity", function = f, count = n)) }
+            if args.len() == n {
+                Ok(())
+            } else {
+                eval_err(tr!("expr.arity", function = f, count = n))
+            }
         };
         let elementwise = |g: fn(C) -> C| -> Result<Val, ExprError> {
             arity(1)?;
@@ -698,7 +711,11 @@ impl Ctx<'_> {
                 let pick_max = f == "max";
                 binary_with(self.eval(&args[0])?, self.eval(&args[1])?, move |a, b| {
                     let (ma, mb) = (metric(a), metric(b));
-                    if (ma >= mb) == pick_max { a } else { b }
+                    if (ma >= mb) == pick_max {
+                        a
+                    } else {
+                        b
+                    }
                 })
             }
             "max" | "min" | "pp" => {
@@ -743,7 +760,11 @@ impl Ctx<'_> {
 
 /// Valor que ordenan `max`/`min`: el real, o la magnitud si es complejo.
 fn metric(c: C) -> f64 {
-    if c.is_real() { c.re } else { c.abs() }
+    if c.is_real() {
+        c.re
+    } else {
+        c.abs()
+    }
 }
 
 fn wrap(i: i64, n: usize) -> Option<usize> {
@@ -791,9 +812,19 @@ fn deriv(x: &[f64], y: &[C]) -> Vec<C> {
             if n < 2 {
                 return C::NAN;
             }
-            let (a, b) = if i == 0 { (0, 1) } else if i == n - 1 { (n - 2, n - 1) } else { (i - 1, i + 1) };
+            let (a, b) = if i == 0 {
+                (0, 1)
+            } else if i == n - 1 {
+                (n - 2, n - 1)
+            } else {
+                (i - 1, i + 1)
+            };
             let dx = x[b] - x[a];
-            if dx == 0.0 { C::NAN } else { y[b].sub(y[a]).scale(1.0 / dx) }
+            if dx == 0.0 {
+                C::NAN
+            } else {
+                y[b].sub(y[a]).scale(1.0 / dx)
+            }
         })
         .collect()
 }
@@ -825,7 +856,11 @@ fn mean(x: &[f64], y: &[C]) -> C {
                 acc = acc.add(w[0].1.add(w[1].1).scale((w[1].0 - w[0].0) / 2.0));
             }
             let span = pts[pts.len() - 1].0 - pts[0].0;
-            if span == 0.0 { pts[0].1 } else { acc.scale(1.0 / span) }
+            if span == 0.0 {
+                pts[0].1
+            } else {
+                acc.scale(1.0 / span)
+            }
         }
     }
 }
@@ -934,11 +969,27 @@ mod tests {
 
     #[test]
     fn complex_division_in_ac() {
-        let freq = Variable { name: "frequency".into(), kind: "frequency".into(), values: vec![1.0, 10.0], complex: Some(vec![(1.0, 0.0), (10.0, 0.0)]) };
-        let vin = Variable { name: "v(in)".into(), kind: "voltage".into(), values: vec![0.0, 0.0], complex: Some(vec![(1.0, 0.0), (1.0, 0.0)]) };
+        let freq = Variable {
+            name: "frequency".into(),
+            kind: "frequency".into(),
+            values: vec![1.0, 10.0],
+            complex: Some(vec![(1.0, 0.0), (10.0, 0.0)]),
+        };
+        let vin = Variable {
+            name: "v(in)".into(),
+            kind: "voltage".into(),
+            values: vec![0.0, 0.0],
+            complex: Some(vec![(1.0, 0.0), (1.0, 0.0)]),
+        };
         // v(out) = 1/(1+j): |·| = 1/√2 → −3.01 dB, fase −45°.
-        let vout = Variable { name: "v(out)".into(), kind: "voltage".into(), values: vec![0.0, 0.0], complex: Some(vec![(0.5, -0.5), (0.1, 0.0)]) };
-        let p = Plot { title: String::new(), name: "AC Analysis".into(), command: None, complex: true, vars: vec![freq, vin, vout] };
+        let vout = Variable {
+            name: "v(out)".into(),
+            kind: "voltage".into(),
+            values: vec![0.0, 0.0],
+            complex: Some(vec![(0.5, -0.5), (0.1, 0.0)]),
+        };
+        let p =
+            Plot { title: String::new(), name: "AC Analysis".into(), command: None, complex: true, vars: vec![freq, vin, vout] };
         let g = signal("v(out)/v(in)", &p);
         assert!((g[0] + 3.0103).abs() < 1e-3, "{g:?}");
         let ph = signal("ph(v(out)/v(in))", &p);
@@ -959,7 +1010,10 @@ mod tests {
         assert!(matches!(parse("v(out) +"), Err(ExprError::Syntax(_))));
         assert!(matches!(parse("foo(v(out))").unwrap().eval(&p), Err(ExprError::Syntax(_))));
         assert!(matches!(parse("v(out)[9]").unwrap().eval(&p), Err(ExprError::Eval(_))));
-        assert_eq!(parse("@m.xm1.msky130_fd_pr__nfet_01v8[id]*2").unwrap().eval(&p), Err(ExprError::Missing("@m.xm1.msky130_fd_pr__nfet_01v8[id]".into())));
+        assert_eq!(
+            parse("@m.xm1.msky130_fd_pr__nfet_01v8[id]*2").unwrap().eval(&p),
+            Err(ExprError::Missing("@m.xm1.msky130_fd_pr__nfet_01v8[id]".into()))
+        );
     }
 
     #[test]

@@ -1,0 +1,7 @@
+# Estilo de riku_chip: líneas largas y los `if`/`else` y llamadas cortas en una
+# línea. Elegido midiendo cuál deja menos cambios sobre el código que ya había
+# (538 diferencias, contra 1 782 con la configuración por defecto).
+# Solo opciones estables: la CI usa el toolchain `stable`.
+max_width = 130
+use_small_heuristics = "Max"
+style_edition = "2021"

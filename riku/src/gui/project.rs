@@ -6,15 +6,8 @@ const SKIPPED_DIRS: &[&str] = &["target", "node_modules", "__pycache__"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectEntry {
-    Directory {
-        path: PathBuf,
-        name: String,
-        children: Vec<ProjectEntry>,
-    },
-    File {
-        path: PathBuf,
-        name: String,
-    },
+    Directory { path: PathBuf, name: String, children: Vec<ProjectEntry> },
+    File { path: PathBuf, name: String },
 }
 
 impl ProjectEntry {
@@ -37,9 +30,7 @@ impl ProjectEntry {
 }
 
 pub fn is_openable(path: &Path, openable: &[String]) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| openable.iter().any(|o| e.eq_ignore_ascii_case(o)))
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| openable.iter().any(|o| e.eq_ignore_ascii_case(o)))
 }
 
 fn read_children(path: &Path, show_all: bool, openable: &[String]) -> Vec<ProjectEntry> {

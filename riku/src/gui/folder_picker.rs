@@ -184,8 +184,7 @@ impl FolderPicker {
                     go_to = Some(self.dir.clone());
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let open = egui::Button::new(RichText::new(tr!("picker.open")).strong())
-                        .fill(ui.visuals().selection.bg_fill);
+                    let open = egui::Button::new(RichText::new(tr!("picker.open")).strong()).fill(ui.visuals().selection.bg_fill);
                     if ui.add(open).clicked() {
                         picked = Some(Picked::Folder(self.dir.clone()));
                     }

@@ -22,7 +22,11 @@ const MAX_WINDOWS: usize = 20_000;
 /// Las ventanas de cada celda (cajas en unidades de la librería). `own`: las
 /// cajas de los cambios propios de cada celda; `via`: por celda, las hijas
 /// directas por las que le llega un cambio.
-pub(crate) fn windows(lib: &Library, own: &HashMap<String, Vec<[f64; 4]>>, via: &HashMap<String, BTreeSet<String>>) -> HashMap<String, Vec<[f64; 4]>> {
+pub(crate) fn windows(
+    lib: &Library,
+    own: &HashMap<String, Vec<[f64; 4]>>,
+    via: &HashMap<String, BTreeSet<String>>,
+) -> HashMap<String, Vec<[f64; 4]>> {
     let mut memo: HashMap<String, Vec<[f64; 4]>> = HashMap::new();
     let cells: BTreeSet<&String> = own.keys().chain(via.keys()).collect();
     for c in cells {
@@ -52,7 +56,12 @@ fn of(
             for r in c.references().filter(|r| r.cell_name() == child.as_str()) {
                 let o = r.origin();
                 for off in offsets(r.repetition_count(), |i| r.repetition_offset(i)) {
-                    let t = Affine::reference(Point2D { x: o.x + off.x, y: o.y + off.y }, r.rotation(), r.magnification(), r.x_reflection());
+                    let t = Affine::reference(
+                        Point2D { x: o.x + off.x, y: o.y + off.y },
+                        r.rotation(),
+                        r.magnification(),
+                        r.x_reflection(),
+                    );
                     out.extend(inner.iter().map(|b| transform(&t, b)));
                 }
             }

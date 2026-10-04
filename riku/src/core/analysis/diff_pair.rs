@@ -170,10 +170,7 @@ fn is_other_format(module: &dyn FormatModule, a: &Blob, b: &Blob) -> bool {
             _ => None,
         })
         .collect();
-    a.skipped().is_none()
-        && b.skipped().is_none()
-        && !content.is_empty()
-        && !content.iter().any(|bytes| module.detect(bytes))
+    a.skipped().is_none() && b.skipped().is_none() && !content.is_empty() && !content.iter().any(|bytes| module.detect(bytes))
 }
 
 /// Un archivo de otro formato: como uno sin módulo (`FileFormat::Unknown`).

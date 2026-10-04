@@ -5,11 +5,11 @@ use std::path::Path;
 use git2::{Repository, Signature};
 use serde_json::json;
 
-use riku::modules::xschem::parse;
 use riku::core::domain::git_types::{GitError, LARGE_BLOB_THRESHOLD};
 use riku::core::domain::models::FileFormat;
-use xschem_viewer::semantic::ChangeKind;
 use riku::core::domain::ports::GitRepository;
+use riku::modules::xschem::parse;
+use xschem_viewer::semantic::ChangeKind;
 /// Formato por firma, según los módulos del ejecutable.
 fn detect_format(content: &[u8]) -> FileFormat {
     riku::modules::registry().detect_format(content)
@@ -35,29 +35,18 @@ fn commit_file(repo: &Repository, rel_path: &str, content: &str, message: &str) 
     let oid = match repo.head() {
         Ok(head) => {
             let parent = repo.find_commit(head.target().unwrap()).unwrap();
-            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
-                .unwrap()
+            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent]).unwrap()
         }
-        Err(_) => repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &[])
-            .unwrap(),
+        Err(_) => repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[]).unwrap(),
     };
     oid
 }
 
 fn test_tempdir() -> tempfile::TempDir {
-    tempfile::Builder::new()
-        .prefix("riku-test")
-        .tempdir_in(std::env::current_dir().unwrap())
-        .unwrap()
+    tempfile::Builder::new().prefix("riku-test").tempdir_in(std::env::current_dir().unwrap()).unwrap()
 }
 
-fn commit_rename(
-    repo: &Repository,
-    old_rel_path: &str,
-    new_rel_path: &str,
-    message: &str,
-) -> git2::Oid {
+fn commit_rename(repo: &Repository, old_rel_path: &str, new_rel_path: &str, message: &str) -> git2::Oid {
     let workdir = repo.workdir().expect("workdir");
     let old_full_path = workdir.join(old_rel_path);
     let new_full_path = workdir.join(new_rel_path);
@@ -76,8 +65,7 @@ fn commit_rename(
 
     let head = repo.head().unwrap();
     let parent = repo.find_commit(head.target().unwrap()).unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
-        .unwrap()
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent]).unwrap()
 }
 
 #[test]
@@ -96,10 +84,7 @@ N 10 20 30 40 {lab=NET1}
 
 #[test]
 fn parses_real_xschem_fixture() {
-    let content = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../examples/SH/op_sim.sch"
-    ));
+    let content = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/SH/op_sim.sch"));
 
     assert_eq!(detect_format(content), FileFormat::Xschem);
 
@@ -146,21 +131,9 @@ N 0 0 10 0 {lab=NET2}
 "#;
 
     let report = diff(&parse(a), &parse(b));
-    let added = report
-        .components
-        .iter()
-        .filter(|c| c.kind == ChangeKind::Added && !c.cosmetic)
-        .count();
-    let removed = report
-        .components
-        .iter()
-        .filter(|c| c.kind == ChangeKind::Removed && !c.cosmetic)
-        .count();
-    let modified = report
-        .components
-        .iter()
-        .filter(|c| c.kind == ChangeKind::Modified && !c.cosmetic)
-        .count();
+    let added = report.components.iter().filter(|c| c.kind == ChangeKind::Added && !c.cosmetic).count();
+    let removed = report.components.iter().filter(|c| c.kind == ChangeKind::Removed && !c.cosmetic).count();
+    let modified = report.components.iter().filter(|c| c.kind == ChangeKind::Modified && !c.cosmetic).count();
 
     assert_eq!(added, 1);
     assert_eq!(removed, 1);
@@ -199,14 +172,8 @@ fn git_service_reads_commits_and_blobs() {
 
 #[test]
 fn enums_serialize_stably() {
-    assert_eq!(
-        serde_json::to_value(ChangeKind::Added).unwrap(),
-        json!("added")
-    );
-    assert_eq!(
-        serde_json::to_value(FileFormat::Xschem).unwrap(),
-        json!("xschem")
-    );
+    assert_eq!(serde_json::to_value(ChangeKind::Added).unwrap(), json!("added"));
+    assert_eq!(serde_json::to_value(FileFormat::Xschem).unwrap(), json!("xschem"));
 }
 
 #[test]
@@ -239,10 +206,7 @@ fn git_service_reports_renames() {
     let changes = svc.get_changed_files("HEAD~1", "HEAD").unwrap();
 
     assert_eq!(changes.len(), 1);
-    assert_eq!(
-        changes[0].status,
-        riku::core::domain::git_types::ChangeStatus::Renamed
-    );
+    assert_eq!(changes[0].status, riku::core::domain::git_types::ChangeStatus::Renamed);
     assert_eq!(changes[0].path, new_path);
     assert_eq!(changes[0].old_path.as_deref(), Some(old_path));
 }
@@ -267,8 +231,7 @@ fn git_service_reports_large_blobs() {
     let tree_id = index.write_tree().unwrap();
     let tree = repo.find_tree(tree_id).unwrap();
     let sig = Signature::now("Riku", "riku@example.com").unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, "large", &tree, &[])
-        .unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "large", &tree, &[]).unwrap();
 
     let svc = GitService::open(temp.path()).unwrap();
     let err = svc.get_blob("HEAD", file_path).unwrap_err();
@@ -339,7 +302,8 @@ fn commit_files(repo: &Repository, files: &[(&str, Vec<u8>)], message: &str) {
     index.write().unwrap();
     let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
     let sig = Signature::now("Riku", "riku@example.com").unwrap();
-    let parents: Vec<git2::Commit<'_>> = repo.head().ok().and_then(|h| h.target()).map(|t| repo.find_commit(t).unwrap()).into_iter().collect();
+    let parents: Vec<git2::Commit<'_>> =
+        repo.head().ok().and_then(|h| h.target()).map(|t| repo.find_commit(t).unwrap()).into_iter().collect();
     let parents: Vec<&git2::Commit<'_>> = parents.iter().collect();
     repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents).unwrap();
 }
@@ -458,7 +422,11 @@ fn renamed_and_modified_files_are_compared_with_their_old_path() {
     assert_eq!(added, 1, "diff A B: {:?}", set.files[0].change);
 
     // status: renombre en el índice (git mv) y otro cambio en disco.
-    rename_to("new.sch", "otro.sch", sch("C {res.sym} 900 20 0 0 {name=R99 value=1k}\nC {res.sym} 950 20 0 0 {name=R98 value=1k}\n"));
+    rename_to(
+        "new.sch",
+        "otro.sch",
+        sch("C {res.sym} 900 20 0 0 {name=R99 value=1k}\nC {res.sym} 950 20 0 0 {name=R98 value=1k}\n"),
+    );
     let status = analyze_with_options(&svc, Some(workdir), &StatusOptions::default(), &modules).unwrap();
     let f = status.files.iter().find(|f| f.path == "otro.sch").unwrap_or_else(|| panic!("{:?}", status.files));
     one_added(&f.counts, "status");
@@ -489,7 +457,9 @@ fn viewer_sides_read_other_files_from_the_commit_or_the_disk() {
 fn log_limit_counts_only_the_commits_that_touch_the_paths() {
     use riku::core::analysis::log::{walk_with_summary, LogOptions};
 
-    let sch = |v: u32| format!("v {{xschem version=3.0.0 file_version=1.2}}\nC {{res.sym}} 0 0 0 0 {{name=R1 value={v}k}}\n").into_bytes();
+    let sch = |v: u32| {
+        format!("v {{xschem version=3.0.0 file_version=1.2}}\nC {{res.sym}} 0 0 0 0 {{name=R1 value={v}k}}\n").into_bytes()
+    };
     let temp = test_tempdir();
     let repo = Repository::init(temp.path()).unwrap();
     commit_files(&repo, &[("a.sch", sch(1))], "a1");

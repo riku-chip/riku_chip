@@ -356,7 +356,10 @@ mod tests {
         let c = Change::new(ChangeKind::Modified, n).with_severity(Severity::Error);
         let v = serde_json::to_value(&c).unwrap();
         assert_eq!(v["severity"], "error");
-        assert!(serde_json::to_value(Change::new(ChangeKind::Added, Element::Whole)).unwrap().get("severity").is_none(), "sin gravedad, el JSON de siempre");
+        assert!(
+            serde_json::to_value(Change::new(ChangeKind::Added, Element::Whole)).unwrap().get("severity").is_none(),
+            "sin gravedad, el JSON de siempre"
+        );
         assert_eq!(serde_json::from_value::<Change>(v).unwrap(), c);
         let p = Element::Port { cell: "inv".into(), name: "A".into() };
         assert_eq!(p.name(), "inv:port:A");

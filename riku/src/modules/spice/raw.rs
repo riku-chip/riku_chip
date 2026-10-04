@@ -9,8 +9,8 @@
 //! Los análisis complejos (`ac`, `noise`…) se guardan como magnitud en dB,
 //! que es lo que se mira y compara; la frecuencia queda como su parte real.
 
-use std::fmt;
 use crate::i18n::tr;
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RawFile {
@@ -252,7 +252,13 @@ fn read_binary(content: &[u8], pos: usize, n: usize, expected: usize, complex: b
 
 /// Datos en texto: por punto, `<idx>\t<v0>` y después una línea por variable.
 /// Complejos como `re,im`.
-fn read_ascii(content: &[u8], mut pos: usize, n: usize, expected: usize, complex: bool) -> Result<(Vec<Vec<(f64, f64)>>, usize), RawError> {
+fn read_ascii(
+    content: &[u8],
+    mut pos: usize,
+    n: usize,
+    expected: usize,
+    complex: bool,
+) -> Result<(Vec<Vec<(f64, f64)>>, usize), RawError> {
     let mut columns: Vec<Vec<(f64, f64)>> = vec![Vec::new(); n];
     let parse_val = |_c: usize, tok: &str| -> Result<(f64, f64), RawError> {
         let bad = || RawError(tr!("raw.not_number", value = format!("{tok:?}")));
@@ -329,7 +335,11 @@ pub(crate) mod tests {
 
     #[test]
     fn reads_binary_real_plot() {
-        let raw = binary_raw("Transient Analysis", &[("time", "time"), ("v(out)", "voltage")], &[vec![0.0, 1e-9, 2e-9], vec![0.0, 0.5, 1.0]]);
+        let raw = binary_raw(
+            "Transient Analysis",
+            &[("time", "time"), ("v(out)", "voltage")],
+            &[vec![0.0, 1e-9, 2e-9], vec![0.0, 0.5, 1.0]],
+        );
         assert!(looks_like_raw(&raw));
         let f = parse(&raw).unwrap();
         assert_eq!(f.plots.len(), 1);
@@ -343,7 +353,11 @@ pub(crate) mod tests {
 
     #[test]
     fn truncated_binary_keeps_complete_points() {
-        let mut raw = binary_raw("Transient Analysis", &[("time", "time"), ("v(a)", "voltage")], &[vec![0.0, 1.0, 2.0], vec![5.0, 6.0, 7.0]]);
+        let mut raw = binary_raw(
+            "Transient Analysis",
+            &[("time", "time"), ("v(a)", "voltage")],
+            &[vec![0.0, 1.0, 2.0], vec![5.0, 6.0, 7.0]],
+        );
         raw.truncate(raw.len() - 4);
         let p = &parse(&raw).unwrap().plots[0];
         assert_eq!(p.points(), 2);
@@ -385,10 +399,13 @@ Values:
         let e = parse(text.as_bytes()).unwrap_err();
         assert!(e.to_string().contains(&tr!("raw.too_many_values", point = 0, count = 2)), "{e}");
         // Igual si el valor de más viene en la línea siguiente.
-        let text = text.replace("	1.0	9.9
-", "	1.0
+        let text = text.replace(
+            "	1.0	9.9
+",
+            "	1.0
 	9.9	8.8
-");
+",
+        );
         assert!(parse(text.as_bytes()).is_err());
     }
 

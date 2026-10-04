@@ -360,7 +360,9 @@ pub(crate) fn show_list(ui: &mut egui::Ui, st: &mut LvsState) {
             if last != Some(item.kind) {
                 ui.add_space(space::XS);
                 let heading = match item.kind {
-                    ItemKind::Property => tr!("lvs_view.properties", count = st.items.iter().filter(|x| x.kind == ItemKind::Property).count()),
+                    ItemKind::Property => {
+                        tr!("lvs_view.properties", count = st.items.iter().filter(|x| x.kind == ItemKind::Property).count())
+                    }
                     ItemKind::Net => tr!("lvs.unmatched_nets"),
                     ItemKind::Device => tr!("lvs.unmatched_devices"),
                 };

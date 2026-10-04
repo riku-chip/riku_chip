@@ -7,7 +7,9 @@ use viewer_core::viewport::Viewport;
 
 use crate::gui::content::SceneState;
 use crate::gui::motion::{Inertia, ViewAnimation};
-use crate::gui::scene_painter::{fit_bbox, fit_scene, focus_area, hover_info, paint_scene, zoom_at_screen, PaintOptions, ScreenXform};
+use crate::gui::scene_painter::{
+    fit_bbox, fit_scene, focus_area, hover_info, paint_scene, zoom_at_screen, PaintOptions, ScreenXform,
+};
 use crate::gui::theme::CanvasTheme;
 
 /// Preferencias que afectan al lienzo.
@@ -182,7 +184,8 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
     if response.clicked() {
         if let Some(pos) = response.interact_pointer_pos() {
             let (x, y) = xf.to_world(pos);
-            let hit = crate::gui::scene_painter::pick_at(bs.scene.as_ref(), (x, y), &hidden).and_then(|el| bs.scene.net_at(x, y, Some(el.layer())));
+            let hit = crate::gui::scene_painter::pick_at(bs.scene.as_ref(), (x, y), &hidden)
+                .and_then(|el| bs.scene.net_at(x, y, Some(el.layer())));
             bs.net_focus = match hit {
                 Some(h) if bs.net_focus.as_ref().is_some_and(|f| f.name == h.name) => None,
                 other => other,
@@ -253,7 +256,13 @@ fn paint_mark(painter: &egui::Painter, xf: &ScreenXform, mark: &crate::gui::cont
     let stroke = egui::Stroke::new(2.0, yellow);
     for poly in mark.fills.iter().filter(|p| p.len() >= 3) {
         let screen: Vec<egui::Pos2> = poly.iter().map(|&(x, y)| xf.to_screen(x, y)).collect();
-        crate::gui::polygon_fill::paint_filled_polygon(painter, poly, screen, yellow.gamma_multiply(0.6), egui::Stroke::new(1.0, yellow));
+        crate::gui::polygon_fill::paint_filled_polygon(
+            painter,
+            poly,
+            screen,
+            yellow.gamma_multiply(0.6),
+            egui::Stroke::new(1.0, yellow),
+        );
     }
     for b in &mark.boxes {
         let rect = egui::Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y)).expand(3.0);

@@ -63,7 +63,11 @@ pub struct SignalDiff {
 impl SignalDiff {
     /// Error máximo relativo al rango (0 si la señal es constante).
     pub fn rel(&self) -> f64 {
-        if self.range > 0.0 { self.max_abs / self.range } else { 0.0 }
+        if self.range > 0.0 {
+            self.max_abs / self.range
+        } else {
+            0.0
+        }
     }
 }
 
@@ -98,10 +102,7 @@ pub fn pair_plots(a: &RawFile, b: &RawFile) -> Vec<(Option<usize>, Option<usize>
 
 /// Compara señal por señal cada análisis emparejado (ver [`pair_plots`]).
 pub fn compare(a: &RawFile, b: &RawFile, tol: Tolerance) -> Vec<PlotDiff> {
-    pair_plots(a, b)
-        .into_iter()
-        .map(|(ia, ib)| compare_plot(ia.map(|i| &a.plots[i]), ib.map(|i| &b.plots[i]), tol))
-        .collect()
+    pair_plots(a, b).into_iter().map(|(ia, ib)| compare_plot(ia.map(|i| &a.plots[i]), ib.map(|i| &b.plots[i]), tol)).collect()
 }
 
 fn x_range(p: Option<&Plot>) -> Option<(f64, f64)> {

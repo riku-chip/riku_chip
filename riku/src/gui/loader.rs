@@ -55,11 +55,7 @@ impl Loader {
     pub(crate) fn new() -> Self {
         // Runtime multi-hilo: spawn_blocking (parseo pesado) no bloquea al
         // scheduler principal. Dos workers son suficientes para una GUI.
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
         Self { runtime: Arc::new(runtime), pending: None, token: None, path: None }
     }
 

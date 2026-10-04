@@ -23,12 +23,12 @@ pub fn parse_args(mut args: impl Iterator<Item = String>) -> LaunchArgs {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--repo"     => repo     = args.next().map(PathBuf::from),
+            "--repo" => repo = args.next().map(PathBuf::from),
             "--commit-a" => commit_a = args.next(),
             "--commit-b" => commit_b = args.next(),
-            "--cell"     => cell     = args.next(),
-            "--expr"     => exprs.extend(args.next()),
-            _            => file     = Some(PathBuf::from(arg)),
+            "--cell" => cell = args.next(),
+            "--expr" => exprs.extend(args.next()),
+            _ => file = Some(PathBuf::from(arg)),
         }
     }
 

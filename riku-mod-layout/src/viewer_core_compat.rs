@@ -17,11 +17,11 @@ use std::sync::Arc;
 
 use gdstk_rs::{Anchor, GdsTag, Library};
 use viewer_core::{
-    files::{DiffFiles, FileSource},
     backend::{BackendInfo, ViewerBackend},
     bbox::BoundingBox as VcBBox,
     element::{DrawElement, HAlign, Layer, VAlign},
     error::{Result as VcResult, ViewerError},
+    files::{DiffFiles, FileSource},
     scene::{EntryLink, Scene as VcScene, SceneHandle, ViewEntry},
     viewport::YAxis,
     CancellationToken,
@@ -29,7 +29,7 @@ use viewer_core::{
 
 use crate::diff_cache::DiffCache;
 use crate::diff_scene::{build_diff_scene, port_item, CachedDiff};
-use crate::layer_style::{tag_tuple, layer_names, LayerKeys};
+use crate::layer_style::{layer_names, tag_tuple, LayerKeys};
 use crate::source::{self, LibCache, Raw, ReadError};
 
 pub struct GdsBackend {
@@ -111,11 +111,8 @@ fn label_element(label: crate::labels::FlatLabel, layer: Layer, text_size: f64) 
 pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, LayerKeys) {
     let flat = cell.get_polygons().build();
     let labels = crate::labels::flatten_labels(lib, cell);
-    let tags: BTreeSet<(u32, u32)> = flat
-        .polygons()
-        .map(|p| (p.layer(), p.datatype()))
-        .chain(labels.iter().map(|l| tag_tuple(l.tag)))
-        .collect();
+    let tags: BTreeSet<(u32, u32)> =
+        flat.polygons().map(|p| (p.layer(), p.datatype())).chain(labels.iter().map(|l| tag_tuple(l.tag))).collect();
     let keys = LayerKeys::new(tags, path_hint, layer_names(lib));
 
     let mut scene = VcScene::new();
@@ -144,17 +141,8 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
     // Sembrar el bbox con el de la cell aunque algún polígono no contribuya
     // (Scene::push lo expandirá igualmente con cada elemento).
     let cb = cell.bbox();
-    if cb.min_x.is_finite()
-        && cb.min_y.is_finite()
-        && cb.max_x.is_finite()
-        && cb.max_y.is_finite()
-    {
-        scene.bbox.expand(&VcBBox {
-            min_x: cb.min_x,
-            min_y: cb.min_y,
-            max_x: cb.max_x,
-            max_y: cb.max_y,
-        });
+    if cb.min_x.is_finite() && cb.min_y.is_finite() && cb.max_x.is_finite() && cb.max_y.is_finite() {
+        scene.bbox.expand(&VcBBox { min_x: cb.min_x, min_y: cb.min_y, max_x: cb.max_x, max_y: cb.max_y });
     }
 
     // Orden de pintado: poligonos por apilado (las claves ya siguen el rank)
@@ -190,10 +178,7 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
         ("Polígonos".into(), polygons.to_string()),
         ("Etiquetas".into(), labels.to_string()),
         ("Capas".into(), scene.layers.len().to_string()),
-        (
-            "Tamaño".into(),
-            format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height()),
-        ),
+        ("Tamaño".into(), format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height())),
     ];
     for (k, v) in electrical {
         scene.metadata.push((k.into(), v));
@@ -235,8 +220,11 @@ fn add_electrical(
         let names = layer_names(lib);
         let tags: Vec<(u32, u32)> = lib.layers().into_iter().map(|t| (t.layer, t.datatype)).collect();
         let layers_of = |t: &str| -> Vec<Layer> {
-            let magic: Vec<Layer> =
-                names.iter().filter(|(_, n)| rules.canonical(n) == t).map(|(&(l, d), _)| keys.key(GdsTag { layer: l, datatype: d })).collect();
+            let magic: Vec<Layer> = names
+                .iter()
+                .filter(|(_, n)| rules.canonical(n) == t)
+                .map(|(&(l, d), _)| keys.key(GdsTag { layer: l, datatype: d }))
+                .collect();
             if !magic.is_empty() {
                 return magic;
             }
@@ -359,11 +347,7 @@ fn read_error(e: ReadError, label: &str) -> ViewerError {
 #[async_trait]
 impl ViewerBackend for GdsBackend {
     fn info(&self) -> BackendInfo {
-        BackendInfo {
-            name: "gds",
-            version: env!("CARGO_PKG_VERSION"),
-            extensions: &["gds", "oas", "mag"],
-        }
+        BackendInfo { name: "gds", version: env!("CARGO_PKG_VERSION"), extensions: &["gds", "oas", "mag"] }
     }
 
     fn accepts(&self, content: &[u8], path_hint: Option<&str>) -> bool {
@@ -376,12 +360,7 @@ impl ViewerBackend for GdsBackend {
         crate::is_layout(content)
     }
 
-    async fn load(
-        &self,
-        content: Vec<u8>,
-        path_hint: Option<String>,
-        token: CancellationToken,
-    ) -> VcResult<SceneHandle> {
+    async fn load(&self, content: Vec<u8>, path_hint: Option<String>, token: CancellationToken) -> VcResult<SceneHandle> {
         self.load_entry(content, path_hint, None, token).await
     }
 
@@ -499,7 +478,9 @@ impl ViewerBackend for GdsBackend {
                 || collect_side(&after, path, files.after.as_deref(), "después"),
             );
             let (ra, rb) = (ra?, rb?);
-            let read = |raw: &Option<Raw<'_>>, label| raw.as_ref().map(|r| r.read(Some(&libs)).map_err(|e| read_error(e, label))).transpose();
+            let read = |raw: &Option<Raw<'_>>, label| {
+                raw.as_ref().map(|r| r.read(Some(&libs)).map_err(|e| read_error(e, label))).transpose()
+            };
             let (a, b) = rayon::join(|| read(&ra, "antes"), || read(&rb, "después"));
             let (mut a, mut b) = (a?, b?);
             source::same_unit(ra.as_ref(), &mut a, rb.as_ref(), &mut b).map_err(|e| read_error(e, "antes"))?;
@@ -516,19 +497,19 @@ impl ViewerBackend for GdsBackend {
             let diff = CachedDiff { cache: &cache, inputs, read_params };
             let lib_a = a.as_ref().map(|s| &*s.lib);
             let lib_b = b.as_ref().map(|s| &*s.lib);
-            let ports = crate::mag::port_changes(
-                a.as_ref().and_then(|s| s.info.as_ref()),
-                b.as_ref().and_then(|s| s.info.as_ref()),
-            );
+            let ports =
+                crate::mag::port_changes(a.as_ref().and_then(|s| s.info.as_ref()), b.as_ref().and_then(|s| s.info.as_ref()));
             let mut s = build_diff_scene(lib_a, lib_b, entry.as_deref(), path, &diff)?;
             let cell = s.current_entry.clone();
             s.changes.extend(ports.iter().filter(|p| Some(&p.cell) == cell.as_ref()).map(port_item));
             // Abiertos y cortos de la celda abierta: primero, con su marca.
             if let (Some(sa), Some(sb), Some(name)) = (a.as_ref(), b.as_ref(), cell.as_deref()) {
                 if let Some(rules) = crate::devices::rules_for_library(&sb.lib, path) {
-                    let boxes: Vec<[f64; 4]> = s.changes.iter().filter_map(|c| c.bbox).map(|b| [b.min_x, b.min_y, b.max_x, b.max_y]).collect();
+                    let boxes: Vec<[f64; 4]> =
+                        s.changes.iter().filter_map(|c| c.bbox).map(|b| [b.min_x, b.min_y, b.max_x, b.max_y]).collect();
                     let info = (sa.info.as_ref(), sb.info.as_ref());
-                    let found = crate::nets::cell_net_changes(&sa.lib, &sb.lib, name, rules, crate::devices::MAX_POLYGONS, info, &boxes);
+                    let found =
+                        crate::nets::cell_net_changes(&sa.lib, &sb.lib, name, rules, crate::devices::MAX_POLYGONS, info, &boxes);
                     let found = found.unwrap_or_default();
                     s.annotations.extend(found.iter().filter_map(crate::diff_scene::net_annotation));
                     let items: Vec<_> = found.iter().map(crate::diff_scene::net_item).collect();
@@ -570,9 +551,8 @@ pub(crate) fn list_cells(lib: &Library) -> Vec<ViewEntry> {
             let b = cell.bbox();
             // gdstk da bbox (0,0,0,0) para celdas vacias: sin tamano real.
             let (w, h) = (b.max_x - b.min_x, b.max_y - b.min_y);
-            let size = ([b.min_x, b.min_y, b.max_x, b.max_y].iter().all(|v| v.is_finite())
-                && (w > 0.0 || h > 0.0))
-                .then_some((w, h));
+            let size =
+                ([b.min_x, b.min_y, b.max_x, b.max_y].iter().all(|v| v.is_finite()) && (w > 0.0 || h > 0.0)).then_some((w, h));
             let id = cell.name().to_string();
             ViewEntry { is_root: top_names.contains(&id), id, size, change: None, renamed_from: None }
         })
@@ -593,8 +573,7 @@ mod tests {
             .join("gdstk")
             .join("tests")
             .join("proof_lib.gds");
-        std::fs::read(&path)
-            .unwrap_or_else(|e| panic!("no se pudo leer {}: {e}", path.display()))
+        std::fs::read(&path).unwrap_or_else(|e| panic!("no se pudo leer {}: {e}", path.display()))
     }
 
     #[test]
@@ -622,10 +601,8 @@ mod tests {
             .load_entry(oas, Some("hier_inv_b.oas".into()), Some("TOP".into()), CancellationToken::new())
             .await
             .expect("load .oas");
-        let g = b
-            .load_entry(fixture("hier_inv_b.gds"), None, Some("TOP".into()), CancellationToken::new())
-            .await
-            .expect("load .gds");
+        let g =
+            b.load_entry(fixture("hier_inv_b.gds"), None, Some("TOP".into()), CancellationToken::new()).await.expect("load .gds");
         assert_eq!(h.current_entry(), Some("TOP"));
         assert_eq!(h.bbox(), g.bbox());
         assert_eq!(h.entries().len(), g.entries().len());
@@ -684,7 +661,8 @@ rect 5 2 10 8
         assert_eq!((met1.r, met1.g, met1.b), (60, 130, 240), "color de met1 de SKY130");
 
         // Sin los archivos del commit, la sub-celda falta y se avisa.
-        let h = b.load_entry(MAG_TOP.as_bytes().to_vec(), Some("chip/top.mag".into()), None, CancellationToken::new()).await.unwrap();
+        let h =
+            b.load_entry(MAG_TOP.as_bytes().to_vec(), Some("chip/top.mag".into()), None, CancellationToken::new()).await.unwrap();
         assert!(h.notices().iter().any(|n| n.contains("inv")), "{:?}", h.notices());
     }
 
@@ -703,7 +681,9 @@ rect 5 2 10 8
         assert!(h.changes().iter().any(|c| c.label.starts_with("locali")), "{:?}", h.changes());
 
         // Un puerto que cambia de clase aparece en la lista de cambios.
-        let inv = |class: &str| format!("magic
+        let inv = |class: &str| {
+            format!(
+                "magic
 tech sky130A
 magscale 1 2
 << locali >>
@@ -712,9 +692,17 @@ rect 0 0 40 10
 rlabel locali s 0 0 40 10 0 A
 port 1 nsew signal {class}
 << end >>
-");
+"
+            )
+        };
         let h = b
-            .load_diff(inv("input").into_bytes(), inv("inout").into_bytes(), Some("inv.mag".into()), None, CancellationToken::new())
+            .load_diff(
+                inv("input").into_bytes(),
+                inv("inout").into_bytes(),
+                Some("inv.mag".into()),
+                None,
+                CancellationToken::new(),
+            )
             .await
             .expect("diff de puertos");
         assert!(h.changes().iter().any(|c| c.label == "puerto A: input → inout"), "{:?}", h.changes());
@@ -724,10 +712,7 @@ port 1 nsew signal {class}
     async fn load_proof_lib_returns_nonempty_scene() {
         let bytes = proof_lib_bytes();
         let backend = GdsBackend::new();
-        let handle = backend
-            .load(bytes, None, CancellationToken::new())
-            .await
-            .expect("load proof_lib");
+        let handle = backend.load(bytes, None, CancellationToken::new()).await.expect("load proof_lib");
         assert!(handle.len() > 0, "esperaba elementos, got {}", handle.len());
         assert!(!handle.bbox().is_empty(), "bbox no debe estar vacío");
     }
@@ -735,9 +720,7 @@ port 1 nsew signal {class}
     #[tokio::test]
     async fn load_invalid_returns_parse_error() {
         let backend = GdsBackend::new();
-        let res = backend
-            .load(b"NOT_A_GDS_FILE".to_vec(), None, CancellationToken::new())
-            .await;
+        let res = backend.load(b"NOT_A_GDS_FILE".to_vec(), None, CancellationToken::new()).await;
         match res {
             Err(ViewerError::Parse(_)) => {}
             Err(e) => panic!("esperaba ViewerError::Parse, got {e:?}"),
@@ -769,18 +752,12 @@ port 1 nsew signal {class}
     }
 
     fn fixture(name: &str) -> Vec<u8> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join(name);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(name);
         std::fs::read(&path).unwrap_or_else(|e| panic!("leer {}: {e}", path.display()))
     }
 
     async fn load(bytes: Vec<u8>, hint: Option<&str>) -> SceneHandle {
-        GdsBackend::new()
-            .load(bytes, hint.map(str::to_string), CancellationToken::new())
-            .await
-            .expect("load")
+        GdsBackend::new().load(bytes, hint.map(str::to_string), CancellationToken::new()).await.expect("load")
     }
 
     #[tokio::test]
@@ -861,9 +838,7 @@ port 1 nsew signal {class}
     }
 
     async fn load_cell(name: &str, cell: Option<&str>) -> VcResult<SceneHandle> {
-        GdsBackend::new()
-            .load_entry(fixture(name), None, cell.map(str::to_string), CancellationToken::new())
-            .await
+        GdsBackend::new().load_entry(fixture(name), None, cell.map(str::to_string), CancellationToken::new()).await
     }
 
     fn ids(h: &SceneHandle) -> Vec<(&str, bool)> {
@@ -979,8 +954,12 @@ port 1 nsew signal {class}
     #[tokio::test]
     async fn the_diff_lists_the_transistors_that_changed() {
         let h = diff(Some("nand2_a.gds"), "nand2_b.gds", None).await;
-        let items: Vec<(&str, &str)> =
-            h.changes().iter().filter(|c| c.label.starts_with("transistor")).map(|c| (c.label.as_str(), c.detail.as_str())).collect();
+        let items: Vec<(&str, &str)> = h
+            .changes()
+            .iter()
+            .filter(|c| c.label.starts_with("transistor"))
+            .map(|c| (c.label.as_str(), c.detail.as_str()))
+            .collect();
         assert_eq!(items, [("transistor nfet_01v8", "W 0.65 → 0.46"), ("transistor nfet_01v8", "W 0.65 → 0.46")]);
         assert!(h.changes().iter().filter(|c| c.label.starts_with("transistor")).all(|c| c.bbox.is_some()), "un clic encuadra");
     }
@@ -989,7 +968,8 @@ port 1 nsew signal {class}
     async fn transistors_are_a_hidden_layer_with_their_summary() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/GDS/sram_16x8_sky130.gds");
         let bytes = std::fs::read(path).expect("sram");
-        let h = GdsBackend::new().load(bytes, Some("sram_16x8_sky130.gds".into()), CancellationToken::new()).await.expect("carga");
+        let h =
+            GdsBackend::new().load(bytes, Some("sram_16x8_sky130.gds".into()), CancellationToken::new()).await.expect("carga");
         let layer = h.layer_list().into_iter().find(|(_, p)| p.name == DEVICE_LAYER).expect("capa de transistores");
         assert!(layer.1.hidden, "oculta al abrir");
         // La misma cuenta que KLayout (tools/verify/devices).
@@ -1097,9 +1077,11 @@ port 1 nsew signal {class}
         let (Some(a), Some(b)) = (std::env::var_os("RIKU_BIG_A"), std::env::var_os("RIKU_BIG_B")) else { return };
         let (a, b) = (std::fs::read(a).unwrap(), std::fs::read(b).unwrap());
         let rss = || -> u64 {
-            std::fs::read_to_string("/proc/self/status").ok().and_then(|s| {
-                s.lines().find(|l| l.starts_with("VmRSS")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
-            }).unwrap_or(0) / 1024
+            std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|s| s.lines().find(|l| l.starts_with("VmRSS")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+                .unwrap_or(0)
+                / 1024
         };
         let r0 = rss();
         let one = Library::from_bytes(&a).unwrap();
@@ -1129,9 +1111,11 @@ port 1 nsew signal {class}
     fn memory_by_phase_on_a_big_layout() {
         let Some(a) = std::env::var_os("RIKU_BIG_A") else { return };
         let status = |key: &str| -> u64 {
-            std::fs::read_to_string("/proc/self/status").ok().and_then(|s| {
-                s.lines().find(|l| l.starts_with(key)).and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
-            }).unwrap_or(0) / 1024
+            std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|s| s.lines().find(|l| l.starts_with(key)).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+                .unwrap_or(0)
+                / 1024
         };
         let show = |what: &str| eprintln!("[P6] {what:<28} RSS {:>5} MB  pico {:>5} MB", status("VmRSS"), status("VmHWM"));
         let lib = Library::from_bytes(&std::fs::read(a).unwrap()).unwrap();

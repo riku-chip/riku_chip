@@ -46,8 +46,7 @@ fn main() {
     let common: Vec<&String> = na.intersection(&nb).collect();
     let own_polys: u64 = lb.cells().map(|c| c.polygon_count()).sum();
     let refs: usize = lb.cells().map(|c| c.references().count()).sum();
-    let layers: BTreeSet<(u32, u32)> =
-        la.layers().into_iter().chain(lb.layers()).map(|t| (t.layer, t.datatype)).collect();
+    let layers: BTreeSet<(u32, u32)> = la.layers().into_iter().chain(lb.layers()).map(|t| (t.layer, t.datatype)).collect();
     println!(
         "celdas A {} · B {} · comunes {} · polígonos propios (B) {own_polys} · references (B) {refs} · capas {}",
         na.len(),
@@ -78,11 +77,7 @@ fn main() {
     }
     let done = per_cell.len();
     let spent = t.elapsed().as_secs_f64();
-    println!(
-        "{done}/{} celdas en {spent:.1}s · {flat_total} polígonos aplanados · RSS {:.0} MB",
-        common.len(),
-        rss_mb()
-    );
+    println!("{done}/{} celdas en {spent:.1}s · {flat_total} polígonos aplanados · RSS {:.0} MB", common.len(), rss_mb());
     if done < common.len() {
         println!("  (tope alcanzado: el resto no se midió)");
     }
@@ -143,7 +138,12 @@ fn main() {
                         }
                     }
                 }
-                println!("    {l:>3}/{d:<3} A {:>9} · B {:>9} · gemelos {twins:>9} · {:.2}s", fa.count(), fb.count(), t.elapsed().as_secs_f64());
+                println!(
+                    "    {l:>3}/{d:<3} A {:>9} · B {:>9} · gemelos {twins:>9} · {:.2}s",
+                    fa.count(),
+                    fb.count(),
+                    t.elapsed().as_secs_f64()
+                );
             }
         }
         return;
@@ -175,7 +175,16 @@ fn main() {
         t_xor += x;
         n_layers += 1;
         let row = (f + x, *l, *d, fa.count() + fb.count(), f, x, split.added.len() + split.removed.len());
-        println!("    {:>3}/{:<3} {:>9} pol  aplanar {:7.2}s  XOR {:7.2}s  → {} pol  (RSS {:.0} MB)", row.1, row.2, row.3, row.4, row.5, row.6, rss_mb());
+        println!(
+            "    {:>3}/{:<3} {:>9} pol  aplanar {:7.2}s  XOR {:7.2}s  → {} pol  (RSS {:.0} MB)",
+            row.1,
+            row.2,
+            row.3,
+            row.4,
+            row.5,
+            row.6,
+            rss_mb()
+        );
         rows.push(row);
     }
     println!(

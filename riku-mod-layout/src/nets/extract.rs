@@ -152,7 +152,13 @@ impl Pieces {
 /// Las redes de una celda. `regions`: la región de cada tipo (canónico) que
 /// conduce, es sustrato o lo excluye; `devices`: los transistores del nivel
 /// 2; `unit_um`: µm por unidad de las coordenadas.
-pub fn build(rules: &DeviceRules, regions: Vec<(String, Vec<OwnedPolygon>)>, labels: &[NetLabel], devices: Vec<Device>, unit_um: f64) -> Netlist {
+pub fn build(
+    rules: &DeviceRules,
+    regions: Vec<(String, Vec<OwnedPolygon>)>,
+    labels: &[NetLabel],
+    devices: Vec<Device>,
+    unit_um: f64,
+) -> Netlist {
     build_with(rules, regions, labels, devices, unit_um, false)
 }
 
@@ -254,7 +260,15 @@ pub(crate) fn build_with(
                     let Some(at) = interior_point(&body.points) else { continue };
                     let w = len / 2.0;
                     let (w_um, l_um) = if w > 0.0 { (w * unit_um, area(&body.points) / w * unit_um) } else { (0.0, 0.0) };
-                    let r = Resistor { model: model.clone(), magic: rt.magic.clone(), body: body.clone(), at, w_um, l_um, subckt: rt.subckt };
+                    let r = Resistor {
+                        model: model.clone(),
+                        magic: rt.magic.clone(),
+                        body: body.clone(),
+                        at,
+                        w_um,
+                        l_um,
+                        subckt: rt.subckt,
+                    };
                     resistors.push((r, ends));
                 }
             }
@@ -301,9 +315,11 @@ pub(crate) fn build_with(
             .at([&own], dev.at)
             .or_else(|| pieces.at(&related(std::slice::from_ref(&own)), dev.at))
             .unwrap_or_else(|| uf.add());
-        let sd_types: Vec<String> = kind.map(|k| k.sd.iter().map(|s| rules.canonical(s).to_string()).collect()).unwrap_or_default();
+        let sd_types: Vec<String> =
+            kind.map(|k| k.sd.iter().map(|s| rules.canonical(s).to_string()).collect()).unwrap_or_default();
         let sub: Vec<String> = kind.map(|k| k.sub.iter().map(|s| rules.canonical(s).to_string()).collect()).unwrap_or_default();
-        let wide: Vec<String> = related(&sd_types).into_iter().filter(|t| !sub.contains(t) && !sub_types.contains(t) && *t != own).collect();
+        let wide: Vec<String> =
+            related(&sd_types).into_iter().filter(|t| !sub.contains(t) && !sub_types.contains(t) && *t != own).collect();
         let mut sd = [0usize; 2];
         for (k, slot) in sd.iter_mut().enumerate() {
             *slot = match dev.sd_at.get(k) {
@@ -314,7 +330,9 @@ pub(crate) fn build_with(
         let wells: Vec<String> = sub.iter().filter(|t| *t != "space").cloned().collect();
         let b = match pieces.at(&wells, dev.at) {
             Some(n) => n,
-            None if sub.is_empty() || sub.iter().any(|t| t == "space") || wells.iter().any(|t| sub_types.contains(t)) => substrate,
+            None if sub.is_empty() || sub.iter().any(|t| t == "space") || wells.iter().any(|t| sub_types.contains(t)) => {
+                substrate
+            }
             None => uf.add(),
         };
         terminals.push([sd[0], g, sd[1], b]);
@@ -324,7 +342,17 @@ pub(crate) fn build_with(
     // Una etiqueta de Magic se ancla en un borde de su rectángulo (`rlabel
     // metal1 … 1` en el borde norte): también se busca a 1 nm alrededor.
     let near = 1e-3 / unit_um;
-    let offsets = [(0.0, 0.0), (0.0, -near), (0.0, near), (-near, 0.0), (near, 0.0), (-near, -near), (near, -near), (-near, near), (near, near)];
+    let offsets = [
+        (0.0, 0.0),
+        (0.0, -near),
+        (0.0, near),
+        (-near, 0.0),
+        (near, 0.0),
+        (-near, -near),
+        (near, -near),
+        (-near, near),
+        (near, near),
+    ];
     let mut label_nodes: Vec<Option<usize>> = Vec::new();
     for l in labels {
         let node = offsets
@@ -332,7 +360,9 @@ pub(crate) fn build_with(
             .find_map(|(dx, dy)| pieces.at(&l.types, (l.at.0 + dx, l.at.1 + dy)))
             // Una etiqueta del pozo P sin pozo dibujado: el sustrato. Solo por
             // el tipo, no por sus contactos (una toma P también toca `li`).
-            .or_else(|| l.types.iter().any(|t| sub_types.contains(t) && rules.contact_residues(t).is_empty()).then_some(substrate));
+            .or_else(|| {
+                l.types.iter().any(|t| sub_types.contains(t) && rules.contact_residues(t).is_empty()).then_some(substrate)
+            });
         label_nodes.push(node);
     }
 
@@ -395,7 +425,8 @@ pub(crate) fn build_with(
             warnings.push(format!("una red tiene más de un nombre: {}", net.labels.join(", ")));
         }
     }
-    let mut unplaced: Vec<&str> = labels.iter().zip(&label_nets).filter(|(_, n)| n.is_none()).map(|(l, _)| l.text.as_str()).collect();
+    let mut unplaced: Vec<&str> =
+        labels.iter().zip(&label_nets).filter(|(_, n)| n.is_none()).map(|(l, _)| l.text.as_str()).collect();
     unplaced.sort_unstable();
     unplaced.dedup();
     if !unplaced.is_empty() {
@@ -508,12 +539,10 @@ mod tests {
     fn an_inverter_has_its_four_nets_and_terminals() {
         let nl = netlist(inverter(false), &labels());
         assert!(nl.warnings.is_empty(), "{:?}", nl.warnings);
-        let name = |i: usize| nl.nets[i].name.clone().unwrap_or_else(|| if nl.nets[i].substrate { "sub".into() } else { "?".into() });
-        let got: Vec<(String, [String; 4])> = nl
-            .devices
-            .iter()
-            .map(|(d, t)| (d.model.clone(), [name(t.d), name(t.g), name(t.s), name(t.b)]))
-            .collect();
+        let name =
+            |i: usize| nl.nets[i].name.clone().unwrap_or_else(|| if nl.nets[i].substrate { "sub".into() } else { "?".into() });
+        let got: Vec<(String, [String; 4])> =
+            nl.devices.iter().map(|(d, t)| (d.model.clone(), [name(t.d), name(t.g), name(t.s), name(t.b)])).collect();
         // Fuente y drenaje van en cualquier orden.
         let norm = |[d, g, s, b]: [String; 4]| {
             let (x, y) = if d < s { (d, s) } else { (s, d) };

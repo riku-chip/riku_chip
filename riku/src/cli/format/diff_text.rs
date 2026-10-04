@@ -6,9 +6,9 @@
 //! la geometría. Las nets añadidas y eliminadas se listan al final.
 
 use super::common::marker_for_change;
-pub(crate) use crate::text::eng;
-use crate::i18n::tr;
 use crate::core::domain::models::{Change, ChangeKind, Element, FileChange, Value};
+use crate::i18n::tr;
+pub(crate) use crate::text::eng;
 
 pub fn print(report: &FileChange, file_path: &str) -> Result<(), String> {
     if let Some(err) = &report.error {
@@ -146,7 +146,8 @@ fn print_signal(c: &Change) {
     // Escalar (`max(v(out))`, `v(out)[0]`): el valor antes y después.
     if c.before("value").is_some() || c.after("value").is_some() {
         let v = |x: Option<&Value>| x.and_then(Value::as_f64).map_or_else(|| "—".to_string(), |f| eng(f, &unit));
-        let delta = num("max_abs_diff").map(|d| format!(" · Δ {} ({:.2} %)", eng(d, &unit), num("rel_diff").unwrap_or(0.0) * 100.0));
+        let delta =
+            num("max_abs_diff").map(|d| format!(" · Δ {} ({:.2} %)", eng(d, &unit), num("rel_diff").unwrap_or(0.0) * 100.0));
         println!("      {} → {}{}  ({plot})", v(c.before("value")), v(c.after("value")), delta.unwrap_or_default());
         return;
     }
@@ -170,7 +171,6 @@ fn print_signal(c: &Change) {
         },
     }
 }
-
 
 fn print_param_diff(c: &Change) {
     // Un sub-esquemático que cambió (por sí mismo o por dentro).

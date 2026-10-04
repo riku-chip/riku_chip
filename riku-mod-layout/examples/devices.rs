@@ -16,8 +16,10 @@ use riku_mod_layout::{devices, mag};
 
 fn print_cell(lib: &Library, cell: &Cell<'_>, rules: &devices::DeviceRules) {
     println!("CELL {}", cell.name());
-    let mut lines: Vec<String> =
-        devices::cell_devices(lib, cell, rules).iter().map(|d| format!("DEV {} W={:.3} L={:.3}", d.model, d.w_um, d.l_um)).collect();
+    let mut lines: Vec<String> = devices::cell_devices(lib, cell, rules)
+        .iter()
+        .map(|d| format!("DEV {} W={:.3} L={:.3}", d.model, d.w_um, d.l_um))
+        .collect();
     lines.sort();
     for l in lines {
         println!("{l}");
@@ -45,7 +47,9 @@ fn main() -> ExitCode {
     let p = Path::new(path);
     if p.is_dir() || p.extension().is_some_and(|e| e == "mag") {
         let mut files: Vec<_> = if p.is_dir() {
-            std::fs::read_dir(p).map(|rd| rd.flatten().map(|e| e.path()).filter(|f| f.extension().is_some_and(|e| e == "mag")).collect()).unwrap_or_default()
+            std::fs::read_dir(p)
+                .map(|rd| rd.flatten().map(|e| e.path()).filter(|f| f.extension().is_some_and(|e| e == "mag")).collect())
+                .unwrap_or_default()
         } else {
             vec![p.to_path_buf()]
         };

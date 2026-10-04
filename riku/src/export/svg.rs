@@ -7,11 +7,10 @@
 
 use std::fmt::Write;
 
-use viewer_core::{
-    Annotation, AnnotationShape, BoundingBox, ChangeKind, DrawElement, HAlign, Layer, RenderableScene, TextStyle, VAlign,
-    YAxis,
-};
 use crate::i18n::tr;
+use viewer_core::{
+    Annotation, AnnotationShape, BoundingBox, ChangeKind, DrawElement, HAlign, Layer, RenderableScene, TextStyle, VAlign, YAxis,
+};
 
 /// Tamaño y tema de la imagen.
 #[derive(Clone, Debug)]
@@ -88,7 +87,11 @@ fn change_rgb(kind: ChangeKind, cosmetic: bool, moved: bool, dark: bool) -> Rgb 
         (ChangeKind::Modified, false, _) => (255, 180, 0),
     };
     let c = Rgb(r, g, b, 1.0);
-    if dark { c } else { mix(c, (0, 0, 0), 0.35) }
+    if dark {
+        c
+    } else {
+        mix(c, (0, 0, 0), 0.35)
+    }
 }
 
 fn esc(s: &str) -> String {
@@ -116,11 +119,7 @@ impl Xform {
 
     fn p(&self, x: f64, y: f64) -> (f64, f64) {
         let px = self.ox + (x - self.bbox.min_x) * self.s;
-        let py = if self.y_up {
-            self.oy + (self.bbox.max_y - y) * self.s
-        } else {
-            self.oy + (y - self.bbox.min_y) * self.s
-        };
+        let py = if self.y_up { self.oy + (self.bbox.max_y - y) * self.s } else { self.oy + (y - self.bbox.min_y) * self.s };
         (px, py)
     }
 }
@@ -151,11 +150,7 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
     let _ = write!(out, r#"<rect width="{w}" height="{h}" fill="{bg}"/>"#);
     let top = if style.caption.is_empty() { 0.0 } else { CAPTION_H };
     if !style.caption.is_empty() {
-        let _ = write!(
-            out,
-            r#"<text x="{MARGIN}" y="20" font-size="14" fill="{fg}">{}</text>"#,
-            esc(&style.caption)
-        );
+        let _ = write!(out, r#"<text x="{MARGIN}" y="20" font-size="14" fill="{fg}">{}</text>"#, esc(&style.caption));
     }
     if scene.is_empty() {
         out.push_str("</svg>");
@@ -305,7 +300,8 @@ fn element(out: &mut String, xf: &Xform, el: &DrawElement, fill: Option<Rgb>, st
                 VAlign::Middle => "central",
                 VAlign::Bottom => "text-after-edge",
             };
-            let rot = if *angle_deg == 0.0 { String::new() } else { format!(r#" transform="rotate({angle_deg:.1} {a:.2} {b:.2})""#) };
+            let rot =
+                if *angle_deg == 0.0 { String::new() } else { format!(r#" transform="rotate({angle_deg:.1} {a:.2} {b:.2})""#) };
             let _ = write!(
                 out,
                 r#"<text x="{a:.2}" y="{b:.2}" font-size="{px:.2}" fill="{}" text-anchor="{anchor}" dominant-baseline="{baseline}"{rot}>{}</text>"#,
@@ -329,16 +325,34 @@ fn annotation(out: &mut String, xf: &Xform, a: &Annotation, dark: bool) {
                 c.css(),
                 stroke_attrs(c, 1.5)
             );
-            let _ = write!(out, r#"<text x="{:.2}" y="{:.2}" font-size="11" fill="{}">{}</text>"#, x + 2.0, y - 3.0, c.css(), esc(&a.label));
+            let _ = write!(
+                out,
+                r#"<text x="{:.2}" y="{:.2}" font-size="11" fill="{}">{}</text>"#,
+                x + 2.0,
+                y - 3.0,
+                c.css(),
+                esc(&a.label)
+            );
         }
         AnnotationShape::Segments(segs) => {
             for (x1, y1, x2, y2) in segs {
                 let ((a1, b1), (a2, b2)) = (xf.p(*x1, *y1), xf.p(*x2, *y2));
-                let _ = write!(out, r#"<line x1="{a1:.2}" y1="{b1:.2}" x2="{a2:.2}" y2="{b2:.2}" {} stroke-linecap="round"/>"#, stroke_attrs(c, 3.0));
+                let _ = write!(
+                    out,
+                    r#"<line x1="{a1:.2}" y1="{b1:.2}" x2="{a2:.2}" y2="{b2:.2}" {} stroke-linecap="round"/>"#,
+                    stroke_attrs(c, 3.0)
+                );
             }
             if let Some((x1, y1, _, _)) = segs.first() {
                 let (x, y) = xf.p(*x1, *y1);
-                let _ = write!(out, r#"<text x="{:.2}" y="{:.2}" font-size="11" fill="{}">{}</text>"#, x + 4.0, y - 4.0, c.css(), esc(&a.label));
+                let _ = write!(
+                    out,
+                    r#"<text x="{:.2}" y="{:.2}" font-size="11" fill="{}">{}</text>"#,
+                    x + 4.0,
+                    y - 4.0,
+                    c.css(),
+                    esc(&a.label)
+                );
             }
         }
     }
@@ -371,7 +385,15 @@ mod tests {
         let mut s = Scene::new();
         s.push(DrawElement::Line { x1: 0.0, y1: 0.0, x2: 10.0, y2: 0.0, layer: 1 });
         s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 5.0, layer: 7, filled: true });
-        s.layers.insert(7, LayerPaint { name: "met1".into(), fill: Rgba::new(10, 20, 30, 90), stroke: Rgba::new(10, 20, 30, 255), hidden: false });
+        s.layers.insert(
+            7,
+            LayerPaint {
+                name: "met1".into(),
+                fill: Rgba::new(10, 20, 30, 90),
+                stroke: Rgba::new(10, 20, 30, 255),
+                hidden: false,
+            },
+        );
         s.annotations.push(Annotation {
             kind: ChangeKind::Added,
             cosmetic: false,

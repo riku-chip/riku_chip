@@ -123,7 +123,8 @@ impl Grid {
 /// Los transistores de una celda. `unit_um`: µm por unidad de la librería.
 pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<Device> {
     // Un par (difusión, poly) por tipo; casi siempre el mismo para todos.
-    let pairs: BTreeSet<(Vec<GdsLayer>, Vec<GdsLayer>)> = rules.devices.iter().filter_map(|(d, _)| rules.gate_layers(*d)).collect();
+    let pairs: BTreeSet<(Vec<GdsLayer>, Vec<GdsLayer>)> =
+        rules.devices.iter().filter_map(|(d, _)| rules.gate_layers(*d)).collect();
     let tag = GdsTag { layer: 0, datatype: 0 };
     let eps = 1e-4 / unit_um; // 0,1 nm
     let mut out: Vec<Device> = Vec::new();
@@ -136,7 +137,9 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
         // Clipper puede devolver una compuerta partida en pedazos que comparten
         // un borde (dos difusiones que se solapan): la unión los junta, y así
         // W y L son los de la compuerta entera.
-        let Ok(gates) = boolean_owned(&a, &g, BoolOp::And, tag).and_then(|g| boolean_owned(&g, &[], BoolOp::Or, tag)) else { continue };
+        let Ok(gates) = boolean_owned(&a, &g, BoolOp::And, tag).and_then(|g| boolean_owned(&g, &[], BoolOp::Or, tag)) else {
+            continue;
+        };
         // Fuente y drenaje: la difusión fuera del poly, cada región por separado.
         let Ok(sd) = boolean_owned(&a, &g, BoolOp::Not, tag) else { continue };
         let sd = Grid::new(sd);
@@ -150,7 +153,10 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
                 .rev()
                 .find(|(d, _)| {
                     !rules.resizes(*d)
-                        || sized.entry(*d).or_insert_with(|| Grid::new(RegionEval::new(rules, layers, unit_um).def_region(*d))).contains(at.0, at.1)
+                        || sized
+                            .entry(*d)
+                            .or_insert_with(|| Grid::new(RegionEval::new(rules, layers, unit_um).def_region(*d)))
+                            .contains(at.0, at.1)
                 })
                 .map(|(_, t)| *t)
             else {
@@ -178,7 +184,12 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
 
 /// Transistores de un layout de Magic, donde ya vienen pintados como capas
 /// (`nfet`, o un alias: `scnmos`). `names`: el tipo de Magic de cada capa.
-pub fn extract_magic(rules: &DeviceRules, polys: Vec<OwnedPolygon>, names: &HashMap<(u32, u32), String>, unit_um: f64) -> Vec<Device> {
+pub fn extract_magic(
+    rules: &DeviceRules,
+    polys: Vec<OwnedPolygon>,
+    names: &HashMap<(u32, u32), String>,
+    unit_um: f64,
+) -> Vec<Device> {
     let tag = GdsTag { layer: 0, datatype: 0 };
     let eps = 1e-4 / unit_um;
     let name_of = |p: &OwnedPolygon| names.get(&(p.layer, p.datatype)).map(String::as_str);
@@ -192,16 +203,34 @@ pub fn extract_magic(rules: &DeviceRules, polys: Vec<OwnedPolygon>, names: &Hash
             continue;
         }
         seen.push(c);
-        let gates: Vec<OwnedPolygon> = polys.iter().filter(|p| name_of(p).is_some_and(|n| rules.canonical(n) == rules.canonical(&kind.magic))).cloned().collect();
+        let gates: Vec<OwnedPolygon> = polys
+            .iter()
+            .filter(|p| name_of(p).is_some_and(|n| rules.canonical(n) == rules.canonical(&kind.magic)))
+            .cloned()
+            .collect();
         if gates.is_empty() {
             continue;
         }
-        let sd: Vec<OwnedPolygon> = polys.iter().filter(|p| name_of(p).is_some_and(|n| rules.is_sd_of(kind, n))).cloned().collect();
-        let (Ok(gates), Ok(sd)) = (boolean_owned(&gates, &[], BoolOp::Or, tag), boolean_owned(&sd, &[], BoolOp::Or, tag)) else { continue };
+        let sd: Vec<OwnedPolygon> =
+            polys.iter().filter(|p| name_of(p).is_some_and(|n| rules.is_sd_of(kind, n))).cloned().collect();
+        let (Ok(gates), Ok(sd)) = (boolean_owned(&gates, &[], BoolOp::Or, tag), boolean_owned(&sd, &[], BoolOp::Or, tag)) else {
+            continue;
+        };
         let sd = Grid::new(sd);
         for poly in gates {
-            let (Some(at), Some((w_um, l_um, sd_at))) = (interior_point(&poly.points), measure(&poly.points, &sd, eps, unit_um)) else { continue };
-            out.push(Device { model: kind.model(w_um, l_um).to_string(), magic: kind.magic.clone(), gate: poly, at, w_um, l_um, sd_at });
+            let (Some(at), Some((w_um, l_um, sd_at))) = (interior_point(&poly.points), measure(&poly.points, &sd, eps, unit_um))
+            else {
+                continue;
+            };
+            out.push(Device {
+                model: kind.model(w_um, l_um).to_string(),
+                magic: kind.magic.clone(),
+                gate: poly,
+                at,
+                w_um,
+                l_um,
+                sd_at,
+            });
         }
     }
     out.sort_by(|a, b| (a.at.1, a.at.0).partial_cmp(&(b.at.1, b.at.0)).unwrap_or(std::cmp::Ordering::Equal));
@@ -325,10 +354,7 @@ mod tests {
         let devs = extract(&rules, &layers, 1.0);
         let got: Vec<(&str, String, String)> =
             devs.iter().map(|d| (d.model.as_str(), format!("{:.3}", d.w_um), format!("{:.3}", d.l_um))).collect();
-        assert_eq!(
-            got,
-            [("mini__nfet", "0.650".into(), "0.150".into()), ("mini__pfet", "1.000".into(), "0.150".into())]
-        );
+        assert_eq!(got, [("mini__nfet", "0.650".into(), "0.150".into()), ("mini__pfet", "1.000".into(), "0.150".into())]);
     }
 
     #[test]
@@ -355,7 +381,8 @@ mod tests {
         let layers = LayerPolys::new([rect(DIFF, 0.0, 0.0, 2.0, 0.5), rect(POLY, 0.9, -0.2, 1.05, 0.7)]);
         assert!(extract(&rules, &layers, 1.0).is_empty());
         // Un poly que no toca la difusión no es compuerta.
-        let layers = LayerPolys::new([rect(DIFF, 0.0, 0.0, 2.0, 0.5), rect(NSDM, -1.0, -1.0, 3.0, 2.0), rect(POLY, 3.0, 0.0, 3.2, 0.5)]);
+        let layers =
+            LayerPolys::new([rect(DIFF, 0.0, 0.0, 2.0, 0.5), rect(NSDM, -1.0, -1.0, 3.0, 2.0), rect(POLY, 3.0, 0.0, 3.2, 0.5)]);
         assert!(extract(&rules, &layers, 1.0).is_empty());
     }
 
@@ -380,11 +407,8 @@ mod tests {
         let rules = DeviceRules::parse(TECH).unwrap();
         // El poly pisa la esquina de la difusión: la compuerta toca una sola
         // región de difusión (en KLayout, "expected two polygons").
-        let layers = LayerPolys::new([
-            rect(DIFF, 0.0, 0.0, 2.0, 0.5),
-            rect(NSDM, -1.0, -1.0, 3.0, 2.0),
-            rect(POLY, 1.95, 0.45, 2.5, 1.0),
-        ]);
+        let layers =
+            LayerPolys::new([rect(DIFF, 0.0, 0.0, 2.0, 0.5), rect(NSDM, -1.0, -1.0, 3.0, 2.0), rect(POLY, 1.95, 0.45, 2.5, 1.0)]);
         assert!(extract(&rules, &layers, 1.0).is_empty());
     }
 
@@ -392,8 +416,10 @@ mod tests {
     fn a_magic_layout_uses_its_painted_transistors() {
         let rules = DeviceRules::parse(TECH).unwrap();
         // Tags cualesquiera: lo que cuenta es el nombre de Magic de cada capa.
-        let names: HashMap<(u32, u32), String> =
-            [((1, 0), "nmos"), ((2, 0), "ndiff"), ((3, 0), "ndiffc"), ((4, 0), "pdiff")].into_iter().map(|(t, n)| (t, n.to_string())).collect();
+        let names: HashMap<(u32, u32), String> = [((1, 0), "nmos"), ((2, 0), "ndiff"), ((3, 0), "ndiffc"), ((4, 0), "pdiff")]
+            .into_iter()
+            .map(|(t, n)| (t, n.to_string()))
+            .collect();
         let polys = vec![
             rect((2, 0), 0.0, 0.0, 0.5, 0.65),  // fuente
             rect((1, 0), 0.5, 0.0, 0.65, 0.65), // compuerta

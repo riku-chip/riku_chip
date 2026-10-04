@@ -5,16 +5,16 @@
 //! visor ([`GdsBackend`]) y los tipos del reporte. El resto es interno.
 
 mod box_grid;
+pub mod devices;
 mod diff_cache;
 mod diff_scene;
-pub mod devices;
-pub mod nets;
 mod gds_diff;
 mod hier_walk;
 mod labels;
 mod layer_style;
 pub mod mag;
 mod magic_layers_generated;
+pub mod nets;
 mod palette;
 mod palette_generated;
 pub mod pdk_tech;
@@ -27,8 +27,8 @@ mod viewer_core_compat;
 
 pub use diff_cache::DiffCache;
 pub use gds_diff::{
-    diff_cell, diff_layout_sides, is_layout, BBoxUm, CellChange, CellDiff, DiffConfig, GdsDiffReport, GdsError,
-    GdsGeomDiff, LayerKey, LayerPolygons, LayoutSide, DEFAULT_COSMETIC_THRESHOLD_UM2,
+    diff_cell, diff_layout_sides, is_layout, BBoxUm, CellChange, CellDiff, DiffConfig, GdsDiffReport, GdsError, GdsGeomDiff,
+    LayerKey, LayerPolygons, LayoutSide, DEFAULT_COSMETIC_THRESHOLD_UM2,
 };
 pub use labels::{flatten_labels, FlatLabel};
 pub use viewer_core_compat::GdsBackend;

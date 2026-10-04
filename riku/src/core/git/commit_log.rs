@@ -6,16 +6,10 @@ use crate::core::domain::git_types::{CommitWithParents, GitError, LogQuery};
 use crate::core::git::helpers::{commit_info_from, resolve_commit};
 use crate::core::path_matcher::PathMatcher;
 
-pub(super) fn get_commits_with_options(
-    repo: &Repository,
-    query: &LogQuery<'_>,
-) -> Result<Vec<CommitWithParents>, GitError> {
+pub(super) fn get_commits_with_options(repo: &Repository, query: &LogQuery<'_>) -> Result<Vec<CommitWithParents>, GitError> {
     let start_oid = match query.start {
         Some(refish) => resolve_commit(repo, refish)?.id(),
-        None => repo
-            .head()?
-            .target()
-            .ok_or_else(|| GitError::CommitNotFound("HEAD".to_string()))?,
+        None => repo.head()?.target().ok_or_else(|| GitError::CommitNotFound("HEAD".to_string()))?,
     };
     let mut walker = repo.revwalk()?;
     walker.push(start_oid)?;
@@ -37,10 +31,7 @@ pub(super) fn get_commits_with_options(
             continue;
         }
         let info = commit_info_from(&commit);
-        let parents = (0..commit.parent_count())
-            .filter_map(|i| commit.parent_id(i).ok())
-            .map(|p| p.to_string())
-            .collect();
+        let parents = (0..commit.parent_count()).filter_map(|i| commit.parent_id(i).ok()).map(|p| p.to_string()).collect();
         results.push(CommitWithParents { info, parents });
     }
     Ok(results)
@@ -57,7 +48,5 @@ fn commit_touches(repo: &Repository, commit: &Commit<'_>, wanted: impl Fn(&Path)
     };
     let tree_b = commit.tree()?;
     let diff = repo.diff_tree_to_tree(tree_a.as_ref(), Some(&tree_b), None)?;
-    Ok(diff
-        .deltas()
-        .any(|d| d.new_file().path().is_some_and(&wanted) || d.old_file().path().is_some_and(&wanted)))
+    Ok(diff.deltas().any(|d| d.new_file().path().is_some_and(&wanted) || d.old_file().path().is_some_and(&wanted)))
 }

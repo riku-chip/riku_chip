@@ -47,9 +47,7 @@ pub struct StatusReport {
 
 impl StatusReport {
     pub fn has_semantic_changes(&self) -> bool {
-        self.files
-            .iter()
-            .any(|f| matches!(f.category, SummaryCategory::Semantic))
+        self.files.iter().any(|f| matches!(f.category, SummaryCategory::Semantic))
     }
 
     pub fn count_by_category(&self, cat: SummaryCategory) -> usize {

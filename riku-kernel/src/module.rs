@@ -70,14 +70,7 @@ pub trait FormatModule: Send + Sync {
     /// es la ruta del archivo relativa a la raíz de esas fuentes.
     ///
     /// Por defecto ignora `files` y llama a `diff`.
-    fn diff_with(
-        &self,
-        before: &[u8],
-        after: &[u8],
-        path_hint: &str,
-        opts: &DiffOptions,
-        files: &DiffFiles,
-    ) -> FileChange {
+    fn diff_with(&self, before: &[u8], after: &[u8], path_hint: &str, opts: &DiffOptions, files: &DiffFiles) -> FileChange {
         let _ = files;
         self.diff(before, after, path_hint, opts)
     }
@@ -212,9 +205,11 @@ mod tests {
     }
 
     fn registry() -> Registry {
-        Registry::new()
-            .with(Arc::new(Fake("sch", FileFormat::Xschem, b"v {xschem")))
-            .with(Arc::new(Fake("gds", FileFormat::Gds, &[0, 6, 0, 2])))
+        Registry::new().with(Arc::new(Fake("sch", FileFormat::Xschem, b"v {xschem"))).with(Arc::new(Fake(
+            "gds",
+            FileFormat::Gds,
+            &[0, 6, 0, 2],
+        )))
     }
 
     #[test]

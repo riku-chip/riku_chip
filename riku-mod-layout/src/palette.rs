@@ -114,12 +114,8 @@ pub fn detect_pdk(path_hint: Option<&str>, tags: &[GdsTag]) -> Pdk {
         (Pdk::Gf180, [(22, 0), (30, 0), (34, 0)]),     // COMP, Poly2, Metal1
         (Pdk::Ihp, [(1, 0), (5, 0), (8, 0)]),          // Activ, GatPoly, Metal1
     ];
-    let hits = |markers: &[(u32, u32)]| {
-        markers
-            .iter()
-            .filter(|(l, d)| tags.iter().any(|t| t.layer == *l && t.datatype == *d))
-            .count()
-    };
+    let hits =
+        |markers: &[(u32, u32)]| markers.iter().filter(|(l, d)| tags.iter().any(|t| t.layer == *l && t.datatype == *d)).count();
     MARKERS
         .iter()
         .map(|(pdk, m)| (hits(m), *pdk))
@@ -193,7 +189,13 @@ fn magic_equivalent(pdk: Pdk, name: &str, plane: &str, upper: &str) -> Option<&'
             ("metal4", _) => "via3",
             ("metal5", _) => "via4",
             (_, "dwell") => "dnwell",
-            (_, "well") => if nwell { "nwell" } else { "pwell" },
+            (_, "well") => {
+                if nwell {
+                    "nwell"
+                } else {
+                    "pwell"
+                }
+            }
             (_, "active") if poly || gate => "poly",
             (_, "active") if tap => "tap",
             (_, "active") => "diff",
@@ -215,7 +217,13 @@ fn magic_equivalent(pdk: Pdk, name: &str, plane: &str, upper: &str) -> Option<&'
             ("metal4", _) => "Via3",
             ("metal5", _) => "Via4",
             (_, "dwell") => "DNWELL",
-            (_, "well") => if nwell { "Nwell" } else { "LVPWELL" },
+            (_, "well") => {
+                if nwell {
+                    "Nwell"
+                } else {
+                    "LVPWELL"
+                }
+            }
             (_, "active") if poly || gate => "Poly2",
             (_, "active") => "COMP",
             (_, p) => match metal(p)? {
@@ -235,7 +243,13 @@ fn magic_equivalent(pdk: Pdk, name: &str, plane: &str, upper: &str) -> Option<&'
             ("metal6", _) => "TopVia1",
             ("metal7", _) => "TopVia2",
             (_, "dwell") => "nBuLay",
-            (_, "well") => if nwell { "NWell" } else { "PWell" },
+            (_, "well") => {
+                if nwell {
+                    "NWell"
+                } else {
+                    "PWell"
+                }
+            }
             (_, "active") if poly || gate => "GatPoly",
             (_, "active") => "Activ",
             (_, "mimcap") => "MIM",

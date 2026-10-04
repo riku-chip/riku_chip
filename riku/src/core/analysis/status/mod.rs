@@ -10,6 +10,4 @@ mod analyze;
 mod types;
 
 pub use analyze::{analyze_with_options, analyze_with_options_path};
-pub use types::{
-    EnvelopedStatusReport, StatusError, StatusOptions, StatusReport, STATUS_SCHEMA,
-};
+pub use types::{EnvelopedStatusReport, StatusError, StatusOptions, StatusReport, STATUS_SCHEMA};

@@ -84,13 +84,16 @@ impl CompareDialog {
             } else {
                 ui.add(egui::TextEdit::singleline(&mut self.query).hint_text(tr!("compare.filter")).desired_width(f32::INFINITY));
                 let q = self.query.to_lowercase();
-                egui::ScrollArea::vertical().id_salt("compare_files").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
-                    for f in self.files.iter().filter(|f| q.is_empty() || f.to_lowercase().contains(&q)) {
-                        if ui.selectable_label(*f == self.file, f).clicked() {
-                            self.file = f.clone();
+                egui::ScrollArea::vertical().id_salt("compare_files").max_height(160.0).auto_shrink([false, true]).show(
+                    ui,
+                    |ui| {
+                        for f in self.files.iter().filter(|f| q.is_empty() || f.to_lowercase().contains(&q)) {
+                            if ui.selectable_label(*f == self.file, f).clicked() {
+                                self.file = f.clone();
+                            }
                         }
-                    }
-                });
+                    },
+                );
             }
             ui.add_space(space::M);
 
@@ -104,7 +107,9 @@ impl CompareDialog {
             });
 
             ui.add_space(space::M);
-            let ready = (self.all || !self.file.is_empty()) && (self.a.disk || !self.a.rev.trim().is_empty()) && (self.b.disk || !self.b.rev.trim().is_empty());
+            let ready = (self.all || !self.file.is_empty())
+                && (self.a.disk || !self.a.rev.trim().is_empty())
+                && (self.b.disk || !self.b.rev.trim().is_empty());
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let go = egui::Button::new(RichText::new(tr!("compare.go")).strong()).fill(ui.visuals().selection.bg_fill);
@@ -182,7 +187,10 @@ impl DoctorDialog {
                                 ui.horizontal_wrapped(|ui| {
                                     let v = ui.visuals();
                                     let (sym, color) = match mark {
-                                        Mark::Ok => ("✔", crate::gui::theme::change_color(viewer_core::diff::ChangeKind::Added, v.dark_mode)),
+                                        Mark::Ok => (
+                                            "✔",
+                                            crate::gui::theme::change_color(viewer_core::diff::ChangeKind::Added, v.dark_mode),
+                                        ),
                                         Mark::Warn => ("!", v.warn_fg_color),
                                         Mark::Absent => ("–", v.weak_text_color()),
                                         Mark::Missing => ("✖", v.error_fg_color),

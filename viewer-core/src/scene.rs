@@ -464,7 +464,8 @@ mod net_tests {
     impl NetProbe for Square {
         fn at(&self, x: f64, y: f64, layer: Option<Layer>) -> Option<NetHit> {
             let inside = (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y);
-            (inside && layer == Some(7)).then(|| NetHit { name: "Y".into(), outline: vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]] })
+            (inside && layer == Some(7))
+                .then(|| NetHit { name: "Y".into(), outline: vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]] })
         }
     }
 

@@ -258,9 +258,7 @@ pub(crate) enum Commands {
     #[command(about = tr!("help.open", exts = crate::modules::registry().openable_text()))]
     Open { file: Option<PathBuf> },
     #[command(about = tr!("help.gui"), trailing_var_arg = true, allow_hyphen_values = true)]
-    Gui {
-        args: Vec<String>,
-    },
+    Gui { args: Vec<String> },
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────

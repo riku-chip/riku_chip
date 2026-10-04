@@ -89,12 +89,7 @@ fn aggregate_changes(report: &FileChange, level: DetailLevel) -> Aggregated {
         }
     }
 
-    Aggregated {
-        counts,
-        details,
-        semantic,
-        cosmetic,
-    }
+    Aggregated { counts, details, semantic, cosmetic }
 }
 
 /// Regla de negocio: prioridad `Semantic > Cosmetic > Unchanged`.

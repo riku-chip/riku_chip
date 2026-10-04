@@ -88,7 +88,11 @@ pub fn join_relative(from_file: &str, rel: &str) -> String {
         Some(i) => &from_file[..i],
         None => "",
     };
-    if dir.is_empty() { normalize(rel) } else { normalize(&format!("{dir}/{rel}")) }
+    if dir.is_empty() {
+        normalize(rel)
+    } else {
+        normalize(&format!("{dir}/{rel}"))
+    }
 }
 
 /// Carpeta con los PDK instalados: `$PDK_ROOT`, o `/foss/pdks`
@@ -122,7 +126,11 @@ fn normalize(path: &str) -> String {
         }
     }
     let joined = parts.join("/");
-    if absolute { format!("/{joined}") } else { joined }
+    if absolute {
+        format!("/{joined}")
+    } else {
+        joined
+    }
 }
 
 #[cfg(test)]

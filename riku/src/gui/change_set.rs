@@ -63,7 +63,11 @@ pub(crate) struct ChangeSet {
 }
 
 fn side(token: &str) -> Side {
-    if token == WORKTREE { Side::WorkTree } else { Side::Rev(token.to_string()) }
+    if token == WORKTREE {
+        Side::WorkTree
+    } else {
+        Side::Rev(token.to_string())
+    }
 }
 
 impl ChangeSet {
@@ -158,7 +162,8 @@ impl ChangeSet {
             });
         });
         let pending = self.pending();
-        let mut line = format!("{} → {} · {}", label(&self.from), label(&self.to), tr!("changes.count", count = self.entries.len()));
+        let mut line =
+            format!("{} → {} · {}", label(&self.from), label(&self.to), tr!("changes.count", count = self.entries.len()));
         if pending > 0 {
             line.push_str(&format!(" · {}", tr!("changes.checking", count = pending)));
         }
@@ -184,11 +189,11 @@ impl ChangeSet {
         let row_h = 2.0 * ui.spacing().interact_size.y;
         let max_h = (ui.available_height() * 0.45).max(3.0 * row_h);
         let scroll_to = std::mem::take(&mut self.scroll_to_selection).then_some(self.selected).flatten();
-        egui::ScrollArea::vertical()
-            .id_salt("change_set")
-            .max_height(max_h)
-            .auto_shrink([false, true])
-            .show_rows(ui, row_h, self.entries.len(), |ui, range| {
+        egui::ScrollArea::vertical().id_salt("change_set").max_height(max_h).auto_shrink([false, true]).show_rows(
+            ui,
+            row_h,
+            self.entries.len(),
+            |ui, range| {
                 for i in range {
                     let e = &self.entries[i];
                     let selected = self.selected == Some(i);
@@ -201,7 +206,8 @@ impl ChangeSet {
                         req = Some(Request::Open(e.path.clone()));
                     }
                 }
-            });
+            },
+        );
         req
     }
 }
@@ -259,13 +265,7 @@ fn row(ui: &mut egui::Ui, e: &Entry, selected: bool, h: f32) -> egui::Response {
 }
 
 /// El trabajo del hilo: la lista (solo Git) y después cada resumen.
-fn work(
-    repo: &std::path::Path,
-    from: &str,
-    to: &str,
-    stop: &AtomicBool,
-    send: &dyn Fn(Msg),
-) -> Result<(), String> {
+fn work(repo: &std::path::Path, from: &str, to: &str, stop: &AtomicBool, send: &dyn Fn(Msg)) -> Result<(), String> {
     let svc = GitService::open(repo).map_err(|e| e.to_string())?;
     let workdir = svc.root().map(std::path::Path::to_path_buf);
     let (a, b) = (side(from), side(to));

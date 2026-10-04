@@ -14,9 +14,9 @@ use std::time::Instant;
 
 use git2::{Repository, Signature};
 
-use riku::modules::xschem::parse;
 use riku::core::domain::models::FileFormat;
 use riku::core::domain::ports::GitRepository;
+use riku::modules::xschem::parse;
 /// Formato por firma, según los módulos del ejecutable.
 fn detect_format(content: &[u8]) -> FileFormat {
     riku::modules::registry().detect_format(content)
@@ -31,10 +31,7 @@ fn semantic_diff(a: &[u8], b: &[u8]) -> xschem_viewer::semantic::DiffReport {
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repo root")
-        .to_path_buf()
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().expect("repo root").to_path_buf()
 }
 
 fn commit_file(repo: &Repository, rel_path: &str, content: &[u8], message: &str) -> git2::Oid {
@@ -55,20 +52,14 @@ fn commit_file(repo: &Repository, rel_path: &str, content: &[u8], message: &str)
     match repo.head() {
         Ok(head) => {
             let parent = repo.find_commit(head.target().unwrap()).unwrap();
-            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
-                .unwrap()
+            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent]).unwrap()
         }
-        Err(_) => repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &[])
-            .unwrap(),
+        Err(_) => repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[]).unwrap(),
     }
 }
 
 fn make_temp_repo() -> tempfile::TempDir {
-    tempfile::Builder::new()
-        .prefix("riku-stress")
-        .tempdir_in(repo_root())
-        .unwrap()
+    tempfile::Builder::new().prefix("riku-stress").tempdir_in(repo_root()).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +71,7 @@ fn op_sim_content() -> Vec<u8> {
 }
 
 fn gds_content() -> Vec<u8> {
-    fs::read(repo_root().join("examples/GDS/sram_16x8_sky130.gds"))
-        .expect("sram_16x8_sky130.gds debe existir")
+    fs::read(repo_root().join("examples/GDS/sram_16x8_sky130.gds")).expect("sram_16x8_sky130.gds debe existir")
 }
 
 // ---------------------------------------------------------------------------
@@ -92,10 +82,7 @@ fn gds_content() -> Vec<u8> {
 fn parse_op_sim_returns_components_and_wires() {
     let content = op_sim_content();
     let sch = parse(&content);
-    assert!(
-        !sch.components.is_empty(),
-        "op_sim.sch debe tener componentes"
-    );
+    assert!(!sch.components.is_empty(), "op_sim.sch debe tener componentes");
     assert!(!sch.wires.is_empty(), "op_sim.sch debe tener wires");
 }
 
@@ -110,11 +97,7 @@ fn detect_format_gds_is_unknown() {
     let content = gds_content();
     // El parser no debe paniquear con binario GDS
     let fmt = detect_format(&content);
-    assert_ne!(
-        fmt,
-        FileFormat::Xschem,
-        "GDS no debe detectarse como Xschem"
-    );
+    assert_ne!(fmt, FileFormat::Xschem, "GDS no debe detectarse como Xschem");
 }
 
 #[test]
@@ -136,9 +119,7 @@ fn throughput_100_parse_and_diff() {
     const MAX_MS: u128 = 10_000; // 10s en dev (sin opt); release es ~3x mas rapido
 
     let base = op_sim_content();
-    let modified: Vec<u8> = String::from_utf8_lossy(&base)
-        .replace("value=0.9", "value=1.1")
-        .into_bytes();
+    let modified: Vec<u8> = String::from_utf8_lossy(&base).replace("value=0.9", "value=1.1").into_bytes();
 
     let start = Instant::now();
     for _ in 0..N {
@@ -147,20 +128,12 @@ fn throughput_100_parse_and_diff() {
         let report = semantic_diff_inner(&sch_a, &sch_b);
         // Validar que el diff es coherente
         assert!(
-            !report.components.is_empty()
-                || !report.nets_added.is_empty()
-                || sch_a.components.len() == sch_b.components.len()
+            !report.components.is_empty() || !report.nets_added.is_empty() || sch_a.components.len() == sch_b.components.len()
         );
     }
     let elapsed = start.elapsed().as_millis();
-    assert!(
-        elapsed < MAX_MS,
-        "{N} iteraciones de parse+diff tardaron {elapsed}ms (limite: {MAX_MS}ms)"
-    );
-    println!(
-        "throughput_100_parse_and_diff: {elapsed}ms total, {}ms/iter",
-        elapsed / N as u128
-    );
+    assert!(elapsed < MAX_MS, "{N} iteraciones de parse+diff tardaron {elapsed}ms (limite: {MAX_MS}ms)");
+    println!("throughput_100_parse_and_diff: {elapsed}ms total, {}ms/iter", elapsed / N as u128);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,42 +143,22 @@ fn throughput_100_parse_and_diff() {
 #[test]
 fn diff_detects_component_value_change() {
     let base = op_sim_content();
-    let modified: Vec<u8> = String::from_utf8_lossy(&base)
-        .replace("value=0.9", "value=1.5")
-        .into_bytes();
+    let modified: Vec<u8> = String::from_utf8_lossy(&base).replace("value=0.9", "value=1.5").into_bytes();
 
     let report = semantic_diff(&base, &modified);
-    let modified_components: Vec<_> = report
-        .components
-        .iter()
-        .filter(|c| c.kind == xschem_viewer::semantic::ChangeKind::Modified)
-        .collect();
-    assert!(
-        !modified_components.is_empty(),
-        "debe detectar al menos un componente modificado"
-    );
+    let modified_components: Vec<_> =
+        report.components.iter().filter(|c| c.kind == xschem_viewer::semantic::ChangeKind::Modified).collect();
+    assert!(!modified_components.is_empty(), "debe detectar al menos un componente modificado");
 }
 
 #[test]
 fn diff_same_content_is_empty() {
     let content = op_sim_content();
     let report = semantic_diff(&content, &content);
-    assert!(
-        report.components.is_empty(),
-        "sin cambios: components debe estar vacio"
-    );
-    assert!(
-        report.nets_added.is_empty(),
-        "sin cambios: nets_added debe estar vacio"
-    );
-    assert!(
-        report.nets_removed.is_empty(),
-        "sin cambios: nets_removed debe estar vacio"
-    );
-    assert!(
-        !report.is_move_all,
-        "sin cambios: is_move_all debe ser false"
-    );
+    assert!(report.components.is_empty(), "sin cambios: components debe estar vacio");
+    assert!(report.nets_added.is_empty(), "sin cambios: nets_added debe estar vacio");
+    assert!(report.nets_removed.is_empty(), "sin cambios: nets_removed debe estar vacio");
+    assert!(!report.is_move_all, "sin cambios: is_move_all debe ser false");
 }
 
 // ---------------------------------------------------------------------------
@@ -221,9 +174,8 @@ fn git_service_extracts_blob_from_10_commits() {
 
     let base = op_sim_content();
     for i in 0..N_COMMITS {
-        let content: Vec<u8> = String::from_utf8_lossy(&base)
-            .replace("value=0.9", &format!("value={:.1}", 0.9 + i as f64 * 0.1))
-            .into_bytes();
+        let content: Vec<u8> =
+            String::from_utf8_lossy(&base).replace("value=0.9", &format!("value={:.1}", 0.9 + i as f64 * 0.1)).into_bytes();
         commit_file(&repo, rel_path, &content, &format!("commit {i}"));
     }
 
@@ -235,10 +187,7 @@ fn git_service_extracts_blob_from_10_commits() {
     for commit in &commits {
         let blob = GitRepository::get_blob(&svc, &commit.oid, rel_path).unwrap();
         let sch = parse(&blob);
-        assert!(
-            !sch.components.is_empty(),
-            "cada revision debe tener componentes"
-        );
+        assert!(!sch.components.is_empty(), "cada revision debe tener componentes");
     }
 }
 
@@ -251,9 +200,8 @@ fn git_service_log_semantic_across_revisions() {
 
     let base = op_sim_content();
     for i in 0..N_COMMITS {
-        let content: Vec<u8> = String::from_utf8_lossy(&base)
-            .replace("value=0.9", &format!("value={:.1}", 0.9 + i as f64 * 0.1))
-            .into_bytes();
+        let content: Vec<u8> =
+            String::from_utf8_lossy(&base).replace("value=0.9", &format!("value={:.1}", 0.9 + i as f64 * 0.1)).into_bytes();
         commit_file(&repo, rel_path, &content, &format!("rev {i}"));
     }
 
@@ -271,10 +219,7 @@ fn git_service_log_semantic_across_revisions() {
             semantic_changes += 1;
         }
     }
-    assert!(
-        semantic_changes > 0,
-        "debe haber al menos un cambio semantico en {N_COMMITS} revisiones"
-    );
+    assert!(semantic_changes > 0, "debe haber al menos un cambio semantico en {N_COMMITS} revisiones");
 }
 
 // ---------------------------------------------------------------------------
@@ -313,26 +258,15 @@ fn blob_near_threshold_is_parseable() {
 fn stress_gds_parse_is_fast() {
     const MAX_MS: u128 = 500;
     let content = gds_content();
-    assert!(
-        content.len() > 100_000,
-        "El GDS de prueba debe ser >100 KB, encontrado: {} bytes",
-        content.len()
-    );
+    assert!(content.len() > 100_000, "El GDS de prueba debe ser >100 KB, encontrado: {} bytes", content.len());
 
     let start = Instant::now();
     let _ = detect_format(&content);
     let _ = parse(&content);
     let elapsed = start.elapsed().as_millis();
 
-    assert!(
-        elapsed < MAX_MS,
-        "parse de GDS ({} KB) tardo {elapsed}ms (limite: {MAX_MS}ms)",
-        content.len() / 1024
-    );
-    println!(
-        "stress_gds_parse_is_fast: {} KB en {elapsed}ms",
-        content.len() / 1024
-    );
+    assert!(elapsed < MAX_MS, "parse de GDS ({} KB) tardo {elapsed}ms (limite: {MAX_MS}ms)", content.len() / 1024);
+    println!("stress_gds_parse_is_fast: {} KB en {elapsed}ms", content.len() / 1024);
 }
 
 #[test]
@@ -349,15 +283,8 @@ fn stress_gds_in_git_repo() {
     assert_eq!(commits.len(), 1);
 
     let blob = GitRepository::get_blob(&svc, &commits[0].oid, rel_path).unwrap();
-    assert_eq!(
-        blob.len(),
-        content.len(),
-        "blob extraido debe coincidir con el original"
-    );
-    println!(
-        "stress_gds_in_git_repo: {} KB extraidos de git OK",
-        blob.len() / 1024
-    );
+    assert_eq!(blob.len(), content.len(), "blob extraido debe coincidir con el original");
+    println!("stress_gds_in_git_repo: {} KB extraidos de git OK", blob.len() / 1024);
 }
 
 /// Los commits que tocan `path`, más nuevo primero (lo que usa `riku log ARCHIVO`).

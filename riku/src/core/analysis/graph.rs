@@ -207,7 +207,10 @@ pub(crate) mod tests {
             // Cada rama que pasa llega desde arriba (salvo en la primera fila).
             if i > 0 {
                 for (c, _) in &row.passing {
-                    assert!(rows[i - 1].edges.iter().any(|e| e.1 == *c), "fila {i}: la rama de la columna {c} no viene de arriba");
+                    assert!(
+                        rows[i - 1].edges.iter().any(|e| e.1 == *c),
+                        "fila {i}: la rama de la columna {c} no viene de arriba"
+                    );
                 }
             }
         }
