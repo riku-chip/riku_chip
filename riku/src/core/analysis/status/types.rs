@@ -43,6 +43,9 @@ pub struct StatusReport {
     pub files: Vec<FileSummary>,
     /// Mensajes informativos no fatales (blob omitido por tamaño, etc.).
     pub warnings: Vec<String>,
+    /// El LVS de cada par, `HEAD` contra el working tree (solo con `--lvs`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub lvs: Vec<crate::core::analysis::lvs_types::PairStatusLvs>,
 }
 
 impl StatusReport {

@@ -18,6 +18,15 @@ pub fn print(report: &StatusReport, level: DetailLevel, include_unknown: bool) {
         eprintln!("[!] {w}");
     }
     print_categorized(report, level, include_unknown);
+    if !report.lvs.is_empty() {
+        println!();
+        println!("{}", tr!("lvs.status_title"));
+        for p in &report.lvs {
+            for line in super::lvs_text::status_lines(p, level) {
+                println!("{line}");
+            }
+        }
+    }
 }
 
 fn print_header(report: &StatusReport) {

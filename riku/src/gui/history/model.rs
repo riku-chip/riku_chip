@@ -294,6 +294,7 @@ mod tests {
                 is_merge: parents.len() > 1,
                 files: if with_files { vec![FileSummary::unknown(&format!("{oid}.sch"))] } else { Vec::new() },
                 graph: Some(row),
+                lvs: Vec::new(),
             })
             .collect();
         LogReport { commits, warnings: Vec::new() }

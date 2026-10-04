@@ -34,6 +34,16 @@ pub fn print(report: &LogReport, level: DetailLevel) {
 }
 
 fn print_commit(c: &LogCommit, level: DetailLevel) {
+    print_commit_files(c, level);
+    // El LVS (`--lvs`) también en los merges, que traen los cambios de una rama.
+    for p in &c.lvs {
+        for line in super::lvs_text::log_lines(p, level, "          ") {
+            println!("{line}");
+        }
+    }
+}
+
+fn print_commit_files(c: &LogCommit, level: DetailLevel) {
     let refs = if c.refs.is_empty() { String::new() } else { format!(" {}", format_refs(&c.refs)) };
     let merge_tag = if c.is_merge { crate::i18n::tr!("log.merge_tag") } else { String::new() };
 

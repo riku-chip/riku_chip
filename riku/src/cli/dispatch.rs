@@ -148,6 +148,7 @@ impl Commands {
                 graph,
                 ascii,
                 color,
+                lvs,
             } => commands::run_log(commands::LogArgs {
                 repo,
                 file_path,
@@ -161,12 +162,13 @@ impl Commands {
                 graph,
                 ascii,
                 color,
+                lvs,
             })
             .map(|_| Outcome::Ok),
 
             Commands::Doctor { repo, format } => doctor::run(repo, format == ListFormat::Json).map(|_| Outcome::Ok),
 
-            Commands::Status { repo, include_unknown, format, json, compact, detail, full, paths, ci: _ } => {
+            Commands::Status { repo, include_unknown, format, json, compact, detail, full, paths, ci: _, lvs } => {
                 commands::run_status(commands::StatusArgs {
                     repo,
                     include_unknown,
@@ -175,6 +177,7 @@ impl Commands {
                     detail,
                     full,
                     paths,
+                    lvs,
                 })
                 .map(Outcome::from)
             }

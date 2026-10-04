@@ -143,6 +143,18 @@ impl Delta {
         out
     }
 
+    /// Entre dos resultados con su veredicto. Si en alguno no coinciden las
+    /// conexiones, Netgen no llega a comparar parámetros: los parámetros no
+    /// cuentan (si no, un corto "arreglaría" todos los W distintos y quitar
+    /// el corto los haría "aparecer").
+    pub fn between_results(before: (Verdict, &[Discrepancy]), now: (Verdict, &[Discrepancy])) -> Self {
+        let connections_only = before.0 == Verdict::Mismatch || now.0 == Verdict::Mismatch;
+        let keep = |v: &[Discrepancy]| -> Vec<Discrepancy> {
+            v.iter().filter(|d| !(connections_only && matches!(d, Discrepancy::Property { .. }))).cloned().collect()
+        };
+        Self::between(&keep(before.1), &keep(now.1))
+    }
+
     pub fn is_empty(&self) -> bool {
         self.appeared.is_empty() && self.fixed.is_empty() && self.changed.is_empty()
     }
@@ -315,6 +327,20 @@ mod tests {
             *layout_instance = "21".into();
         }
         assert!(Delta::between(&[prop("M1", "w", "4", "2")], &[moved]).is_empty());
+    }
+
+    #[test]
+    fn with_a_short_the_parameters_are_not_compared() {
+        let props = [prop("M1", "w", "4", "2"), prop("M2", "w", "4", "2")];
+        let short = [nets(&["Vout", "Vp"], &["Vout"])];
+        // Corto: Netgen no da los parámetros; no se "arreglan".
+        let broke = Delta::between_results((Verdict::PropertyErrors, &props), (Verdict::Mismatch, &short));
+        assert_eq!((broke.appeared.len(), broke.fixed.len()), (1, 0), "{broke:?}");
+        // Sin el corto vuelven; no "aparecen".
+        let fixed = Delta::between_results((Verdict::Mismatch, &short), (Verdict::PropertyErrors, &props));
+        assert_eq!((fixed.appeared.len(), fixed.fixed.len()), (0, 1), "{fixed:?}");
+        // Sin corto, sí cuentan.
+        assert_eq!(Delta::between_results((Verdict::Match, &[]), (Verdict::PropertyErrors, &props)).appeared.len(), 2);
     }
 
     #[test]

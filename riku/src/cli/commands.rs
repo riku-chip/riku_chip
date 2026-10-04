@@ -351,6 +351,7 @@ pub(super) struct LogArgs {
     pub graph: bool,
     pub ascii: bool,
     pub color: Option<format::color::ColorMode>,
+    pub lvs: bool,
 }
 
 pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
@@ -381,7 +382,10 @@ fn run_log_inner(args: LogArgs) -> Result<(), String> {
         skip_summaries: false,
         diff: config::options_for(&args.repo, Overrides::default())?,
     };
-    let report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
+    let mut report = log::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
+    if args.lvs {
+        lvs_into_log(&mut report, &args.repo, &opts.paths, level)?;
+    }
 
     if args.json {
         format::log_json::print(&report, !args.compact)?;
@@ -397,6 +401,41 @@ fn run_log_inner(args: LogArgs) -> Result<(), String> {
 
 /// Argumentos de `run_status`, agrupados para mantener la firma estable a
 /// medida que se añadan flags.
+/// `log --lvs`: el LVS de cada commit (con la caché). Nunca hace fallar el `log`.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn lvs_into_log(report: &mut log::LogReport, repo: &std::path::Path, paths: &[String], level: DetailLevel) -> Result<(), String> {
+    let runs = crate::lvs::annotate::annotate_log(report, repo, paths, level);
+    if runs > 0 {
+        eprintln!("{}", tr!("lvs.new_runs", count = runs));
+    }
+    Ok(())
+}
+
+#[cfg(not(all(feature = "xschem", feature = "layout")))]
+fn lvs_into_log(_: &mut log::LogReport, _: &std::path::Path, _: &[String], _: DetailLevel) -> Result<(), String> {
+    Err(tr!("lvs.not_built"))
+}
+
+/// `status --lvs`: el working tree contra `HEAD`.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn lvs_into_status(
+    report: &mut status::StatusReport,
+    repo: &std::path::Path,
+    paths: &[String],
+    level: DetailLevel,
+) -> Result<(), String> {
+    let runs = crate::lvs::annotate::annotate_status(report, repo, paths, level)?;
+    if runs > 0 {
+        eprintln!("{}", tr!("lvs.new_runs", count = runs));
+    }
+    Ok(())
+}
+
+#[cfg(not(all(feature = "xschem", feature = "layout")))]
+fn lvs_into_status(_: &mut status::StatusReport, _: &std::path::Path, _: &[String], _: DetailLevel) -> Result<(), String> {
+    Err(tr!("lvs.not_built"))
+}
+
 pub(super) struct StatusArgs {
     pub repo: PathBuf,
     pub include_unknown: bool,
@@ -405,18 +444,36 @@ pub(super) struct StatusArgs {
     pub detail: bool,
     pub full: bool,
     pub paths: Vec<String>,
+    pub lvs: bool,
 }
 
 pub(super) fn run_status(args: StatusArgs) -> Result<Changes, String> {
     let level = DetailLevel::from_flags(args.detail, args.full);
 
     let opts = StatusOptions { level, paths: args.paths, diff: config::options_for(&args.repo, Overrides::default())? };
-    let report = status::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
+    let mut report =
+        status::analyze_with_options_path(&args.repo, &opts, &crate::modules::registry()).map_err(|e| e.to_string())?;
+    if args.lvs {
+        lvs_into_status(&mut report, &args.repo, &opts.paths, level)?;
+    }
 
     if args.json {
         format::status_json::print(&report, !args.compact)?;
     } else {
         format::status_text::print(&report, level, args.include_unknown);
+    }
+
+    // Con `--lvs`, el código de salida es el del LVS (ver `lvs_types::status_outcome`).
+    if args.lvs {
+        let (code, new) = crate::core::analysis::lvs_types::status_outcome(&report.lvs);
+        if new {
+            eprintln!("[!] {}", tr!("lvs.status_new"));
+        }
+        return Ok(match code {
+            0 => Changes::Clean,
+            1 => Changes::Functional,
+            _ => Changes::Failed,
+        });
     }
 
     if report.count_by_category(SummaryCategory::Error) > 0 {

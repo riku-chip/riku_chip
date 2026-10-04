@@ -71,7 +71,7 @@ pub fn analyze_with_options<R: GitRepository + ?Sized>(
     }
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(StatusReport { branch, files, warnings })
+    Ok(StatusReport { branch, files, warnings, lvs: Vec::new() })
 }
 
 // ─── Resumen por archivo ─────────────────────────────────────────────────────
@@ -234,6 +234,7 @@ mod tests {
             }),
             files: vec![FileSummary::unknown("Makefile")],
             warnings: vec![],
+            lvs: vec![],
         }
     }
 
@@ -264,6 +265,7 @@ mod tests {
             branch: None,
             files: vec![FileSummary::from_report_with(&fc, "a.sch", DetailLevel::Completo)],
             warnings: vec![],
+            lvs: vec![],
         };
         let v = serde_json::to_value(EnvelopedStatusReport::from(&report)).unwrap();
         assert_eq!(v["schema"], "riku-status/v2");

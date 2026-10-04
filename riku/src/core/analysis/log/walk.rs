@@ -201,7 +201,10 @@ fn build_log_commit_without_files(
     let Planned { raw, warnings, .. } = planned;
     let refs = refs_map.get(&raw.info.oid).cloned().unwrap_or_default();
     let is_merge = raw.parents.len() > 1;
-    (LogCommit { info: raw.info, parents: raw.parents, refs, is_merge, files: Vec::new(), graph: None }, warnings)
+    (
+        LogCommit { info: raw.info, parents: raw.parents, refs, is_merge, files: Vec::new(), graph: None, lvs: Vec::new() },
+        warnings,
+    )
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

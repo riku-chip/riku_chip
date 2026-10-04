@@ -97,6 +97,9 @@ pub fn render(commits: &[LogCommit], level: DetailLevel, style: Style) -> Vec<St
                 }
             }
         }
+        for p in &c.lvs {
+            text.extend(super::lvs_text::log_lines(p, level, "  "));
+        }
         for t in text {
             out.push(format!("{gutter}{t}"));
         }
@@ -255,6 +258,7 @@ mod tests {
                 is_merge: parents.len() > 1,
                 files: Vec::new(),
                 graph: Some(row),
+                lvs: Vec::new(),
             })
             .collect()
     }

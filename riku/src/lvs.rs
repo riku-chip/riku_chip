@@ -35,6 +35,7 @@ pub struct Pair {
     pub cell: Option<String>,
 }
 
+pub mod annotate;
 pub mod cache;
 pub use cache::{Cache, CommitVersion, DiskVersion, RecordingFiles, Version};
 
@@ -106,7 +107,10 @@ impl Comparison {
             self.unmatched_devices.iter().map(group).map(|(schematic, layout)| Discrepancy::Devices { schematic, layout }),
         );
         let only = |a: &[String], b: &[String], side: Side| -> Vec<Discrepancy> {
-            a.iter().filter(|p| !b.contains(p)).map(|p| Discrepancy::Pin { name: p.clone(), only_in: side }).collect()
+            a.iter()
+                .filter(|p| !p.starts_with('(') && !b.contains(p))
+                .map(|p| Discrepancy::Pin { name: p.clone(), only_in: side })
+                .collect()
         };
         out.extend(only(&self.pins.schematic, &self.pins.layout, Side::Schematic));
         out.extend(only(&self.pins.layout, &self.pins.schematic, Side::Layout));
@@ -477,7 +481,10 @@ pub fn mark_transitions(steps: &mut [Step]) {
         let (transition, delta) = match (&before, &steps[i].result) {
             (Some(b), StepResult::Done { report, .. }) => {
                 let now = &report.comparison;
-                (Transition::between(b.result, now.result), Some(Delta::between(&b.discrepancies(), &now.discrepancies())))
+                (
+                    Transition::between(b.result, now.result),
+                    Some(Delta::between_results((b.result, &b.discrepancies()), (now.result, &now.discrepancies()))),
+                )
             }
             _ => (None, None),
         };
@@ -828,7 +835,8 @@ LVS Done.
         c = with_property(c, "M1", "4", "2");
         let StepResult::Done { report, .. } = &mut c.result else { unreachable!() };
         report.comparison.unmatched_nets.push(Sides { layout: vec!["Vout".into()], schematic: vec!["Vout".into(), "Vp".into()] });
-        report.comparison.pins = Sides { layout: vec!["A".into()], schematic: vec!["A".into(), "Ib".into()] };
+        report.comparison.pins =
+            Sides { layout: vec!["A".into(), "(no matching pin)".into()], schematic: vec!["A".into(), "Ib".into()] };
         let keys: Vec<String> = report.comparison.discrepancies().iter().map(Discrepancy::key).collect();
         assert_eq!(keys, ["P:M1:w", "N:Vout,Vp", "pin:Schematic:Ib"], "l es igual en los dos lados: no es una discrepancia");
 

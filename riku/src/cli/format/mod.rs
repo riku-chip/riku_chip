@@ -11,6 +11,7 @@ pub mod diff_text;
 pub mod log_graph;
 pub mod log_json;
 pub mod log_text;
+pub mod lvs_text;
 pub mod show_json;
 pub mod show_text;
 pub mod status_json;

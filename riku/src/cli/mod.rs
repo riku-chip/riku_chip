@@ -214,6 +214,8 @@ pub(crate) enum Commands {
         // `Option` y no un valor por defecto: así `requires` solo se activa si se escribe la opción.
         #[arg(long, value_enum, value_name = "WHEN", requires = "graph", help = tr!("help.color"))]
         color: Option<format::color::ColorMode>,
+        #[arg(long, help = tr!("help.log_lvs"))]
+        lvs: bool,
     },
     #[command(about = tr!("help.doctor"))]
     Doctor {
@@ -243,6 +245,8 @@ pub(crate) enum Commands {
         paths: Vec<String>,
         #[arg(long, help = tr!("help.status_ci"))]
         ci: bool,
+        #[arg(long, help = tr!("help.status_lvs"))]
+        lvs: bool,
     },
     #[command(about = tr!("help.demo"), after_help = tr!("help.examples_demo"))]
     Demo {

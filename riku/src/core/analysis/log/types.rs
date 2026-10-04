@@ -50,6 +50,10 @@ pub struct LogCommit {
     /// Lugar del commit en el grafo del historial (solo con `--graph`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub graph: Option<GraphRow>,
+    /// El LVS de cada par en este commit respecto de su primer padre (solo
+    /// con `--lvs`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub lvs: Vec<crate::core::analysis::lvs_types::PairLvs>,
 }
 
 impl LogCommit {
