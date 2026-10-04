@@ -76,7 +76,7 @@ jobs:
           printf 'magic\ntech sky130A\n<< metal1 >>\nrect 0 0 400 800\n' > inv.mag
           git commit -qam d
           $B diff HEAD~1 HEAD top.mag -f json | grep -q '"layer_name": "metal1"'
-          if $B gui layout.gds 2>err.txt; then echo "::error::gui sin DISPLAY debía fallar"; exit 1; fi
+          if RIKU_LANG=es $B gui layout.gds 2>err.txt; then echo "::error::gui sin DISPLAY debía fallar"; exit 1; fi
           grep -q "escritorio gráfico" err.txt
 
       - name: Empaquetar
