@@ -1387,6 +1387,46 @@ mod tests {
         assert_eq!(others, ["R9"]);
     }
 
+    /// Cuánto tarda con muchos transistores (`RIKU_BENCH_N`, 2000 por
+    /// defecto). Una cadena: M_i de n_i a n_{i+1} con compuerta g_i (las
+    /// compuertas tienen nombre en los dos lados, como pines), en una grilla.
+    ///
+    /// `cargo test --release -p riku --lib escala -- --ignored --nocapture`
+    #[test]
+    #[ignore = "mide tiempos"]
+    fn escala() {
+        let n: usize = std::env::var("RIKU_BENCH_N").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
+        let pins = |i: usize| [format!("n{}", i + 1), format!("g{i}"), format!("n{i}"), "VSS".to_string()];
+        let place = |i: usize| ((i % 100) as f64 * 2.0, (i / 100) as f64 * 3.0);
+        let sch: Vec<SchDevice> =
+            (0..n).map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 }).collect();
+        let lay_at = |dx: f64, moved: &dyn Fn(usize) -> bool| -> Vec<LayDevice> {
+            (0..n)
+                .map(|i| {
+                    let (x, y) = place(i);
+                    let (x, y) = if moved(i) { (x + 0.5, y + 1.0) } else { (x + dx, y) };
+                    LayDevice { model: N.into(), at: (x, y), gate: [0.0; 4], cell: None, local: (x, y), w: 1.0, l: 0.5, pins: pins(i) }
+                })
+                .collect()
+        };
+        let lay = lay_at(0.0, &|_| false);
+        let time = |what: &str, f: &mut dyn FnMut() -> usize| {
+            let t = std::time::Instant::now();
+            let r = f();
+            eprintln!("[escala] n={n:<6} {what:<34} {:>9.3} s  ({r})", t.elapsed().as_secs_f64());
+        };
+        let mut map = MapFile::new("a.sch", "a.gds", None);
+        time("sugerir desde cero", &mut || {
+            map.binds = suggest(&MapFile::new("a.sch", "a.gds", None), &sch, &lay);
+            map.binds.len()
+        });
+        time("chequear todo vinculado", &mut || check(&map, &sch, &lay).bound.len());
+        let all_moved = lay_at(7.0, &|_| false);
+        time("chequear todo movido (rígido)", &mut || check(&map, &sch, &all_moved).moved.map_or(0, |m| m.count));
+        let some_moved = lay_at(0.0, &|i| i % 10 == 0);
+        time("chequear 10% movido suelto", &mut || check(&map, &sch, &some_moved).by_connectivity.len());
+    }
+
     #[test]
     fn el_archivo_ida_y_vuelta() {
         let m = full();
