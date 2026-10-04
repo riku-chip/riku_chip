@@ -29,7 +29,7 @@ fn print_cell(lib: &Library, cell: &Cell<'_>, rules: &devices::DeviceRules, unit
 fn magic(path: &Path, unit: &str) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let p = path.to_string_lossy();
-    let (lib, info) = mag::build(&mag::collect(&bytes, &p, None)?);
+    let (lib, info) = mag::build(&collect_with_folder(&bytes, path)?);
     let rules = devices::rules_for_library(&lib, Some(&p)).ok_or("sin reglas para este layout")?;
     let name = path.file_stem().unwrap_or_default().to_string_lossy();
     let cell = lib.find_cell(&name).ok_or_else(|| format!("sin celda {name}"))?;
@@ -81,4 +81,12 @@ fn main() -> ExitCode {
         print_cell(&lib, &cell, rules, &unit, None);
     }
     ExitCode::SUCCESS
+}
+
+/// Un `.mag` con su carpeta, para que encuentre las sub-celdas.
+fn collect_with_folder(bytes: &[u8], path: &std::path::Path) -> Result<gdstk_rs::magic::MagSources, String> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+    let folder = viewer_core::DiskFiles::new(dir);
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    riku_mod_layout::mag::collect(bytes, &name, Some(&folder))
 }

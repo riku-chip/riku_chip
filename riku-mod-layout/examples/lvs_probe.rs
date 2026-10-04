@@ -26,7 +26,8 @@ fn main() -> ExitCode {
     };
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let (lib, info, cell, names) = if path.ends_with(".mag") {
-        let (lib, info) = mag::build(&mag::collect(&bytes, &path, None).unwrap_or_else(|e| panic!("{path}: {e}")));
+        let (lib, info) =
+            mag::build(&collect_with_folder(&bytes, std::path::Path::new(&path)).unwrap_or_else(|e| panic!("{path}: {e}")));
         let cell = std::path::Path::new(&path).file_stem().unwrap_or_default().to_string_lossy().to_string();
         (lib, (!no_info).then_some(info), cell, &args[1..])
     } else {
@@ -91,4 +92,12 @@ fn main() -> ExitCode {
     } else {
         ExitCode::from(1)
     }
+}
+
+/// Un `.mag` con su carpeta, para que encuentre las sub-celdas.
+fn collect_with_folder(bytes: &[u8], path: &std::path::Path) -> Result<gdstk_rs::magic::MagSources, String> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+    let folder = viewer_core::DiskFiles::new(dir);
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    riku_mod_layout::mag::collect(bytes, &name, Some(&folder))
 }
