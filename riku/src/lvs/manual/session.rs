@@ -78,7 +78,7 @@ pub(super) const SIDES_VERSION: u32 = 1;
 /// esquemático. `None` si no se sabe el PDK (la extracción falla igual).
 pub(super) fn sides_env(schematic: &str) -> Option<String> {
     use std::hash::{Hash, Hasher};
-    let (pdk, dir) = super::pdk_of(schematic).ok()?;
+    let (pdk, dir) = crate::lvs::pdk_of(schematic).ok()?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (env!("CARGO_PKG_VERSION"), xschem_viewer::spice::VERSION, SIDES_VERSION, &pdk, &dir).hash(&mut h);
     for f in [".config/nodeinfo.json", "libs.tech/xschem/xschemrc"] {
@@ -92,28 +92,28 @@ pub(super) fn sides_env(schematic: &str) -> Option<String> {
 #[derive(Serialize, Deserialize)]
 pub(super) struct CacheEntry {
     env: String,
-    deps: super::cache::Deps,
+    deps: crate::lvs::cache::Deps,
     sides: Sides,
 }
 
 /// `<caché de LVS>/manual-v1/<par>`; `None` con `RIKU_NO_CACHE`.
 pub(super) fn sides_dir(pair: &crate::lvs::Pair) -> Option<std::path::PathBuf> {
-    Some(super::cache::cache_dir()?.join("manual-v1").join(super::cache::pair_key(pair)))
+    Some(crate::lvs::cache::cache_dir()?.join("manual-v1").join(crate::lvs::cache::pair_key(pair)))
 }
 
 /// Unas extracciones guardadas que valen para `v`.
-pub(super) fn lookup(pair: &crate::lvs::Pair, env: &str, v: &dyn super::cache::Version) -> Option<Sides> {
+pub(super) fn lookup(pair: &crate::lvs::Pair, env: &str, v: &dyn crate::lvs::cache::Version) -> Option<Sides> {
     let dir = sides_dir(pair)?;
     let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> =
         std::fs::read_dir(&dir).ok()?.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
     files.sort_by(|a, b| b.0.cmp(&a.0));
     files.into_iter().find_map(|(_, f)| {
         let entry: CacheEntry = serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()?;
-        (entry.env == env && super::cache::valid(&entry.deps, v)).then_some(entry.sides)
+        (entry.env == env && crate::lvs::cache::valid(&entry.deps, v)).then_some(entry.sides)
     })
 }
 
-pub(super) fn store(pair: &crate::lvs::Pair, env: &str, deps: super::cache::Deps, sides: &Sides) {
+pub(super) fn store(pair: &crate::lvs::Pair, env: &str, deps: crate::lvs::cache::Deps, sides: &Sides) {
     use std::hash::{Hash, Hasher};
     let Some(dir) = sides_dir(pair) else { return };
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -121,14 +121,14 @@ pub(super) fn store(pair: &crate::lvs::Pair, env: &str, deps: super::cache::Deps
     let entry = CacheEntry { env: env.to_string(), deps, sides: sides.clone() };
     if std::fs::create_dir_all(&dir).is_ok() {
         let _ = serde_json::to_string(&entry).map(|t| std::fs::write(dir.join(format!("{:016x}.json", h.finish())), t));
-        super::cache::prune(&dir);
+        crate::lvs::cache::prune(&dir);
     }
 }
 
 /// Las extracciones de `pair` en la versión `v`: de la caché si nada de lo
 /// que leyeron cambió; si no, se extraen de los archivos que da `tree` (y
 /// se guardan). `true` si vinieron de la caché.
-pub(super) fn sides(pair: &crate::lvs::Pair, v: &dyn super::cache::Version, tree: &dyn Fn() -> Result<crate::lvs::Tree, String>) -> Result<(Sides, bool), String> {
+pub(super) fn sides(pair: &crate::lvs::Pair, v: &dyn crate::lvs::cache::Version, tree: &dyn Fn() -> Result<crate::lvs::Tree, String>) -> Result<(Sides, bool), String> {
     use std::sync::Arc;
     let text = v
         .read(&pair.schematic)
@@ -139,7 +139,7 @@ pub(super) fn sides(pair: &crate::lvs::Pair, v: &dyn super::cache::Version, tree
         return Ok((found, true));
     }
     let t = tree()?;
-    let rec = Arc::new(super::cache::RecordingFiles::new(Arc::new(viewer_core::DiskFiles::new(t.root.clone()))));
+    let rec = Arc::new(crate::lvs::cache::RecordingFiles::new(Arc::new(viewer_core::DiskFiles::new(t.root.clone()))));
     let extracted = extract(pair, rec.clone())?;
     if let Some(e) = env {
         store(pair, &e, rec.deps(), &extracted);
@@ -152,7 +152,7 @@ pub(super) fn sides(pair: &crate::lvs::Pair, v: &dyn super::cache::Version, tree
 /// `disk` (la raíz del proyecto en el disco), se usa el de ahí: los
 /// vínculos de hoy sirven para revisar un commit anterior.
 pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std::path::Path>) -> Result<Session, String> {
-    let v = super::cache::DiskVersion { root: tree.root.clone() };
+    let v = crate::lvs::cache::DiskVersion { root: tree.root.clone() };
     let root = tree.root.clone();
     let (sides, cached) = sides(pair, &v, &|| Ok(crate::lvs::Tree::disk(&root)))?;
     session(sides, cached, pair, &v, disk)
@@ -163,14 +163,14 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
 pub fn load_commit(repo: &std::path::Path, rev: &str, pair: &crate::lvs::Pair, disk: Option<&std::path::Path>) -> Result<Session, String> {
     let git = git2::Repository::discover(repo).map_err(|e| e.message().to_string())?;
     let tree = git.revparse_single(rev).and_then(|o| o.peel_to_tree()).map_err(|_| tr!("git.commit_not_found", commit = rev))?;
-    let v = super::cache::CommitVersion { repo: &git, tree };
+    let v = crate::lvs::cache::CommitVersion { repo: &git, tree };
     let (sides, cached) = sides(pair, &v, &|| crate::lvs::Tree::commit(repo, rev))?;
     session(sides, cached, pair, &v, disk)
 }
 
 /// La sesión: las extracciones y el archivo de vínculos de esa versión (o
 /// el del disco).
-pub(super) fn session(sides: Sides, cached: bool, pair: &crate::lvs::Pair, v: &dyn super::cache::Version, disk: Option<&std::path::Path>) -> Result<Session, String> {
+pub(super) fn session(sides: Sides, cached: bool, pair: &crate::lvs::Pair, v: &dyn crate::lvs::cache::Version, disk: Option<&std::path::Path>) -> Result<Session, String> {
     let map_path = map_path(&sides.cell);
     let in_version = v.read(&map_path).and_then(|b| String::from_utf8(b).ok());
     let (text, from_disk) = match in_version {
