@@ -17,6 +17,7 @@ struct Demo {
 const DEMOS: &[Demo] = &[
     Demo { name: "ota", about: "demo.about.ota", bundle: include_bytes!("../../../examples/demos/ota.bundle") },
     Demo { name: "sram", about: "demo.about.sram", bundle: include_bytes!("../../../examples/demos/sram.bundle") },
+    Demo { name: "inversor", about: "demo.about.inversor", bundle: include_bytes!("../../../examples/demos/inversor.bundle") },
 ];
 
 /// `riku demo [nombre] [--dir DIR] [--list]`.
@@ -107,6 +108,10 @@ mod tests {
         assert!(git(Some(&ota), &["remote"]).unwrap().trim().is_empty(), "sin el remoto temporal");
         assert!(git(Some(&ota), &["tag"]).unwrap().contains("v1.0"));
         assert!(dir.join("sram/sram_16x8_sky130.gds").exists());
+        let inv = dir.join("inversor");
+        assert!(inv.join("layout/inv.mag").exists() && inv.join("xschem/inv.sch").exists());
+        let inv_branches = git(Some(&inv), &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(inv_branches.lines().any(|b| b == "longer-nmos"), "{inv_branches}");
         // Otra vez: no pisa lo que existe.
         run(Some("ota".into()), Some(dir.clone()), false).expect("otra vez");
         assert!(run(Some("nada".into()), Some(dir.clone()), false).is_err());

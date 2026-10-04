@@ -188,6 +188,7 @@ help.examples_demo: "Examples:
   cd ~/riku-demos/ota && riku log --graph"
 demo.about.ota: "5-transistor OTA (SKY130): schematic, layout and simulation; 11 commits, a branch and a short"
 demo.about.sram: "16×8 OpenRAM SRAM (SKY130): sub-cell changes, a rename and fill; 7 commits and a branch"
+demo.about.inversor: "5 V inverter in Magic and Xschem (SKY130): layers by name, a transistor in its sub-cell, ports, an open and the LVS; 11 commits and a branch"
 demo.unknown: "There is no example project \"%{name}\". Available: %{names}"
 demo.no_home: "Unknown home folder ($HOME): choose where with --dir"
 demo.exists: "%{path} already exists: left untouched"
