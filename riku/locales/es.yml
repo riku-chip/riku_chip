@@ -654,3 +654,4 @@ lvs.status_new: "aparecieron discrepancias nuevas en el LVS, aunque el veredicto
 help.log_lvs: "Agrega el LVS de cada par en cada commit (con Netgen): el veredicto, si empeoró o mejoró respecto del primer padre y qué discrepancias aparecieron, se arreglaron o cambiaron. Usa la caché del LVS."
 help.status_lvs: "Agrega el LVS del working tree contra HEAD. El código de salida pasa a ser el del LVS: 0 igual o mejor, 1 empeoró, 2 error."
 lvs.not_built: "este riku se compiló sin los módulos de Xschem y layouts: no tiene LVS"
+lvs.ambiguous: "%{schematic}: se eligió %{layout} (también hay %{others}); se puede fijar con [[lvs]] en .riku.toml"

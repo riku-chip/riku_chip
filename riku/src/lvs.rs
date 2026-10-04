@@ -231,8 +231,15 @@ impl Tree {
 /// esquemático de Xschem con el layout de igual nombre (`.gds`, `.oas` o
 /// `.mag`, en ese orden si hay más de uno).
 pub fn pairs(root: &Path, configured: &[Pair]) -> Vec<Pair> {
+    pairs_checked(root, configured).0
+}
+
+/// Como [`pairs`], con un aviso por cada esquemático cuyo nombre coincide
+/// con varios layouts (`amp.gds` y `amp.mag`): se elige uno, y conviene
+/// fijarlo en `.riku.toml`.
+pub fn pairs_checked(root: &Path, configured: &[Pair]) -> (Vec<Pair>, Vec<String>) {
     if !configured.is_empty() {
-        return configured.to_vec();
+        return (configured.to_vec(), Vec::new());
     }
     let mut sch: Vec<String> = Vec::new();
     let mut layouts: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -247,14 +254,18 @@ pub fn pairs(root: &Path, configured: &[Pair]) -> Vec<Pair> {
     });
     let rank = |p: &str| ["gds", "oas", "mag"].iter().position(|e| p.to_ascii_lowercase().ends_with(e)).unwrap_or(9);
     sch.sort();
-    sch.into_iter()
-        .filter(|s| std::fs::read(root.join(s)).is_ok_and(|b| crate::modules::xschem::is_xschem(&b)))
-        .filter_map(|s| {
-            let stem = Path::new(&s).file_stem()?.to_string_lossy().to_string();
-            let layout = layouts.get(&stem)?.iter().min_by_key(|l| (rank(l), (*l).clone()))?.clone();
-            Some(Pair { schematic: s, layout, cell: None })
-        })
-        .collect()
+    let (mut out, mut warnings) = (Vec::new(), Vec::new());
+    for s in sch.into_iter().filter(|s| std::fs::read(root.join(s)).is_ok_and(|b| crate::modules::xschem::is_xschem(&b))) {
+        let Some(stem) = Path::new(&s).file_stem().map(|x| x.to_string_lossy().to_string()) else { continue };
+        let Some(candidates) = layouts.get(&stem) else { continue };
+        let Some(layout) = candidates.iter().min_by_key(|l| (rank(l), (*l).clone())).cloned() else { continue };
+        if candidates.len() > 1 {
+            let others: Vec<&str> = candidates.iter().filter(|c| **c != layout).map(String::as_str).collect();
+            warnings.push(tr!("lvs.ambiguous", schematic = s, layout = layout, others = others.join(", ")));
+        }
+        out.push(Pair { schematic: s, layout, cell: None });
+    }
+    (out, warnings)
 }
 
 /// El par al que pertenece `file` (su esquemático o su layout) y la raíz del
@@ -876,11 +887,13 @@ LVS Done.
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, body).unwrap();
         }
-        let got = pairs(&dir, &[]);
+        let (got, warnings) = pairs_checked(&dir, &[]);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(got, vec![Pair { schematic: "xschem/ota.sch".into(), layout: "layout/ota.gds".into(), cell: None }]);
+        assert_eq!(warnings.len(), 1, "ota.gds y ota.mag: se avisa cuál se eligió");
+        assert!(warnings[0].contains("layout/ota.gds") && warnings[0].contains("layout/ota.mag"), "{warnings:?}");
         let cfg = vec![Pair { schematic: "a.sch".into(), layout: "b.mag".into(), cell: Some("c".into()) }];
-        assert_eq!(pairs(Path::new("."), &cfg), cfg);
+        assert_eq!(pairs_checked(Path::new("."), &cfg), (cfg, Vec::new()), "configurado: sin avisos");
     }
 
     #[test]

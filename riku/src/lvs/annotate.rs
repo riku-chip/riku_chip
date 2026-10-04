@@ -14,15 +14,17 @@ use crate::core::path_matcher::PathMatcher;
 use crate::i18n::tr;
 
 /// Los pares del proyecto en `root` (los de `.riku.toml` o, si no hay, por
-/// nombre) que tocan alguno de `paths` (globs; vacío: todos).
-pub fn project_pairs(root: &Path, paths: &[String]) -> Result<Vec<Pair>, String> {
+/// nombre) que tocan alguno de `paths` (globs; vacío: todos), y los avisos de
+/// emparejamiento ([`super::pairs_checked`]).
+pub fn project_pairs(root: &Path, paths: &[String]) -> Result<(Vec<Pair>, Vec<String>), String> {
     let configured: Vec<Pair> = crate::core::config::load(Some(root))?
         .lvs
         .into_iter()
         .map(|c| Pair { schematic: c.schematic, layout: c.layout, cell: c.cell })
         .collect();
     let m = PathMatcher::new(paths);
-    Ok(super::pairs(root, &configured).into_iter().filter(|p| m.matches(&p.schematic) || m.matches(&p.layout)).collect())
+    let (found, warnings) = super::pairs_checked(root, &configured);
+    Ok((found.into_iter().filter(|p| m.matches(&p.schematic) || m.matches(&p.layout)).collect(), warnings))
 }
 
 fn state(r: &StepResult) -> LvsState {
@@ -101,7 +103,10 @@ pub fn annotate_log(report: &mut LogReport, repo_path: &Path, paths: &[String], 
         }
     };
     let pairs = match project_pairs(&workdir(&repo, repo_path), paths) {
-        Ok(p) if !p.is_empty() => p,
+        Ok((p, warnings)) if !p.is_empty() => {
+            report.warnings.extend(warnings);
+            p
+        }
         Ok(_) => {
             report.warnings.push(tr!("lvs.unavailable", error = tr!("lvs.none_found")));
             return 0;
@@ -146,7 +151,8 @@ pub fn annotate_status(
 ) -> Result<usize, String> {
     let repo = git2::Repository::discover(repo_path).map_err(|e| e.message().to_string())?;
     let root = workdir(&repo, repo_path);
-    let pairs = project_pairs(&root, paths)?;
+    let (pairs, warnings) = project_pairs(&root, paths)?;
+    report.warnings.extend(warnings);
     if pairs.is_empty() {
         report.warnings.push(tr!("lvs.unavailable", error = tr!("lvs.none_found")));
         return Ok(0);

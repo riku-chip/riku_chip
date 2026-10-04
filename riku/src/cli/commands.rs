@@ -541,8 +541,11 @@ pub(super) fn run_lvs(
         None => Tree::disk(&root),
         Some(r) => Tree::commit(&repo, r)?,
     };
-    let pairs: Vec<Pair> =
-        lvs::pairs(&tree.root, &configured).into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect();
+    let (found, ambiguous) = lvs::pairs_checked(&tree.root, &configured);
+    for w in &ambiguous {
+        eprintln!("[!] {w}");
+    }
+    let pairs: Vec<Pair> = found.into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect();
     if pairs.is_empty() {
         return Err(tr!("lvs.none_found"));
     }
@@ -700,7 +703,11 @@ pub(super) fn run_lvs_log(
     // Los pares se buscan en el commit de partida.
     let pairs: Vec<Pair> = {
         let tree = Tree::commit(&repo, from)?;
-        lvs::pairs(&tree.root, &configured).into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect()
+        let (found, ambiguous) = lvs::pairs_checked(&tree.root, &configured);
+        for w in &ambiguous {
+            eprintln!("[!] {w}");
+        }
+        found.into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect()
     };
     if pairs.is_empty() {
         return Err(tr!("lvs.none_found"));
