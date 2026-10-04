@@ -381,7 +381,8 @@ impl LvsState {
     /// del layout), y encuadrarlo en los dos lados.
     fn select_device(&mut self, name: &str, frame: bool) {
         self.sel_sch = Some(name.to_string());
-        self.sel_lay = self.check.as_ref().and_then(|c| c.bound.iter().find(|(n, _)| n == name)).map(|(_, f)| f.clone()).unwrap_or_default();
+        self.sel_lay =
+            self.check.as_ref().and_then(|c| c.bound.iter().find(|(n, _)| n == name)).map(|(_, f)| f.clone()).unwrap_or_default();
         self.refresh_tags();
         if !frame {
             return;
@@ -417,7 +418,9 @@ impl LvsState {
                 let bound = self.check.as_ref().and_then(|c| c.bound.iter().find(|(b, _)| *b == n)).map(|(_, f)| f.clone());
                 match bound {
                     Some(f) => self.sel_lay = f,
-                    None => self.sel_lay.retain(|i| !self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(_, f)| f.contains(i)))),
+                    None => {
+                        self.sel_lay.retain(|i| !self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(_, f)| f.contains(i))))
+                    }
                 }
                 self.sel_sch = Some(n);
             }
@@ -433,7 +436,9 @@ impl LvsState {
         let Some(s) = self.session() else { return };
         let k = 1.0 / s.unit_um;
         let pad = 0.05 * k;
-        let hit = s.layout.iter().position(|d| x >= d.gate[0] * k - pad && x <= d.gate[2] * k + pad && y >= d.gate[1] * k - pad && y <= d.gate[3] * k + pad);
+        let hit = s.layout.iter().position(|d| {
+            x >= d.gate[0] * k - pad && x <= d.gate[2] * k + pad && y >= d.gate[1] * k - pad && y <= d.gate[3] * k + pad
+        });
         let Some(i) = hit else { return };
         let owner = self.check.as_ref().and_then(|c| c.bound.iter().find(|(_, f)| f.contains(&i))).cloned();
         if add {
@@ -450,7 +455,8 @@ impl LvsState {
             self.sel_lay = fingers;
         } else {
             self.sel_lay = vec![i];
-            let sch_bound = self.sel_sch.as_ref().is_some_and(|n| self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(b, _)| b == n)));
+            let sch_bound =
+                self.sel_sch.as_ref().is_some_and(|n| self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(b, _)| b == n)));
             if sch_bound {
                 self.sel_sch = None;
             }
@@ -629,7 +635,13 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
     let file = if s.exists { s.map_path.clone() } else { tr!("lvs_view.map_new", file = s.map_path) };
     ui.label(RichText::new(file).weak().small());
     let fingers: usize = c.bound.iter().map(|(_, f)| f.len()).sum();
-    ui.label(tr!("lvs_map.progress", sch = c.bound.len(), sch_total = s.schematic.len(), lay = fingers, lay_total = s.layout.len()));
+    ui.label(tr!(
+        "lvs_map.progress",
+        sch = c.bound.len(),
+        sch_total = s.schematic.len(),
+        lay = fingers,
+        lay_total = s.layout.len()
+    ));
     let (verdict, color) = if c.complete() {
         (tr!("lvs_map.clean"), BOUND)
     } else if c.clean() {
@@ -640,7 +652,17 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
     ui.label(RichText::new(verdict).color(color).strong());
     if let Some(m) = c.moved {
         let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
-        ui.label(RichText::new(tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = format!("{:.3}", m.dx), dy = format!("{:.3}", m.dy), count = m.count)).small());
+        ui.label(
+            RichText::new(tr!(
+                "lvs_map.moved",
+                angle = (m.orient % 4) as u32 * 90,
+                mirror = mirror,
+                dx = format!("{:.3}", m.dx),
+                dy = format!("{:.3}", m.dy),
+                count = m.count
+            ))
+            .small(),
+        );
     }
     if !c.by_cell.is_empty() {
         ui.label(RichText::new(tr!("lvs_map.by_cell", names = c.by_cell.join(", "))).small());
@@ -662,7 +684,8 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
             ui.label(tr!("lvs_view.sel_lay", count = st.sel_lay.len(), w = fmt_um(w_lay)));
         }
     });
-    let bound_sel = st.sel_sch.as_ref().is_some_and(|n| c.bound.iter().any(|(b, _)| b == n) || c.lost.iter().any(|(b, _)| b == n));
+    let bound_sel =
+        st.sel_sch.as_ref().is_some_and(|n| c.bound.iter().any(|(b, _)| b == n) || c.lost.iter().any(|(b, _)| b == n));
     let mut action = None;
     ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(st.sel_sch.is_some() && !st.sel_lay.is_empty(), egui::Button::new(tr!("lvs_view.bind"))).clicked() {
@@ -675,7 +698,11 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
             action = Some(Action::Suggest);
         }
         let moved = c.moved.is_some() || !c.by_connectivity.is_empty() || !c.by_cell.is_empty();
-        if ui.add_enabled(moved, egui::Button::new(tr!("lvs_view.save_positions"))).on_hover_text(tr!("help.lvs_update")).clicked() {
+        if ui
+            .add_enabled(moved, egui::Button::new(tr!("lvs_view.save_positions")))
+            .on_hover_text(tr!("help.lvs_update"))
+            .clicked()
+        {
             action = Some(Action::SavePositions);
         }
     });
@@ -707,21 +734,41 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
                 }
             }
         };
-        section(ui, tr!("lvs_view.shorts"), c.shorts.iter().map(|(n, ns)| (None, tr!("lvs_map.short", net = n, nets = ns.join(", ")))).collect());
-        section(ui, tr!("lvs_view.opens"), c.opens.iter().map(|(n, ns)| (None, tr!("lvs_map.open", net = n, nets = ns.join(", ")))).collect());
-        section(ui, tr!("lvs_view.params"), c.params.iter().chain(c.models.iter()).map(|(d, w)| (Some(d.clone()), format!("{d}: {w}"))).collect());
+        section(
+            ui,
+            tr!("lvs_view.shorts"),
+            c.shorts.iter().map(|(n, ns)| (None, tr!("lvs_map.short", net = n, nets = ns.join(", ")))).collect(),
+        );
+        section(
+            ui,
+            tr!("lvs_view.opens"),
+            c.opens.iter().map(|(n, ns)| (None, tr!("lvs_map.open", net = n, nets = ns.join(", ")))).collect(),
+        );
+        section(
+            ui,
+            tr!("lvs_view.params"),
+            c.params.iter().chain(c.models.iter()).map(|(d, w)| (Some(d.clone()), format!("{d}: {w}"))).collect(),
+        );
         section(ui, tr!("lvs_view.pins"), c.pins.iter().map(|(p, w)| (None, tr!("lvs_map.pin", pin = p, what = w))).collect());
         if c.moved_ambiguous {
             section(ui, tr!("lvs_view.moved"), vec![(None, tr!("lvs_map.moved_ambiguous"))]);
         }
-        section(ui, tr!("lvs_view.lost"), c.lost.iter().map(|(d, r)| (Some(d.clone()), format!("{d}: {} ({:.3}, {:.3})", r.model, r.at[0], r.at[1]))).collect());
+        section(
+            ui,
+            tr!("lvs_view.lost"),
+            c.lost.iter().map(|(d, r)| (Some(d.clone()), format!("{d}: {} ({:.3}, {:.3})", r.model, r.at[0], r.at[1]))).collect(),
+        );
         section(ui, tr!("lvs_view.unbound"), c.unbound_schematic.iter().map(|d| (Some(d.clone()), d.clone())).collect());
         if !c.unbound_layout.is_empty() {
             ui.add_space(space::XS);
             ui.label(RichText::new(tr!("lvs_view.unbound_layout", count = c.unbound_layout.len())).strong());
         }
         section(ui, tr!("lvs_view.unchecked"), c.unchecked.iter().map(|u| (None, u.clone())).collect());
-        section(ui, tr!("lvs_view.bound"), c.bound.iter().map(|(d, f)| (Some(d.clone()), tr!("lvs_view.bound_row", name = d, count = f.len()))).collect());
+        section(
+            ui,
+            tr!("lvs_view.bound"),
+            c.bound.iter().map(|(d, f)| (Some(d.clone()), tr!("lvs_view.bound_row", name = d, count = f.len()))).collect(),
+        );
     });
     if let Some(a) = action {
         st.act(a);

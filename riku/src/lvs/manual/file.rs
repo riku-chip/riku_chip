@@ -1,8 +1,8 @@
 //! El archivo de vínculos (`lvs/<celda>.toml`): leerlo, escribirlo y su formato.
 
 use super::*;
-use serde::{Deserialize, Serialize};
 use crate::i18n::tr;
+use serde::{Deserialize, Serialize};
 
 /// El archivo de vínculos de un par.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -41,13 +41,24 @@ impl LayoutRef {
     /// La referencia a un transistor del layout tal como está ahora.
     pub fn of(d: &LayDevice) -> Self {
         let sub = d.cell.is_some();
-        LayoutRef { model: d.model.clone(), at: [d.at.0, d.at.1], cell: d.cell.clone(), local: sub.then_some([d.local.0, d.local.1]) }
+        LayoutRef {
+            model: d.model.clone(),
+            at: [d.at.0, d.at.1],
+            cell: d.cell.clone(),
+            local: sub.then_some([d.local.0, d.local.1]),
+        }
     }
 }
 
 impl MapFile {
     pub fn new(schematic: &str, layout: &str, cell: Option<&str>) -> Self {
-        MapFile { schema: SCHEMA.into(), schematic: schematic.into(), layout: layout.into(), cell: cell.map(str::to_string), binds: Vec::new() }
+        MapFile {
+            schema: SCHEMA.into(),
+            schematic: schematic.into(),
+            layout: layout.into(),
+            cell: cell.map(str::to_string),
+            binds: Vec::new(),
+        }
     }
 
     pub fn parse(text: &str) -> Result<Self, String> {

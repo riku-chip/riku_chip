@@ -386,7 +386,12 @@ pub fn owner_of(lib: &Library, cell: &Cell<'_>, at: (f64, f64)) -> Owner {
 
 /// [`LayoutNetlist`] de `cell` (por defecto, la top) del layout `bytes` (ver
 /// [`layout_spice`]).
-pub fn layout_netlist(bytes: &[u8], path: &str, files: Option<&dyn viewer_core::FileSource>, cell: Option<&str>) -> Result<LayoutNetlist, String> {
+pub fn layout_netlist(
+    bytes: &[u8],
+    path: &str,
+    files: Option<&dyn viewer_core::FileSource>,
+    cell: Option<&str>,
+) -> Result<LayoutNetlist, String> {
     use crate::source::ReadError;
     let message = |e: ReadError| match e {
         ReadError::NotLayout => format!("{path}: no es un layout GDSII, OASIS ni Magic"),

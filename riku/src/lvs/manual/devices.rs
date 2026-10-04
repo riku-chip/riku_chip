@@ -1,7 +1,7 @@
 //! Los transistores de cada lado: los del esquemático (de su netlist SPICE, aplanada) y los del layout (de su extracción).
 
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// Un transistor del esquemático: su instancia, modelo, redes (drenaje,
 /// compuerta, fuente, cuerpo) y parámetros (µm).
@@ -72,7 +72,8 @@ pub(super) fn subckts(spice: &str) -> (HashMap<String, Subckt>, HashSet<String>)
         let toks: Vec<&str> = l.split_whitespace().collect();
         if low.starts_with(".subckt") && toks.len() >= 2 {
             let ports = toks[2..].iter().filter(|t| !t.contains('=')).map(|t| t.to_string()).collect();
-            let params = toks[2..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_string(), b.to_string())).collect();
+            let params =
+                toks[2..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_string(), b.to_string())).collect();
             current = Some((toks[1].to_string(), Subckt { ports, params, lines: Vec::new() }));
         } else if low.starts_with(".ends") {
             if let Some((name, sub)) = current.take() {
@@ -141,7 +142,8 @@ pub(super) fn walk(
         let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
         let name = format!("{prefix}{}", local_name(first));
         if is_transistor(&toks) {
-            let p: HashMap<String, String> = toks[k..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_ascii_lowercase(), value(b))).collect();
+            let p: HashMap<String, String> =
+                toks[k..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_ascii_lowercase(), value(b))).collect();
             let num = |key: &str| p.get(key).and_then(|v| microns(v));
             devices.push(SchDevice {
                 name,
@@ -158,7 +160,8 @@ pub(super) fn walk(
         let sub = model.filter(|_| matches!(first.chars().next(), Some('X' | 'x'))).and_then(|m| all.get(m));
         match sub {
             Some(sub) if depth < 32 && sub.ports.len() == k - 2 => {
-                let inner: HashMap<String, String> = sub.ports.iter().cloned().zip(toks[1..k - 1].iter().map(|n| net(n))).collect();
+                let inner: HashMap<String, String> =
+                    sub.ports.iter().cloned().zip(toks[1..k - 1].iter().map(|n| net(n))).collect();
                 let mut p = sub.params.clone();
                 for (a, b) in toks[k..].iter().filter_map(|t| t.split_once('=')) {
                     p.insert(a.to_string(), value(b));
@@ -206,7 +209,11 @@ pub fn layout_devices(n: &riku_mod_layout::nets::LayoutNetlist) -> Vec<LayDevice
             for q in &d.gate.points {
                 (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
             }
-            let (at, gate) = if x0.is_finite() { (((x0 + x1) / 2.0, (y0 + y1) / 2.0), [x0, y0, x1, y1]) } else { (d.at, [d.at.0, d.at.1, d.at.0, d.at.1]) };
+            let (at, gate) = if x0.is_finite() {
+                (((x0 + x1) / 2.0, (y0 + y1) / 2.0), [x0, y0, x1, y1])
+            } else {
+                (d.at, [d.at.0, d.at.1, d.at.0, d.at.1])
+            };
             (d, t, at, gate)
         })
         .zip(&n.owners)

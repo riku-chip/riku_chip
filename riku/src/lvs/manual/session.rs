@@ -1,9 +1,9 @@
 //! Un par en una versión (el disco o un commit): las extracciones con su caché, el archivo de vínculos, el historial y el JSON.
 
 use super::*;
-use std::collections::{BTreeMap};
-use serde::{Deserialize, Serialize};
 use crate::i18n::tr;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// El archivo de vínculos de una celda, relativo a la raíz del proyecto.
 pub fn map_path(cell: &str) -> String {
@@ -67,7 +67,17 @@ pub(super) fn extract(pair: &crate::lvs::Pair, files: std::sync::Arc<dyn viewer_
     }
     let mut warnings: Vec<String> = s.netlist.warnings.clone();
     warnings.extend(ln.netlist.warnings.iter().cloned());
-    Ok(Sides { cell: ln.cell, schematic, layout, sch_ports, lay_ports, unchecked, unit_um: ln.unit_um, boxes: places.instances.clone(), warnings })
+    Ok(Sides {
+        cell: ln.cell,
+        schematic,
+        layout,
+        sch_ports,
+        lay_ports,
+        unchecked,
+        unit_um: ln.unit_um,
+        boxes: places.instances.clone(),
+        warnings,
+    })
 }
 
 /// Cambia cuando cambia lo que guarda [`Sides`] o cómo se extrae.
@@ -128,7 +138,11 @@ pub(super) fn store(pair: &crate::lvs::Pair, env: &str, deps: crate::lvs::cache:
 /// Las extracciones de `pair` en la versión `v`: de la caché si nada de lo
 /// que leyeron cambió; si no, se extraen de los archivos que da `tree` (y
 /// se guardan). `true` si vinieron de la caché.
-pub(super) fn sides(pair: &crate::lvs::Pair, v: &dyn crate::lvs::cache::Version, tree: &dyn Fn() -> Result<crate::lvs::Tree, String>) -> Result<(Sides, bool), String> {
+pub(super) fn sides(
+    pair: &crate::lvs::Pair,
+    v: &dyn crate::lvs::cache::Version,
+    tree: &dyn Fn() -> Result<crate::lvs::Tree, String>,
+) -> Result<(Sides, bool), String> {
     use std::sync::Arc;
     let text = v
         .read(&pair.schematic)
@@ -160,7 +174,12 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
 
 /// [`Session`] de `pair` en el commit `rev`. Si la caché vale (se comprueba
 /// leyendo de Git), no se escribe el commit a ningún lado.
-pub fn load_commit(repo: &std::path::Path, rev: &str, pair: &crate::lvs::Pair, disk: Option<&std::path::Path>) -> Result<Session, String> {
+pub fn load_commit(
+    repo: &std::path::Path,
+    rev: &str,
+    pair: &crate::lvs::Pair,
+    disk: Option<&std::path::Path>,
+) -> Result<Session, String> {
     let git = git2::Repository::discover(repo).map_err(|e| e.message().to_string())?;
     let tree = git.revparse_single(rev).and_then(|o| o.peel_to_tree()).map_err(|_| tr!("git.commit_not_found", commit = rev))?;
     let v = crate::lvs::cache::CommitVersion { repo: &git, tree };
@@ -170,7 +189,13 @@ pub fn load_commit(repo: &std::path::Path, rev: &str, pair: &crate::lvs::Pair, d
 
 /// La sesión: las extracciones y el archivo de vínculos de esa versión (o
 /// el del disco).
-pub(super) fn session(sides: Sides, cached: bool, pair: &crate::lvs::Pair, v: &dyn crate::lvs::cache::Version, disk: Option<&std::path::Path>) -> Result<Session, String> {
+pub(super) fn session(
+    sides: Sides,
+    cached: bool,
+    pair: &crate::lvs::Pair,
+    v: &dyn crate::lvs::cache::Version,
+    disk: Option<&std::path::Path>,
+) -> Result<Session, String> {
     let map_path = map_path(&sides.cell);
     let in_version = v.read(&map_path).and_then(|b| String::from_utf8(b).ok());
     let (text, from_disk) = match in_version {
@@ -185,7 +210,22 @@ pub(super) fn session(sides: Sides, cached: bool, pair: &crate::lvs::Pair, v: &d
         None => (MapFile::new(&pair.schematic, &pair.layout, pair.cell.as_deref()), false),
     };
     let Sides { cell, schematic, layout, sch_ports, lay_ports, unchecked, unit_um, boxes, warnings } = sides;
-    Ok(Session { cell, map_path, map, exists, from_disk, cached, schematic, layout, warnings, unit_um, boxes, sch_ports, lay_ports, unchecked })
+    Ok(Session {
+        cell,
+        map_path,
+        map,
+        exists,
+        from_disk,
+        cached,
+        schematic,
+        layout,
+        warnings,
+        unit_um,
+        boxes,
+        sch_ports,
+        lay_ports,
+        unchecked,
+    })
 }
 
 /// Todo lo que se deduce de una sesión: [`check`] más los pines y lo que no
@@ -202,7 +242,9 @@ pub fn check_session(s: &Session) -> Check {
 /// en otro vínculo) se reemplaza.
 pub fn bind(map: &mut MapFile, schematic: &str, fingers: &[usize], lay: &[LayDevice]) {
     let refs: Vec<LayoutRef> = fingers.iter().map(|&i| LayoutRef::of(&lay[i])).collect();
-    let taken = |r: &LayoutRef| refs.iter().any(|n| same_model(&n.model, &r.model) && (n.at[0] - r.at[0]).hypot(n.at[1] - r.at[1]) <= TOL);
+    let taken = |r: &LayoutRef| {
+        refs.iter().any(|n| same_model(&n.model, &r.model) && (n.at[0] - r.at[0]).hypot(n.at[1] - r.at[1]) <= TOL)
+    };
     map.binds.retain(|b| b.schematic != schematic);
     for b in &mut map.binds {
         b.layout.retain(|r| !taken(r));
@@ -300,10 +342,16 @@ pub const CHECK_SCHEMA: &str = "riku-lvs-check/v1";
 /// (modelo y posición).
 pub fn check_json(c: &Check, s: &Session) -> serde_json::Value {
     let refs = |idx: &[usize]| -> Vec<serde_json::Value> {
-        idx.iter().map(|&i| serde_json::json!({ "model": s.layout[i].model, "at": [s.layout[i].at.0, s.layout[i].at.1] })).collect()
+        idx.iter()
+            .map(|&i| serde_json::json!({ "model": s.layout[i].model, "at": [s.layout[i].at.0, s.layout[i].at.1] }))
+            .collect()
     };
-    let pairs = |v: &[(String, String)]| -> Vec<serde_json::Value> { v.iter().map(|(d, w)| serde_json::json!({ "device": d, "what": w })).collect() };
-    let groups = |v: &[(String, Vec<String>)]| -> Vec<serde_json::Value> { v.iter().map(|(n, ns)| serde_json::json!({ "net": n, "nets": ns })).collect() };
+    let pairs = |v: &[(String, String)]| -> Vec<serde_json::Value> {
+        v.iter().map(|(d, w)| serde_json::json!({ "device": d, "what": w })).collect()
+    };
+    let groups = |v: &[(String, Vec<String>)]| -> Vec<serde_json::Value> {
+        v.iter().map(|(n, ns)| serde_json::json!({ "net": n, "nets": ns })).collect()
+    };
     serde_json::json!({
         "cell": s.cell,
         "map": s.map_path,

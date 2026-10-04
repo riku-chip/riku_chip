@@ -634,7 +634,11 @@ pub(super) fn run_lvs_map(
                 if json {
                     items.push(serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "error": e }));
                 } else {
-                    println!("{}\n  {}\n", tr!("lvs_map.title", schematic = p.schematic, layout = p.layout, cell = "?", version = version), tr!("lvs.error", error = e));
+                    println!(
+                        "{}\n  {}\n",
+                        tr!("lvs_map.title", schematic = p.schematic, layout = p.layout, cell = "?", version = version),
+                        tr!("lvs.error", error = e)
+                    );
                 }
                 continue;
             }
@@ -667,7 +671,10 @@ pub(super) fn run_lvs_map(
         }
     }
     if json {
-        super::format::print_enveloped(&serde_json::json!({ "schema": manual::CHECK_SCHEMA, "version": version, "results": items }), true)?;
+        super::format::print_enveloped(
+            &serde_json::json!({ "schema": manual::CHECK_SCHEMA, "version": version, "results": items }),
+            true,
+        )?;
     }
     Ok(if failed {
         Outcome::Failed
@@ -704,7 +711,8 @@ pub(super) fn run_lvs_map_log(
     }
     // Los commits, del más nuevo al más viejo, por el primer padre.
     let git = git2::Repository::discover(&repo).map_err(|e| e.message().to_string())?;
-    let mut commit = git.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
+    let mut commit =
+        git.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
     let mut commits = Vec::new();
     loop {
         let summary = String::from_utf8_lossy(commit.summary_bytes().unwrap_or_default()).to_string();
@@ -756,17 +764,32 @@ pub(super) fn run_lvs_map_log(
                 serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "steps": steps })
             })
             .collect();
-        super::format::print_enveloped(&serde_json::json!({ "schema": "riku-lvs-map-log/v1", "from": from, "results": items }), true)?;
+        super::format::print_enveloped(
+            &serde_json::json!({ "schema": "riku-lvs-map-log/v1", "from": from, "results": items }),
+            true,
+        )?;
     } else {
         for (pi, p) in pairs.iter().enumerate() {
-            println!("{}", tr!("lvs_map.log_title", schematic = p.schematic, layout = p.layout, count = commits.len(), from = from));
+            println!(
+                "{}",
+                tr!("lvs_map.log_title", schematic = p.schematic, layout = p.layout, count = commits.len(), from = from)
+            );
             for (ci, (sha, time, summary)) in commits.iter().enumerate() {
                 let when = crate::text::format_timestamp(*time);
                 let short: String = summary.chars().take(40).collect();
                 let state = match &rows[ci][pi] {
                     Ok(s) if s.clean && s.unchecked == 0 => tr!("lvs_map.log_clean", bound = s.bound, total = s.total),
-                    Ok(s) if s.clean => tr!("lvs_map.log_clean_partial", bound = s.bound, total = s.total, unchecked = s.unchecked),
-                    Ok(s) => tr!("lvs_map.log_state", bound = s.bound, total = s.total, diffs = s.differences, shorts = s.shorts, opens = s.opens),
+                    Ok(s) if s.clean => {
+                        tr!("lvs_map.log_clean_partial", bound = s.bound, total = s.total, unchecked = s.unchecked)
+                    }
+                    Ok(s) => tr!(
+                        "lvs_map.log_state",
+                        bound = s.bound,
+                        total = s.total,
+                        diffs = s.differences,
+                        shorts = s.shorts,
+                        opens = s.opens
+                    ),
                     Err(e) => tr!("lvs.state_error", error = e.lines().next().unwrap_or_default()),
                 };
                 let notes: Vec<String> = marks(pi, ci)
@@ -793,7 +816,13 @@ pub(super) fn run_lvs_map_log(
 
 /// Un resultado de `riku lvs --map` en texto.
 #[cfg(all(feature = "xschem", feature = "layout"))]
-fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crate::lvs::manual::Check, version: &str, notes: &[String]) {
+fn print_lvs_map(
+    p: &crate::lvs::Pair,
+    s: &crate::lvs::manual::Session,
+    c: &crate::lvs::manual::Check,
+    version: &str,
+    notes: &[String],
+) {
     println!("{}", tr!("lvs_map.title", schematic = p.schematic, layout = p.layout, cell = s.cell, version = version));
     for n in notes {
         println!("  {n}");
@@ -811,7 +840,10 @@ fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crat
     if let Some(m) = c.moved {
         let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
         let (dx, dy) = (format!("{:.3}", m.dx), format!("{:.3}", m.dy));
-        println!("  {}", tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = dx, dy = dy, count = m.count));
+        println!(
+            "  {}",
+            tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = dx, dy = dy, count = m.count)
+        );
     }
     if !c.by_cell.is_empty() {
         println!("  {}", tr!("lvs_map.by_cell", names = c.by_cell.join(", ")));

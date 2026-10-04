@@ -13,7 +13,8 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
     let mut used: HashSet<usize> = c.bound.iter().flat_map(|(_, f)| f.iter().copied()).collect();
     let mut done: HashSet<String> = c.bound.iter().map(|(n, _)| n.clone()).chain(c.lost.iter().map(|(n, _)| n.clone())).collect();
     let by_name: HashMap<&str, &SchDevice> = sch.iter().map(|d| (d.name.as_str(), d)).collect();
-    let mut pairs: Vec<(&SchDevice, Vec<usize>)> = c.bound.iter().filter_map(|(n, f)| Some((*by_name.get(n.as_str())?, f.clone()))).collect();
+    let mut pairs: Vec<(&SchDevice, Vec<usize>)> =
+        c.bound.iter().filter_map(|(n, f)| Some((*by_name.get(n.as_str())?, f.clone()))).collect();
 
     // Semillas: las redes con nombre en los dos lados.
     let lay_names: HashSet<&str> = lay.iter().flat_map(|d| d.pins.iter().map(String::as_str)).collect();
@@ -30,7 +31,11 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
     for (i, d) in lay.iter().enumerate().filter(|(i, _)| !used.contains(i)) {
         let mut sd = [d.pins[D].clone(), d.pins[S].clone()];
         sd.sort();
-        let key = (d.model.clone(), (d.l * 1000.0).round() as i64, [sd[0].clone(), d.pins[G].clone(), sd[1].clone(), d.pins[B].clone()]);
+        let key = (
+            d.model.clone(),
+            (d.l * 1000.0).round() as i64,
+            [sd[0].clone(), d.pins[G].clone(), sd[1].clone(), d.pins[B].clone()],
+        );
         by_key.entry(key).or_default().push(i);
     }
     let groups: Vec<((String, i64, [String; 4]), Vec<usize>)> = by_key.into_iter().collect();
@@ -58,12 +63,17 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
             let m = short(&s.model);
             let list = |index: &HashMap<(String, String), Vec<usize>>, t: usize| -> Option<Vec<usize>> {
                 let set = nets.get(&s.pins[t])?;
-                let mut v: Vec<usize> = set.iter().flat_map(|n| index.get(&(m.clone(), n.clone())).into_iter().flatten().copied()).collect();
+                let mut v: Vec<usize> =
+                    set.iter().flat_map(|n| index.get(&(m.clone(), n.clone())).into_iter().flatten().copied()).collect();
                 v.sort_unstable();
                 v.dedup();
                 Some(v)
             };
-            let Some(cands) = [list(&g_index, G), list(&sd_index, D), list(&sd_index, S)].into_iter().flatten().min_by_key(Vec::len) else { continue };
+            let Some(cands) =
+                [list(&g_index, G), list(&sd_index, D), list(&sd_index, S)].into_iter().flatten().min_by_key(Vec::len)
+            else {
+                continue;
+            };
             let mut best: Vec<(usize, &Vec<usize>)> = Vec::new();
             for &k in &cands {
                 let ((model, l, pins), fingers) = &groups[k];
@@ -73,7 +83,9 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
                 if s.l.is_some_and(|sl| ((sl * 1000.0).round() as i64 - l).abs() > 5) {
                     continue;
                 }
-                let Some(n) = agreement(s, &[pins[0].clone(), pins[1].clone(), pins[2].clone(), pins[3].clone()], &nets) else { continue };
+                let Some(n) = agreement(s, &[pins[0].clone(), pins[1].clone(), pins[2].clone(), pins[3].clone()], &nets) else {
+                    continue;
+                };
                 if n < 2 {
                     continue;
                 }
@@ -99,10 +111,7 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
         for (s, fingers) in new {
             used.extend(fingers.iter().copied());
             done.insert(s.name.clone());
-            out.push(Bind {
-                schematic: s.name.clone(),
-                layout: fingers.iter().map(|&i| LayoutRef::of(&lay[i])).collect(),
-            });
+            out.push(Bind { schematic: s.name.clone(), layout: fingers.iter().map(|&i| LayoutRef::of(&lay[i])).collect() });
             pairs.push((s, fingers));
         }
     }

@@ -1,8 +1,8 @@
 //! Lo que se deduce de los vínculos: ubicarlos (también si el layout se movió), parámetros, cortos, abiertos y pines.
 
 use super::*;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use crate::i18n::tr;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Un movimiento rígido: orientación (0–3: giro de 90° en sentido
 /// antihorario, 4–7: además espejado en Y) y desplazamiento (µm).
@@ -86,7 +86,10 @@ pub fn check_pins(c: &Check, sch_ports: &[String], lay_ports: &[String]) -> Vec<
             None => out.push((p.clone(), tr!("lvs_map.pin_missing"))),
             Some(l) => {
                 if let Some(set) = c.nets.get(p).filter(|set| !set.iter().any(|n| n.eq_ignore_ascii_case(l))) {
-                    out.push((p.clone(), tr!("lvs_map.pin_elsewhere", nets = set.iter().cloned().collect::<Vec<_>>().join(", "))));
+                    out.push((
+                        p.clone(),
+                        tr!("lvs_map.pin_elsewhere", nets = set.iter().cloned().collect::<Vec<_>>().join(", ")),
+                    ));
                 }
             }
         }
@@ -320,8 +323,11 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
     }
 
     // 2. Lo que no está donde estaba: ¿se movió todo junto?
-    let missing: Vec<(usize, usize)> =
-        found.iter().enumerate().flat_map(|(k, (_, refs))| refs.iter().enumerate().filter(|(_, r)| r.is_none()).map(move |(j, _)| (k, j))).collect();
+    let missing: Vec<(usize, usize)> = found
+        .iter()
+        .enumerate()
+        .flat_map(|(k, (_, refs))| refs.iter().enumerate().filter(|(_, r)| r.is_none()).map(move |(j, _)| (k, j)))
+        .collect();
     if missing.len() >= 2 {
         let refs: Vec<&LayoutRef> = missing.iter().map(|&(k, j)| &map.binds[found[k].0].layout[j]).collect();
         // Cada candidato: qué ubicaría y cuántas contradicciones dejaría. Un
@@ -357,7 +363,12 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
             })
             .collect();
         scored.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.count.cmp(&a.1.count)));
-        let tied: Vec<usize> = scored.iter().enumerate().filter(|(_, x)| scored.first().is_some_and(|f| x.0 == f.0 && x.1.count == f.1.count)).map(|(i, _)| i).collect();
+        let tied: Vec<usize> = scored
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| scored.first().is_some_and(|f| x.0 == f.0 && x.1.count == f.1.count))
+            .map(|(i, _)| i)
+            .collect();
         // Entre empatados, un desplazamiento sin giro es lo más común: si es
         // uno solo, ese.
         // Empatados que asignan exactamente lo mismo (p. ej. un espejo sobre
@@ -398,8 +409,10 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
     // 3. Lo que sigue sin aparecer: el único candidato que encaja con las
     // redes ya vinculadas (todos los dedos que faltan de un vínculo juntos).
     loop {
-        let pairs: Vec<(&SchDevice, Vec<usize>)> =
-            found.iter().map(|(bi, refs)| (by_name[map.binds[*bi].schematic.as_str()], refs.iter().flatten().copied().collect())).collect();
+        let pairs: Vec<(&SchDevice, Vec<usize>)> = found
+            .iter()
+            .map(|(bi, refs)| (by_name[map.binds[*bi].schematic.as_str()], refs.iter().flatten().copied().collect()))
+            .collect();
         let nets = net_pairs(&pairs, lay);
         let mut changed = false;
         for (bi, refs) in found.iter_mut() {
@@ -408,7 +421,13 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
                 continue;
             }
             let s = by_name[map.binds[*bi].schematic.as_str()];
-            let model = &map.binds[*bi].layout.iter().zip(refs.iter()).find(|(_, r)| r.is_none()).map(|(l, _)| l.model.clone()).unwrap_or_default();
+            let model = &map.binds[*bi]
+                .layout
+                .iter()
+                .zip(refs.iter())
+                .find(|(_, r)| r.is_none())
+                .map(|(l, _)| l.model.clone())
+                .unwrap_or_default();
             let cands: Vec<usize> = idx
                 .connected(s, model, &nets)
                 .unwrap_or_default()

@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::{BTreeSet};
+use std::collections::BTreeSet;
 
 const N: &str = "sky130_fd_pr__nfet_01v8";
 const P: &str = "sky130_fd_pr__pfet_01v8";
@@ -9,7 +9,16 @@ fn sd(name: &str, model: &str, pins: [&str; 4], w: f64) -> SchDevice {
 }
 
 fn ld(model: &str, at: (f64, f64), pins: [&str; 4], w: f64) -> LayDevice {
-    LayDevice { model: model.into(), at, gate: [at.0 - 0.25, at.1 - 0.5, at.0 + 0.25, at.1 + 0.5], cell: None, local: at, w, l: 0.5, pins: pins.map(str::to_string) }
+    LayDevice {
+        model: model.into(),
+        at,
+        gate: [at.0 - 0.25, at.1 - 0.5, at.0 + 0.25, at.1 + 0.5],
+        cell: None,
+        local: at,
+        w,
+        l: 0.5,
+        pins: pins.map(str::to_string),
+    }
 }
 
 /// Un inversor con la salida por un buffer: M1/M2 el inversor, M3 un
@@ -31,16 +40,15 @@ fn sides() -> (Vec<SchDevice>, Vec<LayDevice>) {
 }
 
 fn bind(s: &str, refs: &[(&str, f64, f64)]) -> Bind {
-    Bind { schematic: s.into(), layout: refs.iter().map(|&(m, x, y)| LayoutRef { model: m.into(), at: [x, y], cell: None, local: None }).collect() }
+    Bind {
+        schematic: s.into(),
+        layout: refs.iter().map(|&(m, x, y)| LayoutRef { model: m.into(), at: [x, y], cell: None, local: None }).collect(),
+    }
 }
 
 fn full() -> MapFile {
     let mut m = MapFile::new("a.sch", "a.gds", None);
-    m.binds = vec![
-        bind("M1", &[(N, 1.0, 1.0)]),
-        bind("M2", &[(P, 1.0, 5.0), (P, 2.0, 5.0)]),
-        bind("M3", &[(N, 4.0, 1.0)]),
-    ];
+    m.binds = vec![bind("M1", &[(N, 1.0, 1.0)]), bind("M2", &[(P, 1.0, 5.0), (P, 2.0, 5.0)]), bind("M3", &[(N, 4.0, 1.0)])];
     m
 }
 
@@ -158,10 +166,28 @@ fn el_historial_marca_cortos_y_avance() {
 /// Seis transistores en fila (uno por columna, cada uno con sus redes).
 fn row(n: usize, y: f64) -> (Vec<SchDevice>, Vec<LayDevice>, MapFile) {
     let pins = |i: usize| [format!("d{i}"), format!("g{i}"), format!("s{i}"), "VSS".to_string()];
-    let sch = (0..n).map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 }).collect();
-    let lay = (0..n).map(|i| LayDevice { model: N.into(), at: (i as f64, y), gate: [0.0; 4], cell: None, local: (i as f64, y), w: 1.0, l: 0.5, pins: pins(i) }).collect();
+    let sch = (0..n)
+        .map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 })
+        .collect();
+    let lay = (0..n)
+        .map(|i| LayDevice {
+            model: N.into(),
+            at: (i as f64, y),
+            gate: [0.0; 4],
+            cell: None,
+            local: (i as f64, y),
+            w: 1.0,
+            l: 0.5,
+            pins: pins(i),
+        })
+        .collect();
     let mut m = MapFile::new("a.sch", "a.gds", None);
-    m.binds = (0..n).map(|i| Bind { schematic: format!("M{i}"), layout: vec![LayoutRef { model: N.into(), at: [i as f64, 0.0], cell: None, local: None }] }).collect();
+    m.binds = (0..n)
+        .map(|i| Bind {
+            schematic: format!("M{i}"),
+            layout: vec![LayoutRef { model: N.into(), at: [i as f64, 0.0], cell: None, local: None }],
+        })
+        .collect();
     (sch, lay, m)
 }
 
@@ -230,7 +256,8 @@ fn limpio_no_es_completo_si_hay_algo_sin_revisar() {
 
 #[test]
 fn lo_que_no_es_transistor_queda_sin_revisar() {
-    let spice = ".subckt t in out VDD\nXM1 out in VSS VSS sky130_fd_pr__nfet_01v8 L=0.5 W=1\nR1 a b 1k\nx2 a b amp W=2\n* nota\n.ends\n";
+    let spice =
+        ".subckt t in out VDD\nXM1 out in VSS VSS sky130_fd_pr__nfet_01v8 L=0.5 W=1\nR1 a b 1k\nx2 a b amp W=2\n* nota\n.ends\n";
     let (ports, others) = schematic_extras(spice, "t", &|n| n.strip_prefix('X').map(str::to_string));
     assert_eq!(ports, ["in", "out", "VDD"]);
     assert_eq!(others, ["R1", "x2 (amp)"]);
@@ -246,7 +273,10 @@ fn una_instancia_movida_se_reencuentra_por_su_celda() {
     let lay = vec![dev((11.0, 1.0), ["a", "x", "VSS", "VSS"]), dev((51.0, 31.0), ["b", "y", "VSS", "VSS"])];
     let r = |x: f64, y: f64| LayoutRef { model: N.into(), at: [x, y], cell: Some("inv".into()), local: Some([1.0, 1.0]) };
     let mut m = MapFile::new("a.sch", "a.gds", None);
-    m.binds = vec![Bind { schematic: "M1".into(), layout: vec![r(11.0, 1.0)] }, Bind { schematic: "M2".into(), layout: vec![r(21.0, 1.0)] }];
+    m.binds = vec![
+        Bind { schematic: "M1".into(), layout: vec![r(11.0, 1.0)] },
+        Bind { schematic: "M2".into(), layout: vec![r(21.0, 1.0)] },
+    ];
     let c = check(&m, &sch, &lay);
     assert!(c.clean(), "{c:#?}");
     assert_eq!(c.by_cell, ["M2"]);
@@ -299,15 +329,25 @@ fn escala() {
     let n: usize = std::env::var("RIKU_BENCH_N").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
     let pins = |i: usize| [format!("n{}", i + 1), format!("g{i}"), format!("n{i}"), "VSS".to_string()];
     let place = |i: usize| ((i % 100) as f64 * 2.0, (i / 100) as f64 * 3.0);
-    let sch: Vec<SchDevice> =
-        (0..n).map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 }).collect();
+    let sch: Vec<SchDevice> = (0..n)
+        .map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 })
+        .collect();
     let lay_at = |dx: f64, moved: &dyn Fn(usize) -> bool| -> Vec<LayDevice> {
         (0..n)
             .map(|i| {
                 let (x, y) = place(i);
                 // Los movidos sueltos, cada uno distinto (no es un movimiento rígido).
                 let (x, y) = if moved(i) { (x + 0.5, y + 1.0 + i as f64 * 0.013) } else { (x + dx, y) };
-                LayDevice { model: N.into(), at: (x, y), gate: [0.0; 4], cell: None, local: (x, y), w: 1.0, l: 0.5, pins: pins(i) }
+                LayDevice {
+                    model: N.into(),
+                    at: (x, y),
+                    gate: [0.0; 4],
+                    cell: None,
+                    local: (x, y),
+                    w: 1.0,
+                    l: 0.5,
+                    pins: pins(i),
+                }
             })
             .collect()
     };

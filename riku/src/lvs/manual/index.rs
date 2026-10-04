@@ -85,13 +85,26 @@ impl Index {
     /// El dedo libre de ese modelo en `at` (el más cercano).
     pub(super) fn find(&self, lay: &[LayDevice], used: &HashSet<usize>, model: &str, at: (f64, f64)) -> Option<usize> {
         let m = self.model(model)?;
-        Self::near(&self.at, |x, y| (m, x, y), at, |i| lay[i].at, used).into_iter().min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+        Self::near(&self.at, |x, y| (m, x, y), at, |i| lay[i].at, used)
+            .into_iter()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
     }
 
     /// Los dedos libres de ese modelo en la posición `local` de la sub-celda.
-    pub(super) fn find_local(&self, lay: &[LayDevice], used: &HashSet<usize>, model: &str, cell_name: &str, local: [f64; 2]) -> Vec<usize> {
+    pub(super) fn find_local(
+        &self,
+        lay: &[LayDevice],
+        used: &HashSet<usize>,
+        model: &str,
+        cell_name: &str,
+        local: [f64; 2],
+    ) -> Vec<usize> {
         let Some(m) = self.model(model) else { return Vec::new() };
-        Self::near(&self.local, |x, y| (m, cell_name.to_string(), x, y), (local[0], local[1]), |i| lay[i].local, used).into_iter().map(|(i, _)| i).collect()
+        Self::near(&self.local, |x, y| (m, cell_name.to_string(), x, y), (local[0], local[1]), |i| lay[i].local, used)
+            .into_iter()
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Los dedos de ese modelo que pueden ser `s` según las redes ya
