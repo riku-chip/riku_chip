@@ -37,7 +37,7 @@ Marcar `[x]` al terminar. Requisitos en [`requirements.md`](requirements.md), di
 ## Cierre
 
 - [x] **C1** `cargo fmt --check` y `cargo test --workspace --locked` (`-D warnings`) en verde.
-- [ ] **C2** `docs/pendientes.md`: si queda algo (p. ej. dispositivos de sub-celdas, o el clic que resalta la pareja aunque coincida), anotarlo.
+- [x] **C2** `docs/pendientes.md`: si queda algo (p. ej. dispositivos de sub-celdas, o el clic que resalta la pareja aunque coincida), anotarlo.
 - [ ] **C3** Merge a `main` cuando lo pidas.
 
 ## Cómo terminó (2026-10-03)
