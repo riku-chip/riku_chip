@@ -3,14 +3,14 @@
 //! superponen, con todo agrandado medio nanómetro), sobre pedazos que ya
 //! traen su red.
 //!
-//! En lugar de unir todos los pedazos de un grupo (Clipper es caro con
-//! decenas de miles, o con un pozo que cubre todo), se prueban de a pares
-//! los que tienen las cajas cerca: dos rectángulos se tocan si sus cajas
-//! agrandadas se superponen; si no, con Clipper, solo esos dos. Antes, cada
-//! pedazo se recorta a la zona donde puede haber contacto.
+//! En lugar de unir todos los pedazos (Clipper es caro con decenas de
+//! miles, o con un pozo que cubre todo), se prueban de a pares solo los de
+//! lados distintos (lo propio contra una hija, una hija contra otra: cada
+//! lado ya se resolvió al armar su celda) y con las cajas cerca: dos
+//! rectángulos se tocan si sus cajas agrandadas se superponen; si no, con
+//! Clipper, solo esos dos.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 use gdstk_rs::{boolean_owned, offset_owned, BoolOp, GdsTag, OwnedPolygon, Point2D};
 use rayon::prelude::*;
@@ -43,133 +43,77 @@ fn is_rect(p: &[Point2D]) -> bool {
     })
 }
 
-fn rect(b: [f64; 4]) -> OwnedPolygon {
-    let p = |x, y| Point2D { x, y };
-    OwnedPolygon { layer: 0, datatype: 0, points: vec![p(b[0], b[1]), p(b[2], b[1]), p(b[2], b[3]), p(b[0], b[3])] }
-}
-
-/// Un pedazo listo para probar: su caja, si es un rectángulo y, perezoso,
-/// el polígono agrandado.
+/// Un pedazo listo para probar: su caja y si es un rectángulo.
 struct Ready {
     node: u64,
     poly: OwnedPolygon,
     bbox: [f64; 4],
     rect: bool,
-    grown: OnceLock<Vec<OwnedPolygon>>,
 }
 
-/// Los pares de nodos cuyos pedazos conducen juntos. `zone`: solo importa
-/// lo que pasa dentro (se recorta antes); `unit_um`: µm por unidad.
-pub(crate) fn touching(rules: &DeviceRules, pieces: &[Typed], zone: Option<[f64; 4]>, unit_um: f64) -> Vec<(u64, u64)> {
-    if pieces.len() < 2 {
+/// Los pares (nodo de `left`, nodo de `right`) cuyos pedazos conducen
+/// juntos, sin probar pedazos del mismo lado entre sí (cada lado ya se
+/// resolvió al armar su celda): para cada pedazo de la izquierda, los de la
+/// derecha con la caja cerca y, de esos, los que se tocan de verdad.
+pub(crate) fn bipartite(rules: &DeviceRules, left: &[Typed], right: &[Typed], unit_um: f64) -> Vec<(u64, u64)> {
+    if left.is_empty() || right.is_empty() {
         return Vec::new();
     }
     let touch = 5e-4 / unit_um;
-    let mut by_type: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, p) in pieces.iter().enumerate() {
-        by_type.entry(p.magic.as_str()).or_default().push(i);
+    // Qué tipos pueden unirse y a qué distancia.
+    let mut types: Vec<&str> = left.iter().chain(right).map(|p| p.magic.as_str()).collect();
+    types.sort_unstable();
+    types.dedup();
+    let groups = connect_groups(rules, &|t| types.contains(&t));
+    let mut pairs: HashMap<(&str, &str), f64> = HashMap::new();
+    for g in &groups {
+        for x in g {
+            for y in g {
+                pairs.insert((x.as_str(), y.as_str()), touch);
+            }
+        }
     }
-    // Los grupos de `connect` y, como en la unión de cada tipo de la plana,
-    // cada tipo consigo mismo (dos pozos de celdas vecinas que se superponen
-    // son un pedazo, aunque el pozo no esté en ninguna línea `connect`).
-    let mut groups = connect_groups(rules, &|t| by_type.contains_key(t));
-    for t in by_type.keys() {
-        groups.insert(vec![t.to_string()]);
+    for &t in &types {
+        pairs.insert((t, t), touch.max(rules.bridge(t) / unit_um / 2.0));
     }
-    // Cuánto se agranda cada tipo para ver si se toca: medio nanómetro o,
-    // si su regla tiene un cierre (`grow` + `shrink`), la mitad de lo que el
-    // cierre une (ver `DeviceRules::bridge`).
-    let reach: HashMap<&str, f64> = by_type.keys().map(|&t| (t, touch.max(rules.bridge(t) / unit_um / 2.0))).collect();
-    let far = reach.values().copied().fold(touch, f64::max);
-    // Los pedazos recortados a la zona (agrandada: un toque en el borde cuenta).
-    let zone = zone.map(|z| [z[0] - 2.0 * far, z[1] - 2.0 * far, z[2] + 2.0 * far, z[3] + 2.0 * far]);
-    let ready: Vec<Vec<Ready>> = pieces
+    let far = pairs.values().copied().fold(touch, f64::max);
+    let ready = |p: &Typed| Ready { node: p.node, bbox: bbox(&p.poly), rect: is_rect(&p.poly.points), poly: p.poly.clone() };
+    let r: Vec<Ready> = right.par_iter().map(ready).collect();
+    let boxes: Vec<[f64; 4]> = r.iter().map(|x| [x.bbox[0] - far, x.bbox[1] - far, x.bbox[2] + far, x.bbox[3] + far]).collect();
+    let grid = BoxGrid::new(&boxes);
+    let mut out: Vec<(u64, u64)> = left
         .par_iter()
-        .map(|p| {
-            let b = bbox(&p.poly);
-            let inside = zone.is_none_or(|z| b[0] >= z[0] && b[1] >= z[1] && b[2] <= z[2] && b[3] <= z[3]);
-            let polys = if inside {
-                vec![p.poly.clone()]
-            } else {
-                let z = zone.unwrap_or(b);
-                if b[0] > z[2] || b[2] < z[0] || b[1] > z[3] || b[3] < z[1] {
-                    Vec::new()
-                } else if is_rect(&p.poly.points) {
-                    vec![rect([b[0].max(z[0]), b[1].max(z[1]), b[2].min(z[2]), b[3].min(z[3])])]
-                } else {
-                    boolean_owned(std::slice::from_ref(&p.poly), &[rect(z)], BoolOp::And, TAG).unwrap_or_default()
+        .flat_map_iter(|p| {
+            let a = ready(p);
+            let mut found: Vec<(u64, u64)> = Vec::new();
+            for j in grid.overlapping([a.bbox[0] - far, a.bbox[1] - far, a.bbox[2] + far, a.bbox[3] + far]) {
+                let b = &r[j];
+                if found.iter().any(|&(_, n)| n == b.node) {
+                    continue;
                 }
-            };
-            polys
-                .into_iter()
-                .map(|poly| Ready { node: p.node, bbox: bbox(&poly), rect: is_rect(&poly.points), poly, grown: OnceLock::new() })
-                .collect()
-        })
-        .collect();
-    let groups: Vec<&Vec<String>> = groups.iter().collect();
-    let mut out: Vec<(u64, u64)> = groups
-        .par_iter()
-        .flat_map_iter(|g| {
-            let items: Vec<&Ready> =
-                g.iter().flat_map(|t| by_type.get(t.as_str()).into_iter().flatten()).flat_map(|&i| ready[i].iter()).collect();
-            // Un tipo solo, con su alcance; un grupo de `connect`, al tocarse.
-            let by = match g.as_slice() {
-                [t] => reach.get(t.as_str()).copied().unwrap_or(touch),
-                _ => touch,
-            };
-            pairs_of(&items, by)
+                let Some(&by) = pairs.get(&(p.magic.as_str(), right[j].magic.as_str())) else { continue };
+                let near = a.bbox[0] - by <= b.bbox[2] + by
+                    && b.bbox[0] - by <= a.bbox[2] + by
+                    && a.bbox[1] - by <= b.bbox[3] + by
+                    && b.bbox[1] - by <= a.bbox[3] + by;
+                if !near {
+                    continue;
+                }
+                // Dos rectángulos alineados se tocan si sus cajas agrandadas se
+                // superponen; si no, Clipper con los dos agrandados.
+                let hit = (a.rect && b.rect) || {
+                    let grow =
+                        |q: &OwnedPolygon| offset_owned(std::slice::from_ref(q), by, TAG).unwrap_or_else(|_| vec![q.clone()]);
+                    boolean_owned(&grow(&a.poly), &grow(&b.poly), BoolOp::And, TAG).is_ok_and(|v| !v.is_empty())
+                };
+                if hit {
+                    found.push((a.node, b.node));
+                }
+            }
+            found
         })
         .collect();
     out.sort_unstable();
     out.dedup();
-    out
-}
-
-/// Los pares de nodos distintos que se tocan, entre `items`.
-fn pairs_of(items: &[&Ready], touch: f64) -> Vec<(u64, u64)> {
-    let mut out = Vec::new();
-    if items.len() < 2 || items.iter().all(|r| r.node == items[0].node) {
-        return out;
-    }
-    let boxes: Vec<[f64; 4]> =
-        items.iter().map(|r| [r.bbox[0] - touch, r.bbox[1] - touch, r.bbox[2] + touch, r.bbox[3] + touch]).collect();
-    let grid = BoxGrid::new(&boxes);
-    // Una unión local por nodo para no probar dos veces lo que ya se unió.
-    let mut nodes: Vec<u64> = items.iter().map(|r| r.node).collect();
-    nodes.sort_unstable();
-    nodes.dedup();
-    let pos = |n: u64| nodes.binary_search(&n).unwrap_or(0);
-    let mut parent: Vec<usize> = (0..nodes.len()).collect();
-    fn find(p: &mut [usize], mut x: usize) -> usize {
-        while p[x] != x {
-            p[x] = p[p[x]];
-            x = p[x];
-        }
-        x
-    }
-    fn grown(r: &Ready, touch: f64) -> &Vec<OwnedPolygon> {
-        r.grown.get_or_init(|| offset_owned(std::slice::from_ref(&r.poly), touch, TAG).unwrap_or_else(|_| vec![r.poly.clone()]))
-    }
-    for (i, a) in items.iter().enumerate() {
-        for j in grid.overlapping(boxes[i]) {
-            if j <= i {
-                continue;
-            }
-            let b = items[j];
-            let (ra, rb) = (find(&mut parent, pos(a.node)), find(&mut parent, pos(b.node)));
-            if ra == rb {
-                continue;
-            }
-            let hit = if a.rect && b.rect {
-                true
-            } else {
-                boolean_owned(grown(a, touch), grown(b, touch), BoolOp::And, TAG).is_ok_and(|v| !v.is_empty())
-            };
-            if hit {
-                parent[ra.max(rb)] = ra.min(rb);
-                out.push((a.node.min(b.node), a.node.max(b.node)));
-            }
-        }
-    }
     out
 }

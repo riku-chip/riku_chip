@@ -69,6 +69,16 @@ impl DiffCache {
         self
     }
 
+    /// Dónde guardar las redes de cada celda (`nets::hier`): junto a los
+    /// diffs, en `nets/` (dentro de `RIKU_CACHE_DIR`, o al lado de `diff/`).
+    pub fn nets_dir(&self) -> Option<PathBuf> {
+        let dir = self.dir.as_ref()?;
+        Some(match dir.file_name().filter(|n| *n == "diff") {
+            Some(_) => dir.with_file_name("nets"),
+            None => dir.join("nets"),
+        })
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.dir.is_some()
     }
@@ -136,14 +146,14 @@ fn key(kind: &str, inputs: &[&[u8]], params: &str) -> String {
 }
 
 /// Marca la entrada como usada (la limpieza borra primero las menos usadas).
-fn touch(path: &Path) {
+pub(crate) fn touch(path: &Path) {
     if let Ok(f) = std::fs::File::options().append(true).open(path) {
         let _ = f.set_modified(std::time::SystemTime::now());
     }
 }
 
 /// Borra las entradas mas viejas hasta que el directorio pese `max_total` o menos.
-fn prune(dir: &Path, max_total: u64) {
+pub(crate) fn prune(dir: &Path, max_total: u64) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = rd
         .filter_map(Result::ok)

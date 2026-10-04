@@ -4,6 +4,8 @@
 //! ```text
 //! hier_check <layout.gds|.oas|.mag> [celda]
 //! RIKU_HIER_INLINE=256   # umbral para meter una sub-celda en su padre
+//! HIER_SPICE=archivo     # escribir la SPICE de la jerárquica (HIER_UNIT: sufijo de W y L)
+//! HIER_NO_FLAT=1         # sin la plana (una celda demasiado grande)
 //! ```
 
 use std::process::ExitCode;
@@ -55,6 +57,34 @@ fn main() -> ExitCode {
         hier.devices.len(),
         hier.nets.len()
     );
+    if let Ok(name) = std::env::var("HIER_NET") {
+        // Las redes de la raíz con ese nombre y, por instancia, qué redes de la hija le llegan.
+        for (i, net) in root.nets.iter().enumerate().filter(|(_, n)| n.labels.iter().any(|l| *l == name)) {
+            println!("  red {i} {:?} ({:?})", net.labels, net.bbox.map(|v| v * unit_um));
+            for (k, inst) in root.insts.iter().enumerate() {
+                let child = &cells[&inst.key];
+                for (n, &m) in root.inst_maps[k].iter().enumerate() {
+                    if m as usize == i {
+                        println!(
+                            "    {} @({:.2}, {:.2}) → {:?}",
+                            inst.cell,
+                            inst.xf.dx * unit_um,
+                            inst.xf.dy * unit_um,
+                            child.nets[n].labels
+                        );
+                    }
+                }
+            }
+        }
+        for (l, n) in root.own.labels.iter().zip(&root.label_nets).filter(|(l, _)| l.text == name) {
+            println!("  etiqueta {} en ({:.3}, {:.3}) tipos {:?} → {:?}", l.text, l.at.0 * unit_um, l.at.1 * unit_um, l.types, n);
+        }
+    }
+    if let Ok(out) = std::env::var("HIER_SPICE") {
+        let unit = std::env::var("HIER_UNIT").unwrap_or_default();
+        std::fs::write(&out, nets::spice(top.name(), &hier, rules, &unit)).expect("escribir la SPICE");
+        println!("  SPICE en {out}");
+    }
     if std::env::var_os("HIER_TWICE").is_some() {
         let t = Instant::now();
         let h2 = nets::hier::extract(&lib, &top, rules, info.as_ref(), opts);

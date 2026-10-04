@@ -25,7 +25,7 @@ use crate::devices::extract::{area, bbox, interior_point, outward_edges, Grid};
 use crate::devices::{Device, DeviceRules};
 
 /// Una etiqueta que puede nombrar una red.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NetLabel {
     pub text: String,
     /// Unidades de la librería.
@@ -49,7 +49,7 @@ fn area_points(a: &[f64; 4]) -> impl Iterator<Item = (f64, f64)> + '_ {
 }
 
 /// Una red.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Net {
     /// El nombre de su etiqueta (la de un pin, si tiene) o `None`.
     pub name: Option<String>,
@@ -64,7 +64,7 @@ pub struct Net {
 }
 
 /// Las redes de los cuatro terminales de un transistor (índices en `nets`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Terminals {
     pub d: usize,
     pub g: usize,

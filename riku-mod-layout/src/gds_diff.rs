@@ -230,12 +230,92 @@ pub fn diff_layout_sides(
                 }
             }
             if let (Some(a), Some(b)) = (&la, &lb) {
-                device_changes(&a.lib, &b.lib, path, &mut report);
-                net_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, &mut report);
+                if crate::nets::hier::flat_requested() {
+                    device_changes(&a.lib, &b.lib, path, &mut report);
+                    net_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, &mut report);
+                } else {
+                    let disk = cache.nets_dir().map(crate::nets::hier::Disk::new);
+                    hier_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, disk, &mut report);
+                }
             }
             Ok(report)
         })
         .map(|(r, _)| r)
+}
+
+/// Transistores, abiertos y cortos por celdas (ver `nets::hier`): en cada
+/// celda con cambios propios en una capa de las reglas, sus transistores
+/// propios y sus redes; en sus ancestros, las redes (un corto que aparece
+/// recién arriba). Un mismo corto se informa solo en la celda más baja.
+fn hier_changes(
+    la: &Library,
+    lb: &Library,
+    info: (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
+    path: &str,
+    disk: Option<crate::nets::hier::Disk>,
+    report: &mut GdsDiffReport,
+) {
+    let Some(rules) = crate::devices::rules_for_library(lb, Some(path)) else { return };
+    let mut types = rules.conductors();
+    types.extend(rules.resistors.iter().map(|r| r.magic.clone()));
+    let net_layers = rules.type_layers(&types);
+    let dev_layers = rules.used_layers();
+    let magic: HashMap<(u32, u32), String> = lb.layer_names().into_iter().map(|(t, n)| ((t.layer, t.datatype), n)).collect();
+    let in_layers = |k: &LayerKey, ls: &[crate::devices::GdsLayer]| {
+        ls.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
+    };
+    let relevant_net = |k: &LayerKey| {
+        in_layers(k, &net_layers)
+            || magic.get(&(k.layer, k.datatype)).is_some_and(|n| types.iter().any(|t| t == rules.canonical(n)))
+    };
+    let relevant_dev = |k: &LayerKey| {
+        in_layers(k, &dev_layers)
+            || magic
+                .get(&(k.layer, k.datatype))
+                .is_some_and(|n| rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n)))
+    };
+    // Un cambio atribuido a una instancia cuya celda, ni nada debajo, cambió,
+    // es de la celda de arriba (ver `net_changes`).
+    let changed_cells: BTreeSet<&str> = report.geometry.iter().filter(|g| own_change(g)).map(|g| g.cell.as_str()).collect();
+    let own = |g: &GdsGeomDiff| own_change(g) || !g.origin_path.iter().skip(1).any(|c| changed_cells.contains(c.as_str()));
+    let mut boxes: BTreeMap<String, Vec<[f64; 4]>> = BTreeMap::new();
+    let mut own_cells: BTreeSet<String> = BTreeSet::new();
+    let mut dev_cells: BTreeSet<String> = BTreeSet::new();
+    let mut via: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for g in &report.geometry {
+        let (n, d) = (relevant_net(&g.layer), relevant_dev(&g.layer));
+        if !n && !d {
+            continue;
+        }
+        let e = boxes.entry(g.cell.clone()).or_default();
+        if let Some(b) = g.bbox_um {
+            e.push([b.min_x, b.min_y, b.max_x, b.max_y]);
+        }
+        if own(g) {
+            own_cells.insert(g.cell.clone());
+            if d {
+                dev_cells.insert(g.cell.clone());
+            }
+        } else if let Some(child) = g.origin_path.get(1) {
+            via.entry(g.cell.clone()).or_default().insert(child.clone());
+        }
+    }
+    let cells: Vec<(String, Vec<[f64; 4]>)> = boxes.into_iter().collect();
+    let found = crate::nets::hier::changes_between((la, lb), info, rules, &cells, disk);
+    // El mismo corto se ve en cada ancestro de donde aparece: se informa solo
+    // en la celda más baja.
+    let with: BTreeSet<String> = found.iter().filter(|(_, n, _)| !n.is_empty()).map(|(c, _, _)| c.clone()).collect();
+    fn below(c: &str, via: &HashMap<String, BTreeSet<String>>, with: &BTreeSet<String>, depth: usize) -> bool {
+        depth < 64 && via.get(c).is_some_and(|kids| kids.iter().any(|k| with.contains(k) || below(k, via, with, depth + 1)))
+    }
+    for (cell, nets, devices) in found {
+        if dev_cells.contains(&cell) {
+            report.devices.extend(devices);
+        }
+        if own_cells.contains(&cell) || !below(&cell, &via, &with, 0) {
+            report.nets.extend(nets);
+        }
+    }
 }
 
 /// Transistores que cambiaron en cada celda con cambios de geometría (que

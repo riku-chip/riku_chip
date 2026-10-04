@@ -33,4 +33,7 @@ pub use gds_diff::{
 pub use labels::{flatten_labels, FlatLabel};
 pub use viewer_core_compat::GdsBackend;
 
+/// La versión de esta librería: cambia lo que extrae (la caché del LVS la usa).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub(crate) use top_cell::select_top_cell;

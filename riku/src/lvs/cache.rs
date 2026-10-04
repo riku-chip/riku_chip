@@ -127,7 +127,7 @@ impl Version for DiskVersion {
 pub fn env_print(schematic: &str, tools: &Tools) -> Option<String> {
     let (pdk, dir) = super::pdk_of(schematic).ok()?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (env!("CARGO_PKG_VERSION"), xschem_viewer::spice::VERSION, &pdk, &dir).hash(&mut h);
+    (env!("CARGO_PKG_VERSION"), riku_mod_layout::VERSION, xschem_viewer::spice::VERSION, &pdk, &dir).hash(&mut h);
     for f in [".config/nodeinfo.json", &format!("libs.tech/netgen/{pdk}_setup.tcl"), "libs.tech/xschem/xschemrc"] {
         std::fs::read(dir.join(f)).ok().hash(&mut h);
     }

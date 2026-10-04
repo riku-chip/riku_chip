@@ -207,13 +207,28 @@ fn add_electrical(
     keys: &LayerKeys,
 ) -> Vec<(&'static str, String)> {
     let Some(rules) = crate::devices::rules_for_library(lib, path_hint) else { return Vec::new() };
-    if polygons as u64 > crate::devices::MAX_POLYGONS {
-        return vec![
-            ("Transistores", "no se reconocen en una celda tan grande: abrí una sub-celda".into()),
-            ("Redes", "no calculadas en una celda tan grande".into()),
-        ];
-    }
-    let nl = crate::nets::cell_nets(lib, cell, rules, magic);
+    let big = polygons as u64 > crate::devices::MAX_POLYGONS;
+    let nl = if crate::nets::hier::flat_requested() {
+        if big {
+            return vec![
+                ("Transistores", "no se reconocen en una celda tan grande: abrí una sub-celda".into()),
+                ("Redes", "no calculadas en una celda tan grande".into()),
+            ];
+        }
+        crate::nets::cell_nets(lib, cell, rules, magic)
+    } else {
+        // Por celdas, con la memoria: abrir otra vez la celda, o una que la
+        // contiene, no la vuelve a extraer.
+        let h = crate::nets::hier::extract(lib, cell, rules, magic, crate::nets::hier::Options::default());
+        if big {
+            // Dibujarlos pide tenerlos aplanados: solo cuántos hay.
+            return vec![
+                ("Transistores", format!("{} (abrí una sub-celda para verlos)", h.root.deep_devices)),
+                ("Redes", format!("{} (abrí una sub-celda para verlas)", h.root.nets.len())),
+            ];
+        }
+        h.flatten(true)
+    };
     let mut out = Vec::new();
     let devices: Vec<crate::devices::Device> = nl.devices.iter().map(|(d, _)| d.clone()).collect();
     if let Some(summary) = add_devices(scene, &devices, text_size) {
@@ -517,19 +532,21 @@ impl ViewerBackend for GdsBackend {
                     let boxes: Vec<[f64; 4]> =
                         s.changes.iter().filter_map(|c| c.bbox).map(|b| [b.min_x, b.min_y, b.max_x, b.max_y]).collect();
                     let info = (sa.info.as_ref(), sb.info.as_ref());
-                    let found =
-                        crate::nets::cell_net_changes(&sa.lib, &sb.lib, name, rules, crate::devices::MAX_POLYGONS, info, &boxes);
-                    let found = found.unwrap_or_default();
+                    let max = crate::devices::MAX_POLYGONS;
+                    let (found, devices) = if crate::nets::hier::flat_requested() {
+                        let n = crate::nets::cell_net_changes(&sa.lib, &sb.lib, name, rules, max, info, &boxes);
+                        (
+                            n.unwrap_or_default(),
+                            crate::devices::cell_device_changes(&sa.lib, &sb.lib, name, rules, max).unwrap_or_default(),
+                        )
+                    } else {
+                        crate::nets::hier::opened_cell_changes((&sa.lib, &sb.lib), info, rules, name, &boxes, max)
+                    };
                     s.annotations.extend(found.iter().filter_map(crate::diff_scene::net_annotation));
                     let items: Vec<_> = found.iter().map(crate::diff_scene::net_item).collect();
                     s.changes.splice(0..0, items);
-                }
-            }
-            // Transistores que cambiaron en la celda abierta.
-            if let (Some(la), Some(lb), Some(name)) = (lib_a, lib_b, cell.as_deref()) {
-                if let Some(rules) = crate::devices::rules_for_library(lb, path) {
-                    let found = crate::devices::cell_device_changes(la, lb, name, rules, crate::devices::MAX_POLYGONS);
-                    s.changes.extend(found.unwrap_or_default().iter().map(crate::diff_scene::device_item));
+                    // Transistores que cambiaron en la celda abierta.
+                    s.changes.extend(devices.iter().map(crate::diff_scene::device_item));
                 }
             }
             s.notices.extend(notices);

@@ -4,7 +4,7 @@
 //! transistores (ver `docs/formatos.md`, «Transistores y redes»).
 
 pub(crate) mod context;
-mod diff;
+pub(crate) mod diff;
 mod extract;
 pub mod hier;
 mod netlist;
@@ -430,7 +430,13 @@ pub fn layout_netlist(
     };
     let rules = devices::rules_for_library(lib, Some(path))
         .ok_or_else(|| format!("{path}: no se reconoce el PDK (sin reglas de transistores)"))?;
-    let netlist = cell_nets(lib, &top, rules, side.info.as_ref());
+    // Por celdas (con la memoria) y aplanada: los mismos nombres que la sonda
+    // del visor, que sale de la misma extracción.
+    let netlist = if hier::flat_requested() {
+        cell_nets(lib, &top, rules, side.info.as_ref())
+    } else {
+        hier::extract(lib, &top, rules, side.info.as_ref(), hier::Options::default()).flatten(false)
+    };
     // El centro del recuadro de la compuerta (gira y se mueve con ella).
     let owners = netlist
         .devices

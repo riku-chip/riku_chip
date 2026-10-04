@@ -116,16 +116,34 @@ fn anchors(a: &Netlist, b: &Netlist) -> Vec<(usize, usize)> {
         }
     }
     // Etiquetas: la de B con el mismo texto más cerca.
-    for (la, na) in a.labels.iter().zip(&a.label_nets) {
-        let Some(na) = *na else { continue };
-        let near = b
-            .labels
-            .iter()
-            .zip(&b.label_nets)
-            .filter(|(lb, nb)| lb.text == la.text && nb.is_some())
-            .min_by(|(x, _), (y, _)| dist2(x.at, la.at).total_cmp(&dist2(y.at, la.at)));
-        if let Some((_, Some(nb))) = near {
-            out.push((na, *nb));
+    out.extend(label_pairs((&a.labels, &a.label_nets), (&b.labels, &b.label_nets)));
+    out
+}
+
+/// Cada etiqueta de A (con red) con la de B del mismo texto más cerca: la
+/// del mismo lugar si hay (lo común, y rápido aunque haya miles de `vdd`) o,
+/// si no, la más cercana. Pares de redes.
+pub(crate) fn label_pairs(
+    (la, na): (&[super::NetLabel], &[Option<usize>]),
+    (lb, nb): (&[super::NetLabel], &[Option<usize>]),
+) -> Vec<(usize, usize)> {
+    use std::collections::HashMap;
+    let q = |v: f64| (v * 1e6).round() as i64;
+    let mut exact: HashMap<(&str, i64, i64), usize> = HashMap::new();
+    let mut by_text: HashMap<&str, Vec<((f64, f64), usize)>> = HashMap::new();
+    for (l, n) in lb.iter().zip(nb) {
+        let Some(n) = *n else { continue };
+        exact.entry((l.text.as_str(), q(l.at.0), q(l.at.1))).or_insert(n);
+        by_text.entry(l.text.as_str()).or_default().push((l.at, n));
+    }
+    let mut out = Vec::new();
+    for (l, n) in la.iter().zip(na) {
+        let Some(n) = *n else { continue };
+        let found = exact.get(&(l.text.as_str(), q(l.at.0), q(l.at.1))).copied().or_else(|| {
+            by_text.get(l.text.as_str())?.iter().min_by(|x, y| dist2(x.0, l.at).total_cmp(&dist2(y.0, l.at))).map(|x| x.1)
+        });
+        if let Some(m) = found {
+            out.push((n, m));
         }
     }
     out
@@ -143,6 +161,32 @@ fn overlaps(a: [f64; 4], b: [f64; 4]) -> bool {
 /// las dos netlists; `changed`: las cajas (µm) de los cambios de geometría
 /// de la celda, para ubicar cada abierto o corto.
 pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: &[[f64; 4]]) -> Vec<NetChange> {
+    net_changes_with(cell, (a, b), unit_um, changed, &[], &|_, _| None)
+}
+
+/// Como [`net_changes`], con anclas de más (pares de redes que se sabe que
+/// son la misma: las de una instancia que no cambió, en la comparación por
+/// celdas) y cómo nombrar una red que no tiene etiqueta ni toca un
+/// transistor (`name(lado_b, red)`).
+pub(crate) fn net_changes_with(
+    cell: &str,
+    (a, b): (&Netlist, &Netlist),
+    unit_um: f64,
+    changed: &[[f64; 4]],
+    extra: &[(usize, usize)],
+    name: &dyn Fn(bool, usize) -> Option<String>,
+) -> Vec<NetChange> {
+    let mut all = anchors(a, b);
+    all.extend_from_slice(extra);
+    let label = |side_b: bool, i: usize| {
+        let nl = if side_b { b } else { a };
+        let l = net_label(nl, i, unit_um);
+        if l == format!("n{i}") {
+            name(side_b, i).unwrap_or(l)
+        } else {
+            l
+        }
+    };
     let na = a.nets.len();
     let mut parent: Vec<usize> = (0..na + b.nets.len()).collect();
     fn find(p: &mut [usize], mut x: usize) -> usize {
@@ -152,7 +196,7 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
         }
         x
     }
-    for (x, y) in anchors(a, b) {
+    for &(x, y) in &all {
         let (rx, ry) = (find(&mut parent, x), find(&mut parent, na + y));
         if rx != ry {
             parent[rx.max(ry)] = rx.min(ry);
@@ -160,7 +204,7 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
     }
     let mut groups: std::collections::BTreeMap<usize, (Vec<usize>, Vec<usize>)> = std::collections::BTreeMap::new();
     let mut anchored = vec![false; parent.len()];
-    for (x, y) in anchors(a, b) {
+    for &(x, y) in &all {
         anchored[x] = true;
         anchored[na + y] = true;
     }
@@ -180,8 +224,8 @@ pub fn net_changes(cell: &str, a: &Netlist, b: &Netlist, unit_um: f64, changed: 
     let place = |bbox: [f64; 4]| changed.iter().filter(|c| overlaps(**c, bbox)).copied().reduce(union_box).unwrap_or(bbox);
     let mut out = Vec::new();
     for (ga, gb) in groups.values() {
-        let mut before: Vec<String> = ga.iter().map(|&i| net_label(a, i, unit_um)).collect();
-        let mut after: Vec<String> = gb.iter().map(|&j| net_label(b, j, unit_um)).collect();
+        let mut before: Vec<String> = ga.iter().map(|&i| label(false, i)).collect();
+        let mut after: Vec<String> = gb.iter().map(|&j| label(true, j)).collect();
         before.sort();
         after.sort();
         let bbox_b = gb.iter().map(|&j| um(b.nets[j].bbox)).reduce(union_box);

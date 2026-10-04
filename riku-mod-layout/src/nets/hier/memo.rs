@@ -9,19 +9,30 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::build::CellNets;
+use super::disk::Disk;
 use super::key::NetKey;
+
+/// Una celda que tardó menos que esto en armarse no se guarda en disco:
+/// leerla costaría lo mismo.
+const DISK_MIN_MS: u64 = 20;
+
+/// Cuánto espera un hilo a que otro termine de armar la misma celda antes
+/// de armarla él (así nunca se traba: ver [`Memo::cell`]).
+const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Clave de una vecindad: las dos hijas y la segunda vista desde la primera.
 pub(crate) type NeighbourKey = (NetKey, NetKey, (u8, bool, i64, i64));
 
 struct Slot {
-    cell: Arc<OnceLock<Arc<CellNets>>>,
+    cell: Arc<CellNets>,
     used: u64,
     bytes: u64,
 }
 
 pub(crate) struct Memo {
     cells: Mutex<HashMap<NetKey, Slot>>,
+    /// Las que algún hilo está armando, y cuál.
+    building: Mutex<HashMap<NetKey, std::thread::ThreadId>>,
     neighbours: Mutex<HashMap<NeighbourKey, Arc<Vec<(u32, u32)>>>>,
     bytes: AtomicU64,
     tick: AtomicU64,
@@ -36,6 +47,7 @@ pub(crate) fn memo() -> &'static Memo {
         let mb: u64 = std::env::var("RIKU_NETS_MEM_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(512);
         Memo {
             cells: Mutex::new(HashMap::new()),
+            building: Mutex::new(HashMap::new()),
             neighbours: Mutex::new(HashMap::new()),
             bytes: AtomicU64::new(0),
             tick: AtomicU64::new(0),
@@ -49,36 +61,77 @@ impl Memo {
         self.cap > 0
     }
 
-    /// El resumen de `key`, o el que arma `build` (una sola vez aunque lo
-    /// pidan dos hilos a la vez). El `bool` dice si ya estaba.
-    pub(crate) fn cell(&self, key: NetKey, build: impl FnOnce() -> CellNets) -> (Arc<CellNets>, bool) {
+    /// El resumen de `key`, o el que arma `build`. El `bool` dice si ya
+    /// estaba (en memoria o en disco).
+    ///
+    /// Si otro hilo la está armando, se espera sin bloquear el pool de
+    /// `rayon`: mientras, se hacen otras tareas (`yield_now`). Un bloqueo de
+    /// verdad podría trabarse: el hilo que espera puede robar una tarea que
+    /// pide lo que él mismo arma. Por eso, si el que la arma es este mismo
+    /// hilo, o la espera pasa de [`WAIT`], se arma de nuevo (y queda la
+    /// primera).
+    pub(crate) fn cell(&self, key: NetKey, disk: Option<&Disk>, build: impl FnOnce() -> CellNets) -> (Arc<CellNets>, bool) {
+        // Del disco, o armada (y guardada si tardó).
+        let make = || -> (CellNets, bool) {
+            if let Some(c) = disk.and_then(|d| d.load(key)) {
+                return (c, true);
+            }
+            let c = build();
+            if let Some(d) = disk.filter(|_| c.build_ms >= DISK_MIN_MS) {
+                d.store(key, &c);
+            }
+            (c, false)
+        };
         if !self.enabled() {
-            return (Arc::new(build()), false);
+            let (c, known) = make();
+            return (Arc::new(c), known);
         }
         let now = self.tick.fetch_add(1, Ordering::Relaxed);
-        let slot = {
-            let mut cells = self.cells.lock().unwrap();
-            let s = cells.entry(key).or_insert_with(|| Slot { cell: Arc::new(OnceLock::new()), used: now, bytes: 0 });
-            s.used = now;
-            s.cell.clone()
-        };
-        let mut fresh = false;
-        let cell = slot
-            .get_or_init(|| {
-                fresh = true;
-                Arc::new(build())
-            })
-            .clone();
-        if fresh {
-            let b = cell.bytes();
+        let me = std::thread::current().id();
+        let started = std::time::Instant::now();
+        loop {
             if let Some(s) = self.cells.lock().unwrap().get_mut(&key) {
-                s.bytes = b;
+                s.used = now;
+                return (s.cell.clone(), true);
             }
-            if self.bytes.fetch_add(b, Ordering::Relaxed) + b > self.cap {
-                self.evict();
+            let mut building = self.building.lock().unwrap();
+            match building.get(&key) {
+                Some(&who) if who != me && started.elapsed() < WAIT => {
+                    drop(building);
+                    if !matches!(rayon::yield_now(), Some(rayon::Yield::Executed)) {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+                _ => {
+                    building.insert(key, me);
+                    break;
+                }
             }
         }
-        (cell, !fresh)
+        let (built, from_disk) = make();
+        let built = Arc::new(built);
+        let b = built.bytes();
+        let (cell, fresh) = {
+            let mut cells = self.cells.lock().unwrap();
+            match cells.get(&key) {
+                Some(s) => (s.cell.clone(), false),
+                None => {
+                    cells.insert(key, Slot { cell: built.clone(), used: now, bytes: b });
+                    (built, true)
+                }
+            }
+        };
+        // Recién ahora (ya está en `cells`): quien espere la encuentra.
+        {
+            let mut building = self.building.lock().unwrap();
+            if building.get(&key) == Some(&me) {
+                building.remove(&key);
+            }
+        }
+        if fresh && self.bytes.fetch_add(b, Ordering::Relaxed) + b > self.cap {
+            self.evict();
+        }
+        (cell, from_disk)
     }
 
     /// Saca lo usado hace más tiempo hasta quedar en tres cuartos del tope.

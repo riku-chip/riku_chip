@@ -3,14 +3,112 @@
 
 mod build;
 mod check;
+mod compare;
+mod disk;
 mod key;
 mod memo;
 mod touch;
 pub mod xf;
 
-pub use build::{extract, flatten, locate, CellNets, Cells, HierNets, Inst, Options, Stats};
+pub use build::{extract, flatten, locate, CellNets, Cells, Extractor, HierNets, Inst, Options, Stats};
 pub use check::same_netlist;
+pub use compare::cell_changes;
+pub use disk::Disk;
 pub use key::NetKey;
+
+use crate::devices::{DeviceChange, DeviceRules};
+use crate::nets::NetChange;
+
+/// Lo que cambió en cada celda pedida entre dos librerías, por celdas: sus
+/// abiertos, cortos y renombres, y sus transistores propios. `cells`: el
+/// nombre y las cajas (µm) de sus cambios de geometría. Las celdas con la
+/// misma huella en los dos lados no se comparan; las que faltan de un lado,
+/// tampoco.
+pub fn changes_between(
+    (la, lb): (&gdstk_rs::Library, &gdstk_rs::Library),
+    (ia, ib): (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
+    rules: &DeviceRules,
+    cells: &[(String, Vec<[f64; 4]>)],
+    disk: Option<Disk>,
+) -> Vec<(String, Vec<NetChange>, Vec<DeviceChange>)> {
+    let profile = std::env::var_os("RIKU_PROFILE").is_some();
+    let clock = std::time::Instant::now();
+    let opts = Options::default();
+    let (xa, xb) = rayon::join(
+        || Extractor::new(la, rules, ia, opts).with_disk(disk.clone()),
+        || Extractor::new(lb, rules, ib, opts).with_disk(disk.clone()),
+    );
+    if profile {
+        eprintln!("[redes] huellas: {:?}", clock.elapsed());
+    }
+    let unit_um = lb.unit() / 1e-6;
+    let mut out = Vec::new();
+    for (name, boxes) in cells {
+        let (Some(ka), Some(kb)) = (xa.key(name), xb.key(name)) else { continue };
+        if ka == kb {
+            continue;
+        }
+        let t = std::time::Instant::now();
+        // Primero un lado y después el otro: el segundo reusa lo que no cambió
+        // (a la vez, los dos armarían lo mismo).
+        let ha = xa.get(name);
+        let hb = xb.get(name);
+        let (Some(ha), Some(hb)) = (ha, hb) else { continue };
+        let t1 = t.elapsed();
+        let (nets, devices) = cell_changes(name, (&ha.root, &ha.cells), (&hb.root, &hb.cells), unit_um, boxes);
+        if profile {
+            eprintln!(
+                "[redes] {name}: extraer {t1:?} ({}+{} y {}+{} celdas), comparar {:?}: {} redes, {} transistores",
+                ha.stats.cells,
+                ha.stats.remembered,
+                hb.stats.cells,
+                hb.stats.remembered,
+                t.elapsed() - t1,
+                nets.len(),
+                devices.len()
+            );
+        }
+        out.push((name.clone(), nets, devices));
+    }
+    out
+}
+
+/// Lo que cambió en la celda abierta en el visor: hasta `max_polygons`
+/// aplanados, comparando las dos versiones aplanadas, como siempre (con lo
+/// de todas sus sub-celdas, en sus coordenadas), pero con la extracción por
+/// celdas y su memoria; más grande, por celdas ([`cell_changes`]).
+pub fn opened_cell_changes(
+    (la, lb): (&gdstk_rs::Library, &gdstk_rs::Library),
+    (ia, ib): (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
+    rules: &DeviceRules,
+    name: &str,
+    changed: &[[f64; 4]],
+    max_polygons: u64,
+) -> (Vec<NetChange>, Vec<DeviceChange>) {
+    let (Some(ca), Some(cb)) = (la.find_cell(name), lb.find_cell(name)) else { return Default::default() };
+    let opts = Options::default();
+    let (xa, xb) = (Extractor::new(la, rules, ia, opts), Extractor::new(lb, rules, ib, opts));
+    let (Some(ha), Some(hb)) = (xa.get(name), xb.get(name)) else { return Default::default() };
+    let unit_um = lb.unit() / 1e-6;
+    let big = crate::devices::flat_polygon_estimate(la, &ca).max(crate::devices::flat_polygon_estimate(lb, &cb)) > max_polygons;
+    if big {
+        return cell_changes(name, (&ha.root, &ha.cells), (&hb.root, &hb.cells), unit_um, changed);
+    }
+    let (na, nb) = (ha.flatten(false), hb.flatten(false));
+    let devices = crate::devices::device_changes(
+        name,
+        &na.devices.iter().map(|(d, _)| d.clone()).collect::<Vec<_>>(),
+        &nb.devices.iter().map(|(d, _)| d.clone()).collect::<Vec<_>>(),
+        unit_um,
+    );
+    (crate::nets::net_changes(name, &na, &nb, unit_um, changed), devices)
+}
+
+/// `RIKU_FLAT_NETS=1`: el diff de redes y transistores aplanando cada celda,
+/// como antes de la ronda 5 (para comparar, mientras la jerárquica se asienta).
+pub fn flat_requested() -> bool {
+    std::env::var("RIKU_FLAT_NETS").is_ok_and(|v| !v.is_empty() && v != "0")
+}
 
 #[cfg(test)]
 mod tests {

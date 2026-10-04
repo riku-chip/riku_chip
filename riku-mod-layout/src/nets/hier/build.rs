@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 use super::key::{net_keys, salt, NetKey};
 use super::memo::memo;
-use super::touch::{touching, Typed};
+use super::touch::{bipartite, Typed};
 use super::xf::Xf;
 use crate::box_grid::BoxGrid;
 use crate::devices::extract::{bbox, point_in, Grid};
@@ -90,15 +90,69 @@ pub struct CellNets {
     /// lleva al pozo que tenga en ese punto.
     pub sub_points: Vec<(f64, f64)>,
     pub warnings: Vec<String>,
+    /// Cuánto tardó en armarse (sin sus hijas): decide si vale guardarla en disco.
+    pub build_ms: u64,
     /// Los pedazos propios por tipo, para buscar por caja.
     index: HashMap<String, (BoxGrid, Vec<usize>)>,
     inst_grid: BoxGrid,
+}
+
+/// Lo que define un resumen (lo demás, los índices para buscar, se arma).
+pub(crate) struct Parts {
+    pub name: String,
+    pub own: Netlist,
+    pub own_map: Vec<u32>,
+    pub insts: Vec<Inst>,
+    pub inst_maps: Vec<Vec<u32>>,
+    pub nets: Vec<Net>,
+    pub label_nets: Vec<Option<usize>>,
+    pub bbox: [f64; 4],
+    pub deep_devices: usize,
+    pub open: Vec<(u32, (f64, f64))>,
+    pub sub: Option<u32>,
+    pub sub_points: Vec<(f64, f64)>,
+    pub warnings: Vec<String>,
+    pub build_ms: u64,
 }
 
 /// Las celdas ya armadas, por huella.
 pub type Cells = HashMap<NetKey, Arc<CellNets>>;
 
 impl CellNets {
+    /// El resumen con sus índices para buscar.
+    pub(crate) fn assemble(p: Parts) -> Self {
+        let mut by_type: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (i, x) in p.own.pieces.iter().enumerate() {
+            by_type.entry(x.magic.clone()).or_default().push(i);
+        }
+        let index = by_type
+            .into_iter()
+            .map(|(t, idx)| {
+                let boxes: Vec<[f64; 4]> = idx.iter().map(|&i| bbox(&p.own.pieces[i].poly)).collect();
+                (t, (BoxGrid::new(&boxes), idx))
+            })
+            .collect();
+        let inst_grid = BoxGrid::new(&p.insts.iter().map(|i| i.bbox).collect::<Vec<_>>());
+        CellNets {
+            name: p.name,
+            own: p.own,
+            own_map: p.own_map,
+            insts: p.insts,
+            inst_maps: p.inst_maps,
+            nets: p.nets,
+            label_nets: p.label_nets,
+            bbox: p.bbox,
+            deep_devices: p.deep_devices,
+            open: p.open,
+            sub: p.sub,
+            sub_points: p.sub_points,
+            warnings: p.warnings,
+            build_ms: p.build_ms,
+            index,
+            inst_grid,
+        }
+    }
+
     /// Cuánta memoria ocupa, más o menos.
     pub(crate) fn bytes(&self) -> u64 {
         let pts: usize = self.own.pieces.iter().map(|p| p.poly.points.len()).sum();
@@ -335,18 +389,20 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
             }
             let n_child = typed.len();
             let t1 = t0.elapsed();
-            typed.extend(near.iter().map(|&i| {
-                let p = &own.pieces[i];
-                Typed { magic: p.magic.clone(), poly: p.poly.clone(), node: p.net as u64 }
-            }));
-            let e = touching(ctx.rules, &typed, Some(zone), ctx.unit_um);
+            let mine: Vec<Typed> = near
+                .iter()
+                .map(|&i| {
+                    let p = &own.pieces[i];
+                    Typed { magic: p.magic.clone(), poly: p.poly.clone(), node: p.net as u64 }
+                })
+                .collect();
+            let e = bipartite(ctx.rules, &mine, &typed, ctx.unit_um);
             if ctx.profile && t0.elapsed().as_millis() > 100 {
                 eprintln!(
-                    "[hier]   {} → {}: {} propios, {} de la hija en {t1:?}, unión {:?}",
+                    "[hier]   {} → {}: {} propios, {n_child} de la hija en {t1:?}, pares {:?}",
                     cell.name(),
                     inst.cell,
                     near.len(),
-                    n_child,
                     t0.elapsed() - t1
                 );
             }
@@ -554,21 +610,10 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
         warnings.push(format!("etiquetas fuera de una capa conductora de su tipo: {}", unplaced.join(", ")));
     }
 
-    let mut by_type: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (i, p) in own.pieces.iter().enumerate() {
-        by_type.entry(p.magic.clone()).or_default().push(i);
-    }
-    let index = by_type
-        .into_iter()
-        .map(|(t, idx)| {
-            let boxes: Vec<[f64; 4]> = idx.iter().map(|&i| bbox(&own.pieces[i].poly)).collect();
-            (t, (BoxGrid::new(&boxes), idx))
-        })
-        .collect();
     let bbox_all = own.pieces.iter().map(|p| bbox(&p.poly)).chain(insts.iter().map(|i| i.bbox)).fold(EMPTY, union_box);
     let deep_devices = own.devices.len() + children.iter().map(|c| c.deep_devices).sum::<usize>();
     mark("fin");
-    CellNets {
+    CellNets::assemble(Parts {
         name: cell.name().to_string(),
         own,
         own_map,
@@ -582,9 +627,8 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
         sub,
         sub_points,
         warnings,
-        index,
-        inst_grid,
-    }
+        build_ms: clock.elapsed().as_millis() as u64,
+    })
 }
 
 /// Puntos dentro de un rectángulo de etiqueta (como `extract::area_points`).
@@ -617,41 +661,13 @@ fn neighbourhood(ctx: &Ctx<'_>, cells: &Cells, a: &Inst, b: &Inst) -> Arc<Vec<(u
     ca.pieces_in(cells, region, &ctx.conductors, &mut pa);
     let mut pb = Vec::new();
     cb.pieces_in(cells, rel.inverse().bbox(&region), &ctx.conductors, &mut pb);
-    let side = 1u64 << 40;
-    let mut typed: Vec<Typed> = pa.into_iter().map(|(n, t, p)| Typed { magic: t, poly: p, node: n as u64 }).collect();
-    typed.extend(pb.into_iter().map(|(n, t, p)| Typed { magic: t, poly: rel.poly(&p), node: side + n as u64 }));
-    let n_pieces = typed.len();
-    let mut pairs: Vec<(u32, u32)> = Vec::new();
-    // Por componente (una cadena puede pasar por varios pedazos de los dos
-    // lados): la primera red de `a` con cada una de `b`, y al revés.
-    let edges = touching(ctx.rules, &typed, Some(region), ctx.unit_um);
-    if !edges.is_empty() {
-        let mut ids: Vec<u64> = edges.iter().flat_map(|&(x, y)| [x, y]).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        let pos = |x: u64| ids.binary_search(&x).map_or(0, |i| i as u32);
-        let mut uf = Uf((0..ids.len() as u32).collect());
-        for &(x, y) in &edges {
-            uf.join(pos(x), pos(y));
-        }
-        let mut comps: BTreeMap<u32, (Vec<u32>, Vec<u32>)> = BTreeMap::new();
-        for (i, &id) in ids.iter().enumerate() {
-            let e = comps.entry(uf.find(i as u32)).or_default();
-            if id < side {
-                e.0.push(id as u32);
-            } else {
-                e.1.push((id - side) as u32);
-            }
-        }
-        for (xs, ys) in comps.values() {
-            if let (Some(&x0), Some(&y0)) = (xs.first(), ys.first()) {
-                pairs.extend(ys.iter().map(|&y| (x0, y)));
-                pairs.extend(xs.iter().map(|&x| (x, y0)));
-            }
-        }
-        pairs.sort_unstable();
-        pairs.dedup();
-    }
+    let left: Vec<Typed> = pa.into_iter().map(|(n, t, p)| Typed { magic: t, poly: p, node: n as u64 }).collect();
+    let right: Vec<Typed> = pb.into_iter().map(|(n, t, p)| Typed { magic: t, poly: rel.poly(&p), node: n as u64 }).collect();
+    let n_pieces = left.len() + right.len();
+    let mut pairs: Vec<(u32, u32)> =
+        bipartite(ctx.rules, &left, &right, ctx.unit_um).into_iter().map(|(x, y)| (x as u32, y as u32)).collect();
+    pairs.sort_unstable();
+    pairs.dedup();
     if ctx.profile && clock.elapsed().as_millis() > 100 {
         eprintln!(
             "[hier]   vecindad {} ~ {}: {} pedazos, {} pares en {:?}",
@@ -689,6 +705,127 @@ impl HierNets {
     }
 }
 
+/// Extrae celdas de una librería a pedido: las huellas se calculan una vez
+/// y cada celda se arma una vez (o sale de la memoria del proceso).
+pub struct Extractor<'a> {
+    ctx: Ctx<'a>,
+    cells: Mutex<Cells>,
+    disk: Option<super::disk::Disk>,
+}
+
+impl<'a> Extractor<'a> {
+    pub fn new(lib: &'a Library, rules: &'a DeviceRules, magic: Option<&'a gdstk_rs::magic::MagInfo>, opts: Options) -> Self {
+        let mut conn: HashMap<String, Vec<String>> = HashMap::new();
+        for (a, b) in &rules.connect {
+            for x in a.iter().chain(b) {
+                let e = conn.entry(x.clone()).or_insert_with(|| vec![x.clone()]);
+                for y in a.iter().chain(b) {
+                    if y != "space" && !e.contains(y) {
+                        e.push(y.clone());
+                    }
+                }
+            }
+        }
+        let conductors: Vec<String> = crate::nets::wanted_types(rules).iter().map(|t| rules.canonical(t).to_string()).collect();
+        let unit_um = lib.unit() / 1e-6;
+        let reach = conductors.iter().map(|t| rules.bridge(t)).fold(5e-4, f64::max) / unit_um;
+        let mut sizes = HashMap::new();
+        for c in lib.cells() {
+            sizes.insert(c.name().to_string(), flat_polygon_estimate(lib, &c));
+        }
+        // Las huellas; una celda sin huella recibe una única para esta extracción.
+        static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let nonce = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut unique = HashSet::new();
+        let keys: HashMap<String, NetKey> = net_keys(lib, magic, salt(lib, rules.fingerprint, opts.inline))
+            .into_iter()
+            .map(|(name, k)| {
+                let k = k.unwrap_or_else(|| {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    (nonce, &name).hash(&mut h);
+                    let k = NetKey(((h.finish() as u128) << 64) | nonce as u128);
+                    unique.insert(k);
+                    k
+                });
+                (name, k)
+            })
+            .collect();
+        let ctx = Ctx {
+            lib,
+            rules,
+            magic,
+            opts,
+            unit_um,
+            conn,
+            conductors,
+            sizes,
+            keys,
+            unique,
+            local: Mutex::new(HashMap::new()),
+            stats: Mutex::new(Stats::default()),
+            profile: std::env::var_os("RIKU_PROFILE").is_some(),
+            reach,
+        };
+        Self { ctx, cells: Mutex::new(HashMap::new()), disk: None }
+    }
+
+    /// Con la memoria en disco (ver [`super::disk`]).
+    pub fn with_disk(mut self, disk: Option<super::disk::Disk>) -> Self {
+        self.disk = disk;
+        self
+    }
+
+    /// La huella de una celda de la librería.
+    pub fn key(&self, name: &str) -> Option<NetKey> {
+        self.ctx.keys.get(name).copied()
+    }
+
+    /// La extracción de `name`: la arma con lo que falte de su sub-jerarquía.
+    pub fn get(&self, name: &str) -> Option<HierNets> {
+        let lib = self.ctx.lib;
+        let root = lib.find_cell(name)?;
+        let ctx = &self.ctx;
+        let mut cells = self.cells.lock().unwrap();
+        for level in levels(ctx, &root) {
+            // Una celda por huella (dos nombres con el mismo contenido son una).
+            let mut todo: Vec<(&String, NetKey)> = Vec::new();
+            for name in &level {
+                let k = ctx.keys[name];
+                if !cells.contains_key(&k) && !todo.iter().any(|(_, t)| *t == k) {
+                    todo.push((name, k));
+                }
+            }
+            let done: &Cells = &cells;
+            let built: Vec<(NetKey, Arc<CellNets>, bool)> = todo
+                .par_iter()
+                .filter_map(|&(name, k)| {
+                    let cell = lib.find_cell(name)?;
+                    let build = || build_cell(ctx, done, &cell);
+                    let (c, known) = if ctx.unique.contains(&k) {
+                        (Arc::new(build()), false)
+                    } else {
+                        memo().cell(k, self.disk.as_ref(), build)
+                    };
+                    Some((k, c, known))
+                })
+                .collect();
+            let mut st = ctx.stats.lock().unwrap();
+            for (k, c, known) in built {
+                if known {
+                    st.remembered += 1;
+                } else {
+                    st.cells += 1;
+                }
+                cells.insert(k, c);
+            }
+        }
+        let stats = *ctx.stats.lock().unwrap();
+        let root = cells.get(ctx.keys.get(name)?)?.clone();
+        Some(HierNets { root, cells: cells.clone(), stats, keys: ctx.keys.clone() })
+    }
+}
+
 /// Las redes de `root` por celdas, con la memoria del proceso: una celda
 /// con una huella ya vista (en esta librería u otra) no se vuelve a armar.
 pub fn extract(
@@ -698,90 +835,7 @@ pub fn extract(
     magic: Option<&gdstk_rs::magic::MagInfo>,
     opts: Options,
 ) -> HierNets {
-    let mut conn: HashMap<String, Vec<String>> = HashMap::new();
-    for (a, b) in &rules.connect {
-        for x in a.iter().chain(b) {
-            let e = conn.entry(x.clone()).or_insert_with(|| vec![x.clone()]);
-            for y in a.iter().chain(b) {
-                if y != "space" && !e.contains(y) {
-                    e.push(y.clone());
-                }
-            }
-        }
-    }
-    let conductors: Vec<String> = crate::nets::wanted_types(rules).iter().map(|t| rules.canonical(t).to_string()).collect();
-    let unit_um = lib.unit() / 1e-6;
-    let reach = conductors.iter().map(|t| rules.bridge(t)).fold(5e-4, f64::max) / unit_um;
-    let mut sizes = HashMap::new();
-    for c in lib.cells() {
-        sizes.insert(c.name().to_string(), flat_polygon_estimate(lib, &c));
-    }
-    // Las huellas; una celda sin huella recibe una única para esta extracción.
-    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let nonce = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut unique = HashSet::new();
-    let keys: HashMap<String, NetKey> = net_keys(lib, magic, salt(lib, rules.fingerprint, opts.inline))
-        .into_iter()
-        .map(|(name, k)| {
-            let k = k.unwrap_or_else(|| {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                (nonce, &name).hash(&mut h);
-                let k = NetKey(((h.finish() as u128) << 64) | nonce as u128);
-                unique.insert(k);
-                k
-            });
-            (name, k)
-        })
-        .collect();
-    let ctx = Ctx {
-        lib,
-        rules,
-        magic,
-        opts,
-        unit_um,
-        conn,
-        conductors,
-        sizes,
-        keys,
-        unique,
-        local: Mutex::new(HashMap::new()),
-        stats: Mutex::new(Stats::default()),
-        profile: std::env::var_os("RIKU_PROFILE").is_some(),
-        reach,
-    };
-    let mut cells: Cells = HashMap::new();
-    for level in levels(&ctx, root) {
-        // Una celda por huella (dos nombres con el mismo contenido son una).
-        let mut todo: Vec<(&String, NetKey)> = Vec::new();
-        for name in &level {
-            let k = ctx.keys[name];
-            if !cells.contains_key(&k) && !todo.iter().any(|(_, t)| *t == k) {
-                todo.push((name, k));
-            }
-        }
-        let built: Vec<(NetKey, Arc<CellNets>, bool)> = todo
-            .par_iter()
-            .filter_map(|&(name, k)| {
-                let cell = lib.find_cell(name)?;
-                let build = || build_cell(&ctx, &cells, &cell);
-                let (c, known) = if ctx.unique.contains(&k) { (Arc::new(build()), false) } else { memo().cell(k, build) };
-                Some((k, c, known))
-            })
-            .collect();
-        let mut st = ctx.stats.lock().unwrap();
-        for (k, c, known) in built {
-            if known {
-                st.remembered += 1;
-            } else {
-                st.cells += 1;
-            }
-            cells.insert(k, c);
-        }
-    }
-    let stats = *ctx.stats.lock().unwrap();
-    let root = cells[&ctx.keys[root.name()]].clone();
-    HierNets { root, cells, stats, keys: ctx.keys }
+    Extractor::new(lib, rules, magic, opts).get(root.name()).expect("la celda está en la librería")
 }
 
 /// La `Netlist` plana de `root`: sus redes, y los transistores de toda la
