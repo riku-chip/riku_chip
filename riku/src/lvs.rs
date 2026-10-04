@@ -349,7 +349,6 @@ pub struct SchematicNetlist {
 /// [`SchematicNetlist`] de `pair`, con los archivos de `files` (una versión
 /// del proyecto): el netlister propio en modo LVS, con su `.subckt`.
 pub fn schematic_netlist(pair: &Pair, files: std::sync::Arc<dyn viewer_core::FileSource>) -> Result<SchematicNetlist, String> {
-    use viewer_core::FileSource as _;
     let text = files
         .read(&pair.schematic)
         .and_then(|b| String::from_utf8(b).ok())

@@ -233,7 +233,8 @@ fn microns(s: &str) -> Option<f64> {
             _ => return None,
         }
     };
-    Some(v * mult * 1e6)
+    // Redondeado al pm: `500n` es 0.5, no 0.5000000000000001.
+    Some((v * mult * 1e12).round() / 1e6)
 }
 
 /// Redes que pone la extracción o el netlister cuando no tienen nombre:
