@@ -910,7 +910,7 @@ mod tests {
         let (sch, lay) = sides();
         let mut m = full();
         // M3 pasa a ser el primer dedo de M2: M2 se queda con el otro.
-        bind(&mut m, "M3", &[1], &lay);
+        super::bind(&mut m, "M3", &[1], &lay);
         let m3 = m.binds.iter().find(|b| b.schematic == "M3").unwrap();
         assert_eq!(m3.layout.len(), 1);
         assert_eq!(m3.layout[0].at, [1.0, 5.0]);
