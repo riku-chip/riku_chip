@@ -19,58 +19,69 @@ pub use key::NetKey;
 use crate::devices::{DeviceChange, DeviceRules};
 use crate::nets::NetChange;
 
-/// Lo que cambió en cada celda pedida entre dos librerías, por celdas: sus
-/// abiertos, cortos y renombres, y sus transistores propios. `cells`: el
-/// nombre y las cajas (µm) de sus cambios de geometría. Las celdas con la
-/// misma huella en los dos lados no se comparan; las que faltan de un lado,
-/// tampoco.
-pub fn changes_between(
-    (la, lb): (&gdstk_rs::Library, &gdstk_rs::Library),
-    (ia, ib): (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
-    rules: &DeviceRules,
-    cells: &[(String, Vec<[f64; 4]>)],
-    disk: Option<Disk>,
-) -> Vec<(String, Vec<NetChange>, Vec<DeviceChange>)> {
-    let profile = std::env::var_os("RIKU_PROFILE").is_some();
-    let clock = std::time::Instant::now();
-    let opts = Options::default();
-    let (xa, xb) = rayon::join(
-        || Extractor::new(la, rules, ia, opts).with_disk(disk.clone()),
-        || Extractor::new(lb, rules, ib, opts).with_disk(disk.clone()),
-    );
-    if profile {
-        eprintln!("[redes] huellas: {:?}", clock.elapsed());
+/// Las dos versiones de una librería, listas para extraer por celdas.
+pub struct Pair<'a> {
+    xa: Extractor<'a>,
+    xb: Extractor<'a>,
+    unit_um: f64,
+}
+
+impl<'a> Pair<'a> {
+    pub fn new(
+        (la, lb): (&'a gdstk_rs::Library, &'a gdstk_rs::Library),
+        (ia, ib): (Option<&'a gdstk_rs::magic::MagInfo>, Option<&'a gdstk_rs::magic::MagInfo>),
+        rules: &'a DeviceRules,
+        disk: Option<Disk>,
+    ) -> Self {
+        let opts = Options::default();
+        let (xa, xb) = rayon::join(
+            || Extractor::new(la, rules, ia, opts).with_disk(disk.clone()),
+            || Extractor::new(lb, rules, ib, opts).with_disk(disk.clone()),
+        );
+        Pair { xa, xb, unit_um: lb.unit() / 1e-6 }
     }
-    let unit_um = lb.unit() / 1e-6;
-    let mut out = Vec::new();
-    for (name, boxes) in cells {
-        let (Some(ka), Some(kb)) = (xa.key(name), xb.key(name)) else { continue };
-        if ka == kb {
-            continue;
-        }
-        let t = std::time::Instant::now();
-        // Primero un lado y después el otro: el segundo reusa lo que no cambió
-        // (a la vez, los dos armarían lo mismo).
-        let ha = xa.get(name);
-        let hb = xb.get(name);
-        let (Some(ha), Some(hb)) = (ha, hb) else { continue };
-        let t1 = t.elapsed();
-        let (nets, devices) = cell_changes(name, (&ha.root, &ha.cells), (&hb.root, &hb.cells), unit_um, boxes);
-        if profile {
-            eprintln!(
-                "[redes] {name}: extraer {t1:?} ({}+{} y {}+{} celdas), comparar {:?}: {} redes, {} transistores",
-                ha.stats.cells,
-                ha.stats.remembered,
-                hb.stats.cells,
-                hb.stats.remembered,
-                t.elapsed() - t1,
-                nets.len(),
-                devices.len()
-            );
-        }
-        out.push((name.clone(), nets, devices));
+
+    /// Si la extracción de `name` ya está hecha en los dos lados (en la
+    /// memoria del proceso o en disco): compararla es barato.
+    pub fn cached(&self, name: &str) -> bool {
+        self.xa.cached(name) && self.xb.cached(name)
     }
-    out
+
+    /// Lo que cambió en cada celda pedida, por celdas: sus abiertos, cortos
+    /// y renombres, y sus transistores propios. `cells`: el nombre y las
+    /// cajas (µm) de sus cambios de geometría. Las celdas con la misma
+    /// huella en los dos lados no se comparan; las que faltan de un lado,
+    /// tampoco.
+    pub fn changes(&self, cells: &[(String, Vec<[f64; 4]>)]) -> Vec<(String, Vec<NetChange>, Vec<DeviceChange>)> {
+        let profile = std::env::var_os("RIKU_PROFILE").is_some();
+        let mut out = Vec::new();
+        for (name, boxes) in cells {
+            let (Some(ka), Some(kb)) = (self.xa.key(name), self.xb.key(name)) else { continue };
+            if ka == kb {
+                continue;
+            }
+            let t = std::time::Instant::now();
+            let ha = self.xa.get(name);
+            let hb = self.xb.get(name);
+            let (Some(ha), Some(hb)) = (ha, hb) else { continue };
+            let t1 = t.elapsed();
+            let (nets, devices) = cell_changes(name, (&ha.root, &ha.cells), (&hb.root, &hb.cells), self.unit_um, boxes);
+            if profile {
+                eprintln!(
+                    "[redes] {name}: extraer {t1:?} ({}+{} y {}+{} celdas), comparar {:?}: {} redes, {} transistores",
+                    ha.stats.cells,
+                    ha.stats.remembered,
+                    hb.stats.cells,
+                    hb.stats.remembered,
+                    t.elapsed() - t1,
+                    nets.len(),
+                    devices.len()
+                );
+            }
+            out.push((name.clone(), nets, devices));
+        }
+        out
+    }
 }
 
 /// Lo que cambió en la celda abierta en el visor: hasta `max_polygons`
@@ -102,6 +113,13 @@ pub fn opened_cell_changes(
         unit_um,
     );
     (crate::nets::net_changes(name, &na, &nb, unit_um, changed), devices)
+}
+
+/// `RIKU_FULL_NETS=1`: comparar las redes también de las celdas de más de
+/// [`crate::devices::MAX_POLYGONS`] polígonos aplanados aunque no estén
+/// extraídas de antes (la primera vez, un chip entero cuesta segundos).
+pub fn full_requested() -> bool {
+    std::env::var("RIKU_FULL_NETS").is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
 /// `RIKU_FLAT_NETS=1`: el diff de redes y transistores aplanando cada celda,

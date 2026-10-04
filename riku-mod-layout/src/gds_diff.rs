@@ -233,9 +233,10 @@ pub fn diff_layout_sides(
                 if crate::nets::hier::flat_requested() {
                     device_changes(&a.lib, &b.lib, path, &mut report);
                     net_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, &mut report);
-                } else {
+                } else if let Some(rules) = crate::devices::rules_for_library(&b.lib, Some(path)) {
                     let disk = cache.nets_dir().map(crate::nets::hier::Disk::new);
-                    hier_changes(&a.lib, &b.lib, (a.info.as_ref(), b.info.as_ref()), path, disk, &mut report);
+                    let pair = crate::nets::hier::Pair::new((&a.lib, &b.lib), (a.info.as_ref(), b.info.as_ref()), rules, disk);
+                    hier_changes((&a.lib, &b.lib), rules, &pair, &mut report);
                 }
             }
             Ok(report)
@@ -248,14 +249,11 @@ pub fn diff_layout_sides(
 /// propios y sus redes; en sus ancestros, las redes (un corto que aparece
 /// recién arriba). Un mismo corto se informa solo en la celda más baja.
 fn hier_changes(
-    la: &Library,
-    lb: &Library,
-    info: (Option<&gdstk_rs::magic::MagInfo>, Option<&gdstk_rs::magic::MagInfo>),
-    path: &str,
-    disk: Option<crate::nets::hier::Disk>,
+    (la, lb): (&Library, &Library),
+    rules: &crate::devices::DeviceRules,
+    pair: &crate::nets::hier::Pair<'_>,
     report: &mut GdsDiffReport,
 ) {
-    let Some(rules) = crate::devices::rules_for_library(lb, Some(path)) else { return };
     let mut types = rules.conductors();
     types.extend(rules.resistors.iter().map(|r| r.magic.clone()));
     let net_layers = rules.type_layers(&types);
@@ -300,8 +298,31 @@ fn hier_changes(
             via.entry(g.cell.clone()).or_default().insert(child.clone());
         }
     }
-    let cells: Vec<(String, Vec<[f64; 4]>)> = boxes.into_iter().collect();
-    let found = crate::nets::hier::changes_between((la, lb), info, rules, &cells, disk);
+    // Una celda enorme (un chip entero) se compara por celdas si ya está
+    // extraída (memoria o disco) o si se pide (`RIKU_FULL_NETS`): la primera
+    // vez cuesta segundos, y sin eso queda como antes, con un aviso.
+    let full = crate::nets::hier::full_requested();
+    let max = crate::devices::MAX_POLYGONS;
+    let mut skipped = Vec::new();
+    let cells: Vec<(String, Vec<[f64; 4]>)> = boxes
+        .into_iter()
+        .filter(|(c, _)| {
+            let big = [la, lb].iter().any(|l| l.find_cell(c).is_some_and(|x| crate::devices::flat_polygon_estimate(l, &x) > max));
+            let keep = !big || full || pair.cached(c);
+            if !keep {
+                skipped.push(c.clone());
+            }
+            keep
+        })
+        .collect();
+    if !skipped.is_empty() {
+        report.warnings.push(format!(
+            "redes no comparadas en {} (más de {} millones de polígonos, sin extraer de antes): se comparan en sus sub-celdas; RIKU_FULL_NETS=1 las compara",
+            skipped.join(", "),
+            max / 1_000_000
+        ));
+    }
+    let found = pair.changes(&cells);
     // El mismo corto se ve en cada ancestro de donde aparece: se informa solo
     // en la celda más baja.
     let with: BTreeSet<String> = found.iter().filter(|(_, n, _)| !n.is_empty()).map(|(c, _, _)| c.clone()).collect();

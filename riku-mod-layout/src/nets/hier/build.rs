@@ -829,6 +829,12 @@ impl<'a> Extractor<'a> {
         self.ctx.keys.get(name).copied()
     }
 
+    /// Si el resumen de `name` ya está en la memoria del proceso o en disco.
+    pub fn cached(&self, name: &str) -> bool {
+        let Some(k) = self.key(name) else { return false };
+        self.cells.lock().unwrap().contains_key(&k) || memo().has(k) || self.disk.as_ref().is_some_and(|d| d.has(k))
+    }
+
     /// La extracción de `name`: la arma con lo que falte de su sub-jerarquía.
     pub fn get(&self, name: &str) -> Option<HierNets> {
         let lib = self.ctx.lib;
