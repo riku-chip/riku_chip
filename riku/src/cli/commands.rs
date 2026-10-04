@@ -816,6 +816,9 @@ fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crat
         let (dx, dy) = (format!("{:.3}", m.dx), format!("{:.3}", m.dy));
         println!("  {}", tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = dx, dy = dy, count = m.count));
     }
+    if !c.by_cell.is_empty() {
+        println!("  {}", tr!("lvs_map.by_cell", names = c.by_cell.join(", ")));
+    }
     if !c.by_connectivity.is_empty() {
         println!("  {}", tr!("lvs_map.by_connectivity", names = c.by_connectivity.join(", ")));
     }

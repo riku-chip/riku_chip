@@ -726,3 +726,4 @@ lvs_map.moved_ambiguous: "the cell seems to have moved, but it can be aligned in
 lvs_view.pins: "Pins"
 lvs_view.moved: "Moved"
 lvs_view.unchecked: "Not checked"
+lvs_map.by_cell: "relinked by their sub-cell (an instance moved): %{names} (riku lvs --map --update saves it)"

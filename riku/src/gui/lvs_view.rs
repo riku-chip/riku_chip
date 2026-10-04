@@ -641,6 +641,9 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
         let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
         ui.label(RichText::new(tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = format!("{:.3}", m.dx), dy = format!("{:.3}", m.dy), count = m.count)).small());
     }
+    if !c.by_cell.is_empty() {
+        ui.label(RichText::new(tr!("lvs_map.by_cell", names = c.by_cell.join(", "))).small());
+    }
     ui.add_space(space::S);
 
     // Lo elegido, con su W de cada lado.
@@ -670,7 +673,7 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
         if ui.button(tr!("lvs_view.suggest")).on_hover_text(tr!("help.lvs_suggest")).clicked() {
             action = Some(Action::Suggest);
         }
-        let moved = c.moved.is_some() || !c.by_connectivity.is_empty();
+        let moved = c.moved.is_some() || !c.by_connectivity.is_empty() || !c.by_cell.is_empty();
         if ui.add_enabled(moved, egui::Button::new(tr!("lvs_view.save_positions"))).on_hover_text(tr!("help.lvs_update")).clicked() {
             action = Some(Action::SavePositions);
         }

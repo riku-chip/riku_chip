@@ -724,3 +724,4 @@ lvs_map.moved_ambiguous: "la celda parece movida, pero se puede alinear de más 
 lvs_view.pins: "Pines"
 lvs_view.moved: "Movido"
 lvs_view.unchecked: "Sin revisar"
+lvs_map.by_cell: "reubicados por su sub-celda (se movió una instancia): %{names} (riku lvs --map --update lo guarda)"
