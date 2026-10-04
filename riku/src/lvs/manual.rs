@@ -674,17 +674,23 @@ fn rigid_candidates(refs: &[&LayoutRef], lay: &[LayDevice], idx: &Index, used: &
 }
 
 /// Cuántas contradicciones hay entre las redes de unos vínculos: redes del
-/// esquemático repartidas en varias del layout más redes del layout con
-/// varias del esquemático.
+/// esquemático repartidas en varias del layout, redes del layout con varias
+/// del esquemático, y redes con nombre en los dos lados vinculadas a otra
+/// con otro nombre (en un layout simétrico, el espejo encaja todos los
+/// dedos pero cambia `Vp` por `Vn`).
 fn conflicts(pairs: &[(&SchDevice, Vec<usize>)], lay: &[LayDevice]) -> usize {
     let map = net_pairs(pairs, lay);
     let mut back: HashMap<&String, HashSet<&String>> = HashMap::new();
+    let mut renamed = 0;
     for (s, ls) in &map {
         for l in ls {
             back.entry(l).or_default().insert(s);
+            if !auto_name(s) && !auto_name(l) && !s.eq_ignore_ascii_case(l) {
+                renamed += 1;
+            }
         }
     }
-    map.values().filter(|v| v.len() > 1).count() + back.values().filter(|v| v.len() > 1).count()
+    map.values().filter(|v| v.len() > 1).count() + back.values().filter(|v| v.len() > 1).count() + renamed
 }
 
 /// Qué red del layout es cada una del esquemático, según los vínculos
@@ -851,9 +857,20 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
         let tied: Vec<usize> = scored.iter().enumerate().filter(|(_, x)| scored.first().is_some_and(|f| x.0 == f.0 && x.1.count == f.1.count)).map(|(i, _)| i).collect();
         // Entre empatados, un desplazamiento sin giro es lo más común: si es
         // uno solo, ese.
+        // Empatados que asignan exactamente lo mismo (p. ej. un espejo sobre
+        // puntos alineados) no son una ambigüedad.
+        let same_assignment = |a: usize, b: usize| {
+            let key = |i: usize| {
+                let mut v = scored[i].2.clone();
+                v.sort_unstable();
+                v
+            };
+            key(a) == key(b)
+        };
         let chosen = match tied.as_slice() {
             [] => None,
             [only] => Some(*only),
+            [first, rest @ ..] if rest.iter().all(|&r| same_assignment(*first, r)) => Some(*first),
             many => {
                 let plain: Vec<usize> = many.iter().copied().filter(|&i| scored[i].1.orient == 0).collect();
                 match plain.as_slice() {
@@ -1604,6 +1621,21 @@ mod tests {
         let c = check(&m, &sch, &lay);
         assert!(c.moved.is_none() && c.moved_ambiguous, "{c:#?}");
         assert_eq!(c.lost.len(), 2);
+    }
+
+    #[test]
+    fn en_un_layout_simetrico_gana_el_movimiento_que_respeta_los_nombres() {
+        // M1 (compuerta A) y M2 (compuerta B), y el layout girado 90° y
+        // corrido. El layout es simétrico: girarlo al revés también encaja los
+        // dos dedos, pero cambia A por B.
+        let sch = vec![sd("M1", N, ["d", "A", "s", "VSS"], 1.0), sd("M2", N, ["d", "B", "s", "VSS"], 1.0)];
+        let lay = vec![ld(N, (10.0, 0.0), ["d", "A", "s", "VSS"], 1.0), ld(N, (10.0, 2.0), ["d", "B", "s", "VSS"], 1.0)];
+        let mut m = MapFile::new("a.sch", "a.gds", None);
+        m.binds = vec![bind("M1", &[(N, 0.0, 0.0)]), bind("M2", &[(N, 2.0, 0.0)])];
+        let c = check(&m, &sch, &lay);
+        assert!(!c.moved_ambiguous, "{c:#?}");
+        assert_eq!(c.moved.map(|m| m.orient), Some(1), "{c:#?}");
+        assert!(c.clean(), "{c:#?}");
     }
 
     #[test]
