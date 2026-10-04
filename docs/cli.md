@@ -187,13 +187,57 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 
 ---
 
+### El LVS en el historial: `--lvs`
+
+```bash
+riku log --lvs [--graph] [-n N] [--detail|--full] [-f json]
+```
+
+Agrega a cada commit, por cada par esquemático ↔ layout (los de [`riku lvs`](#riku-lvs-el-layout-contra-el-esquemático)), el veredicto del LVS respecto de su **primer padre** y qué cambió:
+
+```text
+● a603147  Wider PMOS load: M1, M2 W 2u -> 4u
+│   xschem/ota-5t.sch  2 componentes modificados
+│   LVS ota-5t: parámetros distintos  ← dejó de coincidir
+│     + M1 w: esquemático 4, layout 2 (−50 %)
+│     + M2 w: esquemático 4, layout 2 (−50 %)
+│ ● 02496a4 (narrow-input-pair)  Layout: trim the input pair diffusion to match
+│ │   LVS ota-5t: parámetros distintos
+│ │     + M8 w: esquemático 20, layout 19 (−5,0 %)
+│ │     ~ M3 w: esquemático 18, layout 20 → 19 (+5,6 %)
+```
+
+- `+` apareció, `~` cambió de valor, `−` se arregló. Cada discrepancia se reconoce entre versiones por los nombres del **esquemático** (`M3 · w`); los del layout son índices que se corren. El porcentaje es el error del layout respecto del esquemático, que es la intención.
+- Si en una de las dos versiones no coinciden las conexiones (un corto, un abierto), Netgen no compara parámetros: solo cuentan las redes, los dispositivos y los pines.
+- Sin `--detail`, hasta 3 líneas por commit (`… y N más`), y nada en los commits donde el LVS no cambió; `--detail` lo muestra todo; `--full`, también la lista completa de cada commit.
+- Usa la caché del LVS: solo corre Netgen para lo que no calculó antes (avisa cuántas corridas nuevas hubo). Sin Netgen, `log` sale igual, con un aviso.
+- JSON: cada commit lleva `lvs`, una lista por par con `state` (`done`, `missing`, `error`), `verdict`, `transition` (`broke`, `worse`, `better`, `fixed`) y `delta` (`appeared`, `changed`, `fixed`). `riku-log/v2` no cambia: es un campo opcional.
+
 ## `riku status`
 
 ```bash
-riku status [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--include-unknown] [--ci]
+riku status [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--include-unknown] [--ci] [--lvs]
 ```
 
 Cada archivo modificado respecto a `HEAD` se clasifica como `semantic` (cambios funcionales), `cosmetic` (solo reposicionamiento), `unchanged` (el módulo no ve cambios), `unknown` (sin módulo; se listan con `--include-unknown`) o `error` (no se pudo comparar, por ejemplo un archivo roto o de más de 50 MB; el mensaje va en `errors`, y `status` termina con 2). Los avisos del módulo (una sub-celda de Magic que no aparece…) van en `warnings` de cada archivo; en `log`, un archivo sin cambios pero con avisos no se oculta.
+
+**`--lvs`**: agrega el LVS de cada par, el working tree contra `HEAD`, y **el código de salida pasa a ser el del LVS**, para un hook de pre-commit o la CI:
+
+| Caso | Salida |
+|---|---|
+| Algún par dejó de coincidir o empeoró (`← dejó de coincidir`, `← empeoró`) | 1 |
+| Error (Netgen no está, una netlist que no se puede armar) | 2 |
+| Igual o mejor | 0 |
+| Igual de mal, pero con discrepancias nuevas | 0, con un aviso |
+
+```text
+LVS (HEAD → disco)
+  ota-5t        parámetros distintos → NO coinciden  ← empeoró: ya no coinciden las conexiones
+                + redes sin pareja: Vout, Vp (layout: Vout)
+                + pin Vp solo en el esquemático
+```
+
+Un par que los cambios no tocaron sale en una línea (`coincide (sin cambios)`). Hook de pre-commit (`.git/hooks/pre-commit`): `riku status --lvs > /dev/null`. JSON: `lvs` en `riku-status/v2`, con `head`, `worktree`, `unchanged`, `transition` y `delta`.
 
 ```json
 {
@@ -299,7 +343,7 @@ layout = "layout/amp.gds"
 cell = "amp"          # opcional: sin ella, la top
 ```
 
-**Historial** (`--log`): recorre los últimos commits por el primer padre y marca cada cambio de estado: `← dejó de coincidir`, `← empeoró` (las conexiones ya no coinciden: un corto o un abierto), `← mejoró` y `← volvió a coincidir`. Solo compara cuando cambió algo en las carpetas del esquemático o del layout; si no, repite el resultado. Los resultados se guardan en `~/.cache/riku/lvs` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`.
+**Historial** (`--log`): recorre los últimos commits por el primer padre y marca cada cambio de estado: `← dejó de coincidir`, `← empeoró` (las conexiones ya no coinciden: un corto o un abierto), `← mejoró` y `← volvió a coincidir`. Debajo de cada commit, qué discrepancias aparecieron, cambiaron o se arreglaron (como `log --lvs`). Solo corre Netgen cuando cambió algo de lo que lee la comparación (el esquemático, sus símbolos y sub-esquemáticos, el layout y sus sub-celdas, estén en la carpeta que estén) o del entorno (PDK, Netgen); si no, reusa el resultado. Los resultados se guardan en `~/.cache/riku/lvs/v2` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`, con `delta` por commit.
 
 El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
 

@@ -54,9 +54,9 @@ No cubre: bloques de código que son programas en Tcl (bucles, `xschem` …); no
 
 ## Fase 2: el LVS en el tiempo
 
-- `riku log --lvs` y `riku status --lvs`: el resultado por commit, y **el commit donde pasó de coincidir a no coincidir**, con los cambios de ese commit en cada archivo.
-- Caché por contenido: la clave es el hash de las dos netlists y del `setup.tcl`. Un commit que no tocó ni el esquemático ni el layout no recalcula nada.
-- `--ci` en un PR: bloquear un "coincide → no coincide"; un "no coincide → no coincide" es aviso.
+- `riku log --lvs` y `riku status --lvs` (hecho en la ronda 3): el resultado por commit respecto de su primer padre, el commit donde pasó de coincidir a no coincidir y qué discrepancias aparecieron, se arreglaron o cambiaron.
+- Caché por dependencias (hecho): se reusa un resultado solo si no cambió nada de lo que leyó la corrida ni el entorno (ver Decisiones, 4). Un commit que no tocó nada de eso no recalcula.
+- `status --lvs` (hecho): sale con 1 si dejó de coincidir o empeoró; si ya no coincidía y aparecen discrepancias nuevas, sale con 0 y avisa. Falta lo mismo para un PR (base contra head) en la CI.
 
 ## Fase 3: el visor de LVS
 
@@ -90,9 +90,9 @@ No cubre: bloques de código que son programas en Tcl (bucles, `xschem` …); no
 | Historial del LVS y caché | núcleo |
 | Visor de LVS (dos paneles, lista, cross-probing) | esquemáticos (Carlos), con la API de posiciones del layout |
 
-## Decisiones abiertas
+## Decisiones (ronda 3, 2026-10-04)
 
-1. ¿Netgen para siempre, o un comparador propio más adelante?
-2. ¿Dónde vive el emparejamiento esquemático ↔ layout por defecto: por nombre, o siempre en `.riku.toml`?
-3. ¿El LVS entra en `status` y `log` por defecto (cuesta tiempo) o solo con `--lvs`?
-4. ¿Se versiona el resultado del LVS (como el `.raw` de una simulación) o siempre se recalcula?
+1. **Netgen, por ahora.** Es el comparador de SKY130, GF180 e IHP, y sus reglas por PDK (paralelos aunque cambie L, propiedades, *dummies*) ya hicieron falta en la vista de LVS. Un comparador propio (grafo + emparejamiento por firma) es otro proyecto. Se reabre, y se conversa con Carlos, si aparece un caso concreto: Netgen no se puede instalar donde se usa Riku, o hace falta un mensaje que Netgen no da.
+2. **Emparejamiento por nombre y en `.riku.toml`, con prioridad:** `--sch/--layout` > `[[lvs]]` en `.riku.toml` > mismo nombre (`.gds` > `.oas` > `.mag`). El caso común no pide configuración; cuando el nombre elige entre varios layouts, Riku lo avisa y sugiere fijarlo.
+3. **En `log` y `status`, solo con `--lvs`.** Una corrida nueva son segundos por par y versión; el `log` de siempre no debe esperar a Netgen ni fallar si no está. Con `--lvs`, el código de salida de `status` pasa a ser el del LVS (1 si empeoró). Un `[lvs] in_status = true` en `.riku.toml` queda pendiente.
+4. **No se versiona el resultado: se recalcula, con caché.** Es un derivado que depende del PDK y de Netgen; commitearlo dejaría resultados viejos y conflictos en cada merge. La caché (`~/.cache/riku/lvs/v2`) guarda, por resultado, todo lo que leyó la corrida (archivos del proyecto con su id de Git, también los que buscó y no encontró) y una huella del entorno (Riku, netlister, PDK, `setup.tcl`, `xschemrc`, Netgen): se reusa solo si nada de eso cambió, para un commit o para el working tree.
