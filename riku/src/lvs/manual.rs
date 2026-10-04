@@ -114,8 +114,10 @@ pub struct SchDevice {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayDevice {
     pub model: String,
-    /// Un punto de la compuerta, en µm de la celda.
+    /// El centro del recuadro de la compuerta, en µm de la celda.
     pub at: (f64, f64),
+    /// El recuadro de la compuerta (µm): `[x0, y0, x1, y1]`.
+    pub gate: [f64; 4],
     pub w: f64,
     pub l: f64,
     pub pins: [String; 4],
@@ -194,12 +196,13 @@ pub fn layout_devices(n: &riku_mod_layout::nets::LayoutNetlist) -> Vec<LayDevice
             for q in &d.gate.points {
                 (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
             }
-            let at = if x0.is_finite() { ((x0 + x1) / 2.0, (y0 + y1) / 2.0) } else { d.at };
-            (d, t, at)
+            let (at, gate) = if x0.is_finite() { (((x0 + x1) / 2.0, (y0 + y1) / 2.0), [x0, y0, x1, y1]) } else { (d.at, [d.at.0, d.at.1, d.at.0, d.at.1]) };
+            (d, t, at, gate)
         })
-        .map(|(d, t, at)| LayDevice {
+        .map(|(d, t, at, gate)| LayDevice {
             model: d.model.clone(),
             at: (round3(at.0 * n.unit_um), round3(at.1 * n.unit_um)),
+            gate: gate.map(|v| v * n.unit_um),
             w: d.w_um,
             l: d.l_um,
             pins: [nl.net_name(t.d), nl.net_name(t.g), nl.net_name(t.s), nl.net_name(t.b)],
@@ -595,6 +598,10 @@ pub struct Session {
     pub schematic: Vec<SchDevice>,
     pub layout: Vec<LayDevice>,
     pub warnings: Vec<String>,
+    /// µm por unidad de la escena del layout (para dibujar sobre ella).
+    pub unit_um: f64,
+    /// Dónde está cada instancia del esquemático (para dibujar sobre él).
+    pub places: xschem_viewer::spice::Places,
 }
 
 /// [`Session`] de `pair` con los archivos de `tree`. Si esa versión no
@@ -605,7 +612,7 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
     use std::sync::Arc;
     let files: Arc<dyn viewer_core::FileSource> = Arc::new(viewer_core::DiskFiles::new(tree.root.clone()));
     let s = crate::lvs::schematic_netlist(pair, files.clone())?;
-    let places = &s.netlist.places;
+    let places = s.netlist.places.clone();
     let schematic = schematic_devices(&s.netlist.text, &s.stem, &|n| places.instance(n).map(str::to_string));
     let bytes = files.read(&pair.layout).ok_or_else(|| format!("{}: {}", pair.layout, tr!("lvs.cannot_read")))?;
     let ln = riku_mod_layout::nets::layout_netlist(&bytes, &pair.layout, Some(files.as_ref()), pair.cell.as_deref())?;
@@ -625,7 +632,28 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
     };
     let mut warnings: Vec<String> = s.netlist.warnings.clone();
     warnings.extend(ln.netlist.warnings.iter().cloned());
-    Ok(Session { cell: ln.cell, map_path, map, exists, from_disk, schematic, layout, warnings })
+    Ok(Session { cell: ln.cell, map_path, map, exists, from_disk, schematic, layout, warnings, unit_um: ln.unit_um, places })
+}
+
+/// Vincula el transistor `schematic` con los dedos `fingers` del layout. Lo
+/// que ya hubiera de los dos (otro vínculo de ese transistor, o esos dedos
+/// en otro vínculo) se reemplaza.
+pub fn bind(map: &mut MapFile, schematic: &str, fingers: &[usize], lay: &[LayDevice]) {
+    let refs: Vec<LayoutRef> = fingers.iter().map(|&i| LayoutRef { model: lay[i].model.clone(), at: [lay[i].at.0, lay[i].at.1] }).collect();
+    let taken = |r: &LayoutRef| refs.iter().any(|n| same_model(&n.model, &r.model) && (n.at[0] - r.at[0]).hypot(n.at[1] - r.at[1]) <= TOL);
+    map.binds.retain(|b| b.schematic != schematic);
+    for b in &mut map.binds {
+        b.layout.retain(|r| !taken(r));
+    }
+    map.binds.retain(|b| !b.layout.is_empty());
+    if !refs.is_empty() {
+        map.binds.push(Bind { schematic: schematic.into(), layout: refs });
+    }
+}
+
+/// Quita el vínculo de `schematic`.
+pub fn unbind(map: &mut MapFile, schematic: &str) {
+    map.binds.retain(|b| b.schematic != schematic);
 }
 
 /// Esquema del resultado en JSON.
@@ -758,7 +786,7 @@ mod tests {
     }
 
     fn ld(model: &str, at: (f64, f64), pins: [&str; 4], w: f64) -> LayDevice {
-        LayDevice { model: model.into(), at, w, l: 0.5, pins: pins.map(str::to_string) }
+        LayDevice { model: model.into(), at, gate: [at.0 - 0.25, at.1 - 0.5, at.0 + 0.25, at.1 + 0.5], w, l: 0.5, pins: pins.map(str::to_string) }
     }
 
     /// Un inversor con la salida por un buffer: M1/M2 el inversor, M3 un
@@ -875,6 +903,22 @@ mod tests {
         let mut m = MapFile::new("a.sch", "a.gds", None);
         m.binds = got;
         assert!(check(&m, &sch, &lay).clean());
+    }
+
+    #[test]
+    fn vincular_reemplaza_lo_anterior_de_los_dos_lados() {
+        let (sch, lay) = sides();
+        let mut m = full();
+        // M3 pasa a ser el primer dedo de M2: M2 se queda con el otro.
+        bind(&mut m, "M3", &[1], &lay);
+        let m3 = m.binds.iter().find(|b| b.schematic == "M3").unwrap();
+        assert_eq!(m3.layout.len(), 1);
+        assert_eq!(m3.layout[0].at, [1.0, 5.0]);
+        assert_eq!(m.binds.iter().find(|b| b.schematic == "M2").unwrap().layout.len(), 1);
+        // Y lo que se deduce lo dice: modelo distinto en M3.
+        assert!(!check(&m, &sch, &lay).models.is_empty());
+        unbind(&mut m, "M3");
+        assert!(m.binds.iter().all(|b| b.schematic != "M3"));
     }
 
     #[test]

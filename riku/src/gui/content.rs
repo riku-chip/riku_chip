@@ -125,6 +125,17 @@ pub(crate) struct SceneState {
     /// Lo que se resalta de un resultado del LVS (una red, un dispositivo):
     /// el resto se atenúa. Se suelta con Esc.
     pub mark: Option<Mark>,
+    /// Recuadros de color sobre la escena, sin atenuar el resto (el estado
+    /// de cada transistor en el LVS manual).
+    pub tags: Vec<Tag>,
+}
+
+/// Un recuadro de color sobre la escena (coordenadas de mundo).
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(all(feature = "xschem", feature = "layout")), allow(dead_code))]
+pub(crate) struct Tag {
+    pub bbox: BoundingBox,
+    pub color: egui::Color32,
 }
 
 /// Algo resaltado sobre la escena, en coordenadas de mundo: polígonos
@@ -170,6 +181,7 @@ impl SceneState {
                 // Otra celda u otra versión: la red resaltada ya no es la misma.
                 net_focus: None,
                 mark: None,
+                tags: Vec::new(),
                 ..p
             },
             None => SceneState {
@@ -203,6 +215,7 @@ impl SceneState {
                 inertia: None,
                 back: Vec::new(),
                 mark: None,
+                tags: Vec::new(),
             },
         }
     }

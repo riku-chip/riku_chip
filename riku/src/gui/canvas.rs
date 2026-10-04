@@ -42,6 +42,8 @@ pub(crate) struct Readout {
     /// Doble clic en una instancia: la entrada (sub-celda o sub-esquemático)
     /// a abrir.
     pub enter: Option<String>,
+    /// Un clic en este cuadro, en coordenadas de mundo.
+    pub clicked: Option<(f64, f64)>,
 }
 
 /// Dibuja la escena en todo el espacio disponible y atiende los gestos.
@@ -192,6 +194,9 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
             };
         }
     }
+    if !bs.tags.is_empty() {
+        paint_tags(&ui.painter_at(response.rect), &xf, &bs.tags);
+    }
     if let Some(net) = &bs.net_focus {
         paint_net(&ui.painter_at(response.rect), &xf, net, ui.visuals());
     }
@@ -220,6 +225,7 @@ pub(crate) fn show(ui: &mut egui::Ui, bs: &mut SceneState, opts: CanvasOptions) 
         px_world: Some(1.0 / bs.viewport.scale),
         labels_hidden: stats.labels_hidden,
         enter,
+        clicked: response.clicked().then(|| response.interact_pointer_pos()).flatten().map(|p| xf.to_world(p)),
     };
     // Tooltip con capa/área del polígono bajo el cursor (no mientras se
     // arrastra: estorba al hacer pan).
@@ -245,6 +251,20 @@ fn paint_net(painter: &egui::Painter, xf: &ScreenXform, net: &viewer_core::NetHi
         }
         let screen: Vec<egui::Pos2> = poly.iter().map(|&(x, y)| xf.to_screen(x, y)).collect();
         crate::gui::polygon_fill::paint_filled_polygon(painter, poly, screen, yellow.gamma_multiply(0.45), stroke);
+    }
+}
+
+/// Recuadros de color sobre la escena, sin atenuar nada: un borde y un
+/// relleno suave (al menos unos píxeles, para verlos de lejos).
+fn paint_tags(painter: &egui::Painter, xf: &ScreenXform, tags: &[crate::gui::content::Tag]) {
+    for t in tags {
+        let b = &t.bbox;
+        let mut rect = egui::Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y));
+        if rect.width() < 6.0 || rect.height() < 6.0 {
+            rect = egui::Rect::from_center_size(rect.center(), rect.size().max(egui::vec2(6.0, 6.0)));
+        }
+        painter.rect_filled(rect, 1.0, t.color.gamma_multiply(0.18));
+        painter.rect_stroke(rect, 1.0, egui::Stroke::new(1.5, t.color), egui::StrokeKind::Outside);
     }
 }
 

@@ -4,9 +4,13 @@
 //!
 //! El esquemático sabe dónde está cada net y cada dispositivo de su netlist
 //! (`Report::places`, del mismo netlister que vio Netgen). El layout lo dice
-//! su `NetProbe` (`net_named` / `device_named`); mientras no lo implemente,
-//! su lado se ve y se navega pero no resalta.
+//! su `NetProbe` (`net_named` / `device_named`).
+//!
+//! La pestaña «Vínculos» es el LVS manual (`lvs::manual`): cada transistor
+//! coloreado según su estado, clic en uno de cada lado para vincularlos, y
+//! el archivo `lvs/<celda>.toml` al día con cada cambio.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -15,11 +19,12 @@ use poll_promise::Promise;
 use viewer_core::{BoundingBox, NetProbe, ViewerBackend, ViewerError};
 use xschem_viewer::spice::Places;
 
-use crate::gui::canvas::{self, CanvasOptions};
-use crate::gui::content::{Mark, SceneState};
+use crate::gui::canvas::{self, CanvasOptions, Readout};
+use crate::gui::content::{Mark, SceneState, Tag};
 use crate::gui::loader::{LoadedScene, Loader};
 use crate::gui::theme::space;
 use crate::gui::tr;
+use crate::lvs::manual::{self, Check, Session};
 use crate::lvs::{Comparison, Pair, Report, Sides, Verdict};
 
 /// Qué es algo de la lista.
@@ -180,6 +185,22 @@ impl Side {
     }
 }
 
+/// Qué muestra el panel: el resultado de Netgen o los vínculos (LVS manual).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Netgen,
+    Manual,
+}
+
+/// Lo que se puede hacer en la pestaña de vínculos.
+enum Action {
+    Bind,
+    Unbind,
+    Suggest,
+    SavePositions,
+    Select(String),
+}
+
 /// El LVS de un par, con sus dos escenas.
 pub(crate) struct LvsState {
     pub root: PathBuf,
@@ -190,6 +211,19 @@ pub(crate) struct LvsState {
     pub items: Vec<Item>,
     pub selected: Option<usize>,
     job: Option<Promise<Result<Report, String>>>,
+    pub tab: Tab,
+    /// El usuario eligió la pestaña (no se cambia sola al llegar el archivo).
+    tab_chosen: bool,
+    /// Los vínculos y los transistores de cada lado.
+    pub manual: Option<Result<Session, String>>,
+    manual_job: Option<Promise<Result<Session, String>>>,
+    pub check: Option<Check>,
+    /// Lo elegido para vincular: un transistor del esquemático y dedos del
+    /// layout (índices en `Session::layout`).
+    pub sel_sch: Option<String>,
+    pub sel_lay: Vec<usize>,
+    /// Lo último que pasó (guardado, un error al escribir).
+    pub message: Option<String>,
 }
 
 impl LvsState {
@@ -200,9 +234,28 @@ impl LvsState {
             let tools = crate::lvs::tools()?;
             crate::lvs::run(&crate::lvs::Tree::disk(&r), &p, &tools)
         });
+        let (r, p) = (root.clone(), pair.clone());
+        let manual_job = Promise::spawn_thread("riku-lvs-map", move || manual::load(&crate::lvs::Tree::disk(&r), &p, None));
         let schematic = Side::load(loader, backends, &root.join(&pair.schematic), None);
         let layout = Side::load(loader, backends, &root.join(&pair.layout), pair.cell.clone());
-        LvsState { root, pair, schematic, layout, report: None, items: Vec::new(), selected: None, job: Some(job) }
+        LvsState {
+            root,
+            pair,
+            schematic,
+            layout,
+            report: None,
+            items: Vec::new(),
+            selected: None,
+            job: Some(job),
+            tab: Tab::Netgen,
+            tab_chosen: false,
+            manual: None,
+            manual_job: Some(manual_job),
+            check: None,
+            sel_sch: None,
+            sel_lay: Vec::new(),
+            message: None,
+        }
     }
 
     /// Recoge lo que terminó. `true` mientras algo siga en curso.
@@ -214,13 +267,24 @@ impl LvsState {
             self.report = report;
             arrived = true;
         }
+        if self.manual_job.as_ref().is_some_and(|j| j.ready().is_some()) {
+            let session = self.manual_job.take().map(Promise::block_and_take);
+            // Con un archivo de vínculos, se abre en esa pestaña.
+            if !self.tab_chosen && session.as_ref().is_some_and(|s| s.as_ref().is_ok_and(|s| s.exists)) {
+                self.tab = Tab::Manual;
+            }
+            self.manual = session;
+            self.recheck();
+            arrived = true;
+        }
         // Lo elegido antes de que llegara una escena: marcarlo en ella.
         if arrived {
             if let Some(i) = self.selected {
                 self.apply(i, false);
             }
+            self.refresh_tags();
         }
-        self.job.is_some() || self.schematic.job.is_some() || self.layout.job.is_some()
+        self.job.is_some() || self.schematic.job.is_some() || self.layout.job.is_some() || self.manual_job.is_some()
     }
 
     /// Elegir (o soltar, con otro clic) algo de la lista: resaltarlo y
@@ -237,8 +301,191 @@ impl LvsState {
     /// Soltar lo elegido (Esc).
     pub(crate) fn clear(&mut self) {
         self.selected = None;
+        self.sel_sch = None;
+        self.sel_lay.clear();
         for bs in [self.schematic.scene.as_mut(), self.layout.scene.as_mut()].into_iter().flatten() {
             bs.mark = None;
+        }
+        self.refresh_tags();
+    }
+
+    /// Cambiar de pestaña: lo resaltado de la otra se suelta.
+    pub(crate) fn set_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        self.tab_chosen = true;
+        self.clear();
+    }
+
+    fn session(&self) -> Option<&Session> {
+        self.manual.as_ref()?.as_ref().ok()
+    }
+
+    /// Volver a deducir todo de los vínculos (es inmediato: no se extrae
+    /// nada de nuevo).
+    fn recheck(&mut self) {
+        self.check = self.session().map(|s| manual::check(&s.map, &s.schematic, &s.layout));
+        self.refresh_tags();
+    }
+
+    /// Escribe el archivo de vínculos y vuelve a deducir.
+    fn save(&mut self) {
+        let root = self.root.clone();
+        if let Some(Ok(s)) = self.manual.as_mut() {
+            let path = root.join(&s.map_path);
+            let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, s.map.to_text()));
+            self.message = Some(match written {
+                Ok(()) => {
+                    s.exists = true;
+                    tr!("lvs_map.saved", file = s.map_path)
+                }
+                Err(e) => format!("{}: {e}", path.display()),
+            });
+        }
+        self.recheck();
+    }
+
+    fn act(&mut self, action: Action) {
+        match action {
+            Action::Select(name) => self.select_device(&name, true),
+            Action::Bind => {
+                let (Some(name), Some(Ok(s))) = (self.sel_sch.clone(), self.manual.as_mut()) else { return };
+                manual::bind(&mut s.map, &name, &self.sel_lay, &s.layout);
+                self.save();
+            }
+            Action::Unbind => {
+                let (Some(name), Some(Ok(s))) = (self.sel_sch.clone(), self.manual.as_mut()) else { return };
+                manual::unbind(&mut s.map, &name);
+                self.sel_lay.clear();
+                self.save();
+            }
+            Action::Suggest => {
+                let Some(Ok(s)) = self.manual.as_mut() else { return };
+                let new = manual::suggest(&s.map, &s.schematic, &s.layout);
+                let names: Vec<String> = new.iter().map(|b| b.schematic.clone()).collect();
+                s.map.binds.extend(new);
+                self.save();
+                self.message = Some(tr!("lvs_map.suggested", count = names.len(), names = names.join(", ")));
+            }
+            Action::SavePositions => {
+                let Some(updated) = self.check.as_ref().map(|c| c.updated.clone()) else { return };
+                if let Some(Ok(s)) = self.manual.as_mut() {
+                    s.map = updated;
+                }
+                self.save();
+            }
+        }
+    }
+
+    /// Elegir un transistor del esquemático (y, si está vinculado, sus dedos
+    /// del layout), y encuadrarlo en los dos lados.
+    fn select_device(&mut self, name: &str, frame: bool) {
+        self.sel_sch = Some(name.to_string());
+        self.sel_lay = self.check.as_ref().and_then(|c| c.bound.iter().find(|(n, _)| n == name)).map(|(_, f)| f.clone()).unwrap_or_default();
+        self.refresh_tags();
+        if !frame {
+            return;
+        }
+        let Some(s) = self.session() else { return };
+        let sch_box = s.places.instances.get(name).map(|&(x1, y1, x2, y2)| BoundingBox::from_points((x1, y1), (x2, y2)));
+        let lay_box = gates_box(s, &self.sel_lay);
+        for (bs, b) in [(self.schematic.scene.as_mut(), sch_box), (self.layout.scene.as_mut(), lay_box)] {
+            if let (Some(bs), Some(b)) = (bs, b) {
+                bs.focus = Some(with_context(b, &bs.scene.bbox()));
+            }
+        }
+    }
+
+    /// Clic en el esquemático: el transistor bajo el puntero (el de recuadro
+    /// más chico). Con sus dedos si está vinculado; si no, se conservan los
+    /// dedos elegidos que estén libres (para vincularlos con él).
+    fn pick_schematic(&mut self, (x, y): (f64, f64)) {
+        let Some(s) = self.session() else { return };
+        let hit = s
+            .schematic
+            .iter()
+            .filter_map(|d| s.places.instances.get(&d.name).map(|b| (d.name.clone(), *b)))
+            .filter(|&(_, (x1, y1, x2, y2))| x >= x1 && x <= x2 && y >= y1 && y <= y2)
+            .min_by(|a, b| area(a.1).total_cmp(&area(b.1)))
+            .map(|(n, _)| n);
+        match hit {
+            Some(n) if self.sel_sch.as_deref() == Some(&n) => {
+                self.sel_sch = None;
+                self.sel_lay.clear();
+            }
+            Some(n) => {
+                let bound = self.check.as_ref().and_then(|c| c.bound.iter().find(|(b, _)| *b == n)).map(|(_, f)| f.clone());
+                match bound {
+                    Some(f) => self.sel_lay = f,
+                    None => self.sel_lay.retain(|i| !self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(_, f)| f.contains(i)))),
+                }
+                self.sel_sch = Some(n);
+            }
+            None => return,
+        }
+        self.refresh_tags();
+    }
+
+    /// Clic en el layout: el dedo bajo el puntero. Con Shift se suma (o se
+    /// quita) de lo elegido; sin Shift, si está vinculado se elige su
+    /// vínculo entero.
+    fn pick_layout(&mut self, (x, y): (f64, f64), add: bool) {
+        let Some(s) = self.session() else { return };
+        let k = 1.0 / s.unit_um;
+        let pad = 0.05 * k;
+        let hit = s.layout.iter().position(|d| x >= d.gate[0] * k - pad && x <= d.gate[2] * k + pad && y >= d.gate[1] * k - pad && y <= d.gate[3] * k + pad);
+        let Some(i) = hit else { return };
+        let owner = self.check.as_ref().and_then(|c| c.bound.iter().find(|(_, f)| f.contains(&i))).cloned();
+        if add {
+            match self.sel_lay.iter().position(|&j| j == i) {
+                Some(k) => {
+                    self.sel_lay.remove(k);
+                }
+                None => self.sel_lay.push(i),
+            }
+        } else if self.sel_lay == [i] {
+            self.sel_lay.clear();
+        } else if let Some((name, fingers)) = owner {
+            self.sel_sch = Some(name);
+            self.sel_lay = fingers;
+        } else {
+            self.sel_lay = vec![i];
+            let sch_bound = self.sel_sch.as_ref().is_some_and(|n| self.check.as_ref().is_some_and(|c| c.bound.iter().any(|(b, _)| b == n)));
+            if sch_bound {
+                self.sel_sch = None;
+            }
+        }
+        self.refresh_tags();
+    }
+
+    /// El color de cada transistor en los dos lienzos (solo en la pestaña
+    /// de vínculos).
+    fn refresh_tags(&mut self) {
+        let (mut sch_tags, mut lay_tags) = (Vec::new(), Vec::new());
+        if let (Tab::Manual, Some(s), Some(c)) = (self.tab, self.session(), self.check.as_ref()) {
+            let issues: HashSet<&str> = c.params.iter().chain(c.models.iter()).map(|(d, _)| d.as_str()).collect();
+            let owner: HashMap<usize, &str> = c.bound.iter().flat_map(|(n, f)| f.iter().map(move |&i| (i, n.as_str()))).collect();
+            let color = |name: Option<&str>| match name {
+                Some(n) if issues.contains(n) => ISSUE,
+                Some(_) => BOUND,
+                None => FREE,
+            };
+            for d in &s.schematic {
+                let Some(&(x1, y1, x2, y2)) = s.places.instances.get(&d.name) else { continue };
+                let bound = c.bound.iter().any(|(n, _)| *n == d.name).then_some(d.name.as_str());
+                let col = if self.sel_sch.as_deref() == Some(d.name.as_str()) { PICKED } else { color(bound) };
+                sch_tags.push(Tag { bbox: BoundingBox::from_points((x1, y1), (x2, y2)), color: col });
+            }
+            let k = 1.0 / s.unit_um;
+            for (i, d) in s.layout.iter().enumerate() {
+                let col = if self.sel_lay.contains(&i) { PICKED } else { color(owner.get(&i).copied()) };
+                lay_tags.push(Tag { bbox: BoundingBox::from_points((d.gate[0] * k, d.gate[1] * k), (d.gate[2] * k, d.gate[3] * k)), color: col });
+            }
+        }
+        if let Some(bs) = self.schematic.scene.as_mut() {
+            bs.tags = sch_tags;
+        }
+        if let Some(bs) = self.layout.scene.as_mut() {
+            bs.tags = lay_tags;
         }
     }
 
@@ -264,6 +511,29 @@ impl LvsState {
     }
 }
 
+/// Colores del LVS manual: vinculado, con diferencias, sin vincular y
+/// elegido.
+const BOUND: egui::Color32 = egui::Color32::from_rgb(80, 190, 110);
+const ISSUE: egui::Color32 = egui::Color32::from_rgb(235, 140, 40);
+const FREE: egui::Color32 = egui::Color32::from_rgb(140, 140, 150);
+const PICKED: egui::Color32 = egui::Color32::from_rgb(255, 205, 40);
+
+fn area((x1, y1, x2, y2): (f64, f64, f64, f64)) -> f64 {
+    (x2 - x1).abs() * (y2 - y1).abs()
+}
+
+/// El recuadro de unos dedos del layout, en coordenadas de su escena.
+fn gates_box(s: &Session, fingers: &[usize]) -> Option<BoundingBox> {
+    let k = 1.0 / s.unit_um;
+    let mut it = fingers.iter().map(|&i| &s.layout[i]);
+    let first = it.next()?;
+    let mut b = BoundingBox::from_points((first.gate[0] * k, first.gate[1] * k), (first.gate[2] * k, first.gate[3] * k));
+    for d in it {
+        b.expand(&BoundingBox::from_points((d.gate[0] * k, d.gate[1] * k), (d.gate[2] * k, d.gate[3] * k)));
+    }
+    Some(b)
+}
+
 // ─── Dibujo ──────────────────────────────────────────────────────────────────
 
 /// El esquemático y el layout, uno al lado del otro.
@@ -271,38 +541,181 @@ pub(crate) fn show_central(ui: &mut egui::Ui, st: &mut LvsState, opts: CanvasOpt
     // Dos lienzos: la leyenda (un área fija) se pisaría entre ellos.
     let opts = CanvasOptions { legend: false, ..opts };
     let root = st.root.clone();
+    let mut read: (Option<Readout>, Option<Readout>) = (None, None);
     ui.columns(2, |cols| {
-        side(&mut cols[0], &mut st.schematic, &tr!("lvs_view.schematic"), &root, opts);
-        side(&mut cols[1], &mut st.layout, &tr!("lvs_view.layout"), &root, opts);
+        read.0 = side(&mut cols[0], &mut st.schematic, &tr!("lvs_view.schematic"), &root, opts);
+        read.1 = side(&mut cols[1], &mut st.layout, &tr!("lvs_view.layout"), &root, opts);
     });
+    // En la pestaña de vínculos, un clic elige un transistor (no una red).
+    if st.tab != Tab::Manual {
+        return;
+    }
+    let shift = ui.input(|i| i.modifiers.shift);
+    if let Some(p) = read.0.and_then(|r| r.clicked) {
+        st.pick_schematic(p);
+        if let Some(bs) = st.schematic.scene.as_mut() {
+            bs.net_focus = None;
+        }
+    }
+    if let Some(p) = read.1.and_then(|r| r.clicked) {
+        st.pick_layout(p, shift);
+        if let Some(bs) = st.layout.scene.as_mut() {
+            bs.net_focus = None;
+        }
+    }
 }
 
-fn side(ui: &mut egui::Ui, s: &mut Side, title: &str, root: &Path, opts: CanvasOptions) {
+fn side(ui: &mut egui::Ui, s: &mut Side, title: &str, root: &Path, opts: CanvasOptions) -> Option<Readout> {
     let file = Path::new(&s.path).strip_prefix(root).map_or_else(|_| s.path.clone(), |p| p.display().to_string());
     ui.horizontal(|ui| {
         ui.label(RichText::new(title).strong());
         ui.add(egui::Label::new(RichText::new(file).weak()).truncate());
     });
     match (&mut s.scene, &s.error) {
-        (Some(bs), _) => {
-            egui::Frame::group(ui.style()).inner_margin(0.0).show(ui, |ui| {
-                canvas::show(ui, bs, opts);
-            });
-        }
+        (Some(bs), _) => Some(egui::Frame::group(ui.style()).inner_margin(0.0).show(ui, |ui| canvas::show(ui, bs, opts)).inner),
         (None, Some(e)) => {
             ui.colored_label(ui.visuals().error_fg_color, e);
+            None
         }
         (None, None) => {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
             });
+            None
         }
     }
 }
 
-/// El resultado y la lista de lo que no coincide.
+/// El panel: el resultado de Netgen o los vínculos.
 pub(crate) fn show_list(ui: &mut egui::Ui, st: &mut LvsState) {
     ui.heading(tr!("lvs_view.title"));
+    let mut tab = st.tab;
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut tab, Tab::Netgen, tr!("lvs_view.tab_netgen"));
+        ui.selectable_value(&mut tab, Tab::Manual, tr!("lvs_view.tab_manual"));
+    });
+    if tab != st.tab {
+        st.set_tab(tab);
+    }
+    ui.add_space(space::XS);
+    match st.tab {
+        Tab::Netgen => show_netgen(ui, st),
+        Tab::Manual => show_manual(ui, st),
+    }
+}
+
+/// Los vínculos: avance, lo elegido, las acciones y lo que no cuadra.
+fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
+    let (s, c) = match (&st.manual, &st.check) {
+        (None, _) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(tr!("lvs_view.manual_loading"));
+            });
+            return;
+        }
+        (Some(Err(e)), _) => {
+            ui.colored_label(ui.visuals().error_fg_color, tr!("lvs.error", error = e));
+            return;
+        }
+        (Some(Ok(s)), Some(c)) => (s, c),
+        (Some(Ok(_)), None) => return,
+    };
+    let file = if s.exists { s.map_path.clone() } else { tr!("lvs_view.map_new", file = s.map_path) };
+    ui.label(RichText::new(file).weak().small());
+    let fingers: usize = c.bound.iter().map(|(_, f)| f.len()).sum();
+    ui.label(tr!("lvs_map.progress", sch = c.bound.len(), sch_total = s.schematic.len(), lay = fingers, lay_total = s.layout.len()));
+    let (verdict, color) = if c.clean() { (tr!("lvs_map.clean"), BOUND) } else { (tr!("lvs_map.pending"), ISSUE) };
+    ui.label(RichText::new(verdict).color(color).strong());
+    if let Some(m) = c.moved {
+        let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
+        ui.label(RichText::new(tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = format!("{:.3}", m.dx), dy = format!("{:.3}", m.dy), count = m.count)).small());
+    }
+    ui.add_space(space::S);
+
+    // Lo elegido, con su W de cada lado.
+    let sch = st.sel_sch.as_ref().and_then(|n| s.schematic.iter().find(|d| &d.name == n));
+    let w_lay: f64 = st.sel_lay.iter().map(|&i| s.layout[i].w).sum();
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        match sch {
+            Some(d) => ui.label(tr!("lvs_view.sel_sch", name = d.name, w = d.w.map_or("?".into(), |w| fmt_um(w * d.m)))),
+            None => ui.label(RichText::new(tr!("lvs_view.sel_sch_none")).weak()),
+        };
+        if st.sel_lay.is_empty() {
+            ui.label(RichText::new(tr!("lvs_view.sel_lay_none")).weak());
+        } else {
+            ui.label(tr!("lvs_view.sel_lay", count = st.sel_lay.len(), w = fmt_um(w_lay)));
+        }
+    });
+    let bound_sel = st.sel_sch.as_ref().is_some_and(|n| c.bound.iter().any(|(b, _)| b == n) || c.lost.iter().any(|(b, _)| b == n));
+    let mut action = None;
+    ui.horizontal_wrapped(|ui| {
+        if ui.add_enabled(st.sel_sch.is_some() && !st.sel_lay.is_empty(), egui::Button::new(tr!("lvs_view.bind"))).clicked() {
+            action = Some(Action::Bind);
+        }
+        if ui.add_enabled(bound_sel, egui::Button::new(tr!("lvs_view.unbind"))).clicked() {
+            action = Some(Action::Unbind);
+        }
+        if ui.button(tr!("lvs_view.suggest")).on_hover_text(tr!("help.lvs_suggest")).clicked() {
+            action = Some(Action::Suggest);
+        }
+        let moved = c.moved.is_some() || !c.by_connectivity.is_empty();
+        if ui.add_enabled(moved, egui::Button::new(tr!("lvs_view.save_positions"))).on_hover_text(tr!("help.lvs_update")).clicked() {
+            action = Some(Action::SavePositions);
+        }
+    });
+    ui.label(RichText::new(tr!("lvs_view.manual_hint")).weak().small());
+    if let Some(m) = &st.message {
+        ui.label(RichText::new(m).small());
+    }
+    ui.add_space(space::S);
+
+    // Lo que no cuadra; un clic en un transistor lo elige.
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let mut section = |ui: &mut egui::Ui, title: String, rows: Vec<(Option<String>, String)>| {
+            if rows.is_empty() {
+                return;
+            }
+            ui.add_space(space::XS);
+            ui.label(RichText::new(title).strong());
+            for (device, text) in rows {
+                match device {
+                    Some(d) => {
+                        let picked = st.sel_sch.as_deref() == Some(d.as_str());
+                        if ui.add(egui::Button::selectable(picked, RichText::new(text).small()).truncate()).clicked() {
+                            action = Some(Action::Select(d));
+                        }
+                    }
+                    None => {
+                        ui.label(RichText::new(text).small());
+                    }
+                }
+            }
+        };
+        section(ui, tr!("lvs_view.shorts"), c.shorts.iter().map(|(n, ns)| (None, tr!("lvs_map.short", net = n, nets = ns.join(", ")))).collect());
+        section(ui, tr!("lvs_view.opens"), c.opens.iter().map(|(n, ns)| (None, tr!("lvs_map.open", net = n, nets = ns.join(", ")))).collect());
+        section(ui, tr!("lvs_view.params"), c.params.iter().chain(c.models.iter()).map(|(d, w)| (Some(d.clone()), format!("{d}: {w}"))).collect());
+        section(ui, tr!("lvs_view.lost"), c.lost.iter().map(|(d, r)| (Some(d.clone()), format!("{d}: {} ({:.3}, {:.3})", r.model, r.at[0], r.at[1]))).collect());
+        section(ui, tr!("lvs_view.unbound"), c.unbound_schematic.iter().map(|d| (Some(d.clone()), d.clone())).collect());
+        if !c.unbound_layout.is_empty() {
+            ui.add_space(space::XS);
+            ui.label(RichText::new(tr!("lvs_view.unbound_layout", count = c.unbound_layout.len())).strong());
+        }
+        section(ui, tr!("lvs_view.bound"), c.bound.iter().map(|(d, f)| (Some(d.clone()), tr!("lvs_view.bound_row", name = d, count = f.len()))).collect());
+    });
+    if let Some(a) = action {
+        st.act(a);
+    }
+}
+
+fn fmt_um(v: f64) -> String {
+    let s = format!("{v:.3}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// El resultado de Netgen y la lista de lo que no coincide.
+fn show_netgen(ui: &mut egui::Ui, st: &mut LvsState) {
     let report = match &st.report {
         None => {
             ui.horizontal(|ui| {
