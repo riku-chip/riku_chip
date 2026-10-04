@@ -150,7 +150,7 @@ Con `--compact`, el JSON de `diff` y `show` sale en una línea (como en `log` y 
 ## `riku log`
 
 ```bash
-riku log [archivo] [-n N] [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii]]
+riku log [archivo] [-n N] [--detail|--full] [-f text|json [--compact]] [--paths PAT]… [--branch REF] [--graph [--ascii] [--color auto|always|never]]
 ```
 
 Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archivo con módulo, un resumen de lo que cambió respecto al primer padre. Los merges se marcan `[merge]` sin diff por archivo. `--detail` agrega una entrada por componente/net; `--full`, el reporte completo del módulo. `--paths` (o el archivo) filtra por glob (se puede repetir): `-n` cuenta solo los commits que tocan esos archivos respecto a su primer padre, como `git log -n N -- archivo`; un merge que no los toca tampoco se muestra.
@@ -168,7 +168,7 @@ Los últimos 20 commits (o `-n N`) con sus refs (rama, tag, `HEAD`) y, por archi
 ● c23297b  Release 0.9.49
 ```
 
-- `●` commit, `○` merge, `┆` una rama que sigue más allá de `-n`. Un color por rama si la salida es una terminal (sin colores si se redirige, con `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza).
+- `●` commit, `○` merge, `┆` una rama que sigue más allá de `-n`. Un color por rama si la salida es una terminal (sin colores si se redirige, con `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza). **`--color auto|always|never`** lo decide sin depender del entorno y gana sobre `NO_COLOR` y `CLICOLOR_FORCE`: `always` sirve con `less -R` o en una CI, `never` para pegar la salida en un texto. Sin la opción vale `auto`. Con `-f json` nunca hay color.
 - `--ascii` (o `RIKU_ASCII=1`) usa `* | / \ -` para terminales o fuentes sin Unicode.
 - Con `--paths`, los commits que no tocan esos archivos no se muestran y sus hijos se conectan al ancestro visible más cercano.
 - Con `-f json`, cada commit lleva `graph`: `column`, `lane` (la rama, para el color), `passing` (otras ramas que pasan por la fila), `edges` (`[columna aquí, columna en la fila siguiente, rama]`) y `truncated`.

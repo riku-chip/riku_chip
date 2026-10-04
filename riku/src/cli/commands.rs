@@ -350,9 +350,18 @@ pub(super) struct LogArgs {
     pub branch: Option<String>,
     pub graph: bool,
     pub ascii: bool,
+    pub color: Option<format::color::ColorMode>,
 }
 
 pub(super) fn run_log(args: LogArgs) -> Result<(), String> {
+    // El modo vale solo para este comando: el shell interactivo sigue vivo después.
+    format::color::set_mode(args.color.unwrap_or_default());
+    let result = run_log_inner(args);
+    format::color::set_mode(format::color::ColorMode::Auto);
+    result
+}
+
+fn run_log_inner(args: LogArgs) -> Result<(), String> {
     let level = DetailLevel::from_flags(args.detail, args.full);
 
     // El path posicional se mapea a un patrón exacto en `paths` (compatibilidad

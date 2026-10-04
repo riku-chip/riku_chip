@@ -17,9 +17,7 @@
 //! una línea de transición se arma con las direcciones que conecta (arriba,
 //! abajo, izquierda, derecha) y de ahí sale el carácter, así cualquier cruce
 //! se dibuja bien. Colores ANSI por carril solo si la salida es una terminal
-//! (y sin `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza).
-
-use std::io::IsTerminal;
+//! (y sin `NO_COLOR`; `CLICOLOR_FORCE=1` los fuerza); `--color always|never` manda sobre todo eso.
 
 use super::common::{detail_lines, format_counts, warning_lines};
 use super::log_text::{first_line, format_refs, format_timestamp};
@@ -37,12 +35,11 @@ pub struct Style {
 }
 
 impl Style {
-    /// Unicode salvo `--ascii` o `RIKU_ASCII=1`; color si stdout es una
-    /// terminal y no hay `NO_COLOR`, o con `CLICOLOR_FORCE=1`.
+    /// Unicode salvo `--ascii` o `RIKU_ASCII=1`; color según `--color` (ver
+    /// [`super::color`]).
     pub fn detect(ascii: bool) -> Self {
         let env = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty() && v != "0");
-        let color = env("CLICOLOR_FORCE") || (std::io::stdout().is_terminal() && !env("NO_COLOR"));
-        Self { unicode: !ascii && !env("RIKU_ASCII"), color }
+        Self { unicode: !ascii && !env("RIKU_ASCII"), color: super::color::enabled() }
     }
 }
 

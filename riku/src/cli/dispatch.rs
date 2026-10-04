@@ -147,6 +147,7 @@ impl Commands {
                 branch,
                 graph,
                 ascii,
+                color,
             } => commands::run_log(commands::LogArgs {
                 repo,
                 file_path,
@@ -159,6 +160,7 @@ impl Commands {
                 branch,
                 graph,
                 ascii,
+                color,
             })
             .map(|_| Outcome::Ok),
 

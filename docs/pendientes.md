@@ -22,7 +22,7 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 | Renombres de celdas que además cambiaron | Hoy solo se detectan los puros; uno con cambios sale como baja + alta. Emparejar por bbox y huellas en común (`gds_diff.rs::detect_renames`) | M |
 | Zoom cercano en zonas muy densas (~45 ms por cuadro) | Con píxeles más chicos que la celda más fina de la pirámide se dibuja todo uno a uno. Pirámide más fina con bitsets dispersos (`viewer-core/src/index.rs`) | M |
 | Medir el diff con un wrapper de SKY130/Caravel | Las mediciones de rendimiento son con un chip de IHP; otro PDK puede tener otro peor caso (`profile_diff`) | S |
-| `log --graph`: `--color always\|never\|auto` y tope de ramas con `…` | Hoy los colores dependen de la terminal (`NO_COLOR`, `CLICOLOR_FORCE`) | S |
+| `log --graph`: tope de ramas con `…` | Limitar el ancho del grafo y marcar con `…` las ramas que no caben | S |
 | Historial: **Tab** para pasar a la lista de archivos del commit | Navegar todo con teclado | S |
 | `cargo fmt` y Clippy en la CI | El formato no es uniforme (un commit grande solo de formato); Clippy primero sin bloquear | S |
 | Subir `actions/upload-artifact` a una versión con Node 24 | GitHub deja de soportar Node 20 en las acciones | S |
