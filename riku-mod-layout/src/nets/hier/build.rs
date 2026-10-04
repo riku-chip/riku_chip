@@ -844,7 +844,8 @@ impl<'a> Extractor<'a> {
             .flatten()
             .filter(|n| {
                 let k = ctx.keys[n.as_str()];
-                !cells.contains_key(&k) && (ctx.unique.contains(&k) || !memo().has(k))
+                !cells.contains_key(&k)
+                    && (ctx.unique.contains(&k) || (!memo().has(k) && !self.disk.as_ref().is_some_and(|d| d.has(k))))
             })
             .collect();
         missing.par_iter().for_each(|name| {

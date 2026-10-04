@@ -223,6 +223,11 @@ impl Disk {
         self.dir.join(format!("{:032x}.json", key.0))
     }
 
+    /// Si hay algo guardado con esa huella (sin leerlo).
+    pub(crate) fn has(&self, key: NetKey) -> bool {
+        self.path(key).is_file()
+    }
+
     /// El resumen guardado con esa huella, si hay y se puede leer.
     pub(crate) fn load(&self, key: NetKey) -> Option<CellNets> {
         let path = self.path(key);
