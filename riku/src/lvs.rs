@@ -35,16 +35,8 @@ pub struct Pair {
     pub cell: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Verdict {
-    /// Coinciden conectividad y parámetros.
-    Match,
-    /// La conectividad coincide; algún parámetro (W, L…) no.
-    PropertyErrors,
-    /// No coinciden: redes, dispositivos o pines.
-    Mismatch,
-}
+// Los tipos que también ven `log --lvs` y `status --lvs` (sin estas features).
+pub use crate::core::analysis::lvs_types::{Delta, Discrepancy, LvsState, Side, Transition, Verdict};
 
 /// Lo mismo visto del lado del layout y del esquemático.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -84,6 +76,39 @@ pub struct Comparison {
     /// Grupos de dispositivos que no se pudieron emparejar.
     pub unmatched_devices: Vec<Sides<Vec<String>>>,
     pub properties: Vec<PropertyError>,
+}
+
+impl Comparison {
+    /// Lo que no coincide, cada cosa con su identidad (ver [`Discrepancy::key`]):
+    /// cada parámetro distinto, cada grupo de redes o dispositivos sin pareja
+    /// y cada pin de un solo lado.
+    pub fn discrepancies(&self) -> Vec<Discrepancy> {
+        let mut out: Vec<Discrepancy> = self
+            .properties
+            .iter()
+            .flat_map(|p| {
+                p.values.iter().filter(|v| v.layout != v.schematic).map(|v| Discrepancy::Property {
+                    instance: p.schematic.clone(),
+                    layout_instance: p.layout.clone(),
+                    model: p.model.clone(),
+                    param: v.name.clone(),
+                    schematic: v.schematic.clone(),
+                    layout: v.layout.clone(),
+                })
+            })
+            .collect();
+        let group = |g: &Sides<Vec<String>>| (g.schematic.clone(), g.layout.clone());
+        out.extend(self.unmatched_nets.iter().map(group).map(|(schematic, layout)| Discrepancy::Nets { schematic, layout }));
+        out.extend(
+            self.unmatched_devices.iter().map(group).map(|(schematic, layout)| Discrepancy::Devices { schematic, layout }),
+        );
+        let only = |a: &[String], b: &[String], side: Side| -> Vec<Discrepancy> {
+            a.iter().filter(|p| !b.contains(p)).map(|p| Discrepancy::Pin { name: p.clone(), only_in: side }).collect()
+        };
+        out.extend(only(&self.pins.schematic, &self.pins.layout, Side::Schematic));
+        out.extend(only(&self.pins.layout, &self.pins.schematic, Side::Layout));
+        out
+    }
 }
 
 /// El LVS de un par en una versión.
@@ -417,48 +442,30 @@ pub struct Step {
     /// [`Transition`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Transition {
-    /// Coincidía y dejó de coincidir.
-    Broke,
-    /// Tenía solo parámetros distintos y ahora tampoco coinciden las
-    /// conexiones (un corto, un abierto).
-    Worse,
-    /// Las conexiones vuelven a coincidir, con parámetros distintos.
-    Better,
-    /// Volvió a coincidir.
-    Fixed,
-}
-
-impl Verdict {
-    /// De mejor a peor: coincide, parámetros distintos, no coincide.
-    fn severity(self) -> u8 {
-        match self {
-            Verdict::Match => 0,
-            Verdict::PropertyErrors => 1,
-            Verdict::Mismatch => 2,
-        }
-    }
+    /// Qué apareció, se arregló o cambió respecto de ese mismo commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta: Option<Delta>,
 }
 
 /// Qué pasó en cada commit (del más nuevo al más viejo) respecto del
-/// anterior: dónde dejó de coincidir y dónde volvió a coincidir. Los commits
-/// sin resultado (sin el par, o con error) no cortan la comparación.
+/// anterior con resultado: dónde dejó de coincidir o volvió a coincidir, y
+/// qué discrepancias aparecieron, se arreglaron o cambiaron. Los commits sin
+/// resultado (sin el par, o con error) no cortan la comparación.
 pub fn mark_transitions(steps: &mut [Step]) {
     for i in 0..steps.len() {
-        let now = steps[i].result.verdict();
-        let before = steps[i + 1..].iter().find_map(|s| s.result.verdict());
-        steps[i].transition = match (before, now) {
-            (Some(b), Some(v)) if b == v => None,
-            (Some(Verdict::Match), Some(_)) => Some(Transition::Broke),
-            (Some(_), Some(Verdict::Match)) => Some(Transition::Fixed),
-            (Some(b), Some(v)) if v.severity() > b.severity() => Some(Transition::Worse),
-            (Some(_), Some(_)) => Some(Transition::Better),
+        let before = steps[i + 1..].iter().find_map(|s| match &s.result {
+            StepResult::Done { report, .. } => Some(report.comparison.clone()),
             _ => None,
+        });
+        let (transition, delta) = match (&before, &steps[i].result) {
+            (Some(b), StepResult::Done { report, .. }) => {
+                let now = &report.comparison;
+                (Transition::between(b.result, now.result), Some(Delta::between(&b.discrepancies(), &now.discrepancies())))
+            }
+            _ => (None, None),
         };
+        steps[i].transition = transition;
+        steps[i].delta = delta.filter(|d| !d.is_empty());
     }
 }
 
@@ -555,6 +562,7 @@ pub fn history(
                 time: c.time().seconds(),
                 result,
                 transition: None,
+                delta: None,
             });
         }
         mark_transitions(&mut steps);
@@ -774,7 +782,15 @@ LVS Done.
                 reused: false,
             },
         };
-        Step { commit: String::new(), summary: String::new(), author: String::new(), time: 0, result, transition: None }
+        Step {
+            commit: String::new(),
+            summary: String::new(),
+            author: String::new(),
+            time: 0,
+            result,
+            transition: None,
+            delta: None,
+        }
     }
 
     #[test]
@@ -789,6 +805,46 @@ LVS Done.
         let t: Vec<Option<Transition>> = steps.iter().map(|s| s.transition).collect();
         use Transition::*;
         assert_eq!(t, vec![Some(Fixed), Some(Better), Some(Worse), None, Some(Broke), None]);
+    }
+
+    fn with_property(mut s: Step, inst: &str, s_val: &str, l_val: &str) -> Step {
+        if let StepResult::Done { report, .. } = &mut s.result {
+            report.comparison.properties.push(PropertyError {
+                model: "pfet".into(),
+                layout: "19".into(),
+                schematic: inst.into(),
+                values: vec![
+                    PropertyValue { name: "l".into(), layout: "1".into(), schematic: "1".into() },
+                    PropertyValue { name: "w".into(), layout: l_val.into(), schematic: s_val.into() },
+                ],
+            });
+        }
+        s
+    }
+
+    #[test]
+    fn las_discrepancias_tienen_identidad_y_cada_commit_su_delta() {
+        let mut c = step(Some(Verdict::PropertyErrors));
+        c = with_property(c, "M1", "4", "2");
+        let StepResult::Done { report, .. } = &mut c.result else { unreachable!() };
+        report.comparison.unmatched_nets.push(Sides { layout: vec!["Vout".into()], schematic: vec!["Vout".into(), "Vp".into()] });
+        report.comparison.pins = Sides { layout: vec!["A".into()], schematic: vec!["A".into(), "Ib".into()] };
+        let keys: Vec<String> = report.comparison.discrepancies().iter().map(Discrepancy::key).collect();
+        assert_eq!(keys, ["P:M1:w", "N:Vout,Vp", "pin:Schematic:Ib"], "l es igual en los dos lados: no es una discrepancia");
+
+        // Del más nuevo al más viejo: coincide, M1 y M3, solo M1.
+        let mut steps = vec![
+            step(Some(Verdict::Match)),
+            with_property(with_property(step(Some(Verdict::PropertyErrors)), "M1", "4", "2"), "M3", "18", "19"),
+            with_property(step(Some(Verdict::PropertyErrors)), "M1", "4", "2"),
+        ];
+        mark_transitions(&mut steps);
+        let fixed = steps[0].delta.as_ref().expect("se arreglaron las dos");
+        assert_eq!((fixed.fixed.len(), fixed.appeared.len()), (2, 0));
+        let appeared = steps[1].delta.as_ref().expect("apareció M3");
+        assert_eq!(appeared.appeared.iter().map(Discrepancy::key).collect::<Vec<_>>(), ["P:M3:w"]);
+        assert_eq!(steps[1].transition, None, "mismo veredicto, pero con delta");
+        assert_eq!(steps[2].delta, None, "el más viejo no tiene con qué comparar");
     }
 
     #[test]

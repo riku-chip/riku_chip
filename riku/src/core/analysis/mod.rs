@@ -4,6 +4,7 @@ pub mod diff_set;
 pub mod envelope;
 pub mod graph;
 pub mod log;
+pub mod lvs_types;
 pub(crate) mod parallel;
 pub mod pipeline;
 pub mod show;
