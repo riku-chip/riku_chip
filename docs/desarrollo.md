@@ -86,6 +86,24 @@ Cómo se llega a comparar un chip de 42 MB (6,2 millones de polígonos) en 1,4�
 - **XOR solo de lo que cambió**, y **por cuadrantes** (quadtree) cuando hay más de 2 000 polígonos: Clipper es casi cuadrático con miles de rectángulos alineados (una capa de relleno: 358 s → 0,28 s). El conteo de polígonos puede cambiar por los bordes; las áreas no.
 - **Visor:** cada backend arma un `SceneIndex` al cargar (grillas por tamaño, triangulación una vez, pirámide de cobertura). Por cuadro se consulta solo lo visible; lo que mide menos de un píxel se pinta como una imagen por capa. `malloc_trim` al terminar devuelve lo del aplanado.
 - **Historial:** `log`, `show` y `status` reparten commits y archivos, con una conexión a Git por hilo.
+- **Redes por celdas, con memoria por huella** (ronda 5):
+  - **Qué se reusa:** cada celda se extrae una vez por contenido (`NetKey`) y se reusa entre los dos lados de un diff, los commits de un `log` y las corridas (disco: `<caché>/nets`, 512 MB). Lo propio de cada celda se extrae primero, todo en paralelo, y se guarda aparte: una celda que se rearma porque cambió una hija no lo vuelve a extraer.
+  - **Cómo se arma:** las vecindades entre hijas iguales se calculan una vez; los pares que se tocan se prueban con una grilla de cajas, rectángulo contra rectángulo sin Clipper.
+  - **Cómo se espera:** un hilo que pide una celda que otro está armando no se bloquea: hace otras tareas de `rayon` mientras espera y, pasados 5 s, la arma él (ver regla 8).
+
+  Mínimo de 5 corridas, sin caché, contra `main` antes de la ronda:
+
+  | Caso | Antes | Ahora |
+  |---|---|---|
+  | Demo `sram`: `riku log` | 22–23 s | 2,5 s |
+  | Demo `sram`: `riku show` de un commit | 9,5 s | 2,3 s |
+  | Demo `chip`: `show`, `log -n 10`, `diff v1.0 HEAD` | 6–7 s | igual |
+
+  En el `chip`, la macro entera se compara si ya está extraída (13 s la primera vez con `RIKU_FULL_NETS=1`; después, 7,8 s el `show`).
+
+  **Se probó y se descartó** extraer las redes mientras corre el XOR: el XOR ya usa todos los núcleos.
+
+  **Ojo al medir:** la máquina de Windows mete mucho ruido (la misma medición va de 3 a 14 s). Comparar con el mínimo de varias corridas.
 
 `RIKU_PROFILE=1` imprime tiempos del diff y de cada cuadro; `riku-mod-layout/examples/profile_*` miden cada etapa (ver [Medir](#medir-riku-mod-layoutexamples)).
 
@@ -165,6 +183,36 @@ cargo build --release -p riku-mod-layout --example nets
 tools/verify/nets/compare_stdcells.sh "$CARGO_TARGET_DIR/release/examples/nets"
 tools/verify/nets/magic_vs_riku.sh sky130A <layout.gds> <celda…>   # Magic como segundo oráculo
 ```
+
+**Por celdas** (ronda 5): la extracción jerárquica aplanada contra la plana, y un chip entero contra Magic.
+
+```bash
+cargo build --release -p riku-mod-layout --example hier_check
+tools/verify/nets/hier.sh [carpeta de riku demo --dir]     # cada uno, "IGUALES"
+tools/verify/nets/chip_vs_magic.sh <carpeta del demo chip>  # ~1 h: Magic 40 min, Netgen 20
+```
+
+`hier_check <layout> [celda]` extrae de las dos maneras y compara transistores, redes, nombres, pines y sustrato. Variables:
+
+| Variable | Qué hace |
+|---|---|
+| `HIER_NO_FLAT=1` | Sin la plana |
+| `HIER_SPICE=archivo` | Escribe la SPICE |
+| `HIER_NET=nombre` | Muestra qué redes de las hijas llegan a esa red |
+| `HIER_WHERE=x,y` | Muestra el camino hasta un transistor |
+
+Variables que cambian la extracción:
+
+| Variable | Qué hace |
+|---|---|
+| `RIKU_HIER_INLINE` | Umbral para meter una sub-celda en su padre (256) |
+| `RIKU_NETS_MEM_MB` | Tope de la memoria del proceso (512; 0 la apaga) |
+| `RIKU_FULL_NETS=1` | Compara un chip entero aunque no esté extraído |
+| `RIKU_FLAT_NETS=1` | Vuelve a la extracción plana de antes |
+
+Resultados (2026-10-04):
+- **Plana contra jerárquica:** iguales en la SRAM de `examples/`, el OTA, el inversor y tres partes de la macro.
+- **La macro entera contra Magic:** misma topología, salvo el bitcell de doble puerto, que ya difiere en plano (`pendientes.md`).
 
 Resultados de referencia (2026-09): GF180MCU **219 de 219** (GDS y `.mag`), SKY130 422 de 427 (GDS) y 423 de 426 (`.mag`), IHP SG13G2 68 de 73; sin contar las celdas sin transistores. Las que difieren están listadas en `compare_stdcells.sh`, y en todas la extracción de Magic da lo mismo que Riku: la netlist del PDK no coincide con su layout (pines que el GDS no dibuja, pilas en otro orden) o le falta un resistor de metal que el layout tiene (`probe_p_8`).
 
