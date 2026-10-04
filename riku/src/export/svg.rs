@@ -5,6 +5,7 @@
 //! capa, marcas del diff y textos. Sirve para cualquier formato con visor
 //! (esquemáticos, layouts GDS/OASIS/Magic).
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::i18n::tr;
@@ -172,8 +173,13 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
     }
     batch.flush(&mut out);
 
+    // Las capas que el visor abre ocultas (p. ej. "Transistores") tampoco van en la imagen.
+    let hidden: HashSet<Layer> = scene.layer_list().into_iter().filter(|(_, p)| p.hidden).map(|(l, _)| l).collect();
     let mut labels: Vec<(f64, f64, String, Rgb)> = Vec::new();
     scene.visit(&bbox.inflate(bbox.width().max(bbox.height())), &mut |el| {
+        if hidden.contains(&el.layer()) {
+            return true;
+        }
         let (fill, stroke) = layer_colors(scene, el.layer(), style.dark);
         match el {
             DrawElement::Text { x, y, content, size, .. } if !drawn_text => {
@@ -378,6 +384,36 @@ mod tests {
 
     fn style() -> Style {
         Style { width: 400, height: 300, dark: false, caption: "a.sch".into() }
+    }
+
+    #[test]
+    fn hidden_layers_are_not_drawn() {
+        let layer = |name: &str, c: (u8, u8, u8), hidden| LayerPaint {
+            name: name.into(),
+            fill: Rgba::new(c.0, c.1, c.2, 90),
+            stroke: Rgba::new(c.0, c.1, c.2, 255),
+            hidden,
+        };
+        let mut s = Scene::new();
+        s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 5.0, layer: 7, filled: true });
+        s.push(DrawElement::Polygon { points: vec![(1.0, 1.0), (4.0, 1.0), (4.0, 3.0)], layer: 8, filled: true });
+        s.push(DrawElement::Text {
+            x: 2.0,
+            y: 2.0,
+            content: "W=4 L=0.15".into(),
+            size: 3.0,
+            angle_deg: 0.0,
+            h_align: HAlign::Middle,
+            v_align: VAlign::Middle,
+            layer: 8,
+        });
+        s.layers.insert(7, layer("met1", (10, 20, 30), false));
+        s.layers.insert(8, layer("Transistores", (200, 100, 50), true));
+
+        let svg = scene_svg(&s, &style());
+        assert!(svg.contains("#0a141e"), "la capa visible se dibuja");
+        assert!(!svg.contains("#c86432"), "la capa oculta no tiene color en la imagen");
+        assert!(!svg.contains("W=4 L=0.15"), "ni los textos de la capa oculta");
     }
 
     #[test]
