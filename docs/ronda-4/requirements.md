@@ -42,6 +42,8 @@ Dos proyectos de ejemplo más para `riku demo`, como `ota` y `sram`: repos Git c
 
 ## R18. Demo `chip` (SRAM de 1 KB, repo aparte)
 
+> **Cambio (2026-10-04):** el repo pesa 1,4 MB comprimido, no 10–40 MB. Con el visto bueno del usuario va **embebido** como los demás: R18.1–R18.3, R18.5 y R18.8 ya no aplican (sin red, sin repo en GitHub). La historia (R18.4), los tiempos (R18.6) y la licencia (R18.7) siguen.
+
 **Historia.** Como quien evalúa Riku, quiero ver cuánto tarda con un layout de verdad grande, sin bajar un ejecutable de decenas de MB.
 
 - **R18.1** `riku demo chip` clona un repo aparte (por defecto `https://github.com/riku-chip/riku-demo-chip.git`; `RIKU_DEMO_CHIP_URL` lo cambia) con Git, en `--dir` como los demás. No va embebido.

@@ -4,14 +4,15 @@ Todo lo que falta, en un solo lugar. Esfuerzo: **S** = horas, **M** = 1–2 día
 
 **Estado:** última versión [v0.1.0](https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0) (las versiones se reiniciaron el 2026-09-28). Revisado 2026-09-28.
 
-## En curso: demos y README
+## Lo que dejaron los demos (ronda 4)
 
-`riku demo` ya crea `ota` (OTA de SKY130: esquemático, layout y simulación; 11 commits, una rama y un corto que se arregla) y `sram` (SRAM 16×8 de OpenRAM: cambios en sub-celdas, un renombre y relleno en una rama). Los arman los scripts de `tools/demos/` (ver [`desarrollo.md`](desarrollo.md)); el diseño está en la historia de Git (`feat(cli): riku demo`).
+`riku demo` crea `ota`, `sram`, `inversor` (Magic + Xschem) y `chip` (SRAM de 1 KB); ver [`desarrollo.md`](desarrollo.md#demos).
 
 | Qué | Por qué | Esf. |
 |---|---|---|
-| Demo `inversor` en Magic y Xschem (el inversor de `demo_sky130A` de iic-osic-tools) | Mostrar Magic: capas por nombre, un cambio en el transistor visto desde la celda de arriba, un puerto que cambia de clase, un abierto | M |
-| Demo `chip` grande (la SRAM de 1 KB de OpenRAM de `sky130_sram_macros`, 10 MB) en un repo aparte, que `riku demo chip` clone | Ver el rendimiento con un diseño grande sin inflar el ejecutable | M |
+| Atribución de un cambio de la celda de arriba que cae sobre una instancia | El diff lo muestra como de la instancia cuya caja lo contiene (los straps de `met5` del demo `chip` salen como de `bank`). Ya no afecta las redes (ronda 4: si nada del camino cambió, cuenta como de la celda de arriba); falta lo mismo en lo que se muestra (`origin`) | S |
+| Etiquetas de Magic que no son puertos | Se anclan en un punto de su borde; Magic usa el rectángulo entero. Para los puertos ya se usa el rectángulo (`MagInfo`); para las demás haría falta que el lector de Magic lo pase | S |
+| El primer `riku show` del bitcell del demo `chip` tarda 9,4 s | ~2 s de XOR; el resto, las redes de las sub-celdas. Lo resuelve la extracción jerárquica (abajo) | L |
 
 ## Mejoras
 

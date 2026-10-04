@@ -50,6 +50,8 @@ riku log --graph
 |---|---|
 | `ota` | Un amplificador OTA de SKY130 con esquemático, testbench, layout y simulación: 11 commits, una rama con merge, un transistor más ancho y un corto en el layout que después se arregla |
 | `sram` | Una SRAM 16×8 de OpenRAM (SKY130): un cambio en la celda de bit que aparece en sus 153 instancias, una celda renombrada y relleno de metal en una rama |
+| `inversor` | Un inversor de 5 V en Magic y Xschem (SKY130): capas por su nombre de Magic, un transistor que cambia en su sub-celda visto desde la de arriba, puertos que cambian de clase, un abierto y su arreglo, una re-grabación que solo toca los `timestamp`, y el LVS en cada commit (`riku log --graph --lvs`) |
+| `chip` | Una SRAM de 1 KB de OpenRAM (SKY130, GDS de 9,9 MB, 8 192 celdas de bit): para ver cuánto tarda Riku con un layout grande; el README trae los tiempos medidos |
 
 Cada uno trae un `README.md` con qué probar. Los ejemplos de abajo salen de `ota`, con `RIKU_LANG=es` (la salida está en inglés por defecto).
 

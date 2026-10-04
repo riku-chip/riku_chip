@@ -206,6 +206,21 @@ python3 tools/verify/gui/xt.py $W shot /tmp/riku.png
 
 `gui/xwd2png.py` convierte una captura `xwd` suelta a PNG. Para matar la GUI usar `pkill -f "riku gui"` (cuidado: `-f` también mata la shell que lo lanzó si su línea contiene ese texto).
 
+## Demos
+
+`riku demo` clona bundles de Git embebidos en el ejecutable (`examples/demos/*.bundle`, `riku/src/cli/demo.rs`). Cada uno lo arma un script determinista de `tools/demos/` (autor y fechas fijos, `common.py`), en el contenedor, con el mismo resultado byte a byte:
+
+```bash
+python3 tools/demos/ota.py      examples/demos/ota.bundle       # xschem, ngspice y KLayout
+python3 tools/demos/sram.py     examples/demos/sram.bundle
+python3 tools/demos/inversor.py examples/demos/inversor.bundle  # Magic y Netgen; usa RIKU y NETS
+python3 tools/demos/chip.py     examples/demos/chip.bundle      # KLayout; el GDS del PDK
+```
+
+- **`inversor`** edita los `.mag` como texto (estira como `stretch` de Magic para cambiar W y L sin mover lo que conecta afuera) y, antes de escribir el bundle, comprueba cada commit: el veredicto de `riku log --lvs` contra una tabla, que cada `riku show` del README diga lo que promete, y que la netlist de Riku sea la que extrae Magic (`extract all` + Netgen). Si algo no da, no escribe el bundle. `RIKU` y `NETS` apuntan al ejecutable y al ejemplo `nets` (por defecto, los de `/headless/riku-target/ws/debug`).
+- **`chip`** escribe el GDS sin fechas (`gds2_write_timestamps = False`); el bundle pesa ~1,4 MB aunque el GDS tiene 9,9 MB. Tiempos con el binario de release, 12 núcleos, en `/tmp`: el primer `riku show` del cambio en el bitcell (8 192 instancias) 9,4 s y 0,2 s con la caché; `riku diff v1.0 HEAD` 7,1 s y 0,13 s; `riku log -n 10` 7,4 s y 0,25 s; los demás `show`, ~0,5 s.
+- Licencias: `ota` (CACE) e `inversor` (`demo_sky130A` de iic-osic-tools) Apache-2.0; `chip` (`sky130_sram_macros`, VLSIDA) Apache-2.0; cada repo trae su `LICENSE` y la atribución en el README.
+
 ## CI y release
 
 - **CI** (`.github/workflows/ci.yml`): `cargo fmt --check` (bloquea), Clippy (por ahora sin bloquear: los avisos se leen en el log), tests del workspace con `-D warnings`, cada combinación de features, `riku-kernel` sin motores, y el crate de Carlos (`viewer-core-compat`) contra el `viewer-core` actual.
