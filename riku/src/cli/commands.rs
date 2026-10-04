@@ -694,7 +694,7 @@ pub(super) fn run_lvs_map_log(
     json: bool,
 ) -> Result<super::dispatch::Outcome, String> {
     use super::dispatch::Outcome;
-    use crate::lvs::{self, manual, Pair, Tree};
+    use crate::lvs::{self, manual, Pair};
 
     let (root, configured) = lvs_configured(&repo, pair, &cell)?;
     let (found, ambiguous) = lvs::pairs_checked(&root, &configured);
