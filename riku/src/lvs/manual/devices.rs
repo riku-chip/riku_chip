@@ -1,6 +1,5 @@
 //! Los transistores de cada lado: los del esquemático (de su netlist SPICE, aplanada) y los del layout (de su extracción).
 
-use super::*;
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
