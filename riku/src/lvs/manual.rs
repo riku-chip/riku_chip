@@ -184,9 +184,20 @@ pub fn layout_devices(n: &riku_mod_layout::nets::LayoutNetlist) -> Vec<LayDevice
     let nl = &n.netlist;
     nl.devices
         .iter()
-        .map(|(d, t)| LayDevice {
+        .map(|(d, t)| {
+            // El centro del recuadro de la compuerta: gira y se mueve con
+            // ella (un punto cualquiera de adentro depende del orden de los
+            // vértices).
+            let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for q in &d.gate.points {
+                (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
+            }
+            let at = if x0.is_finite() { ((x0 + x1) / 2.0, (y0 + y1) / 2.0) } else { d.at };
+            (d, t, at)
+        })
+        .map(|(d, t, at)| LayDevice {
             model: d.model.clone(),
-            at: (round3(d.at.0 * n.unit_um), round3(d.at.1 * n.unit_um)),
+            at: (round3(at.0 * n.unit_um), round3(at.1 * n.unit_um)),
             w: d.w_um,
             l: d.l_um,
             pins: [nl.net_name(t.d), nl.net_name(t.g), nl.net_name(t.s), nl.net_name(t.b)],
@@ -356,16 +367,43 @@ fn rigid(refs: &[&LayoutRef], lay: &[LayDevice], used: &HashSet<usize>) -> Optio
 /// ubicados (fuente y drenaje se pueden intercambiar).
 fn net_pairs(pairs: &[(&SchDevice, Vec<usize>)], lay: &[LayDevice]) -> BTreeMap<String, BTreeSet<String>> {
     let mut map: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let add = |map: &mut BTreeMap<String, BTreeSet<String>>, a: &str, b: &str| {
+        map.entry(a.to_string()).or_default().insert(b.to_string());
+    };
+    // Compuerta y cuerpo no se intercambian: van primero.
+    let mut pending: Vec<(&SchDevice, &LayDevice)> = Vec::new();
     for (s, fingers) in pairs {
         for &i in fingers {
             let l = &lay[i];
-            let has = |map: &BTreeMap<String, BTreeSet<String>>, a: &str, b: &str| map.get(a).is_some_and(|v| v.contains(b));
+            add(&mut map, &s.pins[G], &l.pins[G]);
+            add(&mut map, &s.pins[B], &l.pins[B]);
+            pending.push((s, l));
+        }
+    }
+    // Fuente y drenaje: primero los dedos que ya se deciden por lo
+    // vinculado; si ninguno se decide, el primero va derecho y se sigue.
+    let has = |map: &BTreeMap<String, BTreeSet<String>>, a: &str, b: &str| map.get(a).is_some_and(|v| v.contains(b));
+    while !pending.is_empty() {
+        let mut progress = false;
+        let mut k = 0;
+        while k < pending.len() {
+            let (s, l) = pending[k];
             let straight = has(&map, &s.pins[D], &l.pins[D]) as u8 + has(&map, &s.pins[S], &l.pins[S]) as u8;
             let crossed = has(&map, &s.pins[D], &l.pins[S]) as u8 + has(&map, &s.pins[S], &l.pins[D]) as u8;
-            let (ld, ls) = if crossed > straight { (S, D) } else { (D, S) };
-            for (a, b) in [(G, G), (B, B), (D, ld), (S, ls)] {
-                map.entry(s.pins[a].clone()).or_default().insert(l.pins[b].clone());
+            if straight == crossed {
+                k += 1;
+                continue;
             }
+            let (ld, ls) = if crossed > straight { (S, D) } else { (D, S) };
+            add(&mut map, &s.pins[D], &l.pins[ld]);
+            add(&mut map, &s.pins[S], &l.pins[ls]);
+            pending.remove(k);
+            progress = true;
+        }
+        if !progress {
+            let (s, l) = pending.remove(0);
+            add(&mut map, &s.pins[D], &l.pins[D]);
+            add(&mut map, &s.pins[S], &l.pins[S]);
         }
     }
     map
@@ -671,6 +709,18 @@ mod tests {
         let c = check(&full(), &sch, &lay);
         assert!(c.clean(), "{c:#?}");
         assert_eq!(c.nets["out"], BTreeSet::from(["n1".to_string()]));
+    }
+
+    #[test]
+    fn fuente_y_drenaje_se_deciden_por_lo_vinculado() {
+        // M2 primero: su primer dedo tiene la fuente y el drenaje al revés
+        // que el esquemático, y todavía no hay nada vinculado. No debe
+        // inventar un corto out–VDD.
+        let (sch, lay) = sides();
+        let mut m = full();
+        m.binds.rotate_left(1);
+        let c = check(&m, &sch, &lay);
+        assert!(c.clean(), "{c:#?}");
     }
 
     #[test]
