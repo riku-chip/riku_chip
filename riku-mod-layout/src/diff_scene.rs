@@ -109,7 +109,9 @@ pub(crate) fn build_diff_scene(
         .and_then(|l| l.find_cell(&name).map(|c| (l, c)))
         .or_else(|| lib_a.and_then(|l| l.find_cell(&name).map(|c| (l, c))))
         .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en ninguna versión")))?;
-    let (mut scene, keys) = vc_scene_from_cell(lib, &cell, path_hint);
+    // Sin la información de Magic: el diff marca las redes que cambiaron, no
+    // compara nombres con el LVS (la vista de LVS abre la escena sin diff).
+    let (mut scene, keys) = vc_scene_from_cell(lib, &cell, path_hint, None);
 
     // Atenuar el layout para que resalten los cambios.
     for paint in scene.layers.values_mut() {

@@ -108,7 +108,14 @@ fn label_element(label: crate::labels::FlatLabel, layer: Layer, text_size: f64) 
 ///
 /// Los polígonos aplanados por gdstk pasan directo a elementos de la escena
 /// (sin una lista intermedia: en el chip de 42 MB eran ~330 MB de pico).
-pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_hint: Option<&str>) -> (VcScene, LayerKeys) {
+/// `magic`: lo que el lector de Magic sabe además de la geometría (qué
+/// etiquetas son pines); con él las redes se nombran como en `riku lvs`.
+pub(crate) fn vc_scene_from_cell(
+    lib: &Library,
+    cell: &gdstk_rs::Cell<'_>,
+    path_hint: Option<&str>,
+    magic: Option<&gdstk_rs::magic::MagInfo>,
+) -> (VcScene, LayerKeys) {
     let flat = cell.get_polygons().build();
     let labels = crate::labels::flatten_labels(lib, cell);
     let tags: BTreeSet<(u32, u32)> =
@@ -170,7 +177,7 @@ pub(crate) fn vc_scene_from_cell(lib: &Library, cell: &gdstk_rs::Cell<'_>, path_
         scene.push(el);
     }
     let labels = labels_count;
-    let electrical = add_electrical(&mut scene, lib, cell, path_hint, polygons, text_size, &keys);
+    let electrical = add_electrical(&mut scene, lib, cell, path_hint, magic, polygons, text_size, &keys);
 
     scene.metadata = vec![
         ("Celda".into(), cell.name().to_string()),
@@ -194,6 +201,7 @@ fn add_electrical(
     lib: &Library,
     cell: &gdstk_rs::Cell<'_>,
     path_hint: Option<&str>,
+    magic: Option<&gdstk_rs::magic::MagInfo>,
     polygons: usize,
     text_size: f64,
     keys: &LayerKeys,
@@ -205,7 +213,7 @@ fn add_electrical(
             ("Redes", "no calculadas en una celda tan grande".into()),
         ];
     }
-    let nl = crate::nets::cell_nets(lib, cell, rules, None);
+    let nl = crate::nets::cell_nets(lib, cell, rules, magic);
     let mut out = Vec::new();
     let devices: Vec<crate::devices::Device> = nl.devices.iter().map(|(d, _)| d.clone()).collect();
     if let Some(summary) = add_devices(scene, &devices, text_size) {
@@ -396,6 +404,7 @@ impl ViewerBackend for GdsBackend {
             let side = raw.read(Some(&libs)).map_err(|e| read_error(e, ""))?;
             let notices = side.notices;
             let lib = side.lib;
+            let info = side.info;
 
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
@@ -420,7 +429,7 @@ impl ViewerBackend for GdsBackend {
                 },
             };
 
-            let (mut scene, _) = vc_scene_from_cell(&lib, &cell, path_hint.as_deref());
+            let (mut scene, _) = vc_scene_from_cell(&lib, &cell, path_hint.as_deref(), info.as_ref());
             scene.notices.extend(notices);
             let tops = entries.iter().filter(|e| e.is_root).count();
             // Justo despues de "Celda": cuantas celdas hay para elegir.
@@ -1122,7 +1131,7 @@ port 1 nsew signal {class}
         show("Library");
         let top = crate::select_top_cell(&lib).unwrap();
         let t = std::time::Instant::now();
-        let (mut scene, _) = vc_scene_from_cell(&lib, &top, None);
+        let (mut scene, _) = vc_scene_from_cell(&lib, &top, None, None);
         eprintln!("[P6] armar la escena: {:?}", t.elapsed());
         show("escena (elementos)");
         scene.build_index();
