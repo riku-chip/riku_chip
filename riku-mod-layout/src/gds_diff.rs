@@ -304,8 +304,13 @@ fn net_changes(
         used.iter().any(|&(l, d)| l == k.layer && d.is_none_or(|d| d == k.datatype))
             || magic.get(&(k.layer, k.datatype)).is_some_and(|n| types.iter().any(|t| t == rules.canonical(n)))
     };
+    // Un cambio atribuido a una instancia (cae dentro de su caja) cuya celda,
+    // ni nada debajo, cambió, es de la celda de arriba: un metal2 quitado
+    // sobre un transistor que no se tocó es un cambio de `inv`, no del pfet.
+    let changed_cells: BTreeSet<&str> = report.geometry.iter().filter(|g| own_change(g)).map(|g| g.cell.as_str()).collect();
+    let own = |g: &GdsGeomDiff| own_change(g) || !g.origin_path.iter().skip(1).any(|c| changed_cells.contains(c.as_str()));
     let mut cells: BTreeMap<&str, Vec<[f64; 4]>> = BTreeMap::new();
-    for g in report.geometry.iter().filter(|g| own_change(g) && relevant(&g.layer)) {
+    for g in report.geometry.iter().filter(|g| own(g) && relevant(&g.layer)) {
         let boxes = cells.entry(g.cell.as_str()).or_default();
         if let Some(b) = g.bbox_um {
             boxes.push([b.min_x, b.min_y, b.max_x, b.max_y]);
@@ -327,7 +332,7 @@ fn net_changes(
     // `nets::context`).
     let unit_um = lb.unit() / 1e-6;
     let mut via: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for g in report.geometry.iter().filter(|g| !own_change(g) && relevant(&g.layer)) {
+    for g in report.geometry.iter().filter(|g| !own(g) && relevant(&g.layer)) {
         if let Some(child) = g.origin_path.get(1) {
             via.entry(g.cell.clone()).or_default().insert(child.clone());
         }
