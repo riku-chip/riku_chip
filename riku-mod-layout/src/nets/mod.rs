@@ -334,6 +334,54 @@ pub struct LayoutNetlist {
     /// µm por unidad de la librería (las posiciones de `netlist` están en
     /// unidades de la librería, en coordenadas de la celda).
     pub unit_um: f64,
+    /// Dónde está dibujado cada transistor (en el orden de
+    /// `netlist.devices`): ver [`Owner`].
+    pub owners: Vec<Owner>,
+}
+
+/// Dónde está dibujado un punto de una celda aplanada: la celda más interna
+/// que lo contiene y el punto en coordenadas de esa celda (unidades de la
+/// librería). Mover una instancia no cambia ninguno de los dos.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Owner {
+    pub cell: String,
+    pub local: (f64, f64),
+}
+
+/// [`Owner`] del punto `at` (coordenadas de `cell`): se baja por las
+/// instancias cuyo recuadro lo contiene, deshaciendo en cada nivel su
+/// traslación, rotación, escala y espejo (y la copia de un arreglo).
+pub fn owner_of(lib: &Library, cell: &Cell<'_>, at: (f64, f64)) -> Owner {
+    let mut name = cell.name().to_string();
+    let mut p = at;
+    // Un tope por si hubiera un ciclo de referencias.
+    for _ in 0..64 {
+        let Some(here) = lib.find_cell(&name) else { break };
+        let mut next = None;
+        'refs: for r in here.references() {
+            let Some(child) = lib.find_cell(r.cell_name()) else { continue };
+            let b = child.bbox();
+            let (o, theta, mag) = (r.origin(), r.rotation(), r.magnification().max(f64::MIN_POSITIVE));
+            for off in r.repetition().offsets() {
+                let (dx, dy) = (p.0 - o.x - off.x, p.1 - o.y - off.y);
+                let (sin, cos) = (-theta).sin_cos();
+                let (lx, ly) = ((dx * cos - dy * sin) / mag, (dx * sin + dy * cos) / mag);
+                let ly = if r.x_reflection() { -ly } else { ly };
+                if lx >= b.min_x && lx <= b.max_x && ly >= b.min_y && ly <= b.max_y {
+                    next = Some((r.cell_name().to_string(), (lx, ly)));
+                    break 'refs;
+                }
+            }
+        }
+        match next {
+            Some((n, local)) => {
+                name = n;
+                p = local;
+            }
+            None => break,
+        }
+    }
+    Owner { cell: name, local: p }
 }
 
 /// [`LayoutNetlist`] de `cell` (por defecto, la top) del layout `bytes` (ver
@@ -353,5 +401,21 @@ pub fn layout_netlist(bytes: &[u8], path: &str, files: Option<&dyn viewer_core::
     let rules = devices::rules_for_library(lib, Some(path))
         .ok_or_else(|| format!("{path}: no se reconoce el PDK (sin reglas de transistores)"))?;
     let netlist = cell_nets(lib, &top, rules, side.info.as_ref());
-    Ok(LayoutNetlist { cell: top.name().to_string(), netlist, rules, unit_um: lib.unit() / 1e-6 })
+    // El centro del recuadro de la compuerta (gira y se mueve con ella).
+    let owners = netlist
+        .devices
+        .iter()
+        .map(|(d, _)| {
+            let pts = &d.gate.points;
+            let at = if pts.is_empty() {
+                d.at
+            } else {
+                let (x0, x1) = pts.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), q| (a.min(q.x), b.max(q.x)));
+                let (y0, y1) = pts.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), q| (a.min(q.y), b.max(q.y)));
+                ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            };
+            owner_of(lib, &top, at)
+        })
+        .collect();
+    Ok(LayoutNetlist { cell: top.name().to_string(), netlist, rules, unit_um: lib.unit() / 1e-6, owners })
 }

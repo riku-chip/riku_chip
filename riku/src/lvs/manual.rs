@@ -44,12 +44,26 @@ pub struct Bind {
     pub layout: Vec<LayoutRef>,
 }
 
-/// Un transistor del layout: su modelo y un punto de su compuerta (µm, en
-/// coordenadas de la celda).
+/// Un transistor del layout: su modelo y el centro de su compuerta (µm, en
+/// coordenadas de la celda comparada). Si está dibujado en una sub-celda,
+/// también esa celda y el punto en sus coordenadas: así se lo reencuentra
+/// aunque se mueva su instancia.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayoutRef {
     pub model: String,
     pub at: [f64; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<[f64; 2]>,
+}
+
+impl LayoutRef {
+    /// La referencia a un transistor del layout tal como está ahora.
+    pub fn of(d: &LayDevice) -> Self {
+        let sub = d.cell.is_some();
+        LayoutRef { model: d.model.clone(), at: [d.at.0, d.at.1], cell: d.cell.clone(), local: sub.then_some([d.local.0, d.local.1]) }
+    }
 }
 
 impl MapFile {
@@ -86,7 +100,11 @@ impl MapFile {
             let mut refs = b.layout.clone();
             refs.sort_by(|a, b| (a.at[0], a.at[1]).partial_cmp(&(b.at[0], b.at[1])).unwrap_or(std::cmp::Ordering::Equal));
             for r in refs {
-                out.push_str(&format!("  {{ model = {:?}, at = [{:.3}, {:.3}] }},\n", r.model, r.at[0], r.at[1]));
+                let sub = match (&r.cell, r.local) {
+                    (Some(c), Some(l)) => format!(", cell = {c:?}, local = [{:.3}, {:.3}]", l[0], l[1]),
+                    _ => String::new(),
+                };
+                out.push_str(&format!("  {{ model = {:?}, at = [{:.3}, {:.3}]{sub} }},\n", r.model, r.at[0], r.at[1]));
             }
             out.push_str("]\n");
         }
@@ -123,6 +141,10 @@ pub struct LayDevice {
     pub at: (f64, f64),
     /// El recuadro de la compuerta (µm): `[x0, y0, x1, y1]`.
     pub gate: [f64; 4],
+    /// La sub-celda donde está dibujado (`None`: en la celda comparada) y
+    /// el centro de la compuerta en sus coordenadas (µm).
+    pub cell: Option<String>,
+    pub local: (f64, f64),
     pub w: f64,
     pub l: f64,
     pub pins: [String; 4],
@@ -133,37 +155,23 @@ const G: usize = 1;
 const S: usize = 2;
 const B: usize = 3;
 
-/// Los transistores del `.subckt top` de una netlist del esquemático. Los
-/// nombres son los de sus instancias (`XM1` → `M1`, con `instance`).
+/// Los transistores del `.subckt top` de una netlist del esquemático y los
+/// de sus sub-circuitos (ver [`flatten`]). Los de arriba se nombran como sus
+/// instancias (`XM1` → `M1`, con `instance`); los de adentro, con su ruta
+/// (`x1/M3`).
 pub fn schematic_devices(spice: &str, top: &str, instance: &dyn Fn(&str) -> Option<String>) -> Vec<SchDevice> {
-    let mut out = Vec::new();
-    for l in top_lines(spice, top) {
-        let toks: Vec<&str> = l.split_whitespace().collect();
-        let Some(first) = toks.first() else { continue };
-        if !is_transistor(&toks) {
-            continue;
-        }
-        let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
-        let params: HashMap<String, &str> = toks[k..]
-            .iter()
-            .filter_map(|t| t.split_once('='))
-            .map(|(a, b)| (a.to_ascii_lowercase(), b))
-            .collect();
-        let num = |key: &str| params.get(key).and_then(|v| microns(v));
-        out.push(SchDevice {
-            name: instance(first).unwrap_or_else(|| first.to_string()),
-            model: toks[k - 1].to_string(),
-            pins: [toks[1].into(), toks[2].into(), toks[3].into(), toks[4].into()],
-            w: num("w"),
-            l: num("l"),
-            m: params.get("m").or(params.get("mult")).and_then(|v| v.parse().ok()).unwrap_or(1.0),
-        });
-    }
-    out
+    flatten(spice, top, instance).0
 }
 
-/// Las líneas (ya unidas las `+`) de los elementos del `.subckt top`.
-fn top_lines(spice: &str, top: &str) -> Vec<String> {
+/// Un `.subckt`: sus pines, sus parámetros por defecto y sus líneas.
+struct Subckt {
+    ports: Vec<String>,
+    params: HashMap<String, String>,
+    lines: Vec<String>,
+}
+
+/// Los `.subckt` de una netlist (con las `+` ya unidas) y sus redes globales.
+fn subckts(spice: &str) -> (HashMap<String, Subckt>, HashSet<String>) {
     let mut lines: Vec<String> = Vec::new();
     for raw in spice.lines() {
         let t = raw.trim();
@@ -175,19 +183,112 @@ fn top_lines(spice: &str, top: &str) -> Vec<String> {
             _ => lines.push(t.to_string()),
         }
     }
-    let mut inside = false;
-    let mut out = Vec::new();
+    let (mut all, mut globals): (HashMap<String, Subckt>, HashSet<String>) = (HashMap::new(), HashSet::from(["0".to_string()]));
+    let mut current: Option<(String, Subckt)> = None;
     for l in lines {
         let low = l.to_ascii_lowercase();
-        if low.starts_with(".subckt") {
-            inside = l.split_whitespace().nth(1) == Some(top);
+        let toks: Vec<&str> = l.split_whitespace().collect();
+        if low.starts_with(".subckt") && toks.len() >= 2 {
+            let ports = toks[2..].iter().filter(|t| !t.contains('=')).map(|t| t.to_string()).collect();
+            let params = toks[2..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_string(), b.to_string())).collect();
+            current = Some((toks[1].to_string(), Subckt { ports, params, lines: Vec::new() }));
         } else if low.starts_with(".ends") {
-            inside = false;
-        } else if inside && !l.is_empty() && !l.starts_with('*') && !l.starts_with('.') {
-            out.push(l);
+            if let Some((name, sub)) = current.take() {
+                all.insert(name, sub);
+            }
+        } else if low.starts_with(".global") {
+            globals.extend(toks[1..].iter().map(|t| t.to_string()));
+        } else if let Some((_, sub)) = current.as_mut() {
+            if !l.is_empty() && !l.starts_with('*') && !l.starts_with('.') {
+                sub.lines.push(l);
+            }
         }
     }
-    out
+    (all, globals)
+}
+
+/// Los transistores del `.subckt top` y de todo lo que instancia, aplanados:
+/// los de un sub-circuito con su ruta (`x1/M3`), sus redes internas con
+/// prefijo (`x1/net2`) y sus pines y parámetros los de la instancia. Y lo
+/// que no es un transistor (lo que no se revisa).
+fn flatten(spice: &str, top: &str, instance: &dyn Fn(&str) -> Option<String>) -> (Vec<SchDevice>, Vec<String>) {
+    let (all, globals) = subckts(spice);
+    let mut devices = Vec::new();
+    let mut others = Vec::new();
+    if let Some(t) = all.get(top) {
+        let nets: HashMap<String, String> = t.ports.iter().map(|p| (p.clone(), p.clone())).collect();
+        walk(&all, &globals, t, "", &nets, &t.params, instance, 0, &mut devices, &mut others);
+    }
+    (devices, others)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk(
+    all: &HashMap<String, Subckt>,
+    globals: &HashSet<String>,
+    cell: &Subckt,
+    prefix: &str,
+    nets: &HashMap<String, String>,
+    params: &HashMap<String, String>,
+    instance: &dyn Fn(&str) -> Option<String>,
+    depth: usize,
+    devices: &mut Vec<SchDevice>,
+    others: &mut Vec<String>,
+) {
+    let net = |n: &str| match nets.get(n) {
+        Some(m) => m.clone(),
+        None if globals.contains(n) => n.to_string(),
+        None => format!("{prefix}{n}"),
+    };
+    // El nombre de una instancia: arriba, el que da el netlister; adentro,
+    // sin la `X` que Xschem antepone a los transistores (`XM3` → `M3`).
+    let local_name = |n: &str| -> String {
+        if prefix.is_empty() {
+            return instance(n).unwrap_or_else(|| n.to_string());
+        }
+        let mut c = n.chars();
+        match (c.next(), c.next()) {
+            (Some('X' | 'x'), Some('M' | 'm')) => n[1..].to_string(),
+            _ => n.to_string(),
+        }
+    };
+    let value = |v: &str| -> String { params.get(v).cloned().unwrap_or_else(|| v.to_string()) };
+    for l in &cell.lines {
+        let toks: Vec<&str> = l.split_whitespace().collect();
+        let Some(first) = toks.first() else { continue };
+        let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
+        let name = format!("{prefix}{}", local_name(first));
+        if is_transistor(&toks) {
+            let p: HashMap<String, String> = toks[k..].iter().filter_map(|t| t.split_once('=')).map(|(a, b)| (a.to_ascii_lowercase(), value(b))).collect();
+            let num = |key: &str| p.get(key).and_then(|v| microns(v));
+            devices.push(SchDevice {
+                name,
+                model: toks[k - 1].to_string(),
+                pins: [net(toks[1]), net(toks[2]), net(toks[3]), net(toks[4])],
+                w: num("w"),
+                l: num("l"),
+                m: p.get("m").or(p.get("mult")).and_then(|v| v.parse().ok()).unwrap_or(1.0),
+            });
+            continue;
+        }
+        // Un sub-circuito conocido: adentro, con sus pines a estas redes.
+        let model = (k >= 2).then(|| toks[k - 1]);
+        let sub = model.filter(|_| matches!(first.chars().next(), Some('X' | 'x'))).and_then(|m| all.get(m));
+        match sub {
+            Some(sub) if depth < 32 && sub.ports.len() == k - 2 => {
+                let inner: HashMap<String, String> = sub.ports.iter().cloned().zip(toks[1..k - 1].iter().map(|n| net(n))).collect();
+                let mut p = sub.params.clone();
+                for (a, b) in toks[k..].iter().filter_map(|t| t.split_once('=')) {
+                    p.insert(a.to_string(), value(b));
+                }
+                walk(all, globals, sub, &format!("{name}/"), &inner, &p, instance, depth + 1, devices, others);
+            }
+            _ => others.push(match model.filter(|_| matches!(first.chars().next(), Some('X' | 'x'))) {
+                Some(m) => format!("{name} ({m})"),
+                None => name,
+            }),
+        }
+    }
 }
 
 /// Un transistor: `M`/`X`, cuatro redes y un modelo MOS.
@@ -206,21 +307,7 @@ pub fn schematic_extras(spice: &str, top: &str, instance: &dyn Fn(&str) -> Optio
         .find(|l| l.to_ascii_lowercase().starts_with(".subckt") && l.split_whitespace().nth(1) == Some(top))
         .map(|l| l.split_whitespace().skip(2).filter(|t| !t.contains('=')).map(str::to_string).collect())
         .unwrap_or_default();
-    let others = top_lines(spice, top)
-        .iter()
-        .filter_map(|l| {
-            let toks: Vec<&str> = l.split_whitespace().collect();
-            if is_transistor(&toks) {
-                return None;
-            }
-            let first = *toks.first()?;
-            let name = instance(first).unwrap_or_else(|| first.to_string());
-            // Un sub-circuito, con su nombre (el último antes de los parámetros).
-            let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
-            Some(if matches!(first.chars().next(), Some('X' | 'x')) && k >= 2 { format!("{name} ({})", toks[k - 1]) } else { name })
-        })
-        .collect();
-    (ports, others)
+    (ports, flatten(spice, top, instance).1)
 }
 
 /// Los transistores de una netlist del layout, con sus redes por el nombre
@@ -240,10 +327,13 @@ pub fn layout_devices(n: &riku_mod_layout::nets::LayoutNetlist) -> Vec<LayDevice
             let (at, gate) = if x0.is_finite() { (((x0 + x1) / 2.0, (y0 + y1) / 2.0), [x0, y0, x1, y1]) } else { (d.at, [d.at.0, d.at.1, d.at.0, d.at.1]) };
             (d, t, at, gate)
         })
-        .map(|(d, t, at, gate)| LayDevice {
+        .zip(&n.owners)
+        .map(|((d, t, at, gate), owner)| LayDevice {
             model: d.model.clone(),
             at: (round3(at.0 * n.unit_um), round3(at.1 * n.unit_um)),
             gate: gate.map(|v| v * n.unit_um),
+            cell: (owner.cell != n.cell).then(|| owner.cell.clone()),
+            local: (round3(owner.local.0 * n.unit_um), round3(owner.local.1 * n.unit_um)),
             w: d.w_um,
             l: d.l_um,
             pins: [nl.net_name(t.d), nl.net_name(t.g), nl.net_name(t.s), nl.net_name(t.b)],
@@ -328,6 +418,8 @@ pub struct Check {
     pub moved: Option<Moved>,
     /// Vínculos reubicados por conectividad.
     pub by_connectivity: Vec<String>,
+    /// Vínculos reubicados por su sub-celda (se movió una instancia).
+    pub by_cell: Vec<String>,
     /// Parámetros distintos: el transistor y qué (`W 4 ≠ 2`).
     pub params: Vec<(String, String)>,
     /// Modelos distintos.
@@ -554,6 +646,28 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
         found.push((bi, refs));
     }
 
+    // 1b. Un dedo de una sub-celda que no está donde estaba: el único de esa
+    // celda en la misma posición local (se movió su instancia).
+    for (bi, refs) in found.iter_mut() {
+        let b = &map.binds[*bi];
+        let mut moved = false;
+        for (slot, r) in refs.iter_mut().zip(&b.layout) {
+            let (None, Some(cell), Some(local)) = (*slot, r.cell.as_deref(), r.local) else { continue };
+            let cands: Vec<usize> = (0..lay.len())
+                .filter(|i| !used.contains(i) && same_model(&lay[*i].model, &r.model))
+                .filter(|&i| lay[i].cell.as_deref() == Some(cell) && (lay[i].local.0 - local[0]).hypot(lay[i].local.1 - local[1]) <= TOL)
+                .collect();
+            if let [i] = cands[..] {
+                *slot = Some(i);
+                used.insert(i);
+                moved = true;
+            }
+        }
+        if moved {
+            c.by_cell.push(b.schematic.clone());
+        }
+    }
+
     // 2. Lo que no está donde estaba: ¿se movió todo junto?
     let missing: Vec<(usize, usize)> =
         found.iter().enumerate().flat_map(|(k, (_, refs))| refs.iter().enumerate().filter(|(_, r)| r.is_none()).map(move |(j, _)| (k, j))).collect();
@@ -666,7 +780,7 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
             .iter()
             .zip(refs)
             .map(|(r, i)| match i {
-                Some(i) => LayoutRef { model: lay[*i].model.clone(), at: [lay[*i].at.0, lay[*i].at.1] },
+                Some(i) => LayoutRef::of(&lay[*i]),
                 None => r.clone(),
             })
             .collect();
@@ -798,7 +912,7 @@ pub fn check_session(s: &Session) -> Check {
 /// que ya hubiera de los dos (otro vínculo de ese transistor, o esos dedos
 /// en otro vínculo) se reemplaza.
 pub fn bind(map: &mut MapFile, schematic: &str, fingers: &[usize], lay: &[LayDevice]) {
-    let refs: Vec<LayoutRef> = fingers.iter().map(|&i| LayoutRef { model: lay[i].model.clone(), at: [lay[i].at.0, lay[i].at.1] }).collect();
+    let refs: Vec<LayoutRef> = fingers.iter().map(|&i| LayoutRef::of(&lay[i])).collect();
     let taken = |r: &LayoutRef| refs.iter().any(|n| same_model(&n.model, &r.model) && (n.at[0] - r.at[0]).hypot(n.at[1] - r.at[1]) <= TOL);
     map.binds.retain(|b| b.schematic != schematic);
     for b in &mut map.binds {
@@ -915,6 +1029,7 @@ pub fn check_json(c: &Check, s: &Session) -> serde_json::Value {
         "bound": c.bound.iter().map(|(n, f)| serde_json::json!({ "schematic": n, "layout": refs(f) })).collect::<Vec<_>>(),
         "moved": c.moved.map(|m| serde_json::json!({ "angle": (m.orient % 4) as u32 * 90, "mirrored": m.orient >= 4, "dx": m.dx, "dy": m.dy, "count": m.count })),
         "by_connectivity": c.by_connectivity,
+        "by_cell": c.by_cell,
         "models": pairs(&c.models),
         "params": pairs(&c.params),
         "shorts": groups(&c.shorts),
@@ -1004,7 +1119,7 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
             done.insert(s.name.clone());
             out.push(Bind {
                 schematic: s.name.clone(),
-                layout: fingers.iter().map(|&i| LayoutRef { model: lay[i].model.clone(), at: [lay[i].at.0, lay[i].at.1] }).collect(),
+                layout: fingers.iter().map(|&i| LayoutRef::of(&lay[i])).collect(),
             });
             pairs.push((s, fingers));
         }
@@ -1024,7 +1139,7 @@ mod tests {
     }
 
     fn ld(model: &str, at: (f64, f64), pins: [&str; 4], w: f64) -> LayDevice {
-        LayDevice { model: model.into(), at, gate: [at.0 - 0.25, at.1 - 0.5, at.0 + 0.25, at.1 + 0.5], w, l: 0.5, pins: pins.map(str::to_string) }
+        LayDevice { model: model.into(), at, gate: [at.0 - 0.25, at.1 - 0.5, at.0 + 0.25, at.1 + 0.5], cell: None, local: at, w, l: 0.5, pins: pins.map(str::to_string) }
     }
 
     /// Un inversor con la salida por un buffer: M1/M2 el inversor, M3 un
@@ -1046,7 +1161,7 @@ mod tests {
     }
 
     fn bind(s: &str, refs: &[(&str, f64, f64)]) -> Bind {
-        Bind { schematic: s.into(), layout: refs.iter().map(|&(m, x, y)| LayoutRef { model: m.into(), at: [x, y] }).collect() }
+        Bind { schematic: s.into(), layout: refs.iter().map(|&(m, x, y)| LayoutRef { model: m.into(), at: [x, y], cell: None, local: None }).collect() }
     }
 
     fn full() -> MapFile {
@@ -1174,9 +1289,9 @@ mod tests {
     fn row(n: usize, y: f64) -> (Vec<SchDevice>, Vec<LayDevice>, MapFile) {
         let pins = |i: usize| [format!("d{i}"), format!("g{i}"), format!("s{i}"), "VSS".to_string()];
         let sch = (0..n).map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 }).collect();
-        let lay = (0..n).map(|i| LayDevice { model: N.into(), at: (i as f64, y), gate: [0.0; 4], w: 1.0, l: 0.5, pins: pins(i) }).collect();
+        let lay = (0..n).map(|i| LayDevice { model: N.into(), at: (i as f64, y), gate: [0.0; 4], cell: None, local: (i as f64, y), w: 1.0, l: 0.5, pins: pins(i) }).collect();
         let mut m = MapFile::new("a.sch", "a.gds", None);
-        m.binds = (0..n).map(|i| Bind { schematic: format!("M{i}"), layout: vec![LayoutRef { model: N.into(), at: [i as f64, 0.0] }] }).collect();
+        m.binds = (0..n).map(|i| Bind { schematic: format!("M{i}"), layout: vec![LayoutRef { model: N.into(), at: [i as f64, 0.0], cell: None, local: None }] }).collect();
         (sch, lay, m)
     }
 
@@ -1234,6 +1349,42 @@ mod tests {
         let (ports, others) = schematic_extras(spice, "t", &|n| n.strip_prefix('X').map(str::to_string));
         assert_eq!(ports, ["in", "out", "VDD"]);
         assert_eq!(others, ["R1", "x2 (amp)"]);
+    }
+
+    #[test]
+    fn una_instancia_movida_se_reencuentra_por_su_celda() {
+        // Dos inversores iguales (celda `inv`), cada uno con un transistor en
+        // (1, 1) de la celda. La instancia de M2 se movió: su dedo no está
+        // donde estaba, pero es el único de `inv` en (1, 1) que queda libre.
+        let sch = vec![sd("M1", N, ["a", "x", "VSS", "VSS"], 1.0), sd("M2", N, ["b", "y", "VSS", "VSS"], 1.0)];
+        let dev = |at: (f64, f64), pins: [&str; 4]| LayDevice { cell: Some("inv".into()), local: (1.0, 1.0), ..ld(N, at, pins, 1.0) };
+        let lay = vec![dev((11.0, 1.0), ["a", "x", "VSS", "VSS"]), dev((51.0, 31.0), ["b", "y", "VSS", "VSS"])];
+        let r = |x: f64, y: f64| LayoutRef { model: N.into(), at: [x, y], cell: Some("inv".into()), local: Some([1.0, 1.0]) };
+        let mut m = MapFile::new("a.sch", "a.gds", None);
+        m.binds = vec![Bind { schematic: "M1".into(), layout: vec![r(11.0, 1.0)] }, Bind { schematic: "M2".into(), layout: vec![r(21.0, 1.0)] }];
+        let c = check(&m, &sch, &lay);
+        assert!(c.clean(), "{c:#?}");
+        assert_eq!(c.by_cell, ["M2"]);
+        assert_eq!(c.updated.binds[1].layout[0].at, [51.0, 31.0]);
+        // Y el archivo lo guarda con su celda.
+        assert!(c.updated.to_text().contains("cell = \"inv\", local = [1.000, 1.000]"), "{}", c.updated.to_text());
+    }
+
+    #[test]
+    fn el_esquematico_se_aplana_con_rutas_y_parametros() {
+        let spice = ".subckt top a b\nXM1 a b VSS VSS sky130_fd_pr__nfet_01v8 L=0.5 W=1\nx1 b c inv W=2\nR9 a c 1k\n.ends\n\
+.subckt inv in out W=1\nXM2 out in mid VSS sky130_fd_pr__nfet_01v8 L=0.5 W=W\nx2 mid out buf\n.ends\n\
+.subckt buf p q\nXM3 q p VSS VSS sky130_fd_pr__nfet_01v8 L=0.5 W=1\n.ends\n.GLOBAL VSS\n";
+        let (d, others) = flatten(spice, "top", &|n| n.strip_prefix('X').map(str::to_string));
+        let names: Vec<&str> = d.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["M1", "x1/M2", "x1/x2/M3"]);
+        // Los pines del sub-circuito son las redes de la instancia; lo
+        // interno lleva la ruta; VSS es global.
+        assert_eq!(d[1].pins, ["c", "b", "x1/mid", "VSS"]);
+        assert_eq!(d[2].pins, ["c", "x1/mid", "VSS", "VSS"]);
+        // W=W toma el valor de la instancia (2), no el de la definición (1).
+        assert_eq!(d[1].w, Some(2.0));
+        assert_eq!(others, ["R9"]);
     }
 
     #[test]
