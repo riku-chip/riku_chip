@@ -590,6 +590,8 @@ help.lvs_ci: "Códigos de salida para CI: 0 coincide, 1 no coincide (o parámetr
 lvs.no_tool: "%{tool} no está instalado (lo necesita riku lvs; viene con iic-osic-tools)"
 lvs.no_pdk: "no se sabe el PDK del esquemático: %{reason}"
 lvs.no_setup: "el PDK no tiene la configuración de Netgen: %{path}"
+lvs.cannot_read: "no se pudo leer"
+lvs.new_runs: "LVS: %{count} corrida(s) nueva(s) con Netgen; el resto, de la caché"
 lvs.tool_failed: "%{tool} falló: %{error}"
 lvs.missing_symbol: "netlist del esquemático: %{line}"
 lvs.bad_json: "resultado de Netgen inesperado: %{error}"

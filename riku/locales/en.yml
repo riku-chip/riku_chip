@@ -592,6 +592,8 @@ help.lvs_ci: "Exit codes for CI: 0 match, 1 does not match (or different paramet
 lvs.no_tool: "%{tool} is not installed (needed for riku lvs; it comes with iic-osic-tools)"
 lvs.no_pdk: "cannot tell the PDK of the schematic: %{reason}"
 lvs.no_setup: "the PDK has no Netgen setup: %{path}"
+lvs.cannot_read: "cannot be read"
+lvs.new_runs: "LVS: %{count} new Netgen run(s); the rest from the cache"
 lvs.tool_failed: "%{tool} failed: %{error}"
 lvs.missing_symbol: "schematic netlist: %{line}"
 lvs.bad_json: "unexpected Netgen result: %{error}"

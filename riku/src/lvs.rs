@@ -35,6 +35,9 @@ pub struct Pair {
     pub cell: Option<String>,
 }
 
+pub mod cache;
+pub use cache::{Cache, CommitVersion, DiskVersion, RecordingFiles, Version};
+
 // Los tipos que también ven `log --lvs` y `status --lvs` (sin estas features).
 pub use crate::core::analysis::lvs_types::{Delta, Discrepancy, LvsState, Side, Transition, Verdict};
 
@@ -307,17 +310,32 @@ fn pdk_of(schematic: &str) -> Result<(String, PathBuf), String> {
 
 /// El LVS de `pair` en `tree`.
 pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
+    run_recorded(tree, pair, tools).0
+}
+
+/// [`run`] y todo lo que leyó del proyecto (para la caché, ver [`cache`]).
+pub fn run_recorded(tree: &Tree, pair: &Pair, tools: &Tools) -> (Result<Report, String>, cache::Deps) {
+    let rec = std::sync::Arc::new(RecordingFiles::new(std::sync::Arc::new(viewer_core::DiskFiles::new(tree.root.clone()))));
+    let result = run_with(tree, pair, tools, rec.clone());
+    (result, rec.deps())
+}
+
+fn run_with(tree: &Tree, pair: &Pair, tools: &Tools, rec: std::sync::Arc<RecordingFiles>) -> Result<Report, String> {
+    use viewer_core::FileSource as _;
     let sch_path = tree.root.join(&pair.schematic);
-    let text = std::fs::read_to_string(&sch_path).map_err(|e| format!("{}: {e}", pair.schematic))?;
+    let text = rec
+        .read(&pair.schematic)
+        .and_then(|b| String::from_utf8(b).ok())
+        .ok_or_else(|| format!("{}: {}", pair.schematic, tr!("lvs.cannot_read")))?;
     let (pdk, pdk_dir) = pdk_of(&text)?;
     let work = TempDir::new("lvs")?;
     let mut warnings = Vec::new();
 
     // Esquemático: el netlister propio (modo LVS, con su `.subckt`). Los
-    // símbolos y sub-esquemáticos del proyecto salen de esta misma versión;
-    // los del PDK, de donde los busca el visor.
+    // símbolos y sub-esquemáticos del proyecto salen de esta misma versión
+    // (y quedan registrados en `rec`); los del PDK, de donde los busca el visor.
     let stem = sch_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let files: std::sync::Arc<dyn viewer_core::FileSource> = std::sync::Arc::new(viewer_core::DiskFiles::new(tree.root.clone()));
+    let files: std::sync::Arc<dyn viewer_core::FileSource> = rec.clone();
     let (mut opts, _) = crate::modules::xschem::render_options_for(&text);
     let (from, symbols) = (pair.schematic.clone(), files.clone());
     opts = opts.with_symbol_lookup(std::sync::Arc::new(move |sym: &str| {
@@ -356,10 +374,9 @@ pub fn run(tree: &Tree, pair: &Pair, tools: &Tools) -> Result<Report, String> {
 
     // Layout: la netlist que extrae riku. SKY130 usa `.option scale=1e-6`:
     // W y L sin sufijo, como su netlist de Xschem.
-    let bytes = std::fs::read(tree.root.join(&pair.layout)).map_err(|e| format!("{}: {e}", pair.layout))?;
+    let bytes = rec.read(&pair.layout).ok_or_else(|| format!("{}: {}", pair.layout, tr!("lvs.cannot_read")))?;
     let unit = if pdk.starts_with("sky130") { "" } else { "u" };
-    let files = viewer_core::DiskFiles::new(tree.root.clone());
-    let layout = riku_mod_layout::nets::layout_spice(&bytes, &pair.layout, Some(&files), pair.cell.as_deref(), unit)?;
+    let layout = riku_mod_layout::nets::layout_spice(&bytes, &pair.layout, Some(rec.as_ref()), pair.cell.as_deref(), unit)?;
     warnings.extend(layout.warnings.iter().cloned());
     std::fs::write(work.0.join("layout.spice"), &layout.spice).map_err(|e| e.to_string())?;
 
@@ -469,50 +486,53 @@ pub fn mark_transitions(steps: &mut [Step]) {
     }
 }
 
-/// Lo que determina el LVS de un par en un commit: las carpetas del
-/// esquemático y del layout (Git da un id por carpeta que cambia si cambia
-/// cualquier archivo adentro; ahí están sus sub-esquemáticos, símbolos y
-/// sub-celdas). `None` si falta alguno de los dos archivos.
-pub fn signature(tree: &git2::Tree<'_>, pair: &Pair) -> Option<String> {
-    let dir_id = |file: &str| -> Option<String> {
-        tree.get_path(Path::new(file)).ok()?;
-        match Path::new(file).parent().filter(|d| !d.as_os_str().is_empty()) {
-            Some(d) => Some(tree.get_path(d).ok()?.id().to_string()),
-            None => Some(tree.id().to_string()),
+/// El LVS de `pair` en la versión `v`: de la caché si nada de lo que lo
+/// determina cambió (ver [`cache`]); si no, se corre en `materialize()` (la
+/// versión escrita en el disco) y se guarda. Es el único camino a un
+/// resultado para `--log`, `log --lvs` y `status --lvs`.
+pub fn result_at(
+    v: &dyn Version,
+    materialize: &dyn Fn() -> Result<Tree, String>,
+    pair: &Pair,
+    tools: &Tools,
+    cache: &mut Cache,
+) -> StepResult {
+    let Some(schematic) = v.read(&pair.schematic) else { return StepResult::Missing };
+    if v.blob_id(&pair.layout).is_none() {
+        return StepResult::Missing;
+    }
+    let env = cache::env_print(&String::from_utf8_lossy(&schematic), tools);
+    let cached = env.as_deref().and_then(|e| cache.lookup(pair, e, v));
+    let (result, reused) = match cached {
+        Some(r) => (r, true),
+        None => {
+            cache.runs += 1;
+            let (result, deps) = match materialize() {
+                Ok(tree) => run_recorded(&tree, pair, tools),
+                Err(e) => (Err(e), cache::Deps::new()),
+            };
+            if let Some(e) = &env {
+                cache.store(pair, e, deps, &result);
+            }
+            (result, false)
         }
     };
-    let (s, l) = (dir_id(&pair.schematic)?, dir_id(&pair.layout)?);
-    Some(format!("{}|{}|{}|{s}|{l}", pair.schematic, pair.layout, pair.cell.as_deref().unwrap_or("")))
-}
-
-/// Carpeta de la caché de resultados (`RIKU_CACHE_DIR/lvs` o
-/// `~/.cache/riku/lvs`); `None` con `RIKU_NO_CACHE`.
-fn cache_dir() -> Option<PathBuf> {
-    if std::env::var("RIKU_NO_CACHE").is_ok_and(|v| !v.is_empty() && v != "0") {
-        return None;
+    match result {
+        Ok(report) => StepResult::Done { report: Box::new(report), reused },
+        Err(error) => StepResult::Error { error },
     }
-    std::env::var_os("RIKU_CACHE_DIR")
-        .map(|d| PathBuf::from(d).join("lvs"))
-        .or_else(|| dirs::cache_dir().map(|d| d.join("riku").join("lvs")))
-}
-
-fn cache_file(signature: &str) -> Option<PathBuf> {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    // Con otra netlist (otra versión de Riku o del netlister), otro resultado.
-    (env!("CARGO_PKG_VERSION"), xschem_viewer::spice::VERSION, signature).hash(&mut h);
-    Some(cache_dir()?.join(format!("{:016x}.json", h.finish())))
 }
 
 /// El LVS de cada par en los últimos `limit` commits desde `from` (por el
-/// primer padre, del más nuevo al más viejo). Solo compara cuando el par
-/// cambió; si no, repite el resultado (de este historial o de la caché).
+/// primer padre, del más nuevo al más viejo). Lo que ya se calculó (en este
+/// historial o en otra corrida) sale de la caché.
 pub fn history(
     repo_path: &Path,
     from: &str,
     limit: usize,
     pairs: &[Pair],
     tools: &Tools,
+    cache: &mut Cache,
 ) -> Result<Vec<(Pair, Vec<Step>)>, String> {
     let repo = git2::Repository::discover(repo_path).map_err(|e| e.message().to_string())?;
     let start =
@@ -525,38 +545,18 @@ pub fn history(
 
     let mut out = Vec::new();
     for pair in pairs {
-        let mut seen: BTreeMap<String, Result<Report, String>> = BTreeMap::new();
         let mut steps = Vec::new();
         for c in &commits {
             let id = c.id().to_string();
-            let short = id[..7.min(id.len())].to_string();
-            let sig = c.tree().ok().and_then(|t| signature(&t, pair));
-            let result = match sig {
-                None => StepResult::Missing,
-                Some(sig) => {
-                    let reused = seen.contains_key(&sig);
-                    if !reused {
-                        let cached = cache_file(&sig)
-                            .and_then(|f| std::fs::read_to_string(f).ok())
-                            .and_then(|t| serde_json::from_str::<Report>(&t).ok());
-                        let fresh = match cached {
-                            Some(r) => Ok(r),
-                            None => Tree::commit(repo_path, &id).and_then(|tree| run(&tree, pair, tools)),
-                        };
-                        if let (Ok(r), Some(f)) = (&fresh, cache_file(&sig)) {
-                            let _ = f.parent().map(std::fs::create_dir_all);
-                            let _ = serde_json::to_string(r).map(|t| std::fs::write(f, t));
-                        }
-                        seen.insert(sig.clone(), fresh);
-                    }
-                    match &seen[&sig] {
-                        Ok(r) => StepResult::Done { report: Box::new(r.clone()), reused },
-                        Err(e) => StepResult::Error { error: e.clone() },
-                    }
+            let result = match c.tree() {
+                Ok(tree) => {
+                    let v = CommitVersion { repo: &repo, tree };
+                    result_at(&v, &|| Tree::commit(repo_path, &id), pair, tools, cache)
                 }
+                Err(e) => StepResult::Error { error: e.message().to_string() },
             };
             steps.push(Step {
-                commit: short,
+                commit: id[..7.min(id.len())].to_string(),
                 summary: String::from_utf8_lossy(c.summary_bytes().unwrap_or_default()).into_owned(),
                 author: String::from_utf8_lossy(c.author().name_bytes()).into_owned(),
                 time: c.time().seconds(),
@@ -845,38 +845,6 @@ LVS Done.
         assert_eq!(appeared.appeared.iter().map(Discrepancy::key).collect::<Vec<_>>(), ["P:M3:w"]);
         assert_eq!(steps[1].transition, None, "mismo veredicto, pero con delta");
         assert_eq!(steps[2].delta, None, "el más viejo no tiene con qué comparar");
-    }
-
-    #[test]
-    fn la_firma_cambia_solo_si_cambia_una_carpeta_del_par() {
-        let dir = std::env::temp_dir().join(format!("riku-lvs-sig-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let repo = git2::Repository::init(&dir).unwrap();
-        let sig = git2::Signature::now("t", "t@t").unwrap();
-        let commit = |files: &[(&str, &str)]| {
-            for (p, body) in files {
-                let path = dir.join(p);
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(path, body).unwrap();
-            }
-            let mut index = repo.index().unwrap();
-            index.add_all(["*"], git2::IndexAddOption::DEFAULT, None).unwrap();
-            index.write().unwrap();
-            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
-            let parents: Vec<git2::Commit> = repo.head().ok().and_then(|h| h.peel_to_commit().ok()).into_iter().collect();
-            let refs: Vec<&git2::Commit> = parents.iter().collect();
-            let id = repo.commit(Some("HEAD"), &sig, &sig, "c", &tree, &refs).unwrap();
-            repo.find_commit(id).unwrap().tree().unwrap().id()
-        };
-        let pair = Pair { schematic: "sch/a.sch".into(), layout: "lay/a.gds".into(), cell: None };
-        let t1 = commit(&[("sch/a.sch", "1"), ("lay/a.gds", "1"), ("README", "x")]);
-        let t2 = commit(&[("README", "y")]);
-        let t3 = commit(&[("sch/sub.sch", "2")]);
-        let firma = |t| signature(&repo.find_tree(t).unwrap(), &pair);
-        assert!(firma(t1).is_some());
-        assert_eq!(firma(t1), firma(t2), "otro archivo fuera del par");
-        assert_ne!(firma(t2), firma(t3), "un sub-esquemático en su carpeta");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

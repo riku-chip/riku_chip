@@ -648,7 +648,11 @@ pub(super) fn run_lvs_log(
     if pairs.is_empty() {
         return Err(tr!("lvs.none_found"));
     }
-    let history = lvs::history(&repo, from, limit.max(1), &pairs, &tools)?;
+    let mut cache = lvs::Cache::new();
+    let history = lvs::history(&repo, from, limit.max(1), &pairs, &tools, &mut cache)?;
+    if cache.runs > 0 {
+        eprintln!("{}", tr!("lvs.new_runs", count = cache.runs));
+    }
 
     if json {
         let items: Vec<serde_json::Value> = history
