@@ -17,6 +17,42 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `cargo fmt` pide los metadatos del workspace, que incluyen las dependencias por path (external/).
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      # Por paquete y no `--all`: `--all` también formatea las dependencias por path (external/).
+      - name: cargo fmt --check
+        run: cargo fmt --check -p viewer-core -p riku-kernel -p riku-mod-layout -p riku
+
+  clippy:
+    name: clippy (sin bloquear)
+    runs-on: ubuntu-24.04
+    # Los avisos se leen en el log; todavía no ponen la CI en rojo.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config zlib1g-dev libqhull-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy (workspace)
+        run: cargo clippy --workspace --all-targets --locked
+
   test:
     name: test (linux)
     runs-on: ubuntu-24.04

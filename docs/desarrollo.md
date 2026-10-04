@@ -208,7 +208,8 @@ python3 tools/verify/gui/xt.py $W shot /tmp/riku.png
 
 ## CI y release
 
-- **CI** (`.github/workflows/ci.yml`): tests del workspace con `-D warnings`, cada combinación de features, `riku-kernel` sin motores, y el crate de Carlos (`viewer-core-compat`) contra el `viewer-core` actual.
+- **CI** (`.github/workflows/ci.yml`): `cargo fmt --check` (bloquea), Clippy (por ahora sin bloquear: los avisos se leen en el log), tests del workspace con `-D warnings`, cada combinación de features, `riku-kernel` sin motores, y el crate de Carlos (`viewer-core-compat`) contra el `viewer-core` actual.
+- **Formato:** `rustfmt.toml` en la raíz. Se formatea por paquete, nunca con `--all` (que también toca `external/`): `cargo fmt -p viewer-core -p riku-kernel -p riku-mod-layout -p riku`. Clippy en local: `cargo clippy --workspace --all-targets --locked`. El commit que formateó todo el código está en `.git-blame-ignore-revs`; para que `git blame` lo salte en local, `git config blame.ignoreRevsFile .git-blame-ignore-revs` (GitHub lo hace solo).
 - **Release** (`release.yml`, con cada tag `v*`): primero la CI entera sobre ese commit (si falla, no se publica nada); después el binario estático (solo depende de glibc) en Ubuntu 22.04, pruebas de humo, y publica `riku-<versión>-linux-x86_64.tar.gz` (con `install.sh`), `riku_<versión>-1_amd64.deb` y `SHA256SUMS`.
 - **Publicar:** subir `version` en `riku/Cargo.toml`, commitear, `git tag -a vX.Y.Z -m "Riku X.Y.Z" && git push origin vX.Y.Z`, y escribir las notas en GitHub (lo incompatible primero). **Actions → Release → Run workflow** lo prueba sin publicar.
 
@@ -218,4 +219,4 @@ Los textos están en `riku/locales/` (`en.yml` por defecto y de respaldo, `es.ym
 
 ## Commits
 
-Formato convencional, `tipo(alcance): descripción` (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `chore`). Antes de un PR, `cargo test --workspace` en verde.
+Formato convencional, `tipo(alcance): descripción` (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `build`, `ci`, `chore`). Antes de un PR, `cargo fmt --check` y `cargo test --workspace` en verde.
