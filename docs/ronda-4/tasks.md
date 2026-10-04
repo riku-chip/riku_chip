@@ -19,7 +19,7 @@ Marcar `[x]` al terminar. Requisitos en [`requirements.md`](requirements.md), di
 - [x] **T17.3** La comprobación al final del script: `riku log --lvs -f json` contra la tabla esperada, y Magic `extract` + Netgen en cada commit con el mismo veredicto. Si falla, no hay bundle.
 - [x] **T17.4** README del repo con los comandos y lo que se ve (salidas reales).
 - [x] **T17.5** Bundle en `examples/demos/inversor.bundle`; entrada en `DEMOS`; `demo.about.inversor` en `es.yml`/`en.yml`; la prueba de `demo.rs` comprueba el inversor.
-- [x] **T17.6** A mano: `riku demo inversor`, cada comando del README; el visor (Historial y vista de LVS) con capturas.
+- [ ] **T17.6** (hecho por la CLI: cada comando del README se comprobó; falta el visor) A mano: `riku demo inversor`, cada comando del README; el visor (Historial y vista de LVS) con capturas.
 
 ## T18. Demo `chip` (R18)
 
