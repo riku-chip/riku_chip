@@ -320,6 +320,25 @@ pub fn layout_spice(
     cell: Option<&str>,
     unit: &str,
 ) -> Result<LayoutSpice, String> {
+    let n = layout_netlist(bytes, path, files, cell)?;
+    Ok(LayoutSpice { spice: spice(&n.cell, &n.netlist, n.rules, unit), warnings: n.netlist.warnings.clone(), cell: n.cell })
+}
+
+/// La netlist de una celda de un layout con su geometría (la de
+/// [`layout_spice`], antes de pasarla a texto).
+pub struct LayoutNetlist {
+    /// La celda (la pedida, o la top).
+    pub cell: String,
+    pub netlist: Netlist,
+    pub rules: &'static devices::DeviceRules,
+    /// µm por unidad de la librería (las posiciones de `netlist` están en
+    /// unidades de la librería, en coordenadas de la celda).
+    pub unit_um: f64,
+}
+
+/// [`LayoutNetlist`] de `cell` (por defecto, la top) del layout `bytes` (ver
+/// [`layout_spice`]).
+pub fn layout_netlist(bytes: &[u8], path: &str, files: Option<&dyn viewer_core::FileSource>, cell: Option<&str>) -> Result<LayoutNetlist, String> {
     use crate::source::ReadError;
     let message = |e: ReadError| match e {
         ReadError::NotLayout => format!("{path}: no es un layout GDSII, OASIS ni Magic"),
@@ -333,6 +352,6 @@ pub fn layout_spice(
     };
     let rules = devices::rules_for_library(lib, Some(path))
         .ok_or_else(|| format!("{path}: no se reconoce el PDK (sin reglas de transistores)"))?;
-    let nl = cell_nets(lib, &top, rules, side.info.as_ref());
-    Ok(LayoutSpice { cell: top.name().to_string(), spice: spice(top.name(), &nl, rules, unit), warnings: nl.warnings.clone() })
+    let netlist = cell_nets(lib, &top, rules, side.info.as_ref());
+    Ok(LayoutNetlist { cell: top.name().to_string(), netlist, rules, unit_um: lib.unit() / 1e-6 })
 }

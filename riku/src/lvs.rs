@@ -37,6 +37,7 @@ pub struct Pair {
 
 pub mod annotate;
 pub mod cache;
+pub mod manual;
 pub use cache::{Cache, CommitVersion, DiskVersion, RecordingFiles, Version};
 
 // Los tipos que también ven `log --lvs` y `status --lvs` (sin estas features).
@@ -335,22 +336,29 @@ pub fn run_recorded(tree: &Tree, pair: &Pair, tools: &Tools) -> (Result<Report, 
     (result, rec.deps())
 }
 
-fn run_with(tree: &Tree, pair: &Pair, tools: &Tools, rec: std::sync::Arc<RecordingFiles>) -> Result<Report, String> {
+/// La netlist del esquemático de un par, la que se compara con el layout.
+pub struct SchematicNetlist {
+    /// El PDK de sus dispositivos y su carpeta.
+    pub pdk: String,
+    pub pdk_dir: PathBuf,
+    pub netlist: xschem_viewer::spice::Spice,
+    /// El nombre del `.subckt` de arriba (el del archivo).
+    pub stem: String,
+}
+
+/// [`SchematicNetlist`] de `pair`, con los archivos de `files` (una versión
+/// del proyecto): el netlister propio en modo LVS, con su `.subckt`.
+pub fn schematic_netlist(pair: &Pair, files: std::sync::Arc<dyn viewer_core::FileSource>) -> Result<SchematicNetlist, String> {
     use viewer_core::FileSource as _;
-    let sch_path = tree.root.join(&pair.schematic);
-    let text = rec
+    let text = files
         .read(&pair.schematic)
         .and_then(|b| String::from_utf8(b).ok())
         .ok_or_else(|| format!("{}: {}", pair.schematic, tr!("lvs.cannot_read")))?;
     let (pdk, pdk_dir) = pdk_of(&text)?;
-    let work = TempDir::new("lvs")?;
-    let mut warnings = Vec::new();
 
-    // Esquemático: el netlister propio (modo LVS, con su `.subckt`). Los
-    // símbolos y sub-esquemáticos del proyecto salen de esta misma versión
-    // (y quedan registrados en `rec`); los del PDK, de donde los busca el visor.
-    let stem = sch_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let files: std::sync::Arc<dyn viewer_core::FileSource> = rec.clone();
+    // Los símbolos y sub-esquemáticos del proyecto salen de esta misma
+    // versión (de `files`); los del PDK, de donde los busca el visor.
+    let stem = Path::new(&pair.schematic).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let (mut opts, _) = crate::modules::xschem::render_options_for(&text);
     let (from, symbols) = (pair.schematic.clone(), files.clone());
     opts = opts.with_symbol_lookup(std::sync::Arc::new(move |sym: &str| {
@@ -384,6 +392,17 @@ fn run_with(tree: &Tree, pair: &Pair, tools: &Tools, rec: std::sync::Arc<Recordi
         vars: Some(std::sync::Arc::new(move |n: &str| vars.get(n).cloned().or_else(|| env(n)))),
     };
     let netlist = xschem_viewer::spice::netlist(&text, &pair.schematic, &stem, &opts, lvs_mode, &lookup)?;
+    Ok(SchematicNetlist { pdk, pdk_dir, netlist, stem })
+}
+
+fn run_with(_tree: &Tree, pair: &Pair, tools: &Tools, rec: std::sync::Arc<RecordingFiles>) -> Result<Report, String> {
+    use viewer_core::FileSource as _;
+    let work = TempDir::new("lvs")?;
+    let mut warnings = Vec::new();
+
+    // Esquemático: el netlister propio (ver [`schematic_netlist`]).
+    let files: std::sync::Arc<dyn viewer_core::FileSource> = rec.clone();
+    let SchematicNetlist { pdk, pdk_dir, netlist, stem } = schematic_netlist(pair, files)?;
     warnings.extend(netlist.warnings.iter().map(|w| tr!("lvs.missing_symbol", line = w)));
     std::fs::write(work.0.join("schematic.spice"), &netlist.text).map_err(|e| e.to_string())?;
 
