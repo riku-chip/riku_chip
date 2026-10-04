@@ -334,7 +334,7 @@ mod tests {
     }
 
     fn label(text: &str, x: f64) -> NetLabel {
-        NetLabel { text: text.into(), at: (x, 1.0), types: vec!["locali".into()], port: true }
+        NetLabel { text: text.into(), at: (x, 1.0), types: vec!["locali".into()], port: true, area: None }
     }
 
     /// Dos inversores: A0 → Y0 y A1 → Y1 (redes 0..4), con VGND (4).

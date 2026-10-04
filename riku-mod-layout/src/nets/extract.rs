@@ -34,6 +34,18 @@ pub struct NetLabel {
     pub types: Vec<String>,
     /// Es un pin de la celda.
     pub port: bool,
+    /// El rectángulo de la etiqueta (unidades de la librería), si se sabe (un
+    /// puerto de Magic). Magic une la etiqueta a lo que hay debajo de todo
+    /// el rectángulo, no solo en el punto de anclaje.
+    pub area: Option<[f64; 4]>,
+}
+
+/// Puntos dentro de `a` para buscar qué hay debajo de una etiqueta: el centro
+/// primero, después una grilla de 5 × 5.
+fn area_points(a: &[f64; 4]) -> impl Iterator<Item = (f64, f64)> + '_ {
+    let at = |i: usize, lo: f64, hi: f64| lo + (hi - lo) * (i as f64 + 0.5) / 5.0;
+    std::iter::once(((a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0))
+        .chain((0..25).map(move |k| (at(k % 5, a[0], a[2]), at(k / 5, a[1], a[3]))))
 }
 
 /// Una red.
@@ -358,6 +370,7 @@ pub(crate) fn build_with(
         let node = offsets
             .iter()
             .find_map(|(dx, dy)| pieces.at(&l.types, (l.at.0 + dx, l.at.1 + dy)))
+            .or_else(|| l.area.as_ref().and_then(|a| area_points(a).find_map(|p| pieces.at(&l.types, p))))
             // Una etiqueta del pozo P sin pozo dibujado: el sustrato. Solo por
             // el tipo, no por sus contactos (una toma P también toca `li`).
             .or_else(|| {
@@ -523,7 +536,7 @@ mod tests {
     }
 
     fn label(text: &str, at: (f64, f64), types: &[&str]) -> NetLabel {
-        NetLabel { text: text.into(), at, types: types.iter().map(|t| t.to_string()).collect(), port: true }
+        NetLabel { text: text.into(), at, types: types.iter().map(|t| t.to_string()).collect(), port: true, area: None }
     }
 
     fn labels() -> Vec<NetLabel> {
@@ -575,5 +588,18 @@ mod tests {
         let nl = netlist(inverter(false), &[label("X", (5.0, 5.0), &["locali"])]);
         assert_eq!(nl.label_nets, [None]);
         assert!(nl.warnings.iter().any(|w| w.contains("de su tipo: X")), "{:?}", nl.warnings);
+    }
+
+    #[test]
+    fn a_magic_port_label_names_what_is_under_its_rectangle() {
+        // El ancla (el borde norte) cae afuera, pero el rectángulo cubre el
+        // `li` de A: como Magic, la etiqueta es de A.
+        let mut far = label("A2", (5.0, 5.0), &["locali"]);
+        far.area = Some([1.0, 1.2, 1.1, 1.4]);
+        let mut all = labels();
+        all.push(far);
+        let nl = netlist(inverter(false), &all);
+        assert_eq!(nl.label_nets[4], nl.label_nets[0], "A2 en la red de A");
+        assert!(nl.label_nets[4].is_some());
     }
 }

@@ -182,15 +182,17 @@ pub fn cell_nets_in(
                 by_type.entry(rules.canonical(n).to_string()).or_default().push(p);
             }
         }
-        let ports: Option<Vec<String>> = magic
-            .and_then(|m| m.cells.iter().find(|c| c.name == cell.name()))
-            .map(|c| c.ports.iter().map(|p| p.name.clone()).collect());
+        let ports: Option<&[gdstk_rs::magic::PortInfo]> =
+            magic.and_then(|m| m.cells.iter().find(|c| c.name == cell.name())).map(|c| c.ports.as_slice());
+        let unit_um = lib.unit() / 1e-6;
         let labels: Vec<NetLabel> = own_labels
             .into_iter()
             .filter_map(|(tag, text, at)| {
                 let t = rules.canonical(names.get(&tag)?).to_string();
-                let port = ports.as_ref().is_some_and(|p| p.contains(&text));
-                Some(NetLabel { text, at, types: rules.with_contacts(&t), port })
+                let info = ports.and_then(|p| p.iter().find(|p| p.name == text));
+                let port = info.is_some();
+                let area = info.map(|p| p.rect_um.map(|v| v / unit_um));
+                Some(NetLabel { text, at, types: rules.with_contacts(&t), port, area })
             })
             .collect();
         let mut regions: Vec<(String, Vec<OwnedPolygon>)> = by_type.into_iter().collect();
@@ -255,7 +257,7 @@ pub fn cell_nets_in(
                         }
                     }
                 }
-                (!lt.is_empty()).then_some(NetLabel { text, at, types, port })
+                (!lt.is_empty()).then_some(NetLabel { text, at, types, port, area: None })
             })
             .collect();
         (regions, labels, devs)
