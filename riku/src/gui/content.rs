@@ -136,6 +136,8 @@ pub(crate) struct SceneState {
 pub(crate) struct Tag {
     pub bbox: BoundingBox,
     pub color: egui::Color32,
+    /// Lo elegido: borde más grueso, para encontrarlo de lejos.
+    pub strong: bool,
 }
 
 /// Algo resaltado sobre la escena, en coordenadas de mundo: polígonos

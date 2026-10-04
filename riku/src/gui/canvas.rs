@@ -262,11 +262,12 @@ fn paint_tags(painter: &egui::Painter, xf: &ScreenXform, tags: &[crate::gui::con
     for t in tags {
         let b = &t.bbox;
         let mut rect = egui::Rect::from_two_pos(xf.to_screen(b.min_x, b.min_y), xf.to_screen(b.max_x, b.max_y));
-        if rect.width() < 6.0 || rect.height() < 6.0 {
-            rect = egui::Rect::from_center_size(rect.center(), rect.size().max(egui::vec2(6.0, 6.0)));
+        let (min, width) = if t.strong { (12.0, 3.0) } else { (6.0, 1.5) };
+        if rect.width() < min || rect.height() < min {
+            rect = egui::Rect::from_center_size(rect.center(), rect.size().max(egui::vec2(min, min)));
         }
-        painter.rect_filled(rect, 1.0, t.color.gamma_multiply(0.18));
-        painter.rect_stroke(rect, 1.0, egui::Stroke::new(1.5, t.color), egui::StrokeKind::Outside);
+        painter.rect_filled(rect, 1.0, t.color.gamma_multiply(if t.strong { 0.35 } else { 0.18 }));
+        painter.rect_stroke(rect, 1.0, egui::Stroke::new(width, t.color), egui::StrokeKind::Outside);
     }
 }
 

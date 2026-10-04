@@ -331,6 +331,7 @@ impl LvsState {
     fn save(&mut self) {
         let root = self.root.clone();
         if let Some(Ok(s)) = self.manual.as_mut() {
+            s.map.sort();
             let path = root.join(&s.map_path);
             let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, s.map.to_text()));
             self.message = Some(match written {
@@ -472,13 +473,16 @@ impl LvsState {
             for d in &s.schematic {
                 let Some(&(x1, y1, x2, y2)) = s.places.instances.get(&d.name) else { continue };
                 let bound = c.bound.iter().any(|(n, _)| *n == d.name).then_some(d.name.as_str());
-                let col = if self.sel_sch.as_deref() == Some(d.name.as_str()) { PICKED } else { color(bound) };
-                sch_tags.push(Tag { bbox: BoundingBox::from_points((x1, y1), (x2, y2)), color: col });
+                let picked = self.sel_sch.as_deref() == Some(d.name.as_str());
+                let col = if picked { PICKED } else { color(bound) };
+                sch_tags.push(Tag { bbox: BoundingBox::from_points((x1, y1), (x2, y2)), color: col, strong: picked });
             }
             let k = 1.0 / s.unit_um;
             for (i, d) in s.layout.iter().enumerate() {
-                let col = if self.sel_lay.contains(&i) { PICKED } else { color(owner.get(&i).copied()) };
-                lay_tags.push(Tag { bbox: BoundingBox::from_points((d.gate[0] * k, d.gate[1] * k), (d.gate[2] * k, d.gate[3] * k)), color: col });
+                let picked = self.sel_lay.contains(&i);
+                let col = if picked { PICKED } else { color(owner.get(&i).copied()) };
+                let bbox = BoundingBox::from_points((d.gate[0] * k, d.gate[1] * k), (d.gate[2] * k, d.gate[3] * k));
+                lay_tags.push(Tag { bbox, color: col, strong: picked });
             }
         }
         if let Some(bs) = self.schematic.scene.as_mut() {

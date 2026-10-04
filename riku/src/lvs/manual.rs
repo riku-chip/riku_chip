@@ -65,6 +65,11 @@ impl MapFile {
         Ok(map)
     }
 
+    /// Los vínculos en orden de nombre (`M2` antes que `M10`).
+    pub fn sort(&mut self) {
+        self.binds.sort_by(|a, b| natural(&a.schematic).cmp(&natural(&b.schematic)));
+    }
+
     /// El archivo como texto: un vínculo por bloque, en orden de nombre,
     /// para que el diff de un commit se lea bien.
     pub fn to_text(&self) -> String {
