@@ -92,7 +92,7 @@ jobs:
           cargo install cargo-deb --locked
           cargo deb -p riku --no-build --no-strip -o dist/
           cd dist && sha256sum *.tar.gz *.deb > SHA256SUMS && ls -la && cat SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: riku-${{ steps.pkg.outputs.ver }}-linux-x86_64
           path: |
