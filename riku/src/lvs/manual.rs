@@ -661,6 +661,72 @@ pub fn unbind(map: &mut MapFile, schematic: &str) {
     map.binds.retain(|b| b.schematic != schematic);
 }
 
+/// El estado de un chequeo en pocos números (para el historial).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Summary {
+    pub bound: usize,
+    pub total: usize,
+    pub fingers: usize,
+    pub fingers_total: usize,
+    /// Parámetros o modelos distintos.
+    pub differences: usize,
+    pub shorts: usize,
+    pub opens: usize,
+    pub lost: usize,
+    pub clean: bool,
+}
+
+impl Summary {
+    pub fn of(c: &Check, s: &Session) -> Self {
+        Summary {
+            bound: c.bound.len(),
+            total: s.schematic.len(),
+            fingers: c.bound.iter().map(|(_, f)| f.len()).sum(),
+            fingers_total: s.layout.len(),
+            differences: c.params.len() + c.models.len(),
+            shorts: c.shorts.len(),
+            opens: c.opens.len(),
+            lost: c.lost.len(),
+            clean: c.clean(),
+        }
+    }
+}
+
+/// Qué cambió de un commit (`older`) al siguiente (`newer`), lo que vale la
+/// pena marcar en el historial.
+pub fn transitions(older: &Summary, newer: &Summary) -> Vec<Transition> {
+    let mut out = Vec::new();
+    if newer.clean && !older.clean {
+        out.push(Transition::Clean);
+    }
+    if newer.shorts > older.shorts {
+        out.push(Transition::NewShort);
+    } else if newer.shorts < older.shorts {
+        out.push(Transition::ShortFixed);
+    }
+    if newer.opens > older.opens {
+        out.push(Transition::NewOpen);
+    } else if newer.opens < older.opens {
+        out.push(Transition::OpenFixed);
+    }
+    if newer.bound > older.bound {
+        out.push(Transition::Linked(newer.bound - older.bound));
+    }
+    out
+}
+
+/// Un cambio de estado del LVS manual entre dos commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transition {
+    Clean,
+    NewShort,
+    ShortFixed,
+    NewOpen,
+    OpenFixed,
+    Linked(usize),
+}
+
 /// Esquema del resultado en JSON.
 pub const CHECK_SCHEMA: &str = "riku-lvs-check/v1";
 
@@ -924,6 +990,16 @@ mod tests {
         assert!(!check(&m, &sch, &lay).models.is_empty());
         unbind(&mut m, "M3");
         assert!(m.binds.iter().all(|b| b.schematic != "M3"));
+    }
+
+    #[test]
+    fn el_historial_marca_cortos_y_avance() {
+        let base = Summary { bound: 5, total: 9, shorts: 0, opens: 0, clean: false, ..Summary::default() };
+        let worse = Summary { shorts: 1, ..base.clone() };
+        assert_eq!(transitions(&base, &worse), [Transition::NewShort]);
+        assert_eq!(transitions(&worse, &base), [Transition::ShortFixed]);
+        let done = Summary { bound: 9, clean: true, ..base.clone() };
+        assert_eq!(transitions(&base, &done), [Transition::Clean, Transition::Linked(4)]);
     }
 
     #[test]

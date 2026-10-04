@@ -180,7 +180,7 @@ pub(crate) enum Commands {
         log: bool,
         #[arg(short = 'n', long, value_name = "N", default_value_t = 20, requires = "log", help = tr!("help.lvs_limit"))]
         limit: usize,
-        #[arg(long, conflicts_with = "log", help = tr!("help.lvs_map"))]
+        #[arg(long, help = tr!("help.lvs_map"))]
         map: bool,
         #[arg(long, requires = "map", help = tr!("help.lvs_suggest"))]
         suggest: bool,

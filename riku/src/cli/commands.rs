@@ -680,6 +680,118 @@ pub(super) fn run_lvs_map(
     })
 }
 
+/// `riku lvs --map --log`: el LVS manual de cada par en los últimos commits
+/// (por el primer padre), con los vínculos de cada commit (o los del disco
+/// si ese commit no tiene el archivo), y dónde cambió de estado.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+pub(super) fn run_lvs_map_log(
+    repo: PathBuf,
+    from: &str,
+    limit: usize,
+    pair: Option<(String, String)>,
+    cell: Option<String>,
+    json: bool,
+) -> Result<super::dispatch::Outcome, String> {
+    use super::dispatch::Outcome;
+    use crate::lvs::{self, manual, Pair, Tree};
+
+    let (root, configured) = lvs_configured(&repo, pair, &cell)?;
+    let (found, ambiguous) = lvs::pairs_checked(&root, &configured);
+    for w in &ambiguous {
+        eprintln!("[!] {w}");
+    }
+    let pairs: Vec<Pair> = found.into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect();
+    if pairs.is_empty() {
+        return Err(tr!("lvs.none_found"));
+    }
+    // Los commits, del más nuevo al más viejo, por el primer padre.
+    let git = git2::Repository::discover(&repo).map_err(|e| e.message().to_string())?;
+    let mut commit = git.revparse_single(from).and_then(|o| o.peel_to_commit()).map_err(|_| tr!("git.commit_not_found", commit = from))?;
+    let mut commits = Vec::new();
+    loop {
+        let summary = String::from_utf8_lossy(commit.summary_bytes().unwrap_or_default()).to_string();
+        commits.push((commit.id().to_string(), commit.time().seconds(), summary));
+        if commits.len() >= limit {
+            break;
+        }
+        match commit.parent(0) {
+            Ok(p) => commit = p,
+            Err(_) => break,
+        }
+    }
+
+    // Por commit y par: el resumen, o por qué no se pudo.
+    let mut rows: Vec<Vec<Result<manual::Summary, String>>> = Vec::new();
+    for (sha, _, _) in &commits {
+        let tree = Tree::commit(&repo, sha)?;
+        rows.push(
+            pairs
+                .iter()
+                .map(|p| {
+                    let s = manual::load(&tree, p, Some(&root))?;
+                    let c = manual::check(&s.map, &s.schematic, &s.layout);
+                    Ok(manual::Summary::of(&c, &s))
+                })
+                .collect(),
+        );
+    }
+    // Lo que cambió respecto del commit anterior (el siguiente en la lista).
+    let marks = |pi: usize, ci: usize| -> Vec<manual::Transition> {
+        match (rows[ci].get(pi), rows.get(ci + 1).and_then(|r| r.get(pi))) {
+            (Some(Ok(newer)), Some(Ok(older))) => manual::transitions(older, newer),
+            _ => Vec::new(),
+        }
+    };
+
+    if json {
+        let items: Vec<serde_json::Value> = pairs
+            .iter()
+            .enumerate()
+            .map(|(pi, p)| {
+                let steps: Vec<serde_json::Value> = commits
+                    .iter()
+                    .enumerate()
+                    .map(|(ci, (sha, time, summary))| match &rows[ci][pi] {
+                        Ok(s) => serde_json::json!({ "commit": sha, "time": time, "summary": summary, "state": s, "transitions": marks(pi, ci) }),
+                        Err(e) => serde_json::json!({ "commit": sha, "time": time, "summary": summary, "error": e }),
+                    })
+                    .collect();
+                serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "steps": steps })
+            })
+            .collect();
+        super::format::print_enveloped(&serde_json::json!({ "schema": "riku-lvs-map-log/v1", "from": from, "results": items }), true)?;
+    } else {
+        for (pi, p) in pairs.iter().enumerate() {
+            println!("{}", tr!("lvs_map.log_title", schematic = p.schematic, layout = p.layout, count = commits.len(), from = from));
+            for (ci, (sha, time, summary)) in commits.iter().enumerate() {
+                let when = crate::text::format_timestamp(*time);
+                let short: String = summary.chars().take(40).collect();
+                let state = match &rows[ci][pi] {
+                    Ok(s) if s.clean => tr!("lvs_map.log_clean", bound = s.bound, total = s.total),
+                    Ok(s) => tr!("lvs_map.log_state", bound = s.bound, total = s.total, diffs = s.differences, shorts = s.shorts, opens = s.opens),
+                    Err(e) => tr!("lvs.state_error", error = e.lines().next().unwrap_or_default()),
+                };
+                let notes: Vec<String> = marks(pi, ci)
+                    .into_iter()
+                    .map(|t| match t {
+                        manual::Transition::Clean => tr!("lvs_map.t_clean"),
+                        manual::Transition::NewShort => tr!("lvs_map.t_new_short"),
+                        manual::Transition::ShortFixed => tr!("lvs_map.t_short_fixed"),
+                        manual::Transition::NewOpen => tr!("lvs_map.t_new_open"),
+                        manual::Transition::OpenFixed => tr!("lvs_map.t_open_fixed"),
+                        manual::Transition::Linked(n) => tr!("lvs_map.t_linked", count = n),
+                    })
+                    .collect();
+                let notes = if notes.is_empty() { String::new() } else { format!("  ← {}", notes.join(", ")) };
+                println!("  {}  {when}  {short:<40}  {state}{notes}", &sha[..7]);
+            }
+            println!();
+        }
+    }
+    let latest_dirty = rows.first().is_some_and(|r| r.iter().any(|s| !s.as_ref().is_ok_and(|s| s.clean)));
+    Ok(if latest_dirty { Outcome::Functional } else { Outcome::Clean })
+}
+
 /// Un resultado de `riku lvs --map` en texto.
 #[cfg(all(feature = "xschem", feature = "layout"))]
 fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crate::lvs::manual::Check, version: &str, notes: &[String]) {

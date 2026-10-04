@@ -126,7 +126,12 @@ impl Commands {
             Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _, log, limit, map, suggest, update } => {
                 let pair = sch.zip(layout);
                 let json = format == ListFormat::Json;
-                if map {
+                if map && log {
+                    if suggest || update {
+                        return Err(crate::i18n::tr!("lvs_map.disk_only"));
+                    }
+                    commands::run_lvs_map_log(repo, rev.as_deref().unwrap_or("HEAD"), limit, pair, cell, json)
+                } else if map {
                     commands::run_lvs_map(repo, rev.as_deref(), pair, cell, json, suggest, update)
                 } else if log {
                     commands::run_lvs_log(repo, rev.as_deref().unwrap_or("HEAD"), limit, pair, cell, json)
