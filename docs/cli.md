@@ -325,14 +325,33 @@ riku render amp.sch --theme dark --size 2400x1500
 ## `riku lvs`: el layout contra el esquemático
 
 ```bash
-riku lvs                                   # cada esquemático con su layout, en el disco
+riku lvs --suggest                         # empieza (o completa) lvs/<celda>.toml con lo que se deduce
+riku lvs                                   # el estado: avance, parámetros, cortos, abiertos y pines
 riku lvs HEAD~1                            # en un commit
+riku lvs --update                          # después de mover el layout: guarda las posiciones nuevas
+riku lvs --log [-n 20] [REV]               # commit a commit desde REV (HEAD), y dónde cambió de estado
 riku lvs --sch xschem/amp.sch --layout layout/amp.gds [--cell amp]
-riku lvs -f json --ci                      # 0 coincide, 1 no coincide o parámetros distintos, 2 error
-riku lvs --log [-n 20] [REV]               # en cada commit desde REV (HEAD), y dónde dejó de coincidir
+riku lvs -f json --ci                      # 0 limpio (todo revisado), 1 pendientes o distinto, 2 error
+riku lvs --netgen                          # con Netgen, en vez de los vínculos (opcional)
 ```
 
-Compara la netlist del esquemático (la escribe Riku, como Xschem en modo LVS, con los símbolos del PDK y del proyecto de esa versión) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Solo necesita `netgen` (viene con iic-osic-tools; `riku doctor` dice si está).
+Qué transistor del esquemático es cuál del layout queda en `lvs/<celda>.toml`, versionado con el diseño: un `[[bind]]` por transistor del esquemático (`M1`, o `x1/M3` dentro de un sub-circuito) con sus dedos del layout, cada uno por su modelo y el centro de su compuerta en µm de la celda (y, si está en una sub-celda, esa celda y su posición en ella). Riku comprueba lo que se deduce de esos vínculos, sin herramientas externas:
+
+- W total (sumando los dedos), L y modelo de cada par;
+- qué red del layout es cada una del esquemático, y un **corto** (una red del layout a la que van dos del esquemático) o un **abierto** (una del esquemático partida en dos) en cuanto dos vínculos se contradicen;
+- los **pines**: cada uno del esquemático tiene que estar en el layout y llegar a la misma red;
+- cuánto falta vincular de cada lado.
+
+El veredicto dice qué revisó: **limpio**, **limpio en transistores y pines** (si hay algo que no se revisa: resistencias, capacitores, sub-circuitos sin esquemático; se listan como «sin revisar») o **hay pendientes**. Con `--ci`, 0 solo si está limpio del todo.
+
+- **Sugerencias** (`--suggest`): parten de las redes con el mismo nombre en los dos lados (los pines) y vinculan un transistor solo si un único grupo de dedos del layout encaja con las redes ya vinculadas. No adivinan: los simétricos sin redes que los distingan quedan para vincular a mano (en el visor).
+- **Si el layout se mueve:** mover la celda en el chip, o una instancia de una sub-celda, no rompe nada (cada transistor se reencuentra por su celda y su posición en ella). Si se mueve, gira o espeja todo dentro de la celda, Riku encuentra el movimiento (el que menos contradice las redes y sus nombres; si hay más de uno igual de bueno, no reubica nada y lo dice); un transistor movido solo se reubica por conectividad. `--update` guarda las posiciones nuevas.
+- **En un commit** que no tiene el archivo, se usan los vínculos del disco: los de hoy sirven para revisar la historia. `--suggest` y `--update` solo escriben en el disco.
+- **Caché:** las extracciones de cada lado se guardan por dependencias (en `~/.cache/riku/lvs/manual-v1`; `RIKU_CACHE_DIR`, `RIKU_NO_CACHE`): repetir un chequeo o un `--log` no vuelve a extraer lo que no cambió, y en un commit la caché se valida leyendo de Git.
+
+En el visor, el botón **LVS** abre el esquemático y el layout lado a lado en la pestaña **Vínculos**: cada transistor coloreado en los dos lados (verde vinculado, naranja con diferencias, gris sin vincular), clic en uno del esquemático y en sus dedos del layout (Shift+clic suma) y **Vincular**; también Desvincular, Sugerir y Guardar posiciones. Cada cambio se escribe en `lvs/<celda>.toml`.
+
+JSON: `riku-lvs-check/v1` y, con `--log`, `riku-lvs-map-log/v1`.
 
 Qué esquemático va con qué layout: `--sch` y `--layout`; si no, `[[lvs]]` en `.riku.toml`; si no, los de igual nombre (`amp.sch` ↔ `amp.gds`, `.oas` o `.mag`).
 
@@ -343,28 +362,11 @@ layout = "layout/amp.gds"
 cell = "amp"          # opcional: sin ella, la top
 ```
 
-**Historial** (`--log`): recorre los últimos commits por el primer padre y marca cada cambio de estado: `← dejó de coincidir`, `← empeoró` (las conexiones ya no coinciden: un corto o un abierto), `← mejoró` y `← volvió a coincidir`. Debajo de cada commit, qué discrepancias aparecieron, cambiaron o se arreglaron (como `log --lvs`). Solo corre Netgen cuando cambió algo de lo que lee la comparación (el esquemático, sus símbolos y sub-esquemáticos, el layout y sus sub-celdas, estén en la carpeta que estén) o del entorno (PDK, Netgen); si no, reusa el resultado. Los resultados se guardan en `~/.cache/riku/lvs/v2` (`RIKU_CACHE_DIR`, `RIKU_NO_CACHE`), así que repetirlo es inmediato. JSON: `riku-lvs-log/v1`, con `delta` por commit.
+### Con Netgen (`--netgen`, opcional)
 
-El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
+Compara todo de una vez, sin vínculos: la netlist del esquemático (la escribe Riku) con la que Riku extrae del layout, usando Netgen y el `setup.tcl` del PDK. Dice si coinciden, qué parámetros difieren (`M1 ↔ 19 (pfet_01v8): w 4 ≠ 2`) y qué redes o dispositivos no tienen pareja. Necesita `netgen` (viene con iic-osic-tools; `riku doctor` dice si está). En el visor, la pestaña **Netgen** lo corre si se pide.
 
-### LVS manual (`--map`), sin Netgen
-
-```bash
-riku lvs --map --suggest      # empieza (o completa) lvs/<celda>.toml con lo que se deduce
-riku lvs --map                # el estado: avance, parámetros, cortos y abiertos
-riku lvs --map HEAD~3         # el mismo chequeo en un commit
-riku lvs --map --update       # después de mover el layout: guarda las posiciones nuevas
-riku lvs --map --log [-n 20]  # el avance por commit, y dónde apareció o se arregló un corto
-```
-
-En el visor, la vista de LVS tiene la pestaña **Vínculos**: cada transistor coloreado en los dos lados (verde vinculado, naranja con diferencias, gris sin vincular), clic en uno del esquemático y en sus dedos del layout (Shift+clic suma) y **Vincular**; también Desvincular, Sugerir y Guardar posiciones. Cada cambio se escribe en `lvs/<celda>.toml`.
-
-Qué transistor del esquemático es cuál del layout queda en `lvs/<celda>.toml`, versionado con el diseño: un `[[bind]]` por transistor del esquemático (`M1`) con sus dedos del layout, cada uno por su modelo y el centro de su compuerta en µm de la celda. Riku comprueba lo que se deduce de esos vínculos, sin Netgen: W total (sumando los dedos), L y modelo de cada par; qué red del layout es cada una del esquemático, y un **corto** (una red del layout a la que van dos del esquemático) o un **abierto** (una del esquemático partida en dos) en cuanto dos vínculos se contradicen; y cuánto falta vincular de cada lado.
-
-- **Sugerencias** (`--suggest`): parten de las redes con el mismo nombre en los dos lados (los pines) y vinculan un transistor solo si un único grupo de dedos del layout encaja con las redes ya vinculadas. No adivinan: los simétricos sin redes que los distingan quedan para vincular a mano.
-- **Si el layout se mueve:** mover la celda en el chip no cambia nada (las posiciones son de la celda). Si se mueve, gira o espeja todo dentro de la celda, Riku encuentra el movimiento y reubica los vínculos (`--update` lo guarda); un transistor movido solo se reubica por conectividad.
-- **En un commit** que no tiene el archivo, se usan los vínculos del disco: los de hoy sirven para revisar la historia (`--log` igual). `--suggest` y `--update` solo escriben en el disco.
-- Con `--ci`: 0 si está limpio (todo vinculado y sin diferencias), 1 si hay pendientes, 2 si hubo un error. JSON: `riku-lvs-check/v1` y, con `--log`, `riku-lvs-map-log/v1`.
+**Historial** (`--netgen --log`): marca `← dejó de coincidir`, `← empeoró`, `← mejoró` y `← volvió a coincidir`, y debajo de cada commit qué discrepancias aparecieron, cambiaron o se arreglaron (como `log --lvs` y `status --lvs`, que usan Netgen). Solo corre Netgen cuando cambió algo de lo que lee la comparación; los resultados se guardan en `~/.cache/riku/lvs/v2`. JSON: `riku-lvs/v1` y `riku-lvs-log/v1`. Diseño: [`lvs.md`](lvs.md).
 
 ## `riku completions`
 

@@ -136,7 +136,7 @@ pub(crate) fn sections(repo: &Path) -> Vec<Section> {
         .collect();
     out.push(Section { title: tr!("doctor.modules"), items });
 
-    // `riku lvs` usa Netgen; el resto de Riku no.
+    // Netgen es opcional: solo lo usa `riku lvs --netgen`.
     #[cfg(all(feature = "xschem", feature = "layout"))]
     {
         let items = ["netgen"]

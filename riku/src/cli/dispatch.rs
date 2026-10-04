@@ -123,15 +123,17 @@ impl Commands {
             }
 
             #[cfg(all(feature = "xschem", feature = "layout"))]
-            Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _, log, limit, map, suggest, update } => {
+            Commands::Lvs { rev, repo, sch, layout, cell, format, ci: _, log, limit, map: _, netgen, suggest, update } => {
                 let pair = sch.zip(layout);
                 let json = format == ListFormat::Json;
-                if map && log {
+                // El LVS manual (vínculos en `lvs/<celda>.toml`) es el de
+                // siempre; Netgen, con `--netgen`.
+                if !netgen && log {
                     if suggest || update {
                         return Err(crate::i18n::tr!("lvs_map.disk_only"));
                     }
                     commands::run_lvs_map_log(repo, rev.as_deref().unwrap_or("HEAD"), limit, pair, cell, json)
-                } else if map {
+                } else if !netgen {
                     commands::run_lvs_map(repo, rev.as_deref(), pair, cell, json, suggest, update)
                 } else if log {
                     commands::run_lvs_log(repo, rev.as_deref().unwrap_or("HEAD"), limit, pair, cell, json)

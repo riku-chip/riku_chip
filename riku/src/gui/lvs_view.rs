@@ -212,8 +212,6 @@ pub(crate) struct LvsState {
     pub selected: Option<usize>,
     job: Option<Promise<Result<Report, String>>>,
     pub tab: Tab,
-    /// El usuario eligió la pestaña (no se cambia sola al llegar el archivo).
-    tab_chosen: bool,
     /// Los vínculos y los transistores de cada lado.
     pub manual: Option<Result<Session, String>>,
     manual_job: Option<Promise<Result<Session, String>>>,
@@ -230,11 +228,6 @@ impl LvsState {
     /// Arranca el LVS (Netgen, en otro hilo) y la carga de las dos escenas.
     pub(crate) fn start(root: PathBuf, pair: Pair, backends: &[Arc<dyn ViewerBackend>], loader: &Loader) -> Self {
         let (r, p) = (root.clone(), pair.clone());
-        let job = Promise::spawn_thread("riku-lvs", move || {
-            let tools = crate::lvs::tools()?;
-            crate::lvs::run(&crate::lvs::Tree::disk(&r), &p, &tools)
-        });
-        let (r, p) = (root.clone(), pair.clone());
         let manual_job = Promise::spawn_thread("riku-lvs-map", move || manual::load(&crate::lvs::Tree::disk(&r), &p, None));
         let schematic = Side::load(loader, backends, &root.join(&pair.schematic), None);
         let layout = Side::load(loader, backends, &root.join(&pair.layout), pair.cell.clone());
@@ -246,9 +239,9 @@ impl LvsState {
             report: None,
             items: Vec::new(),
             selected: None,
-            job: Some(job),
-            tab: Tab::Netgen,
-            tab_chosen: false,
+            // Netgen es opcional: corre solo si se lo pide en su pestaña.
+            job: None,
+            tab: Tab::Manual,
             manual: None,
             manual_job: Some(manual_job),
             check: None,
@@ -269,10 +262,6 @@ impl LvsState {
         }
         if self.manual_job.as_ref().is_some_and(|j| j.ready().is_some()) {
             let session = self.manual_job.take().map(Promise::block_and_take);
-            // Con un archivo de vínculos, se abre en esa pestaña.
-            if !self.tab_chosen && session.as_ref().is_some_and(|s| s.as_ref().is_ok_and(|s| s.exists)) {
-                self.tab = Tab::Manual;
-            }
             self.manual = session;
             self.recheck();
             arrived = true;
@@ -312,8 +301,19 @@ impl LvsState {
     /// Cambiar de pestaña: lo resaltado de la otra se suelta.
     pub(crate) fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        self.tab_chosen = true;
         self.clear();
+    }
+
+    /// Correr Netgen (en otro hilo), si no se corrió ya.
+    pub(crate) fn run_netgen(&mut self) {
+        if self.job.is_some() || self.report.is_some() {
+            return;
+        }
+        let (r, p) = (self.root.clone(), self.pair.clone());
+        self.job = Some(Promise::spawn_thread("riku-lvs", move || {
+            let tools = crate::lvs::tools()?;
+            crate::lvs::run(&crate::lvs::Tree::disk(&r), &p, &tools)
+        }));
     }
 
     fn session(&self) -> Option<&Session> {
@@ -735,6 +735,13 @@ fn fmt_um(v: f64) -> String {
 
 /// El resultado de Netgen y la lista de lo que no coincide.
 fn show_netgen(ui: &mut egui::Ui, st: &mut LvsState) {
+    if st.report.is_none() && st.job.is_none() {
+        ui.label(RichText::new(tr!("lvs_view.netgen_optional")).weak().small());
+        if ui.button(tr!("lvs_view.netgen_run")).clicked() {
+            st.run_netgen();
+        }
+        return;
+    }
     let report = match &st.report {
         None => {
             ui.horizontal(|ui| {

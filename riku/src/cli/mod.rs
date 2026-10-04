@@ -180,11 +180,14 @@ pub(crate) enum Commands {
         log: bool,
         #[arg(short = 'n', long, value_name = "N", default_value_t = 20, requires = "log", help = tr!("help.lvs_limit"))]
         limit: usize,
-        #[arg(long, help = tr!("help.lvs_map"))]
+        /// El LVS manual ya es el de siempre: `--map` queda por compatibilidad.
+        #[arg(long, hide = true)]
         map: bool,
-        #[arg(long, requires = "map", help = tr!("help.lvs_suggest"))]
+        #[arg(long, help = tr!("help.lvs_netgen"))]
+        netgen: bool,
+        #[arg(long, conflicts_with = "netgen", help = tr!("help.lvs_suggest"))]
         suggest: bool,
-        #[arg(long, requires = "map", help = tr!("help.lvs_update"))]
+        #[arg(long, conflicts_with = "netgen", help = tr!("help.lvs_update"))]
         update: bool,
     },
     #[command(about = tr!("help.log"), after_help = tr!("help.examples_log"))]
