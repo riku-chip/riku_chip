@@ -16,7 +16,7 @@ use std::collections::{BTreeSet, HashMap};
 use gdstk_rs::{boolean_owned, BoolOp, GdsTag, OwnedPolygon, Point2D};
 
 use super::regions::RegionEval;
-use super::rules::{DeviceRules, GdsLayer};
+use super::rules::{DeviceRules, GdsLayer, IGNORE};
 
 /// Un transistor (un finger).
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +120,25 @@ impl Grid {
     }
 }
 
+/// Qué tan cerca de la compuerta tiene que estar un tipo de `device … +tipos`
+/// (un paso de la grilla de SKY130).
+const NEAR_UM: f64 = 0.005;
+
+/// La caja de `points`, agrandada `by` de cada lado.
+fn grown_bbox(points: &[Point2D], by: f64) -> [f64; 4] {
+    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for p in points {
+        b = [b[0].min(p.x), b[1].min(p.y), b[2].max(p.x), b[3].max(p.y)];
+    }
+    [b[0] - by, b[1] - by, b[2] + by, b[3] + by]
+}
+
+/// Si la caja de `points` se cruza con `b`.
+fn overlaps(b: &[f64; 4], points: &[Point2D]) -> bool {
+    let c = grown_bbox(points, 0.0);
+    c[0] <= b[2] && c[2] >= b[0] && c[1] <= b[3] && c[3] >= b[1]
+}
+
 /// Los transistores de una celda. `unit_um`: µm por unidad de la librería.
 pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<Device> {
     // Un par (difusión, poly) por tipo; casi siempre el mismo para todos.
@@ -167,15 +186,13 @@ pub fn extract(rules: &DeviceRules, layers: &LayerPolys, unit_um: f64) -> Vec<De
                 continue;
             }
             let Some((w_um, l_um, sd_at)) = measure(&poly.points, &sd, eps, unit_um) else { continue };
-            out.push(Device {
-                model: kind.model(w_um, l_um).to_string(),
-                magic: kind.magic.clone(),
-                gate: poly,
-                at,
-                w_um,
-                l_um,
-                sd_at,
-            });
+            let bbox = grown_bbox(&poly.points, NEAR_UM / unit_um);
+            let near_ok = |types: &[String]| {
+                let tags: Vec<GdsLayer> = types.iter().flat_map(|t| rules.base_layers(t)).collect();
+                layers.polys(&tags).iter().any(|p| overlaps(&bbox, &p.points))
+            };
+            let Some(model) = kind.model_for(w_um, l_um, &near_ok).filter(|m| *m != IGNORE) else { continue };
+            out.push(Device { model: model.to_string(), magic: kind.magic.clone(), gate: poly, at, w_um, l_um, sd_at });
         }
     }
     out.sort_by(|a, b| (a.at.1, a.at.0).partial_cmp(&(b.at.1, b.at.0)).unwrap_or(std::cmp::Ordering::Equal));
@@ -222,15 +239,15 @@ pub fn extract_magic(
             else {
                 continue;
             };
-            out.push(Device {
-                model: kind.model(w_um, l_um).to_string(),
-                magic: kind.magic.clone(),
-                gate: poly,
-                at,
-                w_um,
-                l_um,
-                sd_at,
-            });
+            let bbox = grown_bbox(&poly.points, NEAR_UM / unit_um);
+            let near_ok = |types: &[String]| {
+                polys.iter().any(|p| {
+                    name_of(p).is_some_and(|n| types.iter().any(|t| rules.canonical(t) == rules.canonical(n)))
+                        && overlaps(&bbox, &p.points)
+                })
+            };
+            let Some(model) = kind.model_for(w_um, l_um, &near_ok).filter(|m| *m != IGNORE) else { continue };
+            out.push(Device { model: model.to_string(), magic: kind.magic.clone(), gate: poly, at, w_um, l_um, sd_at });
         }
     }
     out.sort_by(|a, b| (a.at.1, a.at.0).partial_cmp(&(b.at.1, b.at.0)).unwrap_or(std::cmp::Ordering::Equal));

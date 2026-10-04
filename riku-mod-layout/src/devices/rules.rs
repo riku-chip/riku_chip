@@ -64,13 +64,31 @@ pub(super) struct Def {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeviceType {
     pub magic: String,
-    pub models: Vec<(String, Vec<Cond>)>,
+    pub models: Vec<ModelRule>,
     pub sd: Vec<String>,
     /// Tipos del sustrato (`pwell`); `space` si puede no haber pozo dibujado.
     pub sub: Vec<String>,
     /// `msubcircuit` (una instancia `X` en SPICE) y no `mosfet` (`M`).
     pub subckt: bool,
 }
+
+/// Una línea `device` de un tipo de transistor: el modelo SPICE, las
+/// condiciones de W y L y los tipos que tienen que estar junto a la compuerta
+/// (`+npn,pnp`; vacío: ninguno).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelRule {
+    pub name: String,
+    pub conds: Vec<Cond>,
+    pub near: Vec<String>,
+    /// Los tipos de cada terminal, solo si no son todos iguales (un
+    /// transistor de drenaje extendido: `*mvndiff extdrain,*mvnsd`): la regla
+    /// vale si cada terminal tiene alguno de sus tipos junto a la compuerta.
+    pub terms: Vec<Vec<String>>,
+}
+
+/// El modelo con que Magic marca la geometría que no es un dispositivo propio
+/// (la parte de un bipolar de alta tensión): no se lista.
+pub const IGNORE: &str = "Ignore";
 
 /// Un tipo de resistor: su nombre en Magic (canónico), su modelo SPICE
 /// (`None` en las líneas `None` de IHP: un corto, no un dispositivo) y los
@@ -125,13 +143,22 @@ impl Cond {
 
 impl DeviceType {
     /// El modelo para un transistor de esas medidas: el primero cuyas
-    /// condiciones se cumplen (o el primero, si ninguno).
+    /// condiciones se cumplen (o el primero, si ninguno). Saltea las reglas
+    /// que piden tipos cercanos (`+npn,pnp`): sin la geometría no se saben.
     pub fn model(&self, w_um: f64, l_um: f64) -> &str {
+        self.model_for(w_um, l_um, &|_| false).unwrap_or("")
+    }
+
+    /// Como [`DeviceType::model`], con `near_ok(tipos)`: si alguno de esos
+    /// tipos está junto a la compuerta. Puede dar [`IGNORE`].
+    pub fn model_for(&self, w_um: f64, l_um: f64, near_ok: &dyn Fn(&[String]) -> bool) -> Option<&str> {
+        let usable = |m: &&ModelRule| (m.near.is_empty() || near_ok(&m.near)) && m.terms.iter().all(|t| near_ok(t));
         self.models
             .iter()
-            .find(|(_, conds)| conds.iter().all(|c| c.holds(w_um, l_um)))
-            .or(self.models.first())
-            .map_or("", |(m, _)| m.as_str())
+            .filter(usable)
+            .find(|m| m.conds.iter().all(|c| c.holds(w_um, l_um)))
+            .or_else(|| self.models.iter().find(|m| m.near.is_empty() && m.terms.is_empty()))
+            .map(|m| m.name.as_str())
     }
 }
 
@@ -679,7 +706,7 @@ fn gds_layers(layers: &str, types: &str) -> Vec<GdsLayer> {
 /// Lo que dicen las líneas `device` de un tipo de transistor.
 #[derive(Default)]
 struct Models {
-    models: Vec<(String, Vec<Cond>)>,
+    models: Vec<ModelRule>,
     sd: Vec<String>,
     sub: Vec<String>,
     subckt: bool,
@@ -699,6 +726,23 @@ fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashM
             continue;
         }
         let conds: Vec<Cond> = w[4..].iter().filter_map(|t| Cond::parse(t)).collect();
+        // `+npn,pnp`: solo junto a esos tipos.
+        let near: Vec<String> = w[4..].iter().filter_map(|t| t.strip_prefix('+')).flat_map(names).collect();
+        // Los campos de tipos hasta los parámetros: terminales, sustrato y su
+        // nodo (`error`, `$SUB`). Si los terminales no son todos iguales, la
+        // regla pide cada uno (ver `ModelRule::terms`).
+        let fields: Vec<&str> = w[4..]
+            .iter()
+            .take_while(|t| !t.contains('=') && !t.contains('<') && !t.contains('>') && !t.starts_with('+'))
+            .copied()
+            .collect();
+        let term_fields = match fields.iter().rposition(|t| *t == "error" || t.starts_with('$')) {
+            Some(node) => &fields[..node.saturating_sub(1)],
+            None => &fields[..],
+        };
+        let mut distinct: Vec<&str> = term_fields.to_vec();
+        distinct.dedup();
+        let terms: Vec<Vec<String>> = if distinct.len() > 1 { distinct.iter().map(|f| names(f)).collect() } else { Vec::new() };
         // Fuente y drenaje: el campo que sigue a los tipos, repetido una vez
         // por terminal (`*ndiff *ndiff`, `ndiff,ndc ndiff,ndc`); el siguiente
         // es el sustrato (`pwell,space/w`), si no es un nodo (`error`,
@@ -721,8 +765,9 @@ fn device_models(lines: &[String], canonical: &HashMap<String, String>) -> HashM
         for t in w[3].split(',') {
             let m = out.entry(canon(t)).or_default();
             // La misma línea repetida con otros terminales (npd en SKY130).
-            if !m.models.iter().any(|(mm, c)| mm == w[2] && *c == conds) {
-                m.models.push((w[2].to_string(), conds.clone()));
+            let rule = ModelRule { name: w[2].to_string(), conds: conds.clone(), near: near.clone(), terms: terms.clone() };
+            if !m.models.contains(&rule) {
+                m.models.push(rule);
             }
             m.subckt |= w[1] == "msubcircuit";
             for s in &sd {
@@ -992,6 +1037,29 @@ end
         );
         let lvt = r.device_type("nfetlvt").unwrap();
         assert_eq!((lvt.sd.len(), lvt.sub.len()), (1, 0), "sin sustrato en la línea");
+        // SKY130: la parte de un bipolar de alta tensión se ignora, pero solo
+        // junto a un `npn`/`pnp` (`+npn,pnp`); si no, es un transistor de 5 V.
+        let m = device_models(
+            &[
+                "device msubcircuit Ignore mvnfet *mvndiff,mvndiffres dnwell pwell,space/w error +npn,pnp".to_string(),
+                "device msubcircuit sky130_fd_pr__nfet_g5v0d16v0 mvnfet *mvndiff extdrain,*mvnsd pwell,space/w error l=l w=w"
+                    .to_string(),
+                "device msubcircuit sky130_fd_pr__nfet_g5v0d10v5 mvnfet *mvndiff pwell,space/w error l=l w=w".to_string(),
+            ],
+            &HashMap::new(),
+        );
+        assert_eq!(m["mvnfet"].models[0].near, ["npn", "pnp"]);
+        let mv = DeviceType { magic: "mvnfet".into(), models: m["mvnfet"].models.clone(), sd: vec![], sub: vec![], subckt: true };
+        assert_eq!(mv.model(2.0, 0.5), "sky130_fd_pr__nfet_g5v0d10v5", "sin la geometría: la regla con +tipos no cuenta");
+        assert_eq!(mv.model_for(2.0, 0.5, &|_| false), Some("sky130_fd_pr__nfet_g5v0d10v5"), "lejos de un bipolar");
+        let bipolar = |t: &[String]| t.iter().any(|x| ["npn", "dnwell", "mvndiff"].contains(&x.as_str()));
+        assert_eq!(mv.model_for(2.0, 0.5, &bipolar), Some(IGNORE), "dentro de un bipolar (npn, dnwell)");
+        assert_eq!(m["mvnfet"].models[1].terms, [vec!["mvndiff".to_string()], vec!["extdrain".to_string(), "mvnsd".to_string()]]);
+        assert!(m["mvnfet"].models[2].terms.is_empty(), "terminales iguales: sin condición");
+        let ext = |t: &[String]| t.contains(&"mvndiff".to_string()) || t.contains(&"extdrain".to_string());
+        assert_eq!(mv.model_for(2.0, 0.5, &ext), Some("sky130_fd_pr__nfet_g5v0d16v0"), "con el drenaje extendido");
+        let plain = |t: &[String]| t.contains(&"mvndiff".to_string());
+        assert_eq!(mv.model_for(2.0, 0.5, &plain), Some("sky130_fd_pr__nfet_g5v0d10v5"), "sin él: el de 5 V común");
         // El orden de pintado y los planos.
         assert_eq!((r.plane("nmos"), r.plane("ndiffusion"), r.plane("metal1")), (Some("active"), Some("active"), None));
         assert!(r.layer_index("nfet") < r.layer_index("ndiff") && r.layer_index("ndiff") < r.layer_index("ndc"));

@@ -108,7 +108,7 @@ mod tests {
         for (pdk, model) in [(Pdk::Sky130, "sky130_fd_pr__nfet_01v8"), (Pdk::Gf180, "nfet_03v3"), (Pdk::Ihp, "sg13_lv_nmos")] {
             let rules = compiled(pdk).unwrap_or_else(|| panic!("{pdk:?}"));
             assert!(
-                rules.devices.iter().any(|(_, t)| t.models.iter().any(|(m, _)| m.ends_with(model))),
+                rules.devices.iter().any(|(_, t)| t.models.iter().any(|m| m.name.ends_with(model))),
                 "{pdk:?}: {:?}",
                 rules.devices.iter().map(|(_, t)| &t.magic).collect::<Vec<_>>()
             );
