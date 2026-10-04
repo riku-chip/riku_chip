@@ -387,7 +387,7 @@ impl LvsState {
             return;
         }
         let Some(s) = self.session() else { return };
-        let sch_box = s.places.instances.get(name).map(|&(x1, y1, x2, y2)| BoundingBox::from_points((x1, y1), (x2, y2)));
+        let sch_box = s.boxes.get(name).map(|&(x1, y1, x2, y2)| BoundingBox::from_points((x1, y1), (x2, y2)));
         let lay_box = gates_box(s, &self.sel_lay);
         for (bs, b) in [(self.schematic.scene.as_mut(), sch_box), (self.layout.scene.as_mut(), lay_box)] {
             if let (Some(bs), Some(b)) = (bs, b) {
@@ -404,7 +404,7 @@ impl LvsState {
         let hit = s
             .schematic
             .iter()
-            .filter_map(|d| s.places.instances.get(&d.name).map(|b| (d.name.clone(), *b)))
+            .filter_map(|d| s.boxes.get(&d.name).map(|b| (d.name.clone(), *b)))
             .filter(|&(_, (x1, y1, x2, y2))| x >= x1 && x <= x2 && y >= y1 && y <= y2)
             .min_by(|a, b| area(a.1).total_cmp(&area(b.1)))
             .map(|(n, _)| n);
@@ -472,7 +472,7 @@ impl LvsState {
             };
             let bound_names: HashSet<&str> = c.bound.iter().map(|(n, _)| n.as_str()).collect();
             for d in &s.schematic {
-                let Some(&(x1, y1, x2, y2)) = s.places.instances.get(&d.name) else { continue };
+                let Some(&(x1, y1, x2, y2)) = s.boxes.get(&d.name) else { continue };
                 let bound = bound_names.contains(d.name.as_str()).then_some(d.name.as_str());
                 let picked = self.sel_sch.as_deref() == Some(d.name.as_str());
                 let col = if picked { PICKED } else { color(bound) };

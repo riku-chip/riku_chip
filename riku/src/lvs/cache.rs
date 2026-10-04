@@ -140,7 +140,7 @@ pub fn env_print(schematic: &str, tools: &Tools) -> Option<String> {
 }
 
 /// Si cada archivo registrado está igual en `v` (y los que faltaban siguen faltando).
-fn valid(deps: &Deps, v: &dyn Version) -> bool {
+pub(super) fn valid(deps: &Deps, v: &dyn Version) -> bool {
     deps.iter().all(|(path, id)| v.blob_id(path) == *id)
 }
 
@@ -228,7 +228,7 @@ impl Default for Cache {
 }
 
 /// Deja las [`MAX_PER_PAIR`] entradas más nuevas.
-fn prune(dir: &Path) {
+pub(super) fn prune(dir: &Path) {
     let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -244,14 +244,14 @@ fn prune(dir: &Path) {
     }
 }
 
-fn pair_key(pair: &Pair) -> String {
+pub(super) fn pair_key(pair: &Pair) -> String {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&pair.schematic, &pair.layout, &pair.cell).hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
 /// `RIKU_CACHE_DIR/lvs` o `~/.cache/riku/lvs`; `None` con `RIKU_NO_CACHE`.
-fn cache_dir() -> Option<PathBuf> {
+pub(super) fn cache_dir() -> Option<PathBuf> {
     if std::env::var("RIKU_NO_CACHE").is_ok_and(|v| !v.is_empty() && v != "0") {
         return None;
     }

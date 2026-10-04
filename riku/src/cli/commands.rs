@@ -610,11 +610,8 @@ pub(super) fn run_lvs_map(
         return Err(tr!("lvs_map.disk_only"));
     }
     let (root, configured) = lvs_configured(&repo, pair, &cell)?;
-    let tree = match rev {
-        None => Tree::disk(&root),
-        Some(r) => Tree::commit(&repo, r)?,
-    };
-    let (found, ambiguous) = lvs::pairs_checked(&tree.root, &configured);
+    // Los pares, los del disco (también para un commit, como `--log`).
+    let (found, ambiguous) = lvs::pairs_checked(&root, &configured);
     for w in &ambiguous {
         eprintln!("[!] {w}");
     }
@@ -626,7 +623,11 @@ pub(super) fn run_lvs_map(
     let (mut failed, mut pending) = (false, false);
     let mut items = Vec::new();
     for p in &pairs {
-        let mut s = match manual::load(&tree, p, rev.map(|_| root.as_path())) {
+        let loaded = match rev {
+            None => manual::load(&Tree::disk(&root), p, None),
+            Some(r) => manual::load_commit(&repo, r, p, Some(&root)),
+        };
+        let mut s = match loaded {
             Ok(s) => s,
             Err(e) => {
                 failed = true;
@@ -723,12 +724,11 @@ pub(super) fn run_lvs_map_log(
     // Por commit y par: el resumen, o por qué no se pudo.
     let mut rows: Vec<Vec<Result<manual::Summary, String>>> = Vec::new();
     for (sha, _, _) in &commits {
-        let tree = Tree::commit(&repo, sha)?;
         rows.push(
             pairs
                 .iter()
                 .map(|p| {
-                    let s = manual::load(&tree, p, Some(&root))?;
+                    let s = manual::load_commit(&repo, sha, p, Some(&root))?;
                     let c = manual::check_session(&s);
                     Ok(manual::Summary::of(&c, &s))
                 })
