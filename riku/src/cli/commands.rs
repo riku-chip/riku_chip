@@ -626,7 +626,7 @@ pub(super) fn run_lvs_map(
     let (mut failed, mut pending) = (false, false);
     let mut items = Vec::new();
     for p in &pairs {
-        let mut s = match manual::load(&tree, p) {
+        let mut s = match manual::load(&tree, p, rev.map(|_| root.as_path())) {
             Ok(s) => s,
             Err(e) => {
                 failed = true;
@@ -689,6 +689,8 @@ fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crat
     }
     if !s.exists {
         println!("  {}", tr!("lvs_map.no_file", file = s.map_path));
+    } else if s.from_disk {
+        println!("  {}", tr!("lvs_map.from_disk", file = s.map_path));
     }
     let fingers: usize = c.bound.iter().map(|(_, f)| f.len()).sum();
     println!(

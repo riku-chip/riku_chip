@@ -590,13 +590,18 @@ pub struct Session {
     /// El archivo (uno vacío si todavía no existe).
     pub map: MapFile,
     pub exists: bool,
+    /// El archivo vino del disco porque la versión pedida no lo tiene.
+    pub from_disk: bool,
     pub schematic: Vec<SchDevice>,
     pub layout: Vec<LayDevice>,
     pub warnings: Vec<String>,
 }
 
-/// [`Session`] de `pair` con los archivos de `tree`.
-pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair) -> Result<Session, String> {
+/// [`Session`] de `pair` con los archivos de `tree`. Si esa versión no
+/// tiene el archivo de vínculos y se da `disk` (la raíz del proyecto en el
+/// disco), se usa el de ahí: los vínculos de hoy sirven para revisar un
+/// commit anterior.
+pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std::path::Path>) -> Result<Session, String> {
     use std::sync::Arc;
     let files: Arc<dyn viewer_core::FileSource> = Arc::new(viewer_core::DiskFiles::new(tree.root.clone()));
     let s = crate::lvs::schematic_netlist(pair, files.clone())?;
@@ -606,13 +611,21 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair) -> Result<Session,
     let ln = riku_mod_layout::nets::layout_netlist(&bytes, &pair.layout, Some(files.as_ref()), pair.cell.as_deref())?;
     let layout = layout_devices(&ln);
     let map_path = map_path(&ln.cell);
-    let (map, exists) = match std::fs::read_to_string(tree.root.join(&map_path)) {
-        Ok(text) => (MapFile::parse(&text).map_err(|e| format!("{map_path}: {e}"))?, true),
-        Err(_) => (MapFile::new(&pair.schematic, &pair.layout, pair.cell.as_deref()), false),
+    let in_tree = std::fs::read_to_string(tree.root.join(&map_path)).ok();
+    let (text, from_disk) = match in_tree {
+        Some(t) => (Some(t), false),
+        None => match disk.and_then(|d| std::fs::read_to_string(d.join(&map_path)).ok()) {
+            Some(t) => (Some(t), true),
+            None => (None, false),
+        },
+    };
+    let (map, exists) = match text {
+        Some(text) => (MapFile::parse(&text).map_err(|e| format!("{map_path}: {e}"))?, true),
+        None => (MapFile::new(&pair.schematic, &pair.layout, pair.cell.as_deref()), false),
     };
     let mut warnings: Vec<String> = s.netlist.warnings.clone();
     warnings.extend(ln.netlist.warnings.iter().cloned());
-    Ok(Session { cell: ln.cell, map_path, map, exists, schematic, layout, warnings })
+    Ok(Session { cell: ln.cell, map_path, map, exists, from_disk, schematic, layout, warnings })
 }
 
 /// Esquema del resultado en JSON.
@@ -629,6 +642,7 @@ pub fn check_json(c: &Check, s: &Session) -> serde_json::Value {
     serde_json::json!({
         "cell": s.cell,
         "map": s.map_path,
+        "map_from_disk": s.from_disk,
         "clean": c.clean(),
         "schematic_devices": s.schematic.len(),
         "layout_devices": s.layout.len(),
