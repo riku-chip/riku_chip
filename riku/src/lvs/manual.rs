@@ -488,15 +488,112 @@ pub fn check_pins(c: &Check, sch_ports: &[String], lay_ports: &[String]) -> Vec<
     out
 }
 
-/// El transistor del layout en `at` (sin los ya usados).
-fn find(lay: &[LayDevice], used: &HashSet<usize>, model: &str, at: (f64, f64)) -> Option<usize> {
-    lay.iter()
-        .enumerate()
-        .filter(|(i, d)| !used.contains(i) && same_model(&d.model, model))
-        .map(|(i, d)| (i, (d.at.0 - at.0).hypot(d.at.1 - at.1)))
-        .filter(|&(_, dist)| dist <= TOL)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(i, _)| i)
+/// Los dedos del layout indexados: por modelo y posición (en una grilla del
+/// tamaño de la tolerancia), por modelo y posición en su sub-celda, por
+/// modelo, y por modelo y red (de compuerta, de fuente o drenaje). Ubicar o
+/// buscar candidatos mira unas pocas entradas en vez de todos los dedos.
+struct Index {
+    models: HashMap<String, u32>,
+    at: HashMap<(u32, i64, i64), Vec<usize>>,
+    local: HashMap<(u32, String, i64, i64), Vec<usize>>,
+    by_model: HashMap<u32, Vec<usize>>,
+    gate: HashMap<(u32, String), Vec<usize>>,
+    sd: HashMap<(u32, String), Vec<usize>>,
+}
+
+/// El modelo sin el prefijo de la librería, en minúsculas.
+fn short(m: &str) -> String {
+    m.rsplit("__").next().unwrap_or(m).to_ascii_lowercase()
+}
+
+/// La casilla de la grilla de un valor (µm).
+fn cell(v: f64) -> i64 {
+    (v / TOL).floor() as i64
+}
+
+impl Index {
+    fn new(lay: &[LayDevice]) -> Self {
+        let mut ix = Index {
+            models: HashMap::new(),
+            at: HashMap::new(),
+            local: HashMap::new(),
+            by_model: HashMap::new(),
+            gate: HashMap::new(),
+            sd: HashMap::new(),
+        };
+        for (i, d) in lay.iter().enumerate() {
+            let next = ix.models.len() as u32;
+            let m = *ix.models.entry(short(&d.model)).or_insert(next);
+            ix.at.entry((m, cell(d.at.0), cell(d.at.1))).or_default().push(i);
+            if let Some(c) = &d.cell {
+                ix.local.entry((m, c.clone(), cell(d.local.0), cell(d.local.1))).or_default().push(i);
+            }
+            ix.by_model.entry(m).or_default().push(i);
+            ix.gate.entry((m, d.pins[G].clone())).or_default().push(i);
+            ix.sd.entry((m, d.pins[D].clone())).or_default().push(i);
+            if d.pins[S] != d.pins[D] {
+                ix.sd.entry((m, d.pins[S].clone())).or_default().push(i);
+            }
+        }
+        ix
+    }
+
+    fn model(&self, m: &str) -> Option<u32> {
+        self.models.get(&short(m)).copied()
+    }
+
+    /// Los dedos libres de ese modelo a menos de la tolerancia de `p` (en la
+    /// grilla `grid`, con la posición que da `pos`).
+    fn near<K: std::hash::Hash + Eq>(
+        grid: &HashMap<K, Vec<usize>>,
+        key: impl Fn(i64, i64) -> K,
+        p: (f64, f64),
+        pos: impl Fn(usize) -> (f64, f64),
+        used: &HashSet<usize>,
+    ) -> Vec<(usize, f64)> {
+        let (cx, cy) = (cell(p.0), cell(p.1));
+        let mut out = Vec::new();
+        for kx in cx - 1..=cx + 1 {
+            for ky in cy - 1..=cy + 1 {
+                for &i in grid.get(&key(kx, ky)).into_iter().flatten() {
+                    let q = pos(i);
+                    let d = (q.0 - p.0).hypot(q.1 - p.1);
+                    if !used.contains(&i) && d <= TOL {
+                        out.push((i, d));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// El dedo libre de ese modelo en `at` (el más cercano).
+    fn find(&self, lay: &[LayDevice], used: &HashSet<usize>, model: &str, at: (f64, f64)) -> Option<usize> {
+        let m = self.model(model)?;
+        Self::near(&self.at, |x, y| (m, x, y), at, |i| lay[i].at, used).into_iter().min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+    }
+
+    /// Los dedos libres de ese modelo en la posición `local` de la sub-celda.
+    fn find_local(&self, lay: &[LayDevice], used: &HashSet<usize>, model: &str, cell_name: &str, local: [f64; 2]) -> Vec<usize> {
+        let Some(m) = self.model(model) else { return Vec::new() };
+        Self::near(&self.local, |x, y| (m, cell_name.to_string(), x, y), (local[0], local[1]), |i| lay[i].local, used).into_iter().map(|(i, _)| i).collect()
+    }
+
+    /// Los dedos de ese modelo que pueden ser `s` según las redes ya
+    /// vinculadas: tienen que coincidir en cada terminal vinculado, así que
+    /// alcanza con la lista del más selectivo. `None` si no hay ninguno
+    /// vinculado (aparte del cuerpo).
+    fn connected(&self, s: &SchDevice, model: &str, nets: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<usize>> {
+        let m = self.model(model)?;
+        let list = |index: &HashMap<(u32, String), Vec<usize>>, t: usize| -> Option<Vec<usize>> {
+            let set = nets.get(&s.pins[t])?;
+            let mut v: Vec<usize> = set.iter().flat_map(|n| index.get(&(m, n.clone())).into_iter().flatten().copied()).collect();
+            v.sort_unstable();
+            v.dedup();
+            Some(v)
+        };
+        [list(&self.gate, G), list(&self.sd, D), list(&self.sd, S)].into_iter().flatten().min_by_key(Vec::len)
+    }
 }
 
 fn orient((x, y): (f64, f64), o: u8) -> (f64, f64) {
@@ -510,33 +607,68 @@ fn orient((x, y): (f64, f64), o: u8) -> (f64, f64) {
 }
 
 /// Los movimientos rígidos que vuelven a ubicar a más de la mitad de
-/// `refs` (al menos dos), del que más ubica al que menos.
-fn rigid_candidates(refs: &[&LayoutRef], lay: &[LayDevice], used: &HashSet<usize>) -> Vec<Moved> {
-    let mut all: Vec<Moved> = Vec::new();
-    for anchor in refs.iter().take(3) {
+/// `refs` (al menos dos), del que más ubica al que menos. Al estilo RANSAC:
+/// cada hipótesis (un ancla sobre un dedo del layout, en una de las ocho
+/// orientaciones) se descarta con dos testigos, y solo las que quedan se
+/// cuentan con una muestra y, las mejores, con todos.
+fn rigid_candidates(refs: &[&LayoutRef], lay: &[LayDevice], idx: &Index, used: &HashSet<usize>) -> Vec<Moved> {
+    if refs.len() < 2 {
+        return Vec::new();
+    }
+    // Anclas del modelo menos repetido (menos hipótesis); testigos y muestra
+    // repartidos entre todos.
+    let mut order: Vec<&LayoutRef> = refs.to_vec();
+    order.sort_by_key(|r| idx.model(&r.model).and_then(|m| idx.by_model.get(&m)).map_or(0, Vec::len));
+    let anchors = &order[..order.len().min(3)];
+    let witnesses: Vec<&LayoutRef> = refs.iter().copied().step_by((refs.len() / 3).max(1)).take(3).collect();
+    let sample: Vec<&LayoutRef> = refs.iter().copied().step_by((refs.len() / 64).max(1)).take(64).collect();
+    let hit = |r: &LayoutRef, o: u8, dx: f64, dy: f64| {
+        let p = orient((r.at[0], r.at[1]), o);
+        idx.find(lay, used, &r.model, (p.0 + dx, p.1 + dy)).is_some()
+    };
+    let mut seen: HashSet<(u8, i64, i64)> = HashSet::new();
+    let mut scored: Vec<(usize, Moved)> = Vec::new();
+    for anchor in anchors {
+        let Some(cands) = idx.model(&anchor.model).and_then(|m| idx.by_model.get(&m)) else { continue };
         for o in 0..8u8 {
             let p0 = orient((anchor.at[0], anchor.at[1]), o);
-            for (i, d) in lay.iter().enumerate() {
-                if used.contains(&i) || !same_model(&d.model, &anchor.model) {
+            for &i in cands {
+                if used.contains(&i) {
                     continue;
                 }
-                let (dx, dy) = (d.at.0 - p0.0, d.at.1 - p0.1);
-                let mut taken = used.clone();
-                let mut count = 0;
-                for r in refs {
-                    let p = orient((r.at[0], r.at[1]), o);
-                    if let Some(j) = find(lay, &taken, &r.model, (p.0 + dx, p.1 + dy)) {
-                        taken.insert(j);
-                        count += 1;
-                    }
+                let (dx, dy) = (lay[i].at.0 - p0.0, lay[i].at.1 - p0.1);
+                if !seen.insert((o, cell(dx), cell(dy))) {
+                    continue;
                 }
-                let same = |m: &Moved| m.orient == o && (m.dx - dx).abs() <= TOL && (m.dy - dy).abs() <= TOL;
-                if count >= 2 && count * 2 > refs.len() && !all.iter().any(same) {
-                    all.push(Moved { orient: o, dx, dy, count });
+                let misses = witnesses.iter().filter(|w| !std::ptr::eq(**w, *anchor) && !hit(w, o, dx, dy)).count();
+                if misses > 1 {
+                    continue;
+                }
+                let n = sample.iter().filter(|r| hit(r, o, dx, dy)).count();
+                if n * 2 > sample.len() {
+                    scored.push((n, Moved { orient: o, dx, dy, count: 0 }));
                 }
             }
         }
     }
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.truncate(8);
+    // Con todos: cada dedo a lo sumo una vez.
+    let mut all: Vec<Moved> = scored
+        .into_iter()
+        .filter_map(|(_, m)| {
+            let mut taken = used.clone();
+            let mut count = 0;
+            for r in refs {
+                let p = orient((r.at[0], r.at[1]), m.orient);
+                if let Some(j) = idx.find(lay, &taken, &r.model, (p.0 + m.dx, p.1 + m.dy)) {
+                    taken.insert(j);
+                    count += 1;
+                }
+            }
+            (count >= 2 && count * 2 > refs.len()).then_some(Moved { count, ..m })
+        })
+        .collect();
     all.sort_by(|a, b| b.count.cmp(&a.count));
     all
 }
@@ -563,39 +695,51 @@ fn net_pairs(pairs: &[(&SchDevice, Vec<usize>)], lay: &[LayDevice]) -> BTreeMap<
         map.entry(a.to_string()).or_default().insert(b.to_string());
     };
     // Compuerta y cuerpo no se intercambian: van primero.
-    let mut pending: Vec<(&SchDevice, &LayDevice)> = Vec::new();
-    for (s, fingers) in pairs {
-        for &i in fingers {
-            let l = &lay[i];
-            add(&mut map, &s.pins[G], &l.pins[G]);
-            add(&mut map, &s.pins[B], &l.pins[B]);
-            pending.push((s, l));
-        }
+    let fingers: Vec<(&SchDevice, &LayDevice)> = pairs.iter().flat_map(|(s, f)| f.iter().map(move |&i| (*s, &lay[i]))).collect();
+    for (s, l) in &fingers {
+        add(&mut map, &s.pins[G], &l.pins[G]);
+        add(&mut map, &s.pins[B], &l.pins[B]);
     }
-    // Fuente y drenaje: primero los dedos que ya se deciden por lo
-    // vinculado; si ninguno se decide, el primero va derecho y se sigue.
+    // Fuente y drenaje: con una cola. Un dedo se decide por lo ya vinculado;
+    // al decidirlo, solo se revisan los que comparten esas redes. Si no se
+    // decide ninguno, el primero va derecho y se sigue.
+    let mut touch: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (k, (s, _)) in fingers.iter().enumerate() {
+        touch.entry(s.pins[D].as_str()).or_default().push(k);
+        touch.entry(s.pins[S].as_str()).or_default().push(k);
+    }
     let has = |map: &BTreeMap<String, BTreeSet<String>>, a: &str, b: &str| map.get(a).is_some_and(|v| v.contains(b));
-    while !pending.is_empty() {
-        let mut progress = false;
-        let mut k = 0;
-        while k < pending.len() {
-            let (s, l) = pending[k];
+    let mut decided = vec![false; fingers.len()];
+    let mut queue: std::collections::VecDeque<usize> = (0..fingers.len()).collect();
+    let mut first = 0;
+    loop {
+        while let Some(k) = queue.pop_front() {
+            if decided[k] {
+                continue;
+            }
+            let (s, l) = fingers[k];
             let straight = has(&map, &s.pins[D], &l.pins[D]) as u8 + has(&map, &s.pins[S], &l.pins[S]) as u8;
             let crossed = has(&map, &s.pins[D], &l.pins[S]) as u8 + has(&map, &s.pins[S], &l.pins[D]) as u8;
             if straight == crossed {
-                k += 1;
                 continue;
             }
             let (ld, ls) = if crossed > straight { (S, D) } else { (D, S) };
             add(&mut map, &s.pins[D], &l.pins[ld]);
             add(&mut map, &s.pins[S], &l.pins[ls]);
-            pending.remove(k);
-            progress = true;
+            decided[k] = true;
+            for net in [s.pins[D].as_str(), s.pins[S].as_str()] {
+                queue.extend(touch[net].iter().copied().filter(|&j| !decided[j]));
+            }
         }
-        if !progress {
-            let (s, l) = pending.remove(0);
-            add(&mut map, &s.pins[D], &l.pins[D]);
-            add(&mut map, &s.pins[S], &l.pins[S]);
+        while first < fingers.len() && decided[first] {
+            first += 1;
+        }
+        let Some(&(s, l)) = fingers.get(first) else { break };
+        add(&mut map, &s.pins[D], &l.pins[D]);
+        add(&mut map, &s.pins[S], &l.pins[S]);
+        decided[first] = true;
+        for net in [s.pins[D].as_str(), s.pins[S].as_str()] {
+            queue.extend(touch[net].iter().copied().filter(|&j| !decided[j]));
         }
     }
     map
@@ -625,6 +769,7 @@ fn agreement(s: &SchDevice, l: &[String; 4], map: &BTreeMap<String, BTreeSet<Str
 pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
     let mut c = Check { updated: map.clone(), ..Check::default() };
     let by_name: HashMap<&str, &SchDevice> = sch.iter().map(|d| (d.name.as_str(), d)).collect();
+    let idx = Index::new(lay);
     let mut used: HashSet<usize> = HashSet::new();
 
     // 1. Cada dedo en su lugar.
@@ -638,7 +783,7 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
             .layout
             .iter()
             .map(|r| {
-                let i = find(lay, &used, &r.model, (r.at[0], r.at[1]));
+                let i = idx.find(lay, &used, &r.model, (r.at[0], r.at[1]));
                 used.extend(i);
                 i
             })
@@ -653,10 +798,7 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
         let mut moved = false;
         for (slot, r) in refs.iter_mut().zip(&b.layout) {
             let (None, Some(cell), Some(local)) = (*slot, r.cell.as_deref(), r.local) else { continue };
-            let cands: Vec<usize> = (0..lay.len())
-                .filter(|i| !used.contains(i) && same_model(&lay[*i].model, &r.model))
-                .filter(|&i| lay[i].cell.as_deref() == Some(cell) && (lay[i].local.0 - local[0]).hypot(lay[i].local.1 - local[1]) <= TOL)
-                .collect();
+            let cands = idx.find_local(lay, &used, &r.model, cell, local);
             if let [i] = cands[..] {
                 *slot = Some(i);
                 used.insert(i);
@@ -677,7 +819,7 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
         // arreglo regular de dedos admite varios (correr todo "un dedo"
         // también encaja casi todo): gana el que menos contradice, y si dos
         // empatan no se reubica nada.
-        let cands = rigid_candidates(&refs, lay, &used);
+        let cands = rigid_candidates(&refs, lay, &idx, &used);
         let best_count = cands.first().map_or(0, |m| m.count);
         let mut scored: Vec<(usize, Moved, Vec<(usize, usize, usize)>)> = cands
             .into_iter()
@@ -688,7 +830,7 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
                 for &(k, j) in &missing {
                     let r = &map.binds[found[k].0].layout[j];
                     let p = orient((r.at[0], r.at[1]), m.orient);
-                    if let Some(i) = find(lay, &taken, &r.model, (p.0 + m.dx, p.1 + m.dy)) {
+                    if let Some(i) = idx.find(lay, &taken, &r.model, (p.0 + m.dx, p.1 + m.dy)) {
                         taken.insert(i);
                         assign.push((k, j, i));
                     }
@@ -747,8 +889,11 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
             }
             let s = by_name[map.binds[*bi].schematic.as_str()];
             let model = &map.binds[*bi].layout.iter().zip(refs.iter()).find(|(_, r)| r.is_none()).map(|(l, _)| l.model.clone()).unwrap_or_default();
-            let cands: Vec<usize> = (0..lay.len())
-                .filter(|i| !used.contains(i) && same_model(&lay[*i].model, model))
+            let cands: Vec<usize> = idx
+                .connected(s, model, &nets)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|i| !used.contains(i))
                 .filter(|&i| agreement(s, &lay[i].pins, &nets).is_some_and(|n| n >= 2))
                 .collect();
             if cands.len() == want {
@@ -1054,7 +1199,8 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
     let c = check(map, sch, lay);
     let mut used: HashSet<usize> = c.bound.iter().flat_map(|(_, f)| f.iter().copied()).collect();
     let mut done: HashSet<String> = c.bound.iter().map(|(n, _)| n.clone()).chain(c.lost.iter().map(|(n, _)| n.clone())).collect();
-    let mut pairs: Vec<(&SchDevice, Vec<usize>)> = c.bound.iter().filter_map(|(n, f)| Some((sch.iter().find(|d| &d.name == n)?, f.clone()))).collect();
+    let by_name: HashMap<&str, &SchDevice> = sch.iter().map(|d| (d.name.as_str(), d)).collect();
+    let mut pairs: Vec<(&SchDevice, Vec<usize>)> = c.bound.iter().filter_map(|(n, f)| Some((*by_name.get(n.as_str())?, f.clone()))).collect();
 
     // Semillas: las redes con nombre en los dos lados.
     let lay_names: HashSet<&str> = lay.iter().flat_map(|d| d.pins.iter().map(String::as_str)).collect();
@@ -1067,12 +1213,25 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
 
     // Los dedos del layout en paralelo (mismo modelo, L, compuerta, cuerpo y
     // par fuente/drenaje) van juntos.
-    let mut groups: BTreeMap<(String, i64, [String; 4]), Vec<usize>> = BTreeMap::new();
+    let mut by_key: BTreeMap<(String, i64, [String; 4]), Vec<usize>> = BTreeMap::new();
     for (i, d) in lay.iter().enumerate().filter(|(i, _)| !used.contains(i)) {
         let mut sd = [d.pins[D].clone(), d.pins[S].clone()];
         sd.sort();
         let key = (d.model.clone(), (d.l * 1000.0).round() as i64, [sd[0].clone(), d.pins[G].clone(), sd[1].clone(), d.pins[B].clone()]);
-        groups.entry(key).or_default().push(i);
+        by_key.entry(key).or_default().push(i);
+    }
+    let groups: Vec<((String, i64, [String; 4]), Vec<usize>)> = by_key.into_iter().collect();
+    // Los grupos por (modelo, red de compuerta) y (modelo, red de fuente o
+    // drenaje), con el mismo truco que `Index::connected`.
+    let mut g_index: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    let mut sd_index: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    for (k, ((model, _, pins), _)) in groups.iter().enumerate() {
+        let m = short(model);
+        g_index.entry((m.clone(), pins[1].clone())).or_default().push(k);
+        sd_index.entry((m.clone(), pins[0].clone())).or_default().push(k);
+        if pins[2] != pins[0] {
+            sd_index.entry((m, pins[2].clone())).or_default().push(k);
+        }
     }
 
     let mut out: Vec<Bind> = Vec::new();
@@ -1083,8 +1242,18 @@ pub fn suggest(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Vec<Bind>
         }
         let mut new: Vec<(&SchDevice, Vec<usize>)> = Vec::new();
         for s in sch.iter().filter(|s| !done.contains(&s.name)) {
+            let m = short(&s.model);
+            let list = |index: &HashMap<(String, String), Vec<usize>>, t: usize| -> Option<Vec<usize>> {
+                let set = nets.get(&s.pins[t])?;
+                let mut v: Vec<usize> = set.iter().flat_map(|n| index.get(&(m.clone(), n.clone())).into_iter().flatten().copied()).collect();
+                v.sort_unstable();
+                v.dedup();
+                Some(v)
+            };
+            let Some(cands) = [list(&g_index, G), list(&sd_index, D), list(&sd_index, S)].into_iter().flatten().min_by_key(Vec::len) else { continue };
             let mut best: Vec<(usize, &Vec<usize>)> = Vec::new();
-            for ((model, l, pins), fingers) in &groups {
+            for &k in &cands {
+                let ((model, l, pins), fingers) = &groups[k];
                 if fingers.iter().any(|i| used.contains(i)) || !same_model(model, &s.model) {
                     continue;
                 }
@@ -1404,7 +1573,8 @@ mod tests {
             (0..n)
                 .map(|i| {
                     let (x, y) = place(i);
-                    let (x, y) = if moved(i) { (x + 0.5, y + 1.0) } else { (x + dx, y) };
+                    // Los movidos sueltos, cada uno distinto (no es un movimiento rígido).
+                    let (x, y) = if moved(i) { (x + 0.5, y + 1.0 + i as f64 * 0.013) } else { (x + dx, y) };
                     LayDevice { model: N.into(), at: (x, y), gate: [0.0; 4], cell: None, local: (x, y), w: 1.0, l: 0.5, pins: pins(i) }
                 })
                 .collect()

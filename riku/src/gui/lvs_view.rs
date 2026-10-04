@@ -470,9 +470,10 @@ impl LvsState {
                 Some(_) => BOUND,
                 None => FREE,
             };
+            let bound_names: HashSet<&str> = c.bound.iter().map(|(n, _)| n.as_str()).collect();
             for d in &s.schematic {
                 let Some(&(x1, y1, x2, y2)) = s.places.instances.get(&d.name) else { continue };
-                let bound = c.bound.iter().any(|(n, _)| *n == d.name).then_some(d.name.as_str());
+                let bound = bound_names.contains(d.name.as_str()).then_some(d.name.as_str());
                 let picked = self.sel_sch.as_deref() == Some(d.name.as_str());
                 let col = if picked { PICKED } else { color(bound) };
                 sch_tags.push(Tag { bbox: BoundingBox::from_points((x1, y1), (x2, y2)), color: col, strong: picked });
