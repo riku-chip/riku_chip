@@ -64,7 +64,14 @@ fn local(cell: &Cell<'_>, magic: Option<&gdstk_rs::magic::MagInfo>, buf: &mut Ve
 
 /// La `NetKey` de cada celda de `lib` (`None` si no se puede resumir: una
 /// referencia circular o una repetición que no se sabe resumir).
-pub(crate) fn net_keys(lib: &Library, magic: Option<&gdstk_rs::magic::MagInfo>, salt: u64) -> HashMap<String, Option<NetKey>> {
+/// La `NetKey` de cada celda y la huella de lo propio (polígonos, etiquetas y
+/// puertos, sin las referencias).
+#[allow(clippy::type_complexity)]
+pub(crate) fn net_keys(
+    lib: &Library,
+    magic: Option<&gdstk_rs::magic::MagInfo>,
+    salt: u64,
+) -> (HashMap<String, Option<NetKey>>, HashMap<String, u64>) {
     let cells: Vec<Cell<'_>> = lib.cells().collect();
     let locals: Vec<Local> = cells.par_iter().map_init(Vec::new, |buf, c| local(c, magic, buf)).collect();
     let index: HashMap<&str, usize> = cells.iter().enumerate().map(|(i, c)| (c.name(), i)).collect();
@@ -104,5 +111,19 @@ pub(crate) fn net_keys(lib: &Library, magic: Option<&gdstk_rs::magic::MagInfo>, 
         result
     }
 
-    (0..cells.len()).map(|i| (cells[i].name().to_string(), resolve(i, salt, &locals, &index, &mut memo, &mut visiting))).collect()
+    let keys = (0..cells.len())
+        .map(|i| (cells[i].name().to_string(), resolve(i, salt, &locals, &index, &mut memo, &mut visiting)))
+        .collect();
+    let own = cells.iter().zip(&locals).map(|(c, l)| (c.name().to_string(), l.0)).collect();
+    (keys, own)
+}
+
+/// La huella de lo propio de una celda tal como se extrae: su geometría,
+/// etiquetas y puertos, y las sub-celdas que se meten en ella (huella y
+/// transformación). Con la misma, la parte propia de la extracción es la
+/// misma aunque cambien las otras hijas.
+pub(crate) fn own_key(salt: u64, own: u64, inlined: &[(NetKey, u64)]) -> NetKey {
+    let mut v = inlined.to_vec();
+    v.sort_unstable();
+    NetKey(wide(salt ^ 0x6f77_6e00, &(own, v)))
 }

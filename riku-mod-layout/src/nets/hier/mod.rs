@@ -152,4 +152,46 @@ mod tests {
         let h = extract(&lib, &top, rules, None, Options { inline: 0 });
         assert!(!same_netlist(&flat, &h.flatten(false), lib.unit() / 1e-6, 1).is_empty());
     }
+
+    /// Lo que sale del disco es lo mismo que se guardó; una entrada ilegible
+    /// no es un error: se borra y no se usa.
+    #[test]
+    fn the_disk_gives_back_the_same_extraction_and_drops_a_corrupt_entry() {
+        let lib = sram();
+        let rules = devices::compiled(Pdk::Sky130).expect("sky130");
+        let top = crate::select_top_cell(&lib).expect("top");
+        let h = extract(&lib, &top, rules, None, Options { inline: 256 });
+        let dir = std::env::temp_dir().join(format!("riku-nets-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let disk = Disk::new(&dir);
+        for (k, c) in &h.cells {
+            disk.store(*k, c);
+        }
+        let back: Cells = h.cells.keys().map(|k| (*k, std::sync::Arc::new(disk.load(*k).expect("guardada")))).collect();
+        let root = back[&h.keys[top.name()]].clone();
+        let diffs = same_netlist(&h.flatten(false), &flatten(&root, &back, false), lib.unit() / 1e-6, 5);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+        // Ilegible: no se usa y se borra.
+        let k = h.keys[top.name()];
+        let path = dir.join(format!("{:032x}.json", k.0));
+        std::fs::write(&path, b"{ roto").unwrap();
+        assert!(disk.load(k).is_none());
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Las huellas no dependen de la corrida; otro umbral para meter
+    /// sub-celdas (o otras reglas) da otras.
+    #[test]
+    fn keys_are_stable_and_depend_on_what_interprets_the_geometry() {
+        let lib = sram();
+        let rules = devices::compiled(Pdk::Sky130).expect("sky130");
+        let k = |inline, print| key::net_keys(&lib, None, key::salt(&lib, print, inline)).0;
+        let a = k(256, rules.fingerprint);
+        assert_eq!(a, k(256, rules.fingerprint));
+        let top = crate::select_top_cell(&lib).expect("top");
+        let name = top.name();
+        assert_ne!(a[name], k(128, rules.fingerprint)[name]);
+        assert_ne!(a[name], k(256, rules.fingerprint ^ 1)[name]);
+    }
 }

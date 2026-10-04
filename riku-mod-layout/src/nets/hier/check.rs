@@ -79,8 +79,17 @@ pub fn same_netlist(a: &Netlist, b: &Netlist, unit_um: f64, max: usize) -> Vec<S
         link(&mut maps, ta.d, d, &why, &mut out);
         link(&mut maps, ta.b, tb.b, &why, &mut out);
     }
+    // Las mismas etiquetas en el mismo orden (lo común): por índice. Si no,
+    // la primera con el mismo texto y lugar (una etiqueta puede estar dos
+    // veces, en la capa de texto y en la de pines).
+    let same_list =
+        a.labels.len() == b.labels.len() && a.labels.iter().zip(&b.labels).all(|(x, y)| x.text == y.text && x.at == y.at);
     for (i, (la, na)) in a.labels.iter().zip(&a.label_nets).enumerate() {
-        let nb = b.labels.iter().zip(&b.label_nets).find(|(lb, _)| lb.text == la.text && lb.at == la.at).map(|(_, n)| *n);
+        let nb = if same_list {
+            Some(b.label_nets[i])
+        } else {
+            b.labels.iter().zip(&b.label_nets).find(|(lb, _)| lb.text == la.text && lb.at == la.at).map(|(_, n)| *n)
+        };
         match (na, nb) {
             (Some(x), Some(Some(y))) => link(&mut maps, *x, y, &|| format!("etiqueta {}", la.text), &mut out),
             (None, Some(None)) => {}

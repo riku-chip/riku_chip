@@ -20,6 +20,9 @@ const DISK_MIN_MS: u64 = 20;
 /// de armarla él (así nunca se traba: ver [`Memo::cell`]).
 const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Lo propio de una celda extraído y sus candidatos al sustrato.
+pub(crate) type OwnPart = (Arc<crate::nets::Netlist>, Vec<(usize, (f64, f64))>);
+
 /// Clave de una vecindad: las dos hijas y la segunda vista desde la primera.
 pub(crate) type NeighbourKey = (NetKey, NetKey, (u8, bool, i64, i64));
 
@@ -34,6 +37,8 @@ pub(crate) struct Memo {
     /// Las que algún hilo está armando, y cuál.
     building: Mutex<HashMap<NetKey, std::thread::ThreadId>>,
     neighbours: Mutex<HashMap<NeighbourKey, Arc<Vec<(u32, u32)>>>>,
+    /// Lo propio de cada celda extraído (ver `key::own_key`).
+    own: Mutex<HashMap<NetKey, Arc<OwnPart>>>,
     bytes: AtomicU64,
     tick: AtomicU64,
     cap: u64,
@@ -49,6 +54,7 @@ pub(crate) fn memo() -> &'static Memo {
             cells: Mutex::new(HashMap::new()),
             building: Mutex::new(HashMap::new()),
             neighbours: Mutex::new(HashMap::new()),
+            own: Mutex::new(HashMap::new()),
             bytes: AtomicU64::new(0),
             tick: AtomicU64::new(0),
             cap: mb << 20,
@@ -149,6 +155,25 @@ impl Memo {
         }
         self.bytes.store(total, Ordering::Relaxed);
         self.neighbours.lock().unwrap().clear();
+        self.own.lock().unwrap().clear();
+    }
+
+    /// Si ya está el resumen de esa huella.
+    pub(crate) fn has(&self, key: NetKey) -> bool {
+        self.cells.lock().unwrap().contains_key(&key)
+    }
+
+    /// Lo propio de una celda con esa huella, o lo que arma `make`. Se guarda
+    /// solo mientras haya lugar (es lo primero que se tira al pasar el tope).
+    pub(crate) fn own(&self, key: NetKey, make: impl FnOnce() -> Arc<OwnPart>) -> Arc<OwnPart> {
+        if let Some(p) = self.own.lock().unwrap().get(&key) {
+            return p.clone();
+        }
+        let p = make();
+        if self.enabled() {
+            self.own.lock().unwrap().insert(key, p.clone());
+        }
+        p
     }
 
     pub(crate) fn neighbour(&self, key: &NeighbourKey) -> Option<Arc<Vec<(u32, u32)>>> {

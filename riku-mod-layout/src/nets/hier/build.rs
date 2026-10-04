@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use gdstk_rs::{Cell, Library, OwnedPolygon};
 use rayon::prelude::*;
 
-use super::key::{net_keys, salt, NetKey};
+use super::key::{net_keys, own_key, salt, NetKey};
 use super::memo::memo;
 use super::touch::{bipartite, Typed};
 use super::xf::Xf;
@@ -67,7 +67,7 @@ pub struct Stats {
 pub struct CellNets {
     pub name: String,
     /// Lo propio (y lo de las instancias metidas), con todas sus redes.
-    pub own: Netlist,
+    pub own: Arc<Netlist>,
     /// Red propia → red de la celda.
     pub own_map: Vec<u32>,
     pub insts: Vec<Inst>,
@@ -100,7 +100,7 @@ pub struct CellNets {
 /// Lo que define un resumen (lo demás, los índices para buscar, se arma).
 pub(crate) struct Parts {
     pub name: String,
-    pub own: Netlist,
+    pub own: Arc<Netlist>,
     pub own_map: Vec<u32>,
     pub insts: Vec<Inst>,
     pub inst_maps: Vec<Vec<u32>>,
@@ -216,6 +216,9 @@ struct Ctx<'a> {
     /// propia: una por extracción).
     keys: HashMap<String, NetKey>,
     unique: HashSet<NetKey>,
+    /// La huella de lo propio de cada celda y lo común (ver `key::own_key`).
+    own: HashMap<String, u64>,
+    salt: u64,
     /// Vecindades de las celdas que no se guardan.
     local: Mutex<HashMap<super::memo::NeighbourKey, Arc<Vec<(u32, u32)>>>>,
     stats: Mutex<Stats>,
@@ -291,13 +294,13 @@ impl Uf {
     }
 }
 
-/// Arma el resumen de `cell` con los de sus hijas ya en `cells`.
-fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
+/// Lo propio de una celda extraído: su geometría de profundidad 0 y la de las
+/// referencias que se meten en ella. No depende de las otras hijas: se
+/// guarda por la huella de lo propio (`key::own_key`) y se puede extraer
+/// antes, en paralelo para todas las celdas.
+fn own_part(ctx: &Ctx<'_>, cell: &Cell<'_>) -> Arc<super::memo::OwnPart> {
     let inl = inlined(ctx, cell);
     let refs: Vec<_> = cell.references().collect();
-    let n_inl: usize = refs.iter().zip(&inl).filter(|(_, i)| **i).map(|(r, _)| r.repetition_count().max(1) as usize).sum();
-    ctx.stats.lock().unwrap().inlined += n_inl;
-    // Lo propio: la geometría de profundidad 0 y la de las referencias metidas.
     let polys = |tags: &[(u32, u32)]| -> Vec<OwnedPolygon> {
         let mut out = Vec::new();
         for &(l, d) in tags {
@@ -316,13 +319,54 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
         }
         out
     };
+    let own_print = ctx.own.get(cell.name()).copied().and_then(|own| {
+        let mut inl_keys = Vec::new();
+        for (r, _) in refs.iter().zip(&inl).filter(|(_, i)| **i) {
+            let k = *ctx.keys.get(r.cell_name())?;
+            if ctx.unique.contains(&k) {
+                return None;
+            }
+            inl_keys.push((k, crate::prints::transform_hash(r)?));
+        }
+        Some(own_key(ctx.salt, own, &inl_keys))
+    });
+    let extract_own = || {
+        let t = std::time::Instant::now();
+        let (nl, open) = crate::nets::cell_nets_with(ctx.lib, cell, ctx.rules, ctx.magic, None, &polys, true, true);
+        if ctx.profile && t.elapsed().as_millis() > 150 {
+            let n_inl = refs.iter().zip(&inl).filter(|(_, i)| **i).count();
+            eprintln!(
+                "[hier]   lo propio de {}: {:?} ({} pedazos, {} transistores, {} referencias metidas, {} polígonos propios)",
+                cell.name(),
+                t.elapsed(),
+                nl.pieces.len(),
+                nl.devices.len(),
+                n_inl,
+                cell.polygon_count()
+            );
+        }
+        Arc::new((Arc::new(nl), open))
+    };
+    match own_print {
+        Some(k) => memo().own(k, extract_own),
+        None => extract_own(),
+    }
+}
+
+/// Arma el resumen de `cell` con los de sus hijas ya en `cells`.
+fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
+    let inl = inlined(ctx, cell);
+    let refs: Vec<_> = cell.references().collect();
+    let n_inl: usize = refs.iter().zip(&inl).filter(|(_, i)| **i).map(|(r, _)| r.repetition_count().max(1) as usize).sum();
+    ctx.stats.lock().unwrap().inlined += n_inl;
     let clock = std::time::Instant::now();
     let mark = |what: &str| {
         if ctx.profile {
             eprintln!("[hier] {} {what}: {:?}", cell.name(), clock.elapsed());
         }
     };
-    let (own, own_open) = crate::nets::cell_nets_with(ctx.lib, cell, ctx.rules, ctx.magic, None, &polys, true, true);
+    let part = own_part(ctx, cell);
+    let (own, own_open): (Arc<Netlist>, Vec<(usize, (f64, f64))>) = (part.0.clone(), part.1.clone());
     mark("propio");
     if ctx.profile {
         for p in own.pieces.iter().filter(|p| p.poly.points.len() > 500) {
@@ -737,7 +781,9 @@ impl<'a> Extractor<'a> {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let nonce = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut unique = HashSet::new();
-        let keys: HashMap<String, NetKey> = net_keys(lib, magic, salt(lib, rules.fingerprint, opts.inline))
+        let salt = salt(lib, rules.fingerprint, opts.inline);
+        let (keys, own) = net_keys(lib, magic, salt);
+        let keys: HashMap<String, NetKey> = keys
             .into_iter()
             .map(|(name, k)| {
                 let k = k.unwrap_or_else(|| {
@@ -762,6 +808,8 @@ impl<'a> Extractor<'a> {
             sizes,
             keys,
             unique,
+            own,
+            salt,
             local: Mutex::new(HashMap::new()),
             stats: Mutex::new(Stats::default()),
             profile: std::env::var_os("RIKU_PROFILE").is_some(),
@@ -787,7 +835,27 @@ impl<'a> Extractor<'a> {
         let root = lib.find_cell(name)?;
         let ctx = &self.ctx;
         let mut cells = self.cells.lock().unwrap();
-        for level in levels(ctx, &root) {
+        let clock = std::time::Instant::now();
+        let order = levels(ctx, &root);
+        // Lo propio de todas las celdas que falten, en paralelo: no depende de
+        // las hijas, y así cada nivel solo une (sin esperar a extraer).
+        let missing: Vec<&String> = order
+            .iter()
+            .flatten()
+            .filter(|n| {
+                let k = ctx.keys[n.as_str()];
+                !cells.contains_key(&k) && (ctx.unique.contains(&k) || !memo().has(k))
+            })
+            .collect();
+        missing.par_iter().for_each(|name| {
+            if let Some(cell) = lib.find_cell(name) {
+                let _ = own_part(ctx, &cell);
+            }
+        });
+        if ctx.profile {
+            eprintln!("[hier] lo propio de {} celdas: {:?}", missing.len(), clock.elapsed());
+        }
+        for (depth, level) in order.into_iter().enumerate() {
             // Una celda por huella (dos nombres con el mismo contenido son una).
             let mut todo: Vec<(&String, NetKey)> = Vec::new();
             for name in &level {
@@ -810,6 +878,10 @@ impl<'a> Extractor<'a> {
                     Some((k, c, known))
                 })
                 .collect();
+            if ctx.profile && !built.is_empty() {
+                let fresh = built.iter().filter(|(_, _, k)| !k).count();
+                eprintln!("[hier] nivel {depth}: {fresh} armadas de {} en {:?}", built.len(), clock.elapsed());
+            }
             let mut st = ctx.stats.lock().unwrap();
             for (k, c, known) in built {
                 if known {

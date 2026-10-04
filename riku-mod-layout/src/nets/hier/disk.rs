@@ -192,7 +192,7 @@ fn from_dto(d: CellDto) -> CellNets {
     let insts = d.insts.into_iter().map(|i| Inst { cell: i.cell, key: i.key, xf: i.xf, bbox: i.bbox }).collect();
     CellNets::assemble(super::build::Parts {
         name: d.name,
-        own,
+        own: std::sync::Arc::new(own),
         own_map: d.own_map,
         insts,
         inst_maps: d.inst_maps,
