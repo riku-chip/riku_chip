@@ -1,0 +1,4 @@
+# Commits que solo cambian el formato: git blame los salta.
+# En local: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# style: cargo fmt con rustfmt.toml
+f4626888b6c55daee4daed7b359bfda13fbe5904
