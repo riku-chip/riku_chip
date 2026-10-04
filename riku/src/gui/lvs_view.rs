@@ -323,7 +323,7 @@ impl LvsState {
     /// Volver a deducir todo de los vínculos (es inmediato: no se extrae
     /// nada de nuevo).
     fn recheck(&mut self) {
-        self.check = self.session().map(|s| manual::check(&s.map, &s.schematic, &s.layout));
+        self.check = self.session().map(manual::check_session);
         self.refresh_tags();
     }
 
@@ -629,7 +629,13 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
     ui.label(RichText::new(file).weak().small());
     let fingers: usize = c.bound.iter().map(|(_, f)| f.len()).sum();
     ui.label(tr!("lvs_map.progress", sch = c.bound.len(), sch_total = s.schematic.len(), lay = fingers, lay_total = s.layout.len()));
-    let (verdict, color) = if c.clean() { (tr!("lvs_map.clean"), BOUND) } else { (tr!("lvs_map.pending"), ISSUE) };
+    let (verdict, color) = if c.complete() {
+        (tr!("lvs_map.clean"), BOUND)
+    } else if c.clean() {
+        (tr!("lvs_map.clean_partial"), BOUND)
+    } else {
+        (tr!("lvs_map.pending"), ISSUE)
+    };
     ui.label(RichText::new(verdict).color(color).strong());
     if let Some(m) = c.moved {
         let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
@@ -700,12 +706,17 @@ fn show_manual(ui: &mut egui::Ui, st: &mut LvsState) {
         section(ui, tr!("lvs_view.shorts"), c.shorts.iter().map(|(n, ns)| (None, tr!("lvs_map.short", net = n, nets = ns.join(", ")))).collect());
         section(ui, tr!("lvs_view.opens"), c.opens.iter().map(|(n, ns)| (None, tr!("lvs_map.open", net = n, nets = ns.join(", ")))).collect());
         section(ui, tr!("lvs_view.params"), c.params.iter().chain(c.models.iter()).map(|(d, w)| (Some(d.clone()), format!("{d}: {w}"))).collect());
+        section(ui, tr!("lvs_view.pins"), c.pins.iter().map(|(p, w)| (None, tr!("lvs_map.pin", pin = p, what = w))).collect());
+        if c.moved_ambiguous {
+            section(ui, tr!("lvs_view.moved"), vec![(None, tr!("lvs_map.moved_ambiguous"))]);
+        }
         section(ui, tr!("lvs_view.lost"), c.lost.iter().map(|(d, r)| (Some(d.clone()), format!("{d}: {} ({:.3}, {:.3})", r.model, r.at[0], r.at[1]))).collect());
         section(ui, tr!("lvs_view.unbound"), c.unbound_schematic.iter().map(|d| (Some(d.clone()), d.clone())).collect());
         if !c.unbound_layout.is_empty() {
             ui.add_space(space::XS);
             ui.label(RichText::new(tr!("lvs_view.unbound_layout", count = c.unbound_layout.len())).strong());
         }
+        section(ui, tr!("lvs_view.unchecked"), c.unchecked.iter().map(|u| (None, u.clone())).collect());
         section(ui, tr!("lvs_view.bound"), c.bound.iter().map(|(d, f)| (Some(d.clone()), tr!("lvs_view.bound_row", name = d, count = f.len()))).collect());
     });
     if let Some(a) = action {

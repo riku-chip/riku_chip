@@ -136,39 +136,14 @@ const B: usize = 3;
 /// Los transistores del `.subckt top` de una netlist del esquemático. Los
 /// nombres son los de sus instancias (`XM1` → `M1`, con `instance`).
 pub fn schematic_devices(spice: &str, top: &str, instance: &dyn Fn(&str) -> Option<String>) -> Vec<SchDevice> {
-    let mut lines: Vec<String> = Vec::new();
-    for raw in spice.lines() {
-        let t = raw.trim();
-        match (t.strip_prefix('+'), lines.last_mut()) {
-            (Some(rest), Some(last)) => {
-                last.push(' ');
-                last.push_str(rest);
-            }
-            _ => lines.push(t.to_string()),
-        }
-    }
-    let mut inside = false;
     let mut out = Vec::new();
-    for l in &lines {
-        let low = l.to_ascii_lowercase();
-        if low.starts_with(".subckt") {
-            inside = l.split_whitespace().nth(1) == Some(top);
-            continue;
-        }
-        if low.starts_with(".ends") {
-            inside = false;
-            continue;
-        }
+    for l in top_lines(spice, top) {
         let toks: Vec<&str> = l.split_whitespace().collect();
-        let Some(first) = toks.first().filter(|_| inside) else { continue };
-        if !matches!(first.chars().next(), Some('X' | 'x' | 'M' | 'm')) {
+        let Some(first) = toks.first() else { continue };
+        if !is_transistor(&toks) {
             continue;
         }
         let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
-        // Nombre, cuatro redes y el modelo.
-        if k != 6 || !is_mos(toks[k - 1]) {
-            continue;
-        }
         let params: HashMap<String, &str> = toks[k..]
             .iter()
             .filter_map(|t| t.split_once('='))
@@ -185,6 +160,67 @@ pub fn schematic_devices(spice: &str, top: &str, instance: &dyn Fn(&str) -> Opti
         });
     }
     out
+}
+
+/// Las líneas (ya unidas las `+`) de los elementos del `.subckt top`.
+fn top_lines(spice: &str, top: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in spice.lines() {
+        let t = raw.trim();
+        match (t.strip_prefix('+'), lines.last_mut()) {
+            (Some(rest), Some(last)) => {
+                last.push(' ');
+                last.push_str(rest);
+            }
+            _ => lines.push(t.to_string()),
+        }
+    }
+    let mut inside = false;
+    let mut out = Vec::new();
+    for l in lines {
+        let low = l.to_ascii_lowercase();
+        if low.starts_with(".subckt") {
+            inside = l.split_whitespace().nth(1) == Some(top);
+        } else if low.starts_with(".ends") {
+            inside = false;
+        } else if inside && !l.is_empty() && !l.starts_with('*') && !l.starts_with('.') {
+            out.push(l);
+        }
+    }
+    out
+}
+
+/// Un transistor: `M`/`X`, cuatro redes y un modelo MOS.
+fn is_transistor(toks: &[&str]) -> bool {
+    let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
+    matches!(toks.first().and_then(|t| t.chars().next()), Some('X' | 'x' | 'M' | 'm')) && k == 6 && is_mos(toks[k - 1])
+}
+
+/// Los pines del `.subckt top` y lo que tiene adentro que no es un
+/// transistor (resistencias, capacitores, sub-circuitos): lo que el LVS
+/// manual no revisa.
+pub fn schematic_extras(spice: &str, top: &str, instance: &dyn Fn(&str) -> Option<String>) -> (Vec<String>, Vec<String>) {
+    let ports = spice
+        .lines()
+        .map(str::trim)
+        .find(|l| l.to_ascii_lowercase().starts_with(".subckt") && l.split_whitespace().nth(1) == Some(top))
+        .map(|l| l.split_whitespace().skip(2).filter(|t| !t.contains('=')).map(str::to_string).collect())
+        .unwrap_or_default();
+    let others = top_lines(spice, top)
+        .iter()
+        .filter_map(|l| {
+            let toks: Vec<&str> = l.split_whitespace().collect();
+            if is_transistor(&toks) {
+                return None;
+            }
+            let first = *toks.first()?;
+            let name = instance(first).unwrap_or_else(|| first.to_string());
+            // Un sub-circuito, con su nombre (el último antes de los parámetros).
+            let k = toks.iter().position(|t| t.contains('=')).unwrap_or(toks.len());
+            Some(if matches!(first.chars().next(), Some('X' | 'x')) && k >= 2 { format!("{name} ({})", toks[k - 1]) } else { name })
+        })
+        .collect();
+    (ports, others)
 }
 
 /// Los transistores de una netlist del layout, con sus redes por el nombre
@@ -304,12 +340,21 @@ pub struct Check {
     pub nets: BTreeMap<String, BTreeSet<String>>,
     pub unbound_schematic: Vec<String>,
     pub unbound_layout: Vec<usize>,
+    /// Pines que no cuadran: el pin y qué le pasa.
+    pub pins: Vec<(String, String)>,
+    /// Lo que no se revisa (resistencias, capacitores, sub-circuitos).
+    pub unchecked: Vec<String>,
+    /// La celda parece movida, pero hay más de una forma de alinearla: no se
+    /// reubicó nada (mejor perdido que mal vinculado).
+    pub moved_ambiguous: bool,
     /// El archivo con las posiciones al día (si algo se reubicó).
     pub updated: MapFile,
 }
 
 impl Check {
-    /// Todo vinculado, sin contradicciones ni diferencias.
+    /// Los transistores todos vinculados y sin diferencias, sin cortos ni
+    /// abiertos entre sus redes, y los pines en su lugar. No dice nada de
+    /// lo que no se revisa ([`Check::unchecked`]).
     pub fn clean(&self) -> bool {
         self.lost.is_empty()
             && self.unknown.is_empty()
@@ -319,7 +364,36 @@ impl Check {
             && self.opens.is_empty()
             && self.unbound_schematic.is_empty()
             && self.unbound_layout.is_empty()
+            && self.pins.is_empty()
     }
+
+    /// Limpio y sin nada que quedara sin revisar.
+    pub fn complete(&self) -> bool {
+        self.clean() && self.unchecked.is_empty()
+    }
+}
+
+/// Los pines: cada uno del esquemático tiene que estar en el layout y llegar
+/// a la misma red que en el esquemático (según los vínculos); uno del
+/// layout que el esquemático no tiene también se dice.
+pub fn check_pins(c: &Check, sch_ports: &[String], lay_ports: &[String]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for p in sch_ports {
+        match lay_ports.iter().find(|l| l.eq_ignore_ascii_case(p)) {
+            None => out.push((p.clone(), tr!("lvs_map.pin_missing"))),
+            Some(l) => {
+                if let Some(set) = c.nets.get(p).filter(|set| !set.iter().any(|n| n.eq_ignore_ascii_case(l))) {
+                    out.push((p.clone(), tr!("lvs_map.pin_elsewhere", nets = set.iter().cloned().collect::<Vec<_>>().join(", "))));
+                }
+            }
+        }
+    }
+    for l in lay_ports {
+        if !sch_ports.iter().any(|p| p.eq_ignore_ascii_case(l)) {
+            out.push((l.clone(), tr!("lvs_map.pin_extra")));
+        }
+    }
+    out
 }
 
 /// El transistor del layout en `at` (sin los ya usados).
@@ -343,10 +417,10 @@ fn orient((x, y): (f64, f64), o: u8) -> (f64, f64) {
     }
 }
 
-/// El movimiento rígido que vuelve a ubicar la mayor cantidad de `refs`
-/// (al menos dos y más de la mitad).
-fn rigid(refs: &[&LayoutRef], lay: &[LayDevice], used: &HashSet<usize>) -> Option<Moved> {
-    let mut best: Option<Moved> = None;
+/// Los movimientos rígidos que vuelven a ubicar a más de la mitad de
+/// `refs` (al menos dos), del que más ubica al que menos.
+fn rigid_candidates(refs: &[&LayoutRef], lay: &[LayDevice], used: &HashSet<usize>) -> Vec<Moved> {
+    let mut all: Vec<Moved> = Vec::new();
     for anchor in refs.iter().take(3) {
         for o in 0..8u8 {
             let p0 = orient((anchor.at[0], anchor.at[1]), o);
@@ -364,13 +438,29 @@ fn rigid(refs: &[&LayoutRef], lay: &[LayDevice], used: &HashSet<usize>) -> Optio
                         count += 1;
                     }
                 }
-                if best.is_none_or(|b| count > b.count) {
-                    best = Some(Moved { orient: o, dx, dy, count });
+                let same = |m: &Moved| m.orient == o && (m.dx - dx).abs() <= TOL && (m.dy - dy).abs() <= TOL;
+                if count >= 2 && count * 2 > refs.len() && !all.iter().any(same) {
+                    all.push(Moved { orient: o, dx, dy, count });
                 }
             }
         }
     }
-    best.filter(|b| b.count >= 2 && b.count * 2 > refs.len())
+    all.sort_by(|a, b| b.count.cmp(&a.count));
+    all
+}
+
+/// Cuántas contradicciones hay entre las redes de unos vínculos: redes del
+/// esquemático repartidas en varias del layout más redes del layout con
+/// varias del esquemático.
+fn conflicts(pairs: &[(&SchDevice, Vec<usize>)], lay: &[LayDevice]) -> usize {
+    let map = net_pairs(pairs, lay);
+    let mut back: HashMap<&String, HashSet<&String>> = HashMap::new();
+    for (s, ls) in &map {
+        for l in ls {
+            back.entry(l).or_default().insert(s);
+        }
+    }
+    map.values().filter(|v| v.len() > 1).count() + back.values().filter(|v| v.len() > 1).count()
 }
 
 /// Qué red del layout es cada una del esquemático, según los vínculos
@@ -469,18 +559,63 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
         found.iter().enumerate().flat_map(|(k, (_, refs))| refs.iter().enumerate().filter(|(_, r)| r.is_none()).map(move |(j, _)| (k, j))).collect();
     if missing.len() >= 2 {
         let refs: Vec<&LayoutRef> = missing.iter().map(|&(k, j)| &map.binds[found[k].0].layout[j]).collect();
-        if let Some(m) = rigid(&refs, lay, &used) {
-            let mut count = 0;
-            for &(k, j) in &missing {
-                let r = &map.binds[found[k].0].layout[j];
-                let p = orient((r.at[0], r.at[1]), m.orient);
-                if let Some(i) = find(lay, &used, &r.model, (p.0 + m.dx, p.1 + m.dy)) {
-                    used.insert(i);
-                    found[k].1[j] = Some(i);
-                    count += 1;
+        // Cada candidato: qué ubicaría y cuántas contradicciones dejaría. Un
+        // arreglo regular de dedos admite varios (correr todo "un dedo"
+        // también encaja casi todo): gana el que menos contradice, y si dos
+        // empatan no se reubica nada.
+        let cands = rigid_candidates(&refs, lay, &used);
+        let best_count = cands.first().map_or(0, |m| m.count);
+        let mut scored: Vec<(usize, Moved, Vec<(usize, usize, usize)>)> = cands
+            .into_iter()
+            .filter(|m| m.count * 5 >= best_count * 4)
+            .map(|m| {
+                let mut taken = used.clone();
+                let mut assign = Vec::new();
+                for &(k, j) in &missing {
+                    let r = &map.binds[found[k].0].layout[j];
+                    let p = orient((r.at[0], r.at[1]), m.orient);
+                    if let Some(i) = find(lay, &taken, &r.model, (p.0 + m.dx, p.1 + m.dy)) {
+                        taken.insert(i);
+                        assign.push((k, j, i));
+                    }
+                }
+                let pairs: Vec<(&SchDevice, Vec<usize>)> = found
+                    .iter()
+                    .enumerate()
+                    .map(|(k, (bi, refs))| {
+                        let mut f: Vec<usize> = refs.iter().flatten().copied().collect();
+                        f.extend(assign.iter().filter(|a| a.0 == k).map(|a| a.2));
+                        (by_name[map.binds[*bi].schematic.as_str()], f)
+                    })
+                    .collect();
+                (conflicts(&pairs, lay), Moved { count: assign.len(), ..m }, assign)
+            })
+            .collect();
+        scored.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.count.cmp(&a.1.count)));
+        let tied: Vec<usize> = scored.iter().enumerate().filter(|(_, x)| scored.first().is_some_and(|f| x.0 == f.0 && x.1.count == f.1.count)).map(|(i, _)| i).collect();
+        // Entre empatados, un desplazamiento sin giro es lo más común: si es
+        // uno solo, ese.
+        let chosen = match tied.as_slice() {
+            [] => None,
+            [only] => Some(*only),
+            many => {
+                let plain: Vec<usize> = many.iter().copied().filter(|&i| scored[i].1.orient == 0).collect();
+                match plain.as_slice() {
+                    [only] => Some(*only),
+                    _ => None,
                 }
             }
-            c.moved = Some(Moved { count, ..m });
+        };
+        match chosen {
+            Some(i) => {
+                let (_, m, assign) = &scored[i];
+                for &(k, j, idx) in assign {
+                    used.insert(idx);
+                    found[k].1[j] = Some(idx);
+                }
+                c.moved = Some(*m);
+            }
+            None => c.moved_ambiguous = !scored.is_empty(),
         }
     }
 
@@ -607,6 +742,11 @@ pub struct Session {
     pub unit_um: f64,
     /// Dónde está cada instancia del esquemático (para dibujar sobre él).
     pub places: xschem_viewer::spice::Places,
+    /// Los pines de cada lado.
+    pub sch_ports: Vec<String>,
+    pub lay_ports: Vec<String>,
+    /// Lo que no se revisa, de los dos lados.
+    pub unchecked: Vec<String>,
 }
 
 /// [`Session`] de `pair` con los archivos de `tree`. Si esa versión no
@@ -619,9 +759,14 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
     let s = crate::lvs::schematic_netlist(pair, files.clone())?;
     let places = s.netlist.places.clone();
     let schematic = schematic_devices(&s.netlist.text, &s.stem, &|n| places.instance(n).map(str::to_string));
+    let (sch_ports, mut unchecked) = schematic_extras(&s.netlist.text, &s.stem, &|n| places.instance(n).map(str::to_string));
     let bytes = files.read(&pair.layout).ok_or_else(|| format!("{}: {}", pair.layout, tr!("lvs.cannot_read")))?;
     let ln = riku_mod_layout::nets::layout_netlist(&bytes, &pair.layout, Some(files.as_ref()), pair.cell.as_deref())?;
     let layout = layout_devices(&ln);
+    let lay_ports = ln.netlist.ports();
+    if !ln.netlist.resistors.is_empty() {
+        unchecked.push(tr!("lvs_map.unchecked_lay_res", count = ln.netlist.resistors.len()));
+    }
     let map_path = map_path(&ln.cell);
     let in_tree = std::fs::read_to_string(tree.root.join(&map_path)).ok();
     let (text, from_disk) = match in_tree {
@@ -637,7 +782,16 @@ pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair, disk: Option<&std:
     };
     let mut warnings: Vec<String> = s.netlist.warnings.clone();
     warnings.extend(ln.netlist.warnings.iter().cloned());
-    Ok(Session { cell: ln.cell, map_path, map, exists, from_disk, schematic, layout, warnings, unit_um: ln.unit_um, places })
+    Ok(Session { cell: ln.cell, map_path, map, exists, from_disk, schematic, layout, warnings, unit_um: ln.unit_um, places, sch_ports, lay_ports, unchecked })
+}
+
+/// Todo lo que se deduce de una sesión: [`check`] más los pines y lo que no
+/// se revisa.
+pub fn check_session(s: &Session) -> Check {
+    let mut c = check(&s.map, &s.schematic, &s.layout);
+    c.pins = check_pins(&c, &s.sch_ports, &s.lay_ports);
+    c.unchecked = s.unchecked.clone();
+    c
 }
 
 /// Vincula el transistor `schematic` con los dedos `fingers` del layout. Lo
@@ -673,6 +827,9 @@ pub struct Summary {
     pub shorts: usize,
     pub opens: usize,
     pub lost: usize,
+    pub pins: usize,
+    /// Lo que no se revisa.
+    pub unchecked: usize,
     pub clean: bool,
 }
 
@@ -687,6 +844,8 @@ impl Summary {
             shorts: c.shorts.len(),
             opens: c.opens.len(),
             lost: c.lost.len(),
+            pins: c.pins.len(),
+            unchecked: c.unchecked.len(),
             clean: c.clean(),
         }
     }
@@ -747,6 +906,10 @@ pub fn check_json(c: &Check, s: &Session) -> serde_json::Value {
         "map": s.map_path,
         "map_from_disk": s.from_disk,
         "clean": c.clean(),
+        "complete": c.complete(),
+        "pins": pairs(&c.pins),
+        "unchecked": c.unchecked,
+        "moved_ambiguous": c.moved_ambiguous,
         "schematic_devices": s.schematic.len(),
         "layout_devices": s.layout.len(),
         "bound": c.bound.iter().map(|(n, f)| serde_json::json!({ "schematic": n, "layout": refs(f) })).collect::<Vec<_>>(),
@@ -1005,6 +1168,72 @@ mod tests {
         let done = Summary { bound: 9, clean: true, ..base.clone() };
         assert_eq!(transitions(&base, &done), [Transition::Clean, Transition::Linked(4)]);
         assert_eq!(transitions(&done, &Summary { differences: 2, clean: false, ..done.clone() }), [Transition::Broke]);
+    }
+
+    /// Seis transistores en fila (uno por columna, cada uno con sus redes).
+    fn row(n: usize, y: f64) -> (Vec<SchDevice>, Vec<LayDevice>, MapFile) {
+        let pins = |i: usize| [format!("d{i}"), format!("g{i}"), format!("s{i}"), "VSS".to_string()];
+        let sch = (0..n).map(|i| SchDevice { name: format!("M{i}"), model: N.into(), pins: pins(i), w: Some(1.0), l: Some(0.5), m: 1.0 }).collect();
+        let lay = (0..n).map(|i| LayDevice { model: N.into(), at: (i as f64, y), gate: [0.0; 4], w: 1.0, l: 0.5, pins: pins(i) }).collect();
+        let mut m = MapFile::new("a.sch", "a.gds", None);
+        m.binds = (0..n).map(|i| Bind { schematic: format!("M{i}"), layout: vec![LayoutRef { model: N.into(), at: [i as f64, 0.0] }] }).collect();
+        (sch, lay, m)
+    }
+
+    #[test]
+    fn en_un_arreglo_regular_gana_el_movimiento_que_no_contradice() {
+        // Todo subió 10: correrlo además "un dedo" también encaja 5 de 6,
+        // pero vincularía cada transistor con las redes del vecino.
+        let (sch, lay, m) = row(6, 10.0);
+        let c = check(&m, &sch, &lay);
+        let mv = c.moved.expect("movido");
+        assert_eq!((mv.dx, mv.dy, mv.count), (0.0, 10.0, 6), "{c:#?}");
+        assert!(c.shorts.is_empty() && c.opens.is_empty(), "{c:#?}");
+    }
+
+    #[test]
+    fn un_movimiento_ambiguo_no_reubica_nada() {
+        // Dos transistores iguales (mismas redes) a 2 µm, y en el layout
+        // tres dedos a 2 µm: correr 10 o 12 encaja igual. No se elige.
+        let sch: Vec<SchDevice> = ["M1", "M2"].iter().map(|n| sd(n, N, ["d", "g", "s", "VSS"], 1.0)).collect();
+        let lay: Vec<LayDevice> = [10.0, 12.0, 14.0].iter().map(|&x| ld(N, (x, 0.0), ["d", "g", "s", "VSS"], 1.0)).collect();
+        let mut m = MapFile::new("a.sch", "a.gds", None);
+        m.binds = vec![bind("M1", &[(N, 0.0, 0.0)]), bind("M2", &[(N, 2.0, 0.0)])];
+        let c = check(&m, &sch, &lay);
+        assert!(c.moved.is_none() && c.moved_ambiguous, "{c:#?}");
+        assert_eq!(c.lost.len(), 2);
+    }
+
+    #[test]
+    fn los_pines_se_comparan_por_las_redes_vinculadas() {
+        let (sch, lay) = sides();
+        let mut c = check(&full(), &sch, &lay);
+        // `in` del esquemático es `in` en el layout; `out` no tiene pin en
+        // el layout; `x` es pin del layout pero llega a otra red; `EN` sobra.
+        let sch_ports: Vec<String> = ["in", "out", "x"].map(str::to_string).to_vec();
+        let lay_ports: Vec<String> = ["in", "x", "EN"].map(str::to_string).to_vec();
+        c.nets.insert("x".into(), BTreeSet::from(["n9".to_string()]));
+        c.pins = check_pins(&c, &sch_ports, &lay_ports);
+        let names: Vec<&str> = c.pins.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, ["out", "x", "EN"]);
+        assert!(!c.clean());
+    }
+
+    #[test]
+    fn limpio_no_es_completo_si_hay_algo_sin_revisar() {
+        let (sch, lay) = sides();
+        let mut c = check(&full(), &sch, &lay);
+        assert!(c.clean() && c.complete());
+        c.unchecked = vec!["R1".into()];
+        assert!(c.clean() && !c.complete());
+    }
+
+    #[test]
+    fn lo_que_no_es_transistor_queda_sin_revisar() {
+        let spice = ".subckt t in out VDD\nXM1 out in VSS VSS sky130_fd_pr__nfet_01v8 L=0.5 W=1\nR1 a b 1k\nx2 a b amp W=2\n* nota\n.ends\n";
+        let (ports, others) = schematic_extras(spice, "t", &|n| n.strip_prefix('X').map(str::to_string));
+        assert_eq!(ports, ["in", "out", "VDD"]);
+        assert_eq!(others, ["R1", "x2 (amp)"]);
     }
 
     #[test]

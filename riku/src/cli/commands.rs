@@ -645,7 +645,7 @@ pub(super) fn run_lvs_map(
             notes.push(tr!("lvs_map.suggested", count = new.len(), names = names.join(", ")));
             s.map.binds.extend(new);
         }
-        let c = manual::check(&s.map, &s.schematic, &s.layout);
+        let c = manual::check_session(&s);
         if update {
             s.map = c.updated.clone();
         }
@@ -658,7 +658,7 @@ pub(super) fn run_lvs_map(
             notes.push(tr!("lvs_map.saved", file = s.map_path));
             s.exists = true;
         }
-        pending |= !c.clean();
+        pending |= !c.complete();
         if json {
             let mut v = manual::check_json(&c, &s);
             v["schematic"] = p.schematic.clone().into();
@@ -729,7 +729,7 @@ pub(super) fn run_lvs_map_log(
                 .iter()
                 .map(|p| {
                     let s = manual::load(&tree, p, Some(&root))?;
-                    let c = manual::check(&s.map, &s.schematic, &s.layout);
+                    let c = manual::check_session(&s);
                     Ok(manual::Summary::of(&c, &s))
                 })
                 .collect(),
@@ -767,7 +767,8 @@ pub(super) fn run_lvs_map_log(
                 let when = crate::text::format_timestamp(*time);
                 let short: String = summary.chars().take(40).collect();
                 let state = match &rows[ci][pi] {
-                    Ok(s) if s.clean => tr!("lvs_map.log_clean", bound = s.bound, total = s.total),
+                    Ok(s) if s.clean && s.unchecked == 0 => tr!("lvs_map.log_clean", bound = s.bound, total = s.total),
+                    Ok(s) if s.clean => tr!("lvs_map.log_clean_partial", bound = s.bound, total = s.total, unchecked = s.unchecked),
                     Ok(s) => tr!("lvs_map.log_state", bound = s.bound, total = s.total, diffs = s.differences, shorts = s.shorts, opens = s.opens),
                     Err(e) => tr!("lvs.state_error", error = e.lines().next().unwrap_or_default()),
                 };
@@ -789,7 +790,7 @@ pub(super) fn run_lvs_map_log(
             println!();
         }
     }
-    let latest_dirty = rows.first().is_some_and(|r| r.iter().any(|s| !s.as_ref().is_ok_and(|s| s.clean)));
+    let latest_dirty = rows.first().is_some_and(|r| r.iter().any(|s| !s.as_ref().is_ok_and(|s| s.clean && s.unchecked == 0)));
     Ok(if latest_dirty { Outcome::Functional } else { Outcome::Clean })
 }
 
@@ -840,6 +841,12 @@ fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crat
     if !c.unbound_schematic.is_empty() {
         println!("  {}", tr!("lvs_map.unbound_sch", names = c.unbound_schematic.join(", ")));
     }
+    for (p, what) in &c.pins {
+        println!("  {}", tr!("lvs_map.pin", pin = p, what = what));
+    }
+    if c.moved_ambiguous {
+        println!("  {}", tr!("lvs_map.moved_ambiguous"));
+    }
     if !c.unbound_layout.is_empty() {
         let list: Vec<String> = c
             .unbound_layout
@@ -851,7 +858,17 @@ fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crat
             .collect();
         println!("  {}", tr!("lvs_map.unbound_lay", list = list.join(", ")));
     }
-    println!("  {}\n", if c.clean() { tr!("lvs_map.clean") } else { tr!("lvs_map.pending") });
+    if !c.unchecked.is_empty() {
+        println!("  {}", tr!("lvs_map.unchecked", list = c.unchecked.join(", ")));
+    }
+    let verdict = if c.complete() {
+        tr!("lvs_map.clean")
+    } else if c.clean() {
+        tr!("lvs_map.clean_partial")
+    } else {
+        tr!("lvs_map.pending")
+    };
+    println!("  {verdict}\n");
 }
 
 /// Un resultado de `riku lvs` en texto.
