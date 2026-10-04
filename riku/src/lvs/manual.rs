@@ -698,6 +698,8 @@ pub fn transitions(older: &Summary, newer: &Summary) -> Vec<Transition> {
     let mut out = Vec::new();
     if newer.clean && !older.clean {
         out.push(Transition::Clean);
+    } else if older.clean && !newer.clean {
+        out.push(Transition::Broke);
     }
     if newer.shorts > older.shorts {
         out.push(Transition::NewShort);
@@ -720,6 +722,8 @@ pub fn transitions(older: &Summary, newer: &Summary) -> Vec<Transition> {
 #[serde(rename_all = "snake_case")]
 pub enum Transition {
     Clean,
+    /// Estaba limpio y dejó de estarlo.
+    Broke,
     NewShort,
     ShortFixed,
     NewOpen,
@@ -1000,6 +1004,7 @@ mod tests {
         assert_eq!(transitions(&worse, &base), [Transition::ShortFixed]);
         let done = Summary { bound: 9, clean: true, ..base.clone() };
         assert_eq!(transitions(&base, &done), [Transition::Clean, Transition::Linked(4)]);
+        assert_eq!(transitions(&done, &Summary { differences: 2, clean: false, ..done.clone() }), [Transition::Broke]);
     }
 
     #[test]

@@ -775,6 +775,7 @@ pub(super) fn run_lvs_map_log(
                     .into_iter()
                     .map(|t| match t {
                         manual::Transition::Clean => tr!("lvs_map.t_clean"),
+                        manual::Transition::Broke => tr!("lvs_map.t_broke"),
                         manual::Transition::NewShort => tr!("lvs_map.t_new_short"),
                         manual::Transition::ShortFixed => tr!("lvs_map.t_short_fixed"),
                         manual::Transition::NewOpen => tr!("lvs_map.t_new_open"),
