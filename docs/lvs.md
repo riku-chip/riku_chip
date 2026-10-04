@@ -1,6 +1,6 @@
 # LVS en Riku (diseño)
 
-Propuesta para comparar el layout contra el esquemático (LVS) en cada versión y rastrear las diferencias en los dos dibujos a la vez. Es un diseño para acordar entre las dos mitades del proyecto (esquemáticos y layouts); nada de esto existe todavía como comando.
+Propuesta para comparar el layout contra el esquemático (LVS) en cada versión y rastrear las diferencias en los dos dibujos a la vez. Es un diseño para acordar entre las dos mitades del proyecto (esquemáticos y layouts). `riku lvs` (Fase 1 y el historial con `--log`) y la vista de LVS (Fase 3, ver abajo) ya existen; el uso está en [`cli.md`](cli.md#riku-lvs-el-layout-contra-el-esquemático).
 
 ## Por qué
 
@@ -69,23 +69,13 @@ No cubre: bloques de código que son programas en Tcl (bucles, `xschem` …); no
 
 - Botón **LVS** en la barra de arriba, con un esquemático o un layout abierto que tenga par (`lvs::pair_for`: `.riku.toml` o el mismo nombre). Abre `riku/src/gui/lvs_view.rs`: los dos lienzos lado a lado, el veredicto y la lista (parámetros, redes y dispositivos sin pareja). Netgen corre en otro hilo y cada escena carga aparte (`Loader::load_detached`).
 - **Lado del esquemático, completo:** un clic en algo de la lista lo resalta (redes: sus wires y pines; dispositivos: el recuadro de la instancia), atenúa el resto y lo encuadra con contexto. Esc lo suelta. Los nombres de Netgen llevan a la geometría con `Report::places` (`spice::Places`), que escribe el mismo netlister que vio Netgen: el mapeo es exacto, también para las nets sin nombre (`net3`).
-- **Lado del layout:** se ve y se navega, pero no resalta todavía (la lista lo avisa).
-
-### Lo que falta del layout (`riku-mod-layout`)
-
-La vista ya pregunta al `NetProbe` de la escena del layout por dos métodos de `viewer-core` que hoy devuelven `None`:
-
-```rust
-fn net_named(&self, spice_name: &str) -> Option<NetHit>;    // "Vout", "n12": sus polígonos
-fn device_named(&self, spice_name: &str) -> Option<NetHit>; // "19" (o "X19"/"M19"): su contorno
-```
-
-Los nombres son los de la netlist que compara Netgen (`nets::spice` / `layout_spice`): las redes por `Netlist::net_name` (la etiqueta, `VSUBS` o `n{i}`) y los dispositivos por su índice en `nl.devices`. `LayoutNets` hoy nombra las redes con `nets::net_label` (otros nombres), así que hace falta guardar también el nombre SPICE de cada red y, de cada dispositivo, su compuerta (`Device::gate`). En cuanto `LayoutNets` los implemente, el cross-probing del layout funciona sin tocar la GUI.
+- **Lado del layout, completo** (ronda 2, [`ronda-2/`](ronda-2/plan.md)): la sonda de la escena (`LayoutNets`) implementa `net_named` y `device_named` con los nombres de la netlist que compara Netgen (`nets::spice`): las redes por `Netlist::net_name` (la etiqueta, `VSUBS` o `n<i>`; dos redes con la misma etiqueta son una) y los dispositivos por su índice en `nl.devices` (`19`, `X19` o `M19`; `R3`/`XR3` para un resistor). Un dispositivo trae las compuertas de **todos los que están en paralelo con él** (`nets::parallel_groups`): Netgen los junta aunque cambie L y nombra al conjunto por el de índice menor. El visor extrae las redes con la misma información de Magic que `riku lvs`. Si algo no se encuentra (celda demasiado grande para calcular redes, layout sin PDK conocido), la lista lo avisa.
+- **Verificar a mano:** `cargo run -p riku-mod-layout --example lvs_probe -- layout.gds celda 19 20 Vout` dice cuántas compuertas o pedazos ubica cada nombre de Netgen y el W de cada grupo, para compararlo con `riku lvs -f json`.
 
 ## Lo difícil
 
 - **Nombres.** Netgen empareja por conectividad y da los nombres de cada lado (`sky130_fd_pr__pfet_01v8:19 vs. …:M1`). Para resaltar hay que ir de ese nombre a la geometría: en el esquemático, el nombre de la instancia (`M1`) ya lleva a su recuadro; en el layout, `nets::spice` numera los transistores (`X19`) y hace falta guardar la posición de cada uno junto a su número.
-- **Fingers y multiplicidad.** El esquemático dice `W=18 nf=4`; el layout tiene cuatro transistores de 4,5 µm. `nets::netlist::fingers` ya los agrupa; hay que confirmar que Netgen los combina igual (el `setup.tcl` del PDK lo decide).
+- **Fingers y multiplicidad.** El esquemático dice `W=18 nf=4`; el layout tiene cuatro transistores de 4,5 µm. Netgen (con el `setup.tcl` de SKY130) combina en paralelo los del mismo modelo y terminales **aunque cambie L**, y no solo los fingers iguales: en el demo `ota` junta los rellenos de L = 0,5 µm y de L = 1 µm de una rama en un dispositivo (`0`) e informa el W de cada L. Por eso `nets::fingers` (que agrupa también por L) da 9 grupos y Netgen 8; la vista usa `nets::parallel_groups`, que da los mismos 8.
 - **Jerarquía distinta en cada lado.** El esquemático va por niveles; el layout se extrae aplanado por celda (tope: 2 millones de polígonos). Para un chip entero hace falta la extracción jerárquica que ya está en `pendientes.md`.
 - **Dispositivos de relleno.** Los *dummies* del layout (transistores con compuerta a una fuente) aparecen como dispositivos de más si el esquemático no los tiene. Netgen tiene reglas para ignorarlos por PDK; hay que ver cuáles aplican.
 - **Netgen como dependencia.** Es el estándar de SKY130, GF180 e IHP y ya lo usamos para verificar. Un comparador propio (grafo + emparejamiento por firma) evitaría la dependencia, pero es otro proyecto: primero Netgen.

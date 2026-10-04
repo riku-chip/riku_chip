@@ -42,9 +42,9 @@ pub struct LayoutNets {
 }
 ```
 
-- `spice_nets`: `(0..nl.nets.len()).map(|i| (nl.net_name(i), i))`. Dos redes no pueden tener el mismo nombre SPICE salvo dos etiquetas iguales en redes separadas; si pasa, se queda la primera y se agrega un aviso a `nl.warnings` (ya hay avisos de "más de un nombre").
+- `spice_nets`: nombre → **redes** (`HashMap<String, Vec<usize>>`). Dos redes separadas con la misma etiqueta salen en `spice()` con el mismo nombre, así que para Netgen son una: `net_named` devuelve los pedazos de las dos (cambio respecto a la primera versión de este diseño, que se quedaba con una y avisaba).
 - `gates` y `bodies`: los puntos de `Device::gate` y `Resistor::body`, en unidades de la librería, como los pedazos de las redes (el mismo sistema que usa `at`).
-- `group_of`: `nets::fingers(nl)` da cada grupo con `devices: Vec<usize>`; se reparte a cada miembro. Es la misma regla de agrupar que Netgen aplica a los paralelos (mismo modelo, L, compuerta, cuerpo y par fuente/drenaje). Si Netgen agrupara distinto en algún PDK, igual se resalta el transistor nombrado, que está en su propio grupo.
+- `group_of`: **`nets::parallel_groups(nl)`** (nueva, junto a `fingers`): mismo modelo, compuerta, cuerpo y par fuente/drenaje, **sin mirar L**. La primera versión usaba `fingers()` (que agrupa también por L) y el demo lo desmintió: Netgen da 8 dispositivos y `fingers()` 9, porque Netgen junta los rellenos de L = 0,5 µm y L = 1 µm de la misma rama (el `0` del demo: 6 compuertas, W = 19 µm en L = 0,5 + 2 µm en L = 1). Con `parallel_groups` salen los mismos 8, y cada uno se llama como su índice menor, que es el nombre que usa Netgen. `fingers()` no se toca.
 - `names` sigue con `net_label` (`nets/diff.rs`): el tooltip conserva el nombre legible de hoy y no cambia (R6.6). `NetHit::name` de `net_named` lleva el nombre SPICE, que es el que se pidió.
 
 **Prueba de no desfase (R8.4).** En la misma prueba: armar una `Netlist` a mano, escribir `spice()` y, por cada línea `X<i> d g s b …`, comprobar que `device_named("<i>")` existe y que `net_named(d)` y `net_named(g)` dan la red de esos terminales. Si alguien cambia cómo `spice()` nombra, la prueba falla.
