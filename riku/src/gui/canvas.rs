@@ -42,7 +42,9 @@ pub(crate) struct Readout {
     /// Doble clic en una instancia: la entrada (sub-celda o sub-esquemático)
     /// a abrir.
     pub enter: Option<String>,
-    /// Un clic en este cuadro, en coordenadas de mundo.
+    /// Un clic en este cuadro, en coordenadas de mundo (lo usa la vista de
+    /// LVS para elegir transistores).
+    #[cfg_attr(not(all(feature = "xschem", feature = "layout")), allow(dead_code))]
     pub clicked: Option<(f64, f64)>,
 }
 
