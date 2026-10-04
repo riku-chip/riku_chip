@@ -740,6 +740,11 @@ pub(super) fn run_lvs_log(
                 let date = crate::text::format_timestamp(s.time);
                 let summary: String = s.summary.chars().take(40).collect();
                 println!("  {}  {:16}  {:40}  {state}{mark}", s.commit, date, summary);
+                if let Some(d) = &s.delta {
+                    for line in super::format::lvs_text::delta_lines(d, Some(3), "             ") {
+                        println!("{line}");
+                    }
+                }
             }
             println!();
         }
