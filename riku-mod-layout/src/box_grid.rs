@@ -61,6 +61,26 @@ impl BoxGrid {
         })
     }
 
+    /// Índices de los bboxes que tocan `b` (bordes incluidos), sin repetir y
+    /// en orden.
+    pub(crate) fn overlapping(&self, b: [f64; 4]) -> Vec<usize> {
+        let [mx, my, xx, xy] = self.bounds;
+        if b[2] < mx || b[0] > xx || b[3] < my || b[1] > xy {
+            return Vec::new();
+        }
+        let (x0, y0, x1, y1) = self.span(&b);
+        let mut out: Vec<usize> = (y0..=y1)
+            .flat_map(|gy| (x0..=x1).flat_map(move |gx| self.cells[gy * self.n + gx].iter().copied()))
+            .filter(|&k| {
+                let t = &self.boxes[k];
+                b[0] <= t[2] && b[2] >= t[0] && b[1] <= t[3] && b[3] >= t[1]
+            })
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Índices de los bboxes que contienen el punto (bordes incluidos): solo
     /// se miran los de su celda de la grilla.
     pub(crate) fn containing(&self, x: f64, y: f64) -> impl Iterator<Item = usize> + '_ {

@@ -185,6 +185,16 @@ pub struct DeviceRules {
     /// Tipos que son el sustrato (`*psd,space/w,pwell`) y los que lo excluyen
     /// (`-dnwell,isosub`).
     pub substrate: (Vec<String>, Vec<String>),
+    /// Hash del texto del `.tech` del que salieron: otras reglas, otra
+    /// huella de la extracción (ver `nets::hier`).
+    pub fingerprint: u64,
+}
+
+fn text_hash(t: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut h);
+    h.finish()
 }
 
 /// Clases de `device` que son transistores MOS.
@@ -196,7 +206,7 @@ impl DeviceRules {
     pub fn parse(tech: &str) -> Option<Self> {
         let sections = sections(tech);
         let cif = first_style(&sections.iter().find(|(n, _)| n == "cifinput")?.1);
-        let mut rules = DeviceRules::default();
+        let mut rules = DeviceRules { fingerprint: text_hash(tech), ..DeviceRules::default() };
         for line in sections.iter().filter(|(n, _)| n == "types").flat_map(|(_, l)| l) {
             let mut w = line.split_whitespace();
             let (Some(plane), Some(names)) = (w.next(), w.next()) else { continue };
@@ -567,6 +577,29 @@ impl DeviceRules {
                 visiting.pop();
             }
         }
+    }
+
+    /// La distancia (µm) a la que dos pedazos de un tipo se funden en uno:
+    /// un `grow g` seguido de un `shrink s` (un cierre) llena los huecos de
+    /// menos de `2·min(g, s)`. El pozo P de SKY130 (`grow 420`, `shrink 420`)
+    /// une pozos de celdas distintas a menos de 0,84 µm. 0 si no tiene.
+    pub fn bridge(&self, name: &str) -> f64 {
+        let c = self.canonical(name);
+        let mut best: f64 = 0.0;
+        for d in self.defs.iter().filter(|d| !d.temp && self.canonical(&d.name) == c) {
+            let mut grown: f64 = 0.0;
+            for op in &d.ops {
+                match op {
+                    Op::Grow(g) => grown += g,
+                    Op::Shrink(s) if grown > 0.0 => {
+                        best = best.max(2.0 * grown.min(*s));
+                        grown = (grown - s).max(0.0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        best
     }
 
     /// Las dos capas cuya intersección es la compuerta de un transistor: el

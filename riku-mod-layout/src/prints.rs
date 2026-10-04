@@ -91,7 +91,7 @@ fn canonical_points(p: &Polygon<'_>, v: &mut Vec<(i64, i64)>) {
 }
 
 /// Hash de la forma canónica; `buf` se reutiliza entre llamadas.
-fn polygon_hash(p: &Polygon<'_>, buf: &mut Vec<(i64, i64)>) -> u64 {
+pub(crate) fn polygon_hash(p: &Polygon<'_>, buf: &mut Vec<(i64, i64)>) -> u64 {
     use std::hash::{Hash, Hasher};
     canonical_points(p, buf);
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -329,7 +329,7 @@ const MAX_EXPLICIT_OFFSETS: u64 = 4096;
 
 /// Hash de la transformación de una referencia, cuantizada como los
 /// vértices. `None` si la repetición es explícita y enorme.
-fn transform_hash(r: &Reference<'_>) -> Option<u64> {
+pub(crate) fn transform_hash(r: &Reference<'_>) -> Option<u64> {
     use gdstk_rs::RepetitionType as K;
     use std::hash::{Hash, Hasher};
     let q = |v: f64| (v * 1e6).round() as i64;

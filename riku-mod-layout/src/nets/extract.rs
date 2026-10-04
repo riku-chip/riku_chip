@@ -161,6 +161,35 @@ impl Pieces {
     }
 }
 
+/// Los grupos de tipos (de los que hay, según `present`) que se unen con
+/// una sola unión: los de una línea `connect` con las dos listas iguales, o
+/// cada par de tipos distintos de las dos listas.
+pub(crate) fn connect_groups(rules: &DeviceRules, present: &dyn Fn(&str) -> bool) -> BTreeSet<Vec<String>> {
+    let filter = |ts: &[String]| -> Vec<String> {
+        let mut v: Vec<String> = ts.iter().filter(|t| present(t)).cloned().collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let mut groups: BTreeSet<Vec<String>> = BTreeSet::new();
+    for (a, b) in &rules.connect {
+        let (pa, pb) = (filter(a), filter(b));
+        if pa == pb {
+            groups.insert(pa);
+        } else {
+            for x in &pa {
+                for y in pb.iter().filter(|y| *y != x) {
+                    let mut g = vec![x.clone(), y.clone()];
+                    g.sort();
+                    groups.insert(g);
+                }
+            }
+        }
+    }
+    groups.retain(|g| !g.is_empty());
+    groups
+}
+
 /// Las redes de una celda. `regions`: la región de cada tipo (canónico) que
 /// conduce, es sustrato o lo excluye; `devices`: los transistores del nivel
 /// 2; `unit_um`: µm por unidad de las coordenadas.
@@ -185,6 +214,24 @@ pub(crate) fn build_with(
     unit_um: f64,
     all_nets: bool,
 ) -> Netlist {
+    build_full(rules, regions, labels, devices, unit_um, all_nets, false).0
+}
+
+/// Como [`build_with`]; con `defer_sub`, los pedazos de los tipos del
+/// sustrato que nada de esta geometría excluye no se unen al sustrato:
+/// quedan como candidatos (su red y un punto interior), para que decida la
+/// celda de arriba (un `dnwell` del padre los excluye). El sustrato de los
+/// cuerpos sin pozo sigue siendo la red `substrate`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn build_full(
+    rules: &DeviceRules,
+    regions: Vec<(String, Vec<OwnedPolygon>)>,
+    labels: &[NetLabel],
+    devices: Vec<Device>,
+    unit_um: f64,
+    all_nets: bool,
+    defer_sub: bool,
+) -> (Netlist, Vec<(usize, (f64, f64))>) {
     let mut uf = UnionFind(Vec::new());
     let mut pieces = Pieces { by_type: HashMap::new() };
     let mut order: Vec<String> = Vec::new();
@@ -204,27 +251,7 @@ pub(crate) fn build_with(
     let substrate = uf.add();
 
     // Conexiones: una unión por grupo de tipos que conducen juntos.
-    let present = |ts: &[String]| -> Vec<String> {
-        let mut v: Vec<String> = ts.iter().filter(|t| pieces.by_type.contains_key(*t)).cloned().collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    let mut groups: BTreeSet<Vec<String>> = BTreeSet::new();
-    for (a, b) in &rules.connect {
-        let (pa, pb) = (present(a), present(b));
-        if pa == pb {
-            groups.insert(pa);
-        } else {
-            for x in &pa {
-                for y in pb.iter().filter(|y| *y != x) {
-                    let mut g = vec![x.clone(), y.clone()];
-                    g.sort();
-                    groups.insert(g);
-                }
-            }
-        }
-    }
+    let groups = connect_groups(rules, &|t| pieces.by_type.contains_key(t));
     let touch = 5e-4 / unit_um;
     for g in groups.iter().filter(|g| !g.is_empty()) {
         let all: Vec<OwnedPolygon> = g.iter().flat_map(|t| pieces.by_type[t].0.polys.iter().cloned()).collect();
@@ -295,12 +322,16 @@ pub(crate) fn build_with(
 
     // Sustrato: sus tipos, fuera de los que lo excluyen.
     let (sub_types, not_sub) = &rules.substrate;
+    let mut open: Vec<(usize, (f64, f64))> = Vec::new();
     for t in sub_types.iter().filter(|t| *t != "space") {
         let Some((grid, first)) = pieces.by_type.get(t) else { continue };
         for (i, p) in grid.polys.iter().enumerate() {
-            let excluded = interior_point(&p.points).is_some_and(|pt| pieces.at(not_sub, pt).is_some());
-            if !excluded {
-                uf.join(substrate, first + i);
+            let pt = interior_point(&p.points);
+            let excluded = pt.is_some_and(|pt| pieces.at(not_sub, pt).is_some());
+            match (excluded, defer_sub, pt) {
+                (true, _, _) => {}
+                (false, true, Some(pt)) => open.push((first + i, pt)),
+                _ => uf.join(substrate, first + i),
             }
         }
     }
@@ -463,7 +494,8 @@ pub(crate) fn build_with(
             (r, [a, b])
         })
         .collect();
-    Netlist { pieces: net_pieces, nets, devices, resistors, labels: labels.to_vec(), label_nets, warnings }
+    let open = open.into_iter().filter_map(|(n, pt)| index.get(&uf.find(n)).map(|&i| (i, pt))).collect();
+    (Netlist { pieces: net_pieces, nets, devices, resistors, labels: labels.to_vec(), label_nets, warnings }, open)
 }
 
 #[cfg(test)]

@@ -103,6 +103,16 @@ pub(crate) fn flatten(cell: &Cell<'_>, tags: &[(u32, u32)]) -> Vec<OwnedPolygon>
 mod tests {
     use super::*;
 
+    /// El pozo P de SKY130 se cierra con `grow 420` / `shrink 420`: une
+    /// pozos a menos de 0,84 µm. El metal no tiene cierre.
+    #[test]
+    fn the_sky130_pwell_bridges_gaps_and_metal_does_not() {
+        let rules = compiled(Pdk::Sky130).expect("sky130");
+        assert!((rules.bridge("pwell") - 0.84).abs() < 1e-9, "{}", rules.bridge("pwell"));
+        assert_eq!(rules.bridge("metal1"), 0.0);
+        assert_ne!(rules.fingerprint, compiled(Pdk::Gf180).expect("gf180").fingerprint);
+    }
+
     #[test]
     fn the_compiled_tables_have_the_transistors_of_each_pdk() {
         for (pdk, model) in [(Pdk::Sky130, "sky130_fd_pr__nfet_01v8"), (Pdk::Gf180, "nfet_03v3"), (Pdk::Ihp, "sg13_lv_nmos")] {

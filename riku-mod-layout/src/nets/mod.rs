@@ -6,6 +6,7 @@
 pub(crate) mod context;
 mod diff;
 mod extract;
+pub mod hier;
 mod netlist;
 mod probe;
 
@@ -23,7 +24,7 @@ use crate::devices::{self, DeviceRules, LayerPolys, RegionEval};
 
 /// Los tipos cuya región hace falta: los que conducen, los del sustrato y
 /// los que lo excluyen.
-fn wanted_types(rules: &DeviceRules) -> Vec<String> {
+pub(crate) fn wanted_types(rules: &DeviceRules) -> Vec<String> {
     let mut types = rules.conductors();
     let resistors = rules.resistors.iter().map(|r| &r.magic);
     for t in rules.substrate.0.iter().chain(&rules.substrate.1).chain(resistors) {
@@ -150,6 +151,23 @@ pub fn cell_nets_in(
     magic: Option<&gdstk_rs::magic::MagInfo>,
     window: Option<(&[[f64; 4]], &[String])>,
 ) -> Netlist {
+    cell_nets_with(lib, cell, rules, magic, window, &|tags| devices::flatten(cell, tags), window.is_some(), false).0
+}
+
+/// Como [`cell_nets_in`], con la geometría que da `polys(capas)` (la celda
+/// aplanada, o solo lo propio para la extracción jerárquica) y, con
+/// `all_nets`, también las redes sin terminal ni etiqueta.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cell_nets_with(
+    lib: &Library,
+    cell: &Cell<'_>,
+    rules: &DeviceRules,
+    magic: Option<&gdstk_rs::magic::MagInfo>,
+    window: Option<(&[[f64; 4]], &[String])>,
+    polys: &(dyn Fn(&[(u32, u32)]) -> Vec<OwnedPolygon> + Sync),
+    all_nets: bool,
+    defer_sub: bool,
+) -> (Netlist, Vec<(usize, (f64, f64))>) {
     let windows = window.map(|(w, _)| w);
     let clip = |polys: Vec<OwnedPolygon>| match windows {
         Some(w) => clip_to(polys, w),
@@ -175,8 +193,8 @@ pub fn cell_nets_in(
         let tags: Vec<(u32, u32)> =
             names.iter().filter(|(_, n)| types.iter().any(|t| t == rules.canonical(n))).map(|(&t, _)| t).collect();
         let mut by_type: HashMap<String, Vec<OwnedPolygon>> = HashMap::new();
-        let polys = clip(devices::flatten(cell, &tags));
-        for p in &polys {
+        let flat = clip(polys(&tags));
+        for p in &flat {
             let p = p.clone();
             if let Some(n) = names.get(&(p.layer, p.datatype)) {
                 by_type.entry(rules.canonical(n).to_string()).or_default().push(p);
@@ -198,7 +216,14 @@ pub fn cell_nets_in(
         let mut regions: Vec<(String, Vec<OwnedPolygon>)> = by_type.into_iter().collect();
         regions.sort_by(|a, b| a.0.cmp(&b.0));
         let devs = match windows {
-            None => devices::cell_devices(lib, cell, rules),
+            None => {
+                let wanted: Vec<(u32, u32)> = names
+                    .iter()
+                    .filter(|(_, n)| rules.device_type(n).is_some() || rules.devices.iter().any(|(_, t)| rules.is_sd_of(t, n)))
+                    .map(|(&t, _)| t)
+                    .collect();
+                devices::extract_magic(rules, polys(&wanted), &names, unit_um)
+            }
             Some(_) => Vec::new(),
         };
         (regions, labels, devs)
@@ -217,7 +242,7 @@ pub fn cell_nets_in(
             .map(|t| (t.layer, t.datatype))
             .filter(|&(l, d)| wanted.iter().any(|&(wl, wd)| wl == l && wd.is_none_or(|wd| wd == d)))
             .collect();
-        let layers = LayerPolys::new(clip(devices::flatten(cell, &tags)));
+        let layers = LayerPolys::new(clip(polys(&tags)));
         let devs = if windows.is_some() { Vec::new() } else { devices::extract(rules, &layers, lib.unit() / 1e-6) };
         // Magic pinta los tipos en el orden de `cifinput`, y en un mismo plano
         // el posterior tapa al anterior: la regla de un contacto a la toma N
@@ -268,7 +293,7 @@ pub fn cell_nets_in(
             l.port = true;
         }
     }
-    extract::build_with(rules, regions, &labels, devices, lib.unit() / 1e-6, windows.is_some())
+    extract::build_full(rules, regions, &labels, devices, lib.unit() / 1e-6, all_nets, defer_sub)
 }
 
 #[cfg(test)]
