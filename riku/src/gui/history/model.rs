@@ -61,12 +61,25 @@ impl Details {
     }
 }
 
+/// Qué lista recibe ↑/↓ y Enter con el teclado.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Focus {
+    /// La lista de commits.
+    #[default]
+    Commits,
+    /// Los archivos del commit elegido (Tab).
+    Files,
+}
+
 #[derive(Debug)]
 pub struct HistoryModel {
     pub commits: Vec<LogCommit>,
     /// Llegaron los resúmenes por archivo (la segunda fase de la carga).
     pub summaries_ready: bool,
     pub selected: Option<usize>,
+    pub focus: Focus,
+    /// Archivo marcado (índice en `Details::files` del commit elegido); solo con `Focus::Files`.
+    pub file_selected: Option<usize>,
     /// Páginas pedidas: se cargan `pages × PAGE` commits.
     pub pages: usize,
     /// Glob de archivos (`*.gds`); vacío = todos.
@@ -82,6 +95,8 @@ impl Default for HistoryModel {
             commits: Vec::new(),
             summaries_ready: false,
             selected: None,
+            focus: Focus::Commits,
+            file_selected: None,
             pages: 1,
             filter: String::new(),
             details: HashMap::new(),
@@ -117,6 +132,10 @@ impl HistoryModel {
         self.commits = report.commits;
         self.summaries_ready = false;
         self.selected = keep.and_then(|oid| self.commits.iter().position(|c| c.info.oid == oid));
+        // Si el commit sigue, sus archivos y el marcado también.
+        if self.selected.is_none() {
+            self.reset_focus();
+        }
     }
 
     /// Los resúmenes por archivo (segunda fase), por oid.
@@ -136,6 +155,9 @@ impl HistoryModel {
 
     pub fn select(&mut self, index: usize) {
         if index < self.commits.len() {
+            if self.selected != Some(index) {
+                self.reset_focus();
+            }
             self.selected = Some(index);
         }
     }
@@ -150,7 +172,69 @@ impl HistoryModel {
             Some(i) => (i as i64 + delta).clamp(0, last),
             None => 0,
         };
+        if self.selected != Some(next as usize) {
+            self.reset_focus();
+        }
         self.selected = Some(next as usize);
+    }
+
+    /// Los archivos del commit elegido, si ya llegó su detalle.
+    fn selected_files(&self) -> Option<&[DetailFile]> {
+        match self.details.get(&self.selected_commit()?.info.oid) {
+            Some(Ok(d)) => Some(&d.files),
+            _ => None,
+        }
+    }
+
+    fn reset_focus(&mut self) {
+        self.focus = Focus::Commits;
+        self.file_selected = None;
+    }
+
+    /// Tab: de los commits a los archivos del commit elegido (marca el primero
+    /// que se puede abrir) y de vuelta. Sin archivos abribles no hace nada.
+    pub fn toggle_focus(&mut self) {
+        match self.focus {
+            Focus::Files => self.reset_focus(),
+            Focus::Commits => {
+                if let Some(i) = self.selected_files().and_then(|fs| fs.iter().position(DetailFile::openable)) {
+                    self.focus = Focus::Files;
+                    self.file_selected = Some(i);
+                }
+            }
+        }
+    }
+
+    /// ↑ (−1) / ↓ (+1) en los archivos: salta los que no se pueden abrir y se
+    /// detiene en los extremos, sin dar la vuelta.
+    pub fn move_file(&mut self, delta: i64) {
+        if self.focus != Focus::Files {
+            return;
+        }
+        let (Some(files), Some(mut cur)) = (self.selected_files(), self.file_selected) else { return };
+        for _ in 0..delta.unsigned_abs() {
+            let next = if delta > 0 {
+                (cur + 1..files.len()).find(|&i| files[i].openable())
+            } else {
+                (0..cur).rev().find(|&i| files[i].openable())
+            };
+            match next {
+                Some(i) => cur = i,
+                None => break,
+            }
+        }
+        self.file_selected = Some(cur);
+    }
+
+    /// Enter con el foco en los archivos: abre el marcado.
+    pub fn open_marked(&mut self) {
+        if self.focus != Focus::Files {
+            return;
+        }
+        let path = self.file_selected.and_then(|i| self.selected_files()?.get(i)).map(|f| f.path.clone());
+        if let Some(p) = path {
+            self.open(&p);
+        }
     }
 
     pub fn set_details(&mut self, oid: String, details: Result<Details, String>) {
@@ -258,6 +342,102 @@ mod tests {
         m.open_first();
         assert_eq!(m.take_requests(), vec![Request::OpenDiff { parent: None, commit: "r".into(), path: "r.sch".into() }]);
         assert!(m.take_requests().is_empty());
+    }
+
+    /// Detalle del commit `oid` con estos archivos: `(ruta, se puede abrir)`.
+    fn with_files(m: &mut HistoryModel, oid: &str, files: &[(&str, bool)]) {
+        let files = files
+            .iter()
+            .map(|&(path, openable)| {
+                let mut summary = FileSummary::unknown(path);
+                if openable {
+                    summary.category = SummaryCategory::Semantic;
+                }
+                DetailFile { path: path.into(), status: None, summary: Some(summary) }
+            })
+            .collect();
+        m.set_details(oid.into(), Ok(Details { parent: None, files }));
+    }
+
+    #[test]
+    fn tab_needs_an_openable_file_to_move_to_the_files() {
+        let mut m = HistoryModel::default();
+        m.set_graph(report("b:a, a:", false));
+        m.select(0);
+        m.toggle_focus();
+        assert_eq!(m.focus, Focus::Commits, "sin el detalle cargado");
+        with_files(&mut m, "b", &[("x.txt", false)]);
+        m.toggle_focus();
+        assert_eq!(m.focus, Focus::Commits, "ningún archivo se puede abrir");
+        with_files(&mut m, "b", &[("x.txt", false), ("top.gds", true), ("amp.sch", true)]);
+        m.toggle_focus();
+        assert_eq!((m.focus, m.file_selected), (Focus::Files, Some(1)), "el primero abrible");
+        m.toggle_focus();
+        assert_eq!((m.focus, m.file_selected), (Focus::Commits, None), "Tab otra vez vuelve");
+    }
+
+    #[test]
+    fn up_and_down_move_over_the_openable_files_and_stop_at_the_ends() {
+        let mut m = HistoryModel::default();
+        m.set_graph(report("b:a, a:", false));
+        m.select(0);
+        with_files(&mut m, "b", &[("a.gds", true), ("b.txt", false), ("c.sch", true), ("d.txt", false)]);
+        m.move_file(1);
+        assert_eq!(m.file_selected, None, "con el foco en los commits no hace nada");
+        m.toggle_focus();
+        assert_eq!(m.file_selected, Some(0));
+        m.move_file(1);
+        assert_eq!(m.file_selected, Some(2), "salta el que no se abre");
+        m.move_file(1);
+        assert_eq!(m.file_selected, Some(2), "tope abajo: no da la vuelta");
+        m.move_file(-1);
+        assert_eq!(m.file_selected, Some(0));
+        m.move_file(-4);
+        assert_eq!(m.file_selected, Some(0), "tope arriba");
+        m.move_file(9);
+        assert_eq!(m.file_selected, Some(2), "varias pulsaciones en un cuadro");
+    }
+
+    #[test]
+    fn enter_on_the_files_opens_the_marked_one() {
+        let mut m = HistoryModel::default();
+        m.set_graph(report("b:a, a:", false));
+        m.select(0);
+        with_files(&mut m, "b", &[("a.gds", true), ("c.sch", true)]);
+        m.open_marked();
+        assert!(m.take_requests().is_empty(), "con el foco en los commits Enter es open_first");
+        m.toggle_focus();
+        m.move_file(1);
+        m.open_marked();
+        assert_eq!(m.take_requests(), vec![Request::OpenDiff { parent: None, commit: "b".into(), path: "c.sch".into() }]);
+    }
+
+    #[test]
+    fn changing_commit_returns_the_focus_to_the_commits() {
+        let mut m = HistoryModel::default();
+        m.set_graph(report("c:b, b:a, a:", false));
+        m.select(0);
+        with_files(&mut m, "c", &[("a.gds", true)]);
+        m.toggle_focus();
+        assert_eq!(m.focus, Focus::Files);
+        // Recargar la lista con el mismo commit elegido no mueve el foco.
+        m.set_graph(report("d:c, c:b, b:a, a:", false));
+        assert_eq!((m.focus, m.file_selected), (Focus::Files, Some(0)));
+        // Otro commit sí.
+        m.select(2);
+        assert_eq!((m.focus, m.file_selected), (Focus::Commits, None));
+        // Con el foco en los archivos de `c`, ↓ de commits (otra tecla de la app) lo suelta.
+        m.select(1);
+        m.toggle_focus();
+        assert_eq!(m.focus, Focus::Files);
+        m.move_selection(1);
+        assert_eq!((m.focus, m.file_selected), (Focus::Commits, None));
+        // Si el commit elegido desaparece de la lista, tampoco queda el foco.
+        m.select(1);
+        m.toggle_focus();
+        assert_eq!(m.focus, Focus::Files);
+        m.set_graph(report("z:y, y:", false));
+        assert_eq!((m.selected, m.focus), (None, Focus::Commits));
     }
 
     #[test]

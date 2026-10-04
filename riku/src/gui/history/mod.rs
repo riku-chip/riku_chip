@@ -32,7 +32,7 @@ use crate::gui::motion::spring_step;
 use crate::gui::theme::{self, space};
 use crate::gui::tr;
 use geometry::{Metrics, Prim};
-use model::{Details, HistoryModel, Request};
+use model::{Details, Focus, HistoryModel, Request};
 
 /// Respuesta de los resortes del panel (s): la de la vista del lienzo.
 const RESPONSE: f64 = 0.3;
@@ -73,6 +73,8 @@ pub struct HistoryPanel {
     /// Rama resaltada al pasar el mouse por un chip.
     hover_lane: Option<usize>,
     scroll_to_selection: bool,
+    /// Llevar a la vista el archivo marcado (cambió con el teclado).
+    scroll_to_file: bool,
     last_offset: f32,
     viewport_h: f32,
 }
@@ -100,6 +102,7 @@ impl HistoryPanel {
             summaries_at: None,
             hover_lane: None,
             scroll_to_selection: false,
+            scroll_to_file: false,
             last_offset: 0.0,
             viewport_h: 0.0,
         }
@@ -114,6 +117,12 @@ impl HistoryPanel {
         if self.repo.is_some() {
             self.open = !self.open;
         }
+    }
+
+    /// Tab: de la lista de commits a los archivos del commit elegido, y de vuelta.
+    pub fn toggle_focus(&mut self) {
+        self.model.toggle_focus();
+        self.scroll_to_file = self.model.focus == Focus::Files;
     }
 
     /// El repo pudo cambiar (**Recargar**): se relee ahora si el panel está
@@ -259,13 +268,27 @@ impl HistoryPanel {
             let (down, up, enter) = ui.ctx().input(|i| {
                 (i.num_presses(egui::Key::ArrowDown), i.num_presses(egui::Key::ArrowUp), i.key_pressed(egui::Key::Enter))
             });
+            // ↑/↓ y Enter van a la lista que tiene el foco (Tab la cambia, en `app`).
             let delta = down as i64 - up as i64;
-            if delta != 0 {
-                self.model.move_selection(delta);
-                self.scroll_to_selection = true;
-            }
-            if enter {
-                self.model.open_first();
+            match self.model.focus {
+                Focus::Commits => {
+                    if delta != 0 {
+                        self.model.move_selection(delta);
+                        self.scroll_to_selection = true;
+                    }
+                    if enter {
+                        self.model.open_first();
+                    }
+                }
+                Focus::Files => {
+                    if delta != 0 {
+                        self.model.move_file(delta);
+                        self.scroll_to_file = true;
+                    }
+                    if enter {
+                        self.model.open_marked();
+                    }
+                }
             }
         }
 
@@ -562,15 +585,17 @@ impl HistoryPanel {
                     if files.is_empty() {
                         ui.label(RichText::new(tr!("history.no_files")).weak());
                     }
-                    for f in files {
-                        self.file_row(ui, &f);
+                    for (i, f) in files.iter().enumerate() {
+                        let marked = self.model.focus == Focus::Files && self.model.file_selected == Some(i);
+                        self.file_row(ui, f, marked);
                     }
                 }
             }
         });
     }
 
-    fn file_row(&mut self, ui: &mut egui::Ui, f: &model::DetailFile) {
+    /// `marked`: el archivo elegido con el teclado (Tab y ↑/↓).
+    fn file_row(&mut self, ui: &mut egui::Ui, f: &model::DetailFile, marked: bool) {
         let dark = ui.visuals().dark_mode;
         let enabled = f.openable();
         let (letter, kind) = match f.status {
@@ -581,7 +606,10 @@ impl HistoryPanel {
         ui.horizontal(|ui| {
             ui.label(RichText::new(letter).monospace().color(theme::change_color(kind, dark)));
             let name = RichText::new(&f.path);
-            let resp = ui.add_enabled(enabled, egui::Button::selectable(false, name).truncate());
+            let resp = ui.add_enabled(enabled, egui::Button::selectable(marked, name).truncate());
+            if marked && std::mem::take(&mut self.scroll_to_file) {
+                resp.scroll_to_me(None);
+            }
             let resp = if enabled {
                 resp.on_hover_text(tr!("history.open_file_hint"))
             } else {

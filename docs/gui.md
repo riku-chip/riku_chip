@@ -63,7 +63,7 @@ Las preferencias se recuerdan entre sesiones.
 
 ## Historial
 
-Panel abajo (**Historial** o **H**) con el grafo de ramas y merges (el mismo que `riku log --graph`), las refs y un resumen por commit que se calcula en segundo plano. Un clic en un commit muestra sus archivos; un clic en un archivo (o **Enter**) abre su diff contra el primer padre. **↑/↓** cambian de commit. **Filtrar archivos** (un glob, `*.gds`) o **Solo este archivo** simplifican el grafo; se cargan 200 commits y **Cargar más** trae el resto.
+Panel abajo (**Historial** o **H**) con el grafo de ramas y merges (el mismo que `riku log --graph`), las refs y un resumen por commit que se calcula en segundo plano. Un clic en un commit muestra sus archivos; un clic en un archivo (o **Enter**) abre su diff contra el primer padre. **↑/↓** cambian de commit. **Tab** pasa a los archivos del commit (marca el primero que se puede abrir): ahí **↑/↓** eligen otro y **Enter** abre el marcado; **Tab** otra vez (o **Shift+Tab**) vuelve a los commits. Con el Historial cerrado, Tab recorre los botones como siempre. **Filtrar archivos** (un glob, `*.gds`) o **Solo este archivo** simplifican el grafo; se cargan 200 commits y **Cargar más** trae el resto.
 
 ## La ventana
 

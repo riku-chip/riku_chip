@@ -302,6 +302,14 @@ impl RikuGuiApp {
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.history.toggle();
         }
+        // Tab (o Shift+Tab) con el Historial abierto: de los commits a los archivos del
+        // commit y de vuelta. egui usaría ese Tab para dar el foco al primer botón que se
+        // dibuje, y desde ahí ningún atajo andaría hasta Esc: se anula aquí, antes de
+        // dibujar nada. Con el Historial cerrado, Tab sigue siendo de egui.
+        if self.history.open && ctx.input(|i| i.key_pressed(egui::Key::Tab)) {
+            ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+            self.history.toggle_focus();
+        }
         // Volver al nivel de arriba (después de entrar a una sub-celda).
         if ctx.input(|i| i.key_pressed(egui::Key::Backspace) || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft))) {
             self.go_back();
