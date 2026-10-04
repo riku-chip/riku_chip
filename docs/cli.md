@@ -347,6 +347,21 @@ cell = "amp"          # opcional: sin ella, la top
 
 El JSON (`riku-lvs/v1`) trae, por par: `result` (`match`, `property_errors`, `mismatch`), `devices`, `nets` y `pins` de cada lado, `properties`, `unmatched_nets`, `unmatched_devices`, `summary` (el veredicto de Netgen) y `warnings`. Diseño y lo que sigue: [`lvs.md`](lvs.md).
 
+### LVS manual (`--map`), sin Netgen
+
+```bash
+riku lvs --map --suggest      # empieza (o completa) lvs/<celda>.toml con lo que se deduce
+riku lvs --map                # el estado: avance, parámetros, cortos y abiertos
+riku lvs --map HEAD~3         # el mismo chequeo en un commit
+riku lvs --map --update       # después de mover el layout: guarda las posiciones nuevas
+```
+
+Qué transistor del esquemático es cuál del layout queda en `lvs/<celda>.toml`, versionado con el diseño: un `[[bind]]` por transistor del esquemático (`M1`) con sus dedos del layout, cada uno por su modelo y el centro de su compuerta en µm de la celda. Riku comprueba lo que se deduce de esos vínculos, sin Netgen: W total (sumando los dedos), L y modelo de cada par; qué red del layout es cada una del esquemático, y un **corto** (una red del layout a la que van dos del esquemático) o un **abierto** (una del esquemático partida en dos) en cuanto dos vínculos se contradicen; y cuánto falta vincular de cada lado.
+
+- **Sugerencias** (`--suggest`): parten de las redes con el mismo nombre en los dos lados (los pines) y vinculan un transistor solo si un único grupo de dedos del layout encaja con las redes ya vinculadas. No adivinan: los simétricos sin redes que los distingan quedan para vincular a mano.
+- **Si el layout se mueve:** mover la celda en el chip no cambia nada (las posiciones son de la celda). Si se mueve, gira o espeja todo dentro de la celda, Riku encuentra el movimiento y reubica los vínculos (`--update` lo guarda); un transistor movido solo se reubica por conectividad.
+- Con `--ci`: 0 si está limpio (todo vinculado y sin diferencias), 1 si hay pendientes, 2 si hubo un error. JSON: `riku-lvs-check/v1`.
+
 ## `riku completions`
 
 ```bash

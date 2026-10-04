@@ -589,6 +589,156 @@ pub(super) fn run_lvs(
     })
 }
 
+/// `riku lvs --map`: el LVS manual de cada par (ver [`crate::lvs::manual`]).
+/// `suggest` agrega los vínculos que se deducen y `update` reescribe las
+/// posiciones después de un movimiento: los dos escriben el archivo, solo
+/// en el disco.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+pub(super) fn run_lvs_map(
+    repo: PathBuf,
+    rev: Option<&str>,
+    pair: Option<(String, String)>,
+    cell: Option<String>,
+    json: bool,
+    suggest: bool,
+    update: bool,
+) -> Result<super::dispatch::Outcome, String> {
+    use super::dispatch::Outcome;
+    use crate::lvs::{self, manual, Pair, Tree};
+
+    if (suggest || update) && rev.is_some() {
+        return Err(tr!("lvs_map.disk_only"));
+    }
+    let (root, configured) = lvs_configured(&repo, pair, &cell)?;
+    let tree = match rev {
+        None => Tree::disk(&root),
+        Some(r) => Tree::commit(&repo, r)?,
+    };
+    let (found, ambiguous) = lvs::pairs_checked(&tree.root, &configured);
+    for w in &ambiguous {
+        eprintln!("[!] {w}");
+    }
+    let pairs: Vec<Pair> = found.into_iter().map(|p| Pair { cell: p.cell.or_else(|| cell.clone()), ..p }).collect();
+    if pairs.is_empty() {
+        return Err(tr!("lvs.none_found"));
+    }
+    let version = rev.unwrap_or("worktree");
+    let (mut failed, mut pending) = (false, false);
+    let mut items = Vec::new();
+    for p in &pairs {
+        let mut s = match manual::load(&tree, p) {
+            Ok(s) => s,
+            Err(e) => {
+                failed = true;
+                if json {
+                    items.push(serde_json::json!({ "schematic": p.schematic, "layout": p.layout, "error": e }));
+                } else {
+                    println!("{}\n  {}\n", tr!("lvs_map.title", schematic = p.schematic, layout = p.layout, cell = "?", version = version), tr!("lvs.error", error = e));
+                }
+                continue;
+            }
+        };
+        let mut notes = Vec::new();
+        if suggest {
+            let new = manual::suggest(&s.map, &s.schematic, &s.layout);
+            let names: Vec<&str> = new.iter().map(|b| b.schematic.as_str()).collect();
+            notes.push(tr!("lvs_map.suggested", count = new.len(), names = names.join(", ")));
+            s.map.binds.extend(new);
+        }
+        let c = manual::check(&s.map, &s.schematic, &s.layout);
+        if update {
+            s.map = c.updated.clone();
+        }
+        if suggest || update {
+            let path = root.join(&s.map_path);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            std::fs::write(&path, s.map.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
+            notes.push(tr!("lvs_map.saved", file = s.map_path));
+            s.exists = true;
+        }
+        pending |= !c.clean();
+        if json {
+            let mut v = manual::check_json(&c, &s);
+            v["schematic"] = p.schematic.clone().into();
+            v["layout"] = p.layout.clone().into();
+            items.push(v);
+        } else {
+            print_lvs_map(p, &s, &c, version, &notes);
+        }
+    }
+    if json {
+        super::format::print_enveloped(&serde_json::json!({ "schema": manual::CHECK_SCHEMA, "version": version, "results": items }), true)?;
+    }
+    Ok(if failed {
+        Outcome::Failed
+    } else if pending {
+        Outcome::Functional
+    } else {
+        Outcome::Clean
+    })
+}
+
+/// Un resultado de `riku lvs --map` en texto.
+#[cfg(all(feature = "xschem", feature = "layout"))]
+fn print_lvs_map(p: &crate::lvs::Pair, s: &crate::lvs::manual::Session, c: &crate::lvs::manual::Check, version: &str, notes: &[String]) {
+    println!("{}", tr!("lvs_map.title", schematic = p.schematic, layout = p.layout, cell = s.cell, version = version));
+    for n in notes {
+        println!("  {n}");
+    }
+    if !s.exists {
+        println!("  {}", tr!("lvs_map.no_file", file = s.map_path));
+    }
+    let fingers: usize = c.bound.iter().map(|(_, f)| f.len()).sum();
+    println!(
+        "  {}",
+        tr!("lvs_map.progress", sch = c.bound.len(), sch_total = s.schematic.len(), lay = fingers, lay_total = s.layout.len())
+    );
+    if let Some(m) = c.moved {
+        let mirror = if m.orient >= 4 { tr!("lvs_map.mirrored") } else { String::new() };
+        let (dx, dy) = (format!("{:.3}", m.dx), format!("{:.3}", m.dy));
+        println!("  {}", tr!("lvs_map.moved", angle = (m.orient % 4) as u32 * 90, mirror = mirror, dx = dx, dy = dy, count = m.count));
+    }
+    if !c.by_connectivity.is_empty() {
+        println!("  {}", tr!("lvs_map.by_connectivity", names = c.by_connectivity.join(", ")));
+    }
+    for (d, what) in &c.models {
+        println!("  {}", tr!("lvs_map.model", device = d, what = what));
+    }
+    for (d, what) in &c.params {
+        println!("  {}", tr!("lvs_map.param", device = d, what = what));
+    }
+    for (n, ns) in &c.shorts {
+        println!("  {}", tr!("lvs_map.short", net = n, nets = ns.join(", ")));
+    }
+    for (n, ns) in &c.opens {
+        println!("  {}", tr!("lvs_map.open", net = n, nets = ns.join(", ")));
+    }
+    for (d, r) in &c.lost {
+        let at = format!("({:.3}, {:.3})", r.at[0], r.at[1]);
+        println!("  {}", tr!("lvs_map.lost", device = d, model = r.model, at = at));
+    }
+    for d in &c.unknown {
+        println!("  {}", tr!("lvs_map.unknown", device = d));
+    }
+    if !c.unbound_schematic.is_empty() {
+        println!("  {}", tr!("lvs_map.unbound_sch", names = c.unbound_schematic.join(", ")));
+    }
+    if !c.unbound_layout.is_empty() {
+        let list: Vec<String> = c
+            .unbound_layout
+            .iter()
+            .map(|&i| {
+                let d = &s.layout[i];
+                format!("{} ({:.3}, {:.3})", d.model.rsplit("__").next().unwrap_or(&d.model), d.at.0, d.at.1)
+            })
+            .collect();
+        println!("  {}", tr!("lvs_map.unbound_lay", list = list.join(", ")));
+    }
+    println!("  {}\n", if c.clean() { tr!("lvs_map.clean") } else { tr!("lvs_map.pending") });
+}
+
 /// Un resultado de `riku lvs` en texto.
 #[cfg(all(feature = "xschem", feature = "layout"))]
 fn print_lvs(r: &crate::lvs::Report, version: &str) {

@@ -15,11 +15,6 @@ path = "src/lib.rs"
 name = "riku"
 path = "src/main.rs"
 
-# Prueba del LVS manual (ver src/lvs/manual.rs).
-[[example]]
-name = "lvs_map"
-required-features = ["xschem", "layout"]
-
 [dependencies]
 clap = { version = "4.5.60", features = ["derive"] }
 # `riku completions <shell>`.

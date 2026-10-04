@@ -15,6 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::tr;
+
 /// Versión del archivo de vínculos.
 pub const SCHEMA: &str = "riku-lvs-map/v1";
 
@@ -58,7 +60,7 @@ impl MapFile {
     pub fn parse(text: &str) -> Result<Self, String> {
         let map: MapFile = toml::from_str(text).map_err(|e| e.to_string())?;
         if map.schema != SCHEMA {
-            return Err(format!("versión del archivo desconocida: {} (se espera {SCHEMA})", map.schema));
+            return Err(tr!("lvs_map.bad_schema", found = map.schema, want = SCHEMA));
         }
         Ok(map)
     }
@@ -570,6 +572,80 @@ pub fn check(map: &MapFile, sch: &[SchDevice], lay: &[LayDevice]) -> Check {
 fn fmt(v: f64) -> String {
     let s = format!("{v:.3}");
     s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+// ─── Un par en una versión ───────────────────────────────────────────────────
+
+/// El archivo de vínculos de una celda, relativo a la raíz del proyecto.
+pub fn map_path(cell: &str) -> String {
+    format!("lvs/{cell}.toml")
+}
+
+/// Los dos lados de un par en una versión y su archivo de vínculos.
+pub struct Session {
+    /// La celda comparada del layout.
+    pub cell: String,
+    /// Dónde va el archivo (relativo a la raíz).
+    pub map_path: String,
+    /// El archivo (uno vacío si todavía no existe).
+    pub map: MapFile,
+    pub exists: bool,
+    pub schematic: Vec<SchDevice>,
+    pub layout: Vec<LayDevice>,
+    pub warnings: Vec<String>,
+}
+
+/// [`Session`] de `pair` con los archivos de `tree`.
+pub fn load(tree: &crate::lvs::Tree, pair: &crate::lvs::Pair) -> Result<Session, String> {
+    use std::sync::Arc;
+    let files: Arc<dyn viewer_core::FileSource> = Arc::new(viewer_core::DiskFiles::new(tree.root.clone()));
+    let s = crate::lvs::schematic_netlist(pair, files.clone())?;
+    let places = &s.netlist.places;
+    let schematic = schematic_devices(&s.netlist.text, &s.stem, &|n| places.instance(n).map(str::to_string));
+    let bytes = files.read(&pair.layout).ok_or_else(|| format!("{}: {}", pair.layout, tr!("lvs.cannot_read")))?;
+    let ln = riku_mod_layout::nets::layout_netlist(&bytes, &pair.layout, Some(files.as_ref()), pair.cell.as_deref())?;
+    let layout = layout_devices(&ln);
+    let map_path = map_path(&ln.cell);
+    let (map, exists) = match std::fs::read_to_string(tree.root.join(&map_path)) {
+        Ok(text) => (MapFile::parse(&text).map_err(|e| format!("{map_path}: {e}"))?, true),
+        Err(_) => (MapFile::new(&pair.schematic, &pair.layout, pair.cell.as_deref()), false),
+    };
+    let mut warnings: Vec<String> = s.netlist.warnings.clone();
+    warnings.extend(ln.netlist.warnings.iter().cloned());
+    Ok(Session { cell: ln.cell, map_path, map, exists, schematic, layout, warnings })
+}
+
+/// Esquema del resultado en JSON.
+pub const CHECK_SCHEMA: &str = "riku-lvs-check/v1";
+
+/// El resultado en JSON: los transistores del layout como en el archivo
+/// (modelo y posición).
+pub fn check_json(c: &Check, s: &Session) -> serde_json::Value {
+    let refs = |idx: &[usize]| -> Vec<serde_json::Value> {
+        idx.iter().map(|&i| serde_json::json!({ "model": s.layout[i].model, "at": [s.layout[i].at.0, s.layout[i].at.1] })).collect()
+    };
+    let pairs = |v: &[(String, String)]| -> Vec<serde_json::Value> { v.iter().map(|(d, w)| serde_json::json!({ "device": d, "what": w })).collect() };
+    let groups = |v: &[(String, Vec<String>)]| -> Vec<serde_json::Value> { v.iter().map(|(n, ns)| serde_json::json!({ "net": n, "nets": ns })).collect() };
+    serde_json::json!({
+        "cell": s.cell,
+        "map": s.map_path,
+        "clean": c.clean(),
+        "schematic_devices": s.schematic.len(),
+        "layout_devices": s.layout.len(),
+        "bound": c.bound.iter().map(|(n, f)| serde_json::json!({ "schematic": n, "layout": refs(f) })).collect::<Vec<_>>(),
+        "moved": c.moved.map(|m| serde_json::json!({ "angle": (m.orient % 4) as u32 * 90, "mirrored": m.orient >= 4, "dx": m.dx, "dy": m.dy, "count": m.count })),
+        "by_connectivity": c.by_connectivity,
+        "models": pairs(&c.models),
+        "params": pairs(&c.params),
+        "shorts": groups(&c.shorts),
+        "opens": groups(&c.opens),
+        "lost": c.lost.iter().map(|(n, r)| serde_json::json!({ "schematic": n, "model": r.model, "at": r.at })).collect::<Vec<_>>(),
+        "unknown": c.unknown,
+        "unbound_schematic": c.unbound_schematic,
+        "unbound_layout": refs(&c.unbound_layout),
+        "nets": c.nets,
+        "warnings": s.warnings,
+    })
 }
 
 // ─── Sugerencias ─────────────────────────────────────────────────────────────
