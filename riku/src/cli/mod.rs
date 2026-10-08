@@ -14,6 +14,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::i18n::tr;
 
+mod banner;
 mod commands;
 mod demo;
 mod dispatch;
@@ -266,6 +267,8 @@ pub(crate) enum Commands {
         #[arg(long, help = tr!("help.demo_list"))]
         list: bool,
     },
+    #[command(about = tr!("help.about_cmd"))]
+    About,
     #[command(about = tr!("help.completions"))]
     Completions {
         #[arg(help = tr!("help.shell"))]

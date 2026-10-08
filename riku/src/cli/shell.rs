@@ -16,15 +16,6 @@ use crate::modules::xschem_pdk::{pdk_status, PdkStatus};
 use super::shell_complete::RikuHelper;
 use super::{Cli, Commands};
 
-const LOGO: &str = r#"
-    ██████╗ ██╗██╗  ██╗██╗   ██╗
-    ██╔══██╗██║██║ ██╔╝██║   ██║
-    ██████╔╝██║█████╔╝ ██║   ██║
-    ██╔══██╗██║██╔═██╗ ██║   ██║
-    ██║  ██║██║██║  ██╗╚██████╔╝
-    ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝
-"#;
-
 struct ShellContext {
     cwd: PathBuf,
     repo: Option<git2::Repository>,
@@ -144,7 +135,7 @@ pub(super) fn run_shell() -> Result<(), String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut ctx = ShellContext::new(cwd);
 
-    print!("{LOGO}");
+    super::banner::print(super::banner::detect());
     println!("{}", shell_status_line(&ctx));
     if ctx.repo.is_none() {
         println!("  [!] {}", tr!("shell.no_repo"));
@@ -326,6 +317,6 @@ fn resolve_for_shell(cmd: &mut Commands, ctx: &ShellContext) {
                 *d = ctx.cwd.join(&*d);
             }
         }
-        Commands::Gui { .. } | Commands::Completions { .. } => {}
+        Commands::Gui { .. } | Commands::Completions { .. } | Commands::About => {}
     }
 }

@@ -193,6 +193,16 @@ impl Commands {
 
             Commands::Demo { name, dir, list } => super::demo::run(name, dir, list).map(|_| Outcome::Ok),
 
+            Commands::About => {
+                // Aquí siempre algo: sin terminal (o sin colores), el texto.
+                let mode = match super::banner::detect() {
+                    super::banner::Mode::Off => super::banner::Mode::Text,
+                    m => m,
+                };
+                super::banner::print(mode);
+                Ok(Outcome::Ok)
+            }
+
             Commands::Completions { shell } => {
                 use clap::CommandFactory;
                 let mut cmd = super::Cli::command();
