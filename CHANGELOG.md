@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-08
+
+### Added
+
+- `riku about` shows the seal of the National University of Engineering (UNI, Lima, Peru), the version and the authors (Carlos Cueva and Amado Frias, electronic engineers). The interactive shell shows the same banner when it starts, instead of the RIKU wordmark. The seal is drawn as a Sixel image when the terminal supports it (Windows Terminal 1.22+, WezTerm, foot, Konsole, mlterm…), in maroon braille dots otherwise, or as text without colors; `RIKU_BANNER=sixel|braille|text|off` forces one.
+
 ### Changed
 
 - The documentation is rewritten in English, for users (getting started, CLI reference, scripting, configuration, viewer, formats, LVS) and for contributors (architecture, development, design notes, roadmap).
@@ -78,6 +84,7 @@ First release with the current version numbering. Versions were reset on 2026-09
 - English and Spanish (`RIKU_LANG=es`).
 - A single Linux x86_64 executable that depends only on glibc, distributed as `.tar.gz` and `.deb` with an install script.
 
-[Unreleased]: https://github.com/riku-chip/riku_chip/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/riku-chip/riku_chip/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/riku-chip/riku_chip/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/riku-chip/riku_chip/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/riku-chip/riku_chip/releases/tag/v0.1.0
