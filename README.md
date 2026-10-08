@@ -1,44 +1,85 @@
 <div align="center">
 
+<img src="packaging/riku.svg" alt="Riku logo" width="96">
+
 # Riku
 
-**VCS semántico para diseño de chips.**
-Revisa cambios en esquemáticos, layouts y simulaciones al nivel del circuito, no del texto.
+**Semantic version control for chip design, on top of Git.**
+
+Review changes to schematics, layouts and simulations at the level of the circuit, not the text.
 
 [![CI](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml/badge.svg)](https://github.com/riku-chip/riku_chip/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/riku-chip/riku_chip)](https://github.com/riku-chip/riku_chip/releases)
-[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64-lightgrey)](#instalación)
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64-lightgrey)](#installation)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+[Getting started](https://github.com/riku-chip/riku_chip/blob/main/docs/getting-started.md) ·
+[Commands](https://github.com/riku-chip/riku_chip/blob/main/docs/cli.md) ·
+[Viewer](https://github.com/riku-chip/riku_chip/blob/main/docs/viewer.md) ·
+[Formats](https://github.com/riku-chip/riku_chip/blob/main/docs/formats.md) ·
+[LVS](https://github.com/riku-chip/riku_chip/blob/main/docs/lvs.md)
 
 </div>
 
-Un `git diff` sobre un esquemático de Xschem muestra coordenadas; sobre un GDS, `Binary files differ`. Riku lee las versiones del historial de Git y dice lo que importa:
+---
 
-- **Esquemáticos (Xschem):** componentes añadidos, eliminados, renombrados o con otro valor; nets conectadas o desconectadas; si fue solo un reordenamiento visual.
-- **Layouts (GDS, OASIS, Magic):** qué área cambió, en qué capa y celda, y si viene de una sub-celda instanciada. En Magic, con capas por nombre, sub-celdas del mismo commit y puertos. En SKY130, GF180MCU e IHP, además, qué transistores cambiaron de modelo, W o L, y qué redes se **abrieron o se cortaron**.
-- **Simulaciones (ngspice `.raw`):** qué señales cambiaron y cuánto, separando el ruido numérico.
+`git diff` on an Xschem schematic shows moved coordinates. On a GDS it says `Binary files differ`.
+Riku reads the versions stored in your Git history and tells you what actually changed in the circuit:
 
-Todo en la terminal (texto o JSON para scripts y CI) y en un **visor** de escritorio con las versiones antes/después. No hace falta tener Xschem, KLayout ni Magic instalados.
+```text
+$ riku show HEAD~3
+commit 120ee0b  (parent ad104a7)
 
-| Formato | Extensión | Diff | Visor |
-|---|---|---|:-:|
-| Xschem | `.sch` (`.sym` solo en el visor) | semántico | ✓ |
-| GDSII / OASIS | `.gds`, `.oas` | geométrico (XOR); transistores y redes con el PDK | ✓ |
-| Magic | `.mag` | geométrico, puertos, transistores y redes, con la jerarquía del mismo commit | ✓ |
-| ngspice | `.raw` | formas de onda, con tolerancia | ✓ (curvas) |
+    Layout: route Vout to the left edge
 
-## Instalación
+File     : layout/ota-5t.gds
+Changes  : 2
 
-Un solo ejecutable, `riku` (CLI, shell y visor), para Linux x86_64 con glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+, iic-osic-tools):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh   # en ~/.local/bin
+  ! ota-5t:net:Vout = Vp
+      short (nets joined): Vout, Vp → Vout = Vp
+      bbox: (-5.600, -0.560) → (-0.400, 9.550) µm
+  + ota-5t:L70/20
+      +1 polys / +6.716 µm²
 ```
 
-`sh -s -- v0.1.0` instala una versión concreta y `sudo sh -s -- latest --system` la deja en `/usr/local/bin`. También están el `.tar.gz` y el `.deb` en [Releases](https://github.com/riku-chip/riku_chip/releases). Para compilar desde el código, ver [`docs/desarrollo.md`](docs/desarrollo.md).
+A new piece of metal shorted two nets. Riku found it from the layout alone, and it marks it as an error
+(`!`) in the terminal, in the viewer and in JSON for CI.
 
-## Probar en un minuto
+## What it understands
 
-`riku demo` crea proyectos de ejemplo con historia real (repos Git) en `~/riku-demos`, para ver Riku sin un diseño propio:
+| Format | Files | What Riku reports |
+|---|---|---|
+| **Xschem** | `.sch` (`.sym` in the viewer) | Components added, removed, renamed or with new parameters; nets connected or disconnected; whether a change was only a visual rearrangement |
+| **GDSII / OASIS** | `.gds`, `.oas` | Which area changed, on which layer and cell, and whether it comes from an instantiated sub-cell. With SKY130, GF180MCU or IHP SG13G2: transistors whose model, W or L changed, and nets that were **opened or shorted** |
+| **Magic** | `.mag` | The same, with Magic's layer names, sub-cells from the same commit, and port changes |
+| **ngspice** | `.raw` | Which signals changed and by how much, separating numerical noise; computed measurements with ngspice syntax |
+
+It also checks a **layout against its schematic (LVS)** at any commit, and shows everything in a
+**desktop viewer** with before/after views. Xschem, KLayout and Magic do not need to be installed.
+
+## Installation
+
+Riku ships as a single executable, `riku` (command line, interactive shell and viewer), for Linux x86_64
+with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh
+```
+
+This installs the latest release into `~/.local/bin` and verifies its checksum. Variants:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.2.0               # a specific version
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sudo sh -s -- latest --system  # into /usr/local/bin
+```
+
+The `.tar.gz` and `.deb` packages are also on the [Releases](https://github.com/riku-chip/riku_chip/releases)
+page. To build from source, see [`docs/dev/development.md`](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/development.md).
+
+## Try it in a minute
+
+`riku demo` creates example projects with a real Git history in `~/riku-demos`, so you can explore Riku
+without a design of your own:
 
 ```bash
 riku demo
@@ -46,88 +87,77 @@ cd ~/riku-demos/ota
 riku log --graph
 ```
 
-| Demo | Qué tiene |
-|---|---|
-| `ota` | Un amplificador OTA de SKY130 con esquemático, testbench, layout y simulación: 11 commits, una rama con merge, un transistor más ancho y un corto en el layout que después se arregla |
-| `sram` | Una SRAM 16×8 de OpenRAM (SKY130): un cambio en la celda de bit que aparece en sus 153 instancias, una celda renombrada y relleno de metal en una rama |
-| `inversor` | Un inversor de 5 V en Magic y Xschem (SKY130): capas por su nombre de Magic, un transistor que cambia en su sub-celda visto desde la de arriba, puertos que cambian de clase, un abierto y su arreglo, una re-grabación que solo toca los `timestamp`, y el LVS en cada commit (`riku log --graph --lvs`) |
-| `chip` | Una SRAM de 1 KB de OpenRAM (SKY130, GDS de 9,9 MB, 8 192 celdas de bit): para ver cuánto tarda Riku con un layout grande; el README trae los tiempos medidos |
-
-Cada uno trae un `README.md` con qué probar. Los ejemplos de abajo salen de `ota`, con `RIKU_LANG=es` (la salida está en inglés por defecto).
-
-## Comandos
-
-Riku trabaja sobre un repositorio Git: se crea y se commitea con `git`, y Riku solo lee. Todos los comandos funcionan también dentro del shell interactivo (`riku`, con Tab para completar).
-
-### `riku log`: el historial, con qué cambió en cada commit
-
 ```text
-$ riku log --graph
+● 421f72d (HEAD, main, v1.0)  Rename the tail node: node -> tail
+│   xschem/ota-5t.sch  3 components modified, 1 net added, 1 net removed
+● d4e936d  Testbench: 2 pF load
+│   sim/ota-5t_tb.raw  38 signals changed
+│   xschem/ota-5t_tb.sch  1 component modified
+● 6184836  Fix: the Vout route no longer touches Vp
+│   layout/ota-5t.gds  1 component removed, 1 net modified
 ● 120ee0b  Layout: route Vout to the left edge
-│   layout/ota-5t.gds  1 corto, 1 componente añadido
+│   layout/ota-5t.gds  1 short, 1 component added
 ○   ad104a7 [merge]  Merge branch 'narrow-input-pair'
 ├─╮
 ● │ 6568371  Tidy up the schematic (move everything)
-│ │   xschem/ota-5t.sch  (solo cambios cosméticos)
-│ ● 0f05efe  Narrower input pair: M3, M4 W 20u -> 18u
-│ │   sim/ota-5t_tb.raw  71 señales cambiaron
-│ │   xschem/ota-5t.sch  2 componentes modificados
-├─╯
+│ │   xschem/ota-5t.sch  (cosmetic changes only)
+…
 ```
 
-Los cortos y abiertos van primero y en rojo. `riku log amp.sch` muestra solo los commits que tocan ese archivo.
+| Demo | What it contains |
+|---|---|
+| `ota` | A 5-transistor OTA in SKY130: schematic, testbench, layout and simulation. 11 commits, a branch, a short in the layout and its fix |
+| `sram` | A 16×8 OpenRAM SRAM in SKY130: a sub-cell change seen in every instance, a renamed cell, metal fill on a branch |
+| `inversor` | A 5 V inverter in Magic and Xschem: Magic layer names, a transistor changed inside its sub-cell, port classes, an open and its fix |
+| `chip` | A 1 KB OpenRAM SRAM (9.9 MB GDS, 8,192 bitcells), to see how Riku performs on a large layout |
 
-### `riku show`: el detalle de un commit
+Each demo has a `README.md` with things to try. The [getting started guide](https://github.com/riku-chip/riku_chip/blob/main/docs/getting-started.md) walks through them.
 
-Un parámetro que cambió en el esquemático:
+## A quick tour
+
+Riku works on any Git repository: you create and commit with `git`, Riku only reads. Every command also
+works inside the interactive shell (`riku` with no arguments, with Tab completion).
+
+**`riku log`** — the history, with what changed in each commit. Shorts and opens come first, in red.
+
+**`riku show`** — the details of one commit. A parameter changed in the schematic:
 
 ```text
 $ riku show HEAD~7
-Archivo  : xschem/ota-5t.sch
+…
+File     : xschem/ota-5t.sch
+Changes  : 2
+
   ~ M1
       W: 2 → 4
   ~ M2
       W: 2 → 4
 ```
 
-En el layout, los transistores que cambiaron de tamaño (se reconocen con las reglas del PDK):
+Transistors whose size changed in the layout, recognized with the PDK's own rules:
 
 ```text
 $ riku show narrow-input-pair
-Archivo  : layout/ota-5t.gds
+File     : layout/ota-5t.gds
+Changes  : 7
+
   - ota-5t:L65/20
       -1 polys / -3.050 µm²
-      bbox: (-0.400, 5.600) → (5.700, 6.100) µm
   ~ ota-5t:sky130_fd_pr__nfet_01v8 @ (0.150, 3.367)
       w_um: 5.000 → 4.500
+  …
 ```
 
-Y lo que un diff de área no ve: un metal nuevo que une dos redes.
-
-```text
-$ riku show HEAD~3
-Archivo  : layout/ota-5t.gds
-  ! ota-5t:net:Vout = Vp
-      corto (redes unidas): Vout, Vp → Vout = Vp
-      bbox: (-5.600, -0.560) → (-0.400, 9.550) µm
-  + ota-5t:L70/20
-      +1 polys / +6.716 µm²
-```
-
-El commit siguiente lo arregla: `redes separadas (corto resuelto): Vout = Vp → Vout, Vp`.
-
-### `riku diff`: entre dos versiones cualesquiera
-
-Como `git diff`: sin argumentos compara el disco contra el último commit; con dos versiones (commits, ramas o tags), entre ellas; con un archivo, solo ese.
+**`riku diff`** — like `git diff`: the working tree against `HEAD`, or any two commits, branches or tags.
 
 ```bash
-riku diff                                   # el disco contra HEAD, todos los archivos
-riku diff v0.1 v1.0                         # todo lo que cambió entre dos tags
-riku diff v0.1 v1.0 layout/ota-5t.gds -f visual   # en el visor
-riku diff v0.1 v1.0 -f json                 # para scripts y CI
+riku diff                                          # working tree vs HEAD, every file
+riku diff v0.1 v1.0                                # everything between two tags
+riku diff v0.1 v1.0 layout/ota-5t.gds -f visual    # one file, in the viewer
+riku diff v0.1 v1.0 -f json                        # typed JSON for scripts and CI
 ```
 
-En una simulación, cuánto cambió cada señal, o una medida calculada con la sintaxis de ngspice:
+In a simulation, a measurement computed with ngspice syntax:
 
 ```text
 $ riku diff v0.1 v1.0 sim/ota-5t_tb.raw --expr "ac: a0 = max(db(v(vout)))"
@@ -136,66 +166,59 @@ $ riku diff v0.1 v1.0 sim/ota-5t_tb.raw --expr "ac: a0 = max(db(v(vout)))"
       38.292 dB → 38.881 dB · Δ 0.589 dB (1.51 %)  (AC Analysis)
 ```
 
-En JSON, cada cambio es tipado, y los abiertos y cortos llevan `"severity": "error"`:
+**`riku status`** — what changed on disk, classified as functional or cosmetic. It exits with `1` when
+there are functional changes, so it fits in hooks and CI.
 
-```json
-{
-  "kind": "modified",
-  "element": { "type": "layout_net", "cell": "ota-5t", "name": "Vout = Vp" },
-  "details": [
-    { "key": "kind", "after": "short" },
-    { "key": "nets", "before": "Vout, Vp", "after": "Vout = Vp" }
-  ],
-  "location": { "min_x": -5.6, "min_y": -0.56, "max_x": -0.4, "max_y": 9.55 },
-  "severity": "error"
-}
-```
-
-### `riku status`: qué cambió en el disco
+**`riku lvs`** — checks the layout against the schematic using transistor links stored next to the design
+in `lvs/<cell>.toml`. `riku lvs --suggest` proposes the links it can deduce:
 
 ```text
-$ riku status
-En rama main (HEAD 421f72d)
-
-Modificados con cambios semánticos:
-  xschem/ota-5t.sch    1 componente modificado
+$ riku lvs --suggest
+Manual LVS  xschem/ota-5t.sch ↔ layout/ota-5t.gds (ota-5t) · worktree
+  9 links suggested: M4, M3, M6, M7, M8, M9, M1, M2, M5
+  → lvs/ota-5t.toml
+  Linked: 9 of 9 schematic transistors · 24 of 24 in the layout
+  different parameter in M1: W 4 ≠ 2
+  …
 ```
 
-`--ci` termina con error si hay cambios funcionales; `-f json` da la misma información para scripts.
+**`riku open`** — the desktop viewer: before/after views of any diff, the commit graph (press **H**),
+transistors and net highlighting on layouts, waveforms, and a side-by-side LVS view.
 
-### `riku open`: el visor
-
-`riku open` abre el visor del proyecto, y `riku open layout/ota-5t.gds` un archivo. En un diff muestra las dos versiones superpuestas, con los cambios listados y un clic para encuadrar cada uno. En un layout también muestra:
-- la capa de transistores;
-- la red del polígono bajo el cursor;
-- un clic para resaltar una red entera.
-
-**H** abre el historial. Todos los controles: [`docs/gui.md`](docs/gui.md).
-
-### Otros
-
-| Comando | Qué hace |
+| More commands | |
 |---|---|
-| `riku render archivo -o imagen.png` | Una imagen (PNG o SVG) de un archivo o de una versión (`--rev`), sin ventana |
-| `riku doctor` | Revisa el entorno: el repo, el PDK y qué formatos se pueden comparar |
-| `riku demo [--list]` | Los proyectos de ejemplo |
-| `riku completions bash` | Autocompletado para bash, zsh, fish, powershell o elvish |
+| `riku render FILE -o image.png` | An image (PNG or SVG) of a file or of a version (`--rev`), without a window |
+| `riku doctor` | Checks the environment: the repository, the PDK and which formats can be compared |
+| `riku demo [--list]` | The example projects |
+| `riku completions bash` | Shell completion for bash, zsh, fish, PowerShell or elvish |
 
-Todas las opciones, el JSON y los códigos de salida: [`docs/cli.md`](docs/cli.md).
+## Documentation
 
-## Documentación
-
-| | |
+| Guide | |
 |---|---|
-| [`docs/cli.md`](docs/cli.md) | Comandos, JSON, códigos de salida, `.riku.toml` |
-| [`docs/gui.md`](docs/gui.md) | El visor |
-| [`docs/formatos.md`](docs/formatos.md) | Qué compara cada formato: Xschem, layouts (GDS/OASIS/Magic, con transistores y redes) y simulaciones |
-| [`docs/desarrollo.md`](docs/desarrollo.md) | Compilar, probar, verificar (KLayout, Magic, Netgen), arquitectura, reglas y publicar |
-| [`docs/arquitectura.html`](docs/arquitectura.html) | Diagrama interactivo de la arquitectura: CLI y visor, núcleo, módulos por formato, motor de layouts y PDK (descargarlo y abrirlo en el navegador) |
-| [`docs/pendientes.md`](docs/pendientes.md) | Lo que falta: pendientes, ideas (LVS, chequeos eléctricos) y limitaciones |
+| [Getting started](https://github.com/riku-chip/riku_chip/blob/main/docs/getting-started.md) | Install, the demos, and a guided tour |
+| [Command reference](https://github.com/riku-chip/riku_chip/blob/main/docs/cli.md) | Every command and option |
+| [Scripting and CI](https://github.com/riku-chip/riku_chip/blob/main/docs/scripting.md) | JSON output, exit codes, CI recipes |
+| [Configuration](https://github.com/riku-chip/riku_chip/blob/main/docs/configuration.md) | `.riku.toml`, environment variables, PDK discovery, caches |
+| [Viewer](https://github.com/riku-chip/riku_chip/blob/main/docs/viewer.md) | The desktop viewer |
+| [Formats](https://github.com/riku-chip/riku_chip/blob/main/docs/formats.md) | What is compared in each file format, and the limits |
+| [LVS](https://github.com/riku-chip/riku_chip/blob/main/docs/lvs.md) | Layout versus schematic, at any commit |
 
-**Estado:** alpha. Los tres tipos de archivo funcionan de punta a punta; los layouts de millones de polígonos se comparan en segundos y con menos de 1 GB. Para contribuir: `cargo test --workspace` en verde y commits `tipo(alcance): …`.
+For contributors: [CONTRIBUTING.md](https://github.com/riku-chip/riku_chip/blob/main/CONTRIBUTING.md),
+[architecture](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/architecture.md),
+[development](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/development.md),
+[design notes](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/design-notes.md) and the
+[roadmap](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/roadmap.md). Release history:
+[CHANGELOG.md](https://github.com/riku-chip/riku_chip/blob/main/CHANGELOG.md).
 
-## Licencia
+## Status
 
-[Apache-2.0](LICENSE), la misma que [`xschem-viewer-rust`](https://github.com/carloscl03/xschem-viewer-rust), el motor de Xschem. El motor de layouts, [`gdstk_rust`](https://github.com/Adriel2503/gdstk_rust), mantiene la de gdstk (Boost 1.0), compatible con esta.
+Riku is **alpha**. The three file types work end to end, and the command-line output and JSON schemas are
+versioned. Expect rough edges; [issues](https://github.com/riku-chip/riku_chip/issues) and pull requests
+are welcome.
+
+## License
+
+[Apache-2.0](LICENSE), the same as [`xschem-viewer-rust`](https://github.com/carloscl03/xschem-viewer-rust),
+the Xschem engine. The layout engine, [`gdstk_rust`](https://github.com/Adriel2503/gdstk_rust), keeps
+gdstk's license (Boost Software License 1.0), which is compatible.
