@@ -1,5 +1,5 @@
 //! Transistores de un layout: su modelo, W y L, reconocidos con las reglas
-//! del `.tech` de Magic del PDK (ver `docs/formatos.md`, «Transistores y redes»).
+//! del `.tech` de Magic del PDK (ver `docs/formats.md`, «Transistors and nets»).
 
 mod devices_generated;
 mod diff;

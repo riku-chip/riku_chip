@@ -2,7 +2,7 @@
 name = "riku"
 version = "0.2.0"
 edition = "2024"
-description = "VCS semantico para diseno de chips"
+description = "Semantic version control for chip design, on top of Git"
 authors = ["euler <carlos.cuevaleon@gmail.com>", "Adriel2503 <Adriel2503@users.noreply.github.com>"]
 license = "Apache-2.0"
 default-run = "riku"
@@ -82,7 +82,7 @@ tempfile = "3.27.0"
 name = "riku"
 section = "electronics"
 priority = "optional"
-extended-description = "Diff semántico de esquemáticos Xschem, diff geométrico de layouts GDS/OASIS/Magic y de simulaciones de ngspice entre commits de Git, con visor de escritorio (riku gui)."
+extended-description = "Reviews changes between Git commits at circuit level: semantic diff of Xschem schematics, geometric and electrical diff of GDS/OASIS/Magic layouts (transistors, opens and shorts), waveform diff of ngspice results, layout-versus-schematic checks, and a desktop viewer (riku gui)."
 depends = "$auto"
 assets = [
     ["target/release/riku", "usr/bin/", "755"],

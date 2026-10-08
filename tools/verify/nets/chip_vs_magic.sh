@@ -9,7 +9,7 @@
 # Resultado del 2026-10-04: la topología coincide salvo en el bitcell de
 # doble puerto de OpenRAM (`sky130_fd_bd_sram__openram_dp_cell`), donde Riku
 # y Magic ya difieren con la extracción plana de esa sola celda (ver
-# `docs/pendientes.md`).
+# `docs/dev/roadmap.md`).
 set -u
 DEMO=$1
 WORK=${2:-$(mktemp -d)}

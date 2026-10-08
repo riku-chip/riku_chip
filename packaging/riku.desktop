@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Riku
-GenericName=Visor y diff de diseños de chips
-Comment=Esquemáticos Xschem y layouts GDS/OASIS con diff entre commits
+GenericName=Chip design viewer and diff
+GenericName[es]=Visor y diff de diseños de chips
+Comment=Xschem schematics and GDS/OASIS/Magic layouts, with diffs between commits
+Comment[es]=Esquemáticos Xschem y layouts GDS/OASIS/Magic con diff entre commits
 Exec=riku gui %f
 Icon=riku
 Terminal=false

@@ -1,4 +1,4 @@
-//! La memoria del proceso (ver `docs/ronda-5/design.md`, D21): el resumen de
+//! La memoria del proceso (ver `docs/dev/design-notes.md`, D21): el resumen de
 //! cada celda por su [`NetKey`], compartido entre los dos lados de un diff,
 //! los commits de un `log` y las celdas que abre el visor; y las vecindades
 //! entre dos hijas. Con un tope en bytes estimados: al pasarlo se saca lo

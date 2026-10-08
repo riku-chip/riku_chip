@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
-# Instala riku desde el .tar.gz de un release.
+# Installs riku from a release .tar.gz.
 #
-#   ./install.sh            # en ~/.local/bin (sin sudo)
-#   sudo ./install.sh --system   # en /usr/local/bin
+#   ./install.sh                 # into ~/.local/bin (no sudo)
+#   sudo ./install.sh --system   # into /usr/local/bin
 #   ./install.sh --uninstall [--system]
 set -eu
 
@@ -15,7 +15,7 @@ fi
 
 if [ "${1:-}" = "--uninstall" ]; then
     rm -f "$BIN/riku" "$SHARE/applications/riku.desktop" "$SHARE/icons/hicolor/scalable/apps/riku.svg"
-    echo "riku desinstalado de $BIN"
+    echo "riku uninstalled from $BIN"
     exit 0
 fi
 
@@ -24,9 +24,9 @@ install -m 755 "$HERE/riku" "$BIN/riku"
 install -m 644 "$HERE/riku.desktop" "$SHARE/applications/riku.desktop"
 install -m 644 "$HERE/riku.svg" "$SHARE/icons/hicolor/scalable/apps/riku.svg"
 
-echo "riku instalado en $BIN/riku"
+echo "riku installed to $BIN/riku"
 case ":$PATH:" in
     *":$BIN:"*) ;;
-    *) echo "Agrega $BIN al PATH, por ejemplo: echo 'export PATH=\"$BIN:\$PATH\"' >> ~/.bashrc" ;;
+    *) echo "Add $BIN to your PATH, for example: echo 'export PATH=\"$BIN:\$PATH\"' >> ~/.bashrc" ;;
 esac
 "$BIN/riku" --version

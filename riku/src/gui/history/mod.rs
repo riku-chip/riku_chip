@@ -1,6 +1,6 @@
 //! Panel **History**: el historial del repo con el grafo de ramas, el
 //! resumen semántico de cada commit y, a un clic, el diff de un archivo en el
-//! lienzo. Uso: `docs/gui.md`, "Historial".
+//! lienzo. Uso: `docs/viewer.md`, \"History\".
 //!
 //! - Datos en dos fases, en hilos aparte: primero commits y grafo (solo Git,
 //!   al instante), después los resúmenes (el análisis en paralelo de 6.6).

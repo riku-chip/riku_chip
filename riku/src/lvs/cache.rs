@@ -2,7 +2,7 @@
 //! para una versión (un commit o el working tree) solo si cada archivo que
 //! leyó la corrida tiene el mismo contenido en esa versión, los que buscó y
 //! no encontró siguen sin estar, y el entorno (PDK, Netgen, versiones) es el
-//! mismo. Ver `docs/ronda-3/design.md` (D10).
+//! mismo. Ver `docs/dev/design-notes.md` (D10).
 //!
 //! Los archivos del proyecto pasan todos por un [`FileSource`] (también los
 //! que pide el netlister de `xschem-viewer-rust`), así que se registran con

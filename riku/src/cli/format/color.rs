@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 /// Cuándo poner color (`--color`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum ColorMode {
-    /// Terminal, sin `NO_COLOR`; o `CLICOLOR_FORCE=1`.
+    // Terminal, sin `NO_COLOR`; o `CLICOLOR_FORCE=1` (`//`: clap tomaría `///` como ayuda).
     #[default]
     Auto,
     Always,

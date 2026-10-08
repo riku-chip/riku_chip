@@ -1,5 +1,5 @@
 //! Abiertos, cortos y transistores que cambiaron en una celda, comparando
-//! sus resúmenes de las dos versiones (ver `docs/ronda-5/design.md`, D22).
+//! sus resúmenes de las dos versiones (ver `docs/dev/design-notes.md`, D22).
 //!
 //! Se compara al nivel de la celda: sus redes (las propias y las de sus
 //! hijas) y sus transistores propios. Las anclas son las de siempre (las

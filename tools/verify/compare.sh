@@ -5,7 +5,7 @@
 #   tools/verify/compare.sh lib.gds [otra.oas]    # librerias propias
 #   tools/verify/compare.sh --xor a.gds b.gds CELDA
 #
-# Sale con codigo 1 si alguna comparacion difiere. Ver README.md.
+# Sale con codigo 1 si alguna comparacion difiere. Ver docs/dev/development.md, "Verification".
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

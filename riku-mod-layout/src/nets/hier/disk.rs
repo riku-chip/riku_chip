@@ -1,4 +1,4 @@
-//! La memoria en disco (ver `docs/ronda-5/design.md`, D21): el resumen de
+//! La memoria en disco (ver `docs/dev/design-notes.md`, D21): el resumen de
 //! una celda en `<caché>/nets/<huella>.json`, para otra corrida. Solo los que
 //! tardaron en armarse; con tope de tamaño (se borra lo más viejo) y sin
 //! errores para el usuario: una entrada ilegible se borra y se recalcula.

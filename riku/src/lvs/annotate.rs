@@ -1,6 +1,6 @@
 //! El LVS dentro de `riku log --lvs` (cada commit contra su primer padre) y
 //! de `riku status --lvs` (el working tree contra `HEAD`). Ver
-//! `docs/ronda-3/design.md` (D11, D12).
+//! `docs/dev/design-notes.md` (D11, D12).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

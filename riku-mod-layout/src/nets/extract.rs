@@ -1,5 +1,5 @@
 //! Redes de una celda aplanada, a partir de la región de cada tipo de Magic
-//! (ver `docs/formatos.md`, «Transistores y redes»):
+//! (ver `docs/formats.md`, «Transistors and nets»):
 //!
 //! 1. **Pedazos:** cada polígono de la unión de un tipo.
 //! 2. **Conexiones:** dos pedazos de tipos que `connect` une (en Magic,

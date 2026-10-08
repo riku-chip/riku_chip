@@ -87,11 +87,11 @@ pub struct GdsDiffReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<crate::mag::PortChange>,
     /// Transistores que cambiaron, en las celdas con cambios de geometría
-    /// (ver `docs/formatos.md`, «Transistores y redes»).
+    /// (ver `docs/formats.md`, «Transistors and nets»).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub devices: Vec<crate::devices::DeviceChange>,
     /// Abiertos, cortos y renombres de redes, en las celdas con cambios en
-    /// una capa conductora (ver `docs/formatos.md`, «Transistores y redes»).
+    /// una capa conductora (ver `docs/formats.md`, «Transistors and nets»).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nets: Vec<crate::nets::NetChange>,
     pub warnings: Vec<String>,

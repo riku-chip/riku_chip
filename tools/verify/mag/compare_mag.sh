@@ -8,7 +8,7 @@
 #
 # Diferencias esperadas, que no cuentan: capas que Riku deja fuera
 # (checkpaint, error_*, ...) y que KLayout lee como capas comunes.
-# Sale con código 1 si alguna capa difiere. Ver ../README.md.
+# Sale con código 1 si alguna capa difiere. Ver docs/dev/development.md, "Verification".
 set -euo pipefail
 export LC_ALL=C
 

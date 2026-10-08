@@ -1,6 +1,6 @@
 //! `riku demo`: proyectos de ejemplo con historia, para probar Riku sin un
 //! diseño propio. Cada uno es un repo Git empaquetado (`git bundle`) dentro
-//! del ejecutable; se generan con `tools/demos/` (ver `docs/desarrollo.md`).
+//! del ejecutable; se generan con `tools/demos/` (ver `docs/dev/development.md`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -1,4 +1,4 @@
-//! El resumen de cada celda (ver `docs/ronda-5/design.md`, D20): su
+//! El resumen de cada celda (ver `docs/dev/design-notes.md`, D20): su
 //! geometría propia extraída como siempre (`cell_nets_with`), sus
 //! instancias con la transformación y, por instancia, a qué red de la celda
 //! va cada red de la hija. Se arma de las hojas a la raíz.

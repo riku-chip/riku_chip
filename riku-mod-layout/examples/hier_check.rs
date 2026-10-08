@@ -1,5 +1,5 @@
 //! Extrae una celda de las dos maneras, plana y jerárquica, y las compara
-//! (ver `docs/ronda-5/design.md`, D20.5).
+//! (ver `docs/dev/design-notes.md`, D20.5).
 //!
 //! ```text
 //! hier_check <layout.gds|.oas|.mag> [celda]

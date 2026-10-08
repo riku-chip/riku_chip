@@ -1,5 +1,5 @@
 # Textos de Riku en español. El inglés (en.yml) es el idioma por defecto y el de
-# respaldo si falta una traducción. Ver docs/desarrollo.md, "Traducciones".
+# respaldo si falta una traducción. Ver docs/dev/development.md, "Translations".
 
 _version: 1
 
@@ -136,10 +136,10 @@ shell.h_open: "abrir el visor"
 shell.h_env: "Entorno:"
 shell.h_doctor: "verificar PDK, repo y formatos soportados"
 shell.h_exit: "salir"
-shell.h_more: "Todos los comandos aceptan -f json y --help (p. ej. 'diff --help')."
+shell.h_more: "Todos los comandos aceptan --help (p. ej. 'diff --help'); diff, show, log, status, lvs y doctor aceptan además -f json."
 help.about: "Riku: diff semántico de diseños de chips sobre Git"
 help.long_about: "Riku compara versiones de un diseño de chip guardado en Git: esquemáticos de Xschem (.sch), layouts (.gds, .oas, .mag) y simulaciones de ngspice (.raw). Sin comando abre un shell interactivo."
-help.examples_main: "Ejemplos:\n  riku status                      qué cambió en el disco respecto a HEAD\n  riku diff                        el detalle de esos cambios\n  riku diff HEAD~1 HEAD amp.sch    un archivo entre dos commits\n  riku show HEAD -f json           el último commit, en JSON\n  riku log -n 10 --graph           historial con el grafo de ramas\n  riku doctor -f json              formatos soportados y entorno\n\nPara scripts y agentes: -f json en todos los comandos (con `schema`);\ncódigos 0 sin cambios, 1 cambios funcionales, 2 error con --ci (status siempre).\nIdioma: RIKU_LANG=en para inglés."
+help.examples_main: "Ejemplos:\n  riku status                      qué cambió en el disco respecto a HEAD\n  riku diff                        el detalle de esos cambios\n  riku diff HEAD~1 HEAD amp.sch    un archivo entre dos commits\n  riku show HEAD -f json           el último commit, en JSON\n  riku log -n 10 --graph           historial con el grafo de ramas\n  riku doctor -f json              formatos soportados y entorno\n\nPara scripts y agentes: -f json en diff, show, log, status, lvs y doctor (con `schema`);\ncódigos 0 sin cambios, 1 cambios funcionales, 2 error con --ci (status siempre).\nIdioma: RIKU_LANG=en para inglés."
 help.jobs: "Hilos para el trabajo pesado (diff de layouts, carga del visor). Por defecto, los núcleos disponibles (también: RIKU_JOBS). Se fija al arrancar; en el shell no cambia."
 help.repo: "Repositorio (por defecto, la carpeta actual)."
 help.diff: "Compara dos versiones (commits o el working tree), de un archivo o de todos."
@@ -148,7 +148,7 @@ help.format_diff: "text, json (schema riku-diff/v2; riku-diff-set/v1 sin archivo
 help.cosmetic: "Área en µm² bajo la cual un cambio de layout es cosmético (sub-DRC). Por defecto 0.01 µm² (debajo del piso DRC de PDKs como sky130 y gf180), o la de .riku.toml. Los demás formatos lo ignoran."
 help.tolerance: "Tolerancia de formas de onda: fracción del rango de cada señal (0.005) o porcentaje (0.5%). Por defecto 0,1 %, o la de .riku.toml."
 help.no_cache: "No usar ni guardar la cache de diffs de layouts grandes (también: RIKU_NO_CACHE=1)."
-help.expr: "Señal calculada a comparar además de las del archivo (se puede repetir), con la sintaxis de ngspice: --expr \"v(out)/v(in)\", --expr \"gain = db(v(out))\", --expr \"max(v(out))\". Solo para resultados de simulación (.raw); ver docs/formatos.md."
+help.expr: "Señal calculada a comparar además de las del archivo (se puede repetir), con la sintaxis de ngspice: --expr \"v(out)/v(in)\", --expr \"gain = db(v(out))\", --expr \"max(v(out))\". Solo para resultados de simulación (.raw); ver docs/formats.md."
 help.ci: "Códigos de salida para CI: 0 sin cambios o solo cosméticos, 1 cambios funcionales, 2 error."
 help.examples_diff: "Ejemplos:\n  riku diff                          working tree contra HEAD, todos los archivos\n  riku diff amp.sch                  ese archivo, working tree contra HEAD\n  riku diff main                     working tree contra main\n  riku diff HEAD~1 HEAD              todo lo que cambió entre dos commits\n  riku diff HEAD~1 HEAD top.gds -f json\n  riku diff v1 v2 tb.raw --expr \"gain = v(out)/v(in)\"\n  riku diff HEAD amp.sch -f visual   abrir el visor (A = HEAD, B = disco)\n\nUn argumento es un ARCHIVO si Riku conoce su extensión o existe en el disco;\nsi no, es un commit (hash, rama, tag, HEAD~2)."
 help.show: "Muestra los cambios semánticos de un commit respecto a su padre."
@@ -179,11 +179,7 @@ help.demo: "Crea proyectos de ejemplo con historia (repos Git) para probar Riku.
 help.demo_name: "Cuál (sin nombre: todos; ver --list)"
 help.demo_dir: "Dónde crearlos (por defecto ~/riku-demos)"
 help.demo_list: "Lista los proyectos de ejemplo"
-help.examples_demo: "Ejemplos:
-  riku demo              # todos, en ~/riku-demos
-  riku demo ota          # solo uno
-  riku demo --list
-  cd ~/riku-demos/ota && riku log --graph"
+help.examples_demo: "Ejemplos:\n  riku demo              # todos, en ~/riku-demos\n  riku demo ota          # solo uno\n  riku demo --list\n  cd ~/riku-demos/ota && riku log --graph"
 demo.about.ota: "OTA de 5 transistores (SKY130): esquemático, layout y simulación; 11 commits, una rama y un corto"
 demo.about.sram: "SRAM 16×8 de OpenRAM (SKY130): cambios en sub-celdas, un renombre y relleno; 7 commits y una rama"
 demo.about.inversor: "Inversor de 5 V en Magic y Xschem (SKY130): capas por nombre, un transistor en su sub-celda, puertos, un abierto y el LVS; 11 commits y una rama"
@@ -588,8 +584,9 @@ help.examples_lvs: "Ejemplos:\n  riku lvs --suggest            # empieza (o comp
 help.lvs_rev: "Versión a revisar (commit, rama, tag); sin ella, los archivos del disco"
 help.lvs_sch: "Esquemático (.sch) a comparar; necesita --layout"
 help.lvs_layout: "Layout (.gds, .oas, .mag) a comparar; necesita --sch"
+help.lvs_cell: "Celda del layout a comparar; por defecto, la top."
 help.lvs_ci: "Códigos de salida para CI: 0 limpio (todo revisado), 1 pendientes o distinto, 2 error"
-lvs.no_tool: "%{tool} no está instalado (lo necesita riku lvs; viene con iic-osic-tools)"
+lvs.no_tool: "%{tool} no está instalado (lo necesitan riku lvs --netgen, log --lvs y status --lvs; viene con iic-osic-tools)"
 lvs.no_pdk: "no se sabe el PDK del esquemático: %{reason}"
 lvs.no_setup: "el PDK no tiene la configuración de Netgen: %{path}"
 lvs.cannot_read: "no se pudo leer"
@@ -609,7 +606,7 @@ lvs.unmatched_devices: "Dispositivos sin pareja:"
 lvs.side_schematic: "esquemático:"
 lvs.side_layout: "layout:"
 lvs.pins: "Pines — esquemático: %{schematic} · layout: %{layout}"
-doctor.lvs_missing: "%{tool} no está instalado: es opcional, solo lo usa riku lvs --netgen"
+doctor.lvs_missing: "%{tool} no está instalado: es opcional, solo lo usan riku lvs --netgen, log --lvs y status --lvs"
 help.lvs_log: "LVS en cada uno de los últimos commits, marcando dónde cambió de estado (apareció un corto, quedó limpio…)"
 help.lvs_limit: "Cuántos commits hacia atrás con --log"
 lvs.log_range: "últimos %{count} commits desde %{from}"
@@ -622,7 +619,7 @@ lvs.broke: "dejó de coincidir"
 lvs.fixed: "volvió a coincidir"
 lvs.worse: "empeoró: ya no coinciden las conexiones"
 lvs.better: "mejoró: las conexiones vuelven a coincidir"
-toolbar.lvs_hint: "Comparar este esquemático con su layout (Netgen), lado a lado"
+toolbar.lvs_hint: "Comparar este esquemático con su layout, lado a lado"
 toolbar.lvs_none: "Abre un esquemático o un layout para compararlos (LVS)"
 lvs_view.title: "LVS"
 lvs_view.schematic: "Esquemático"

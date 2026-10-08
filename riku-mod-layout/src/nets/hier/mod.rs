@@ -1,5 +1,5 @@
 //! Extracción jerárquica de redes y transistores, con memoria por huella
-//! (ver `docs/ronda-5/design.md`).
+//! (ver `docs/dev/design-notes.md`).
 
 mod build;
 mod check;
@@ -160,7 +160,7 @@ mod tests {
     }
 
     /// Sin meter nada en el padre, las celdas de contacto quedan solas y la
-    /// netlist cambia: el umbral importa (ver `docs/ronda-5`).
+    /// netlist cambia: el umbral importa (ver `docs/dev/design-notes.md`).
     #[test]
     fn without_inlining_contact_cells_the_netlist_differs() {
         let lib = sram();

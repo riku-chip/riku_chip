@@ -25,7 +25,7 @@ mod shell_complete;
 
 // ─── Tipos del parser ────────────────────────────────────────────────────────
 //
-// La ayuda sale de `riku/locales/cli.yml` (`help = tr!(…)`), así que va en el
+// La ayuda sale de `riku/locales/*.yml` (`help = tr!(…)`), así que va en el
 // idioma de RIKU_LANG. Por eso los campos no llevan comentarios `///`: clap los
 // tomaría como ayuda en español.
 
@@ -170,7 +170,7 @@ pub(crate) enum Commands {
         sch: Option<String>,
         #[arg(long, value_name = "FILE", requires = "sch", help = tr!("help.lvs_layout"))]
         layout: Option<String>,
-        #[arg(long, value_name = "CELL", help = tr!("help.cell"))]
+        #[arg(long, value_name = "CELL", help = tr!("help.lvs_cell"))]
         cell: Option<String>,
         #[arg(short = 'f', long, value_enum, default_value_t = ListFormat::Text, help = tr!("help.format_list"))]
         format: ListFormat,

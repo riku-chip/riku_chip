@@ -6,7 +6,7 @@
 //! **Agregar un idioma** no toca código: copiar `en.yml` a `<código>.yml`,
 //! traducir los valores y poner su nombre en `lang.name`. La lista de
 //! idiomas (menú del visor, `RIKU_LANG`) sale de los archivos que haya. Ver
-//! `docs/desarrollo.md`, "Traducciones".
+//! `docs/dev/development.md`, \"Translations\".
 //!
 //! Prioridad: `RIKU_LANG` (para scripts, CI y capturas) > la elección
 //! guardada en los Ajustes del visor > inglés.

@@ -1,5 +1,5 @@
 //! La huella de la extracción de cada celda (`NetKey`, ver
-//! `docs/ronda-5/design.md`, D21): un árbol de Merkle como el de
+//! `docs/dev/design-notes.md`, D21): un árbol de Merkle como el de
 //! `prints::tree_prints`, que además cubre lo que cambia las redes sin ser
 //! geometría (etiquetas, puertos de Magic) y lo que las interpreta (las
 //! reglas, la unidad, los nombres de las capas, el umbral para meter una

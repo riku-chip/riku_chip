@@ -1,14 +1,14 @@
 #!/usr/bin/env sh
-# Descarga riku de GitHub Releases, verifica el checksum e instala.
+# Downloads riku from GitHub Releases, verifies the checksum and installs it.
 #
 #   curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh
-#       la última versión, en ~/.local/bin (sin sudo)
+#       the latest release, into ~/.local/bin (no sudo)
 #   curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.1.0
-#       una versión concreta
+#       a specific release
 #   curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sudo sh -s -- latest --system
-#       en /usr/local/bin
+#       into /usr/local/bin
 #
-# Lo que va después de la versión se le pasa a install.sh (--system).
+# Anything after the version is passed on to install.sh (--system).
 set -eu
 
 REPO=riku-chip/riku_chip
@@ -23,18 +23,18 @@ fi
 say() { printf 'riku: %s\n' "$*" >&2; }
 fail() { say "$*"; exit 1; }
 
-[ "$(uname -s)" = Linux ] || fail "solo hay paquetes para Linux"
-[ "$(uname -m)" = x86_64 ] || fail "solo hay paquetes para x86_64 (esta máquina es $(uname -m))"
+[ "$(uname -s)" = Linux ] || fail "packages are only available for Linux"
+[ "$(uname -m)" = x86_64 ] || fail "packages are only available for x86_64 (this machine is $(uname -m))"
 for tool in curl tar sha256sum; do
-    command -v "$tool" >/dev/null 2>&1 || fail "falta $tool"
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
-# La última: GitHub redirige releases/latest a releases/tag/<tag>.
+# Latest: GitHub redirects releases/latest to releases/tag/<tag>.
 if [ "$TAG" = latest ]; then
     url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest") \
-        || fail "no se pudo consultar la última versión"
+        || fail "could not look up the latest release"
     TAG=${url##*/}
-    case "$TAG" in v[0-9]*) ;; *) fail "no hay releases publicados todavía" ;; esac
+    case "$TAG" in v[0-9]*) ;; *) fail "no releases have been published yet" ;; esac
 fi
 VER=${TAG#v}
 NAME=riku-$VER-linux-x86_64
@@ -44,10 +44,10 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 cd "$TMP"
 
-say "descargando $TAG"
-curl -fsLO "$BASE/$NAME.tar.gz" || fail "no existe el release $TAG (ver https://github.com/$REPO/releases)"
-curl -fsSLO "$BASE/SHA256SUMS" || fail "el release $TAG no tiene SHA256SUMS"
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c - >/dev/null || fail "el checksum no coincide: descarga dañada"
+say "downloading $TAG"
+curl -fsLO "$BASE/$NAME.tar.gz" || fail "release $TAG does not exist (see https://github.com/$REPO/releases)"
+curl -fsSLO "$BASE/SHA256SUMS" || fail "release $TAG has no SHA256SUMS"
+grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c - >/dev/null || fail "checksum mismatch: the download is corrupted"
 say "checksum OK"
 
 tar xzf "$NAME.tar.gz"

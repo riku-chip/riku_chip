@@ -1,15 +1,5 @@
-klayout/
-.claude/
-tinytapeout_gds_viewer/
-Layout21/
-gdsdk/
-
-# Local config
-.gitignore
-CLAUDE.md
-# Skills de agentes instaladas en el entorno de cada uno
-.agents/
-skills-lock.json
+# Rust build artifacts
+target/
 
 # Python
 __pycache__/
@@ -19,11 +9,14 @@ dist/
 build/
 .venv/
 
-# Riku runtime
+# Riku runtime output (riku render / -f svg write here by default)
 .riku/tmp/
 *.svg
-
-# Rust build artifacts
-target/
-/riku_rust/target/
 !packaging/*.svg
+!docs/**/*.svg
+
+# Local tooling (per-developer, not part of the project)
+.claude/
+CLAUDE.md
+.agents/
+skills-lock.json

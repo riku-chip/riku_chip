@@ -1,7 +1,7 @@
 //! Redes de un layout: qué metal, poly y difusión están unidos por contactos
 //! y vías, con el nombre de sus etiquetas, y a qué red va cada terminal de
 //! los transistores. Con las reglas del `.tech` de Magic del PDK, como los
-//! transistores (ver `docs/formatos.md`, «Transistores y redes»).
+//! transistores (ver `docs/formats.md`, «Transistors and nets»).
 
 pub(crate) mod context;
 pub(crate) mod diff;
