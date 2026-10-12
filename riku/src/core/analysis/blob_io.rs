@@ -76,7 +76,8 @@ pub fn read_blob<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) 
 /// Como [`read_blob`], pero todo error queda en el archivo (`log`, donde un
 /// blob suelto no debe tumbar el historial entero).
 pub fn read_blob_or_skip<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) -> Blob {
-    read_blob(repo, commit, path).unwrap_or_else(|e| Blob::Skipped(tr!("blob.read_error", path = path, commit = commit, error = e)))
+    read_blob(repo, commit, path)
+        .unwrap_or_else(|e| Blob::Skipped(tr!("blob.read_error", path = path, commit = commit, error = e)))
 }
 
 /// `path` en el working tree, con el mismo límite de tamaño que Git.
