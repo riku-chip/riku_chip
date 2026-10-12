@@ -1069,7 +1069,7 @@ port 1 nsew signal {class}
     async fn change_inside_subcell_is_located_in_top_coordinates() {
         let h = diff(Some("hier_inv_a.gds"), "hier_inv_b.gds", Some("TOP")).await;
         let c = &h.changes()[0];
-        assert_eq!((c.label.as_str(), c.kind), ("1/0 · en INV @ (10.00, 10.00)", ChangeKind::Added));
+        assert_eq!((c.label.as_str(), c.kind), ("1/0 · in INV @ (10.00, 10.00)", ChangeKind::Added));
         let b = c.bbox.expect("bbox");
         // Rect (2,0)-(3,1) de INV instanciado en (10,10).
         assert!((b.min_x - 12.0).abs() < 1e-9 && (b.max_y - 11.0).abs() < 1e-9, "{b:?}");

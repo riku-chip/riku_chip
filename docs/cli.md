@@ -153,7 +153,8 @@ In the example above the verdict is still "different parameters", so the exit co
 ```bash
 riku diff [A] [B] [FILE] [-f text|json|visual|png|svg] [--compact] [--ci]
           [--cosmetic-threshold-um2 UM2] [--tolerance TOL] [--expr EXPR]... [--no-cache]
-          [-o FILE] [--cell CELL] [--size WxH] [--theme light|dark] [-r REPO]
+          [-o FILE] [--cell CELL] [--size WxH] [--theme light|dark]
+          [--signal NAME]... [--analysis ANALYSIS] [-r REPO]
 ```
 
 Like `git diff`: without `B` the comparison is against the **working tree** (the files on disk, including uncommitted changes); without `A`, against `HEAD`; without a file, every file that changed.
@@ -289,7 +290,7 @@ What each format reports, and what counts as cosmetic, is in [formats.md](format
 | `--tolerance TOL` | Waveform tolerance, as a fraction of each signal's range (`0.005`) or a percentage (`0.5%`). Default `0.1%`, or the value in `.riku.toml`. Must be greater than 0 and less than 1 |
 | `--expr EXPR` | A computed signal to compare in `.raw` files (repeatable), in ngspice syntax: `"v(out)/v(in)"`, `"gain = db(v(out))"`, `"tran: vpk = max(v(out))"`. Added to the expressions in `.riku.toml`. See [formats.md](formats.md) |
 | `--no-cache` | Do not read or write the on-disk layout caches (same as `RIKU_NO_CACHE=1`) |
-| `-o, --output`, `--cell`, `--size`, `--theme` | Image options, used with `-f png|svg` |
+| `-o, --output`, `--cell`, `--size`, `--theme`, `--signal`, `--analysis` | Image options, used with `-f png|svg` (see [Images](#images-riku-render-and--f-pngsvg)) |
 | `-r, --repo` | Repository (default: the current folder) |
 
 ### In the viewer: `-f visual`
@@ -471,14 +472,17 @@ LVS: 10 new Netgen run(s); the rest from the cache
 
 ## Images: `riku render` and `-f png|svg`
 
-Riku draws images without opening a window (no display or GPU needed), which works in CI, over SSH and for AI agents that can look at images. They look like the viewer: schematics and layouts with the diff colors, and waveforms with A dashed, B solid and the B − A error.
+Riku draws images without opening a window (no display or GPU needed), which works in CI, over SSH and for AI agents that can look at images. They look like the viewer: schematics and layouts with the [diff colors](viewer.md#diff-colors), and waveforms with A dashed, B solid and the B − A error.
 
 ```bash
-riku render xschem/ota-5t.sch                              # the file on disk, as PNG
-riku render layout/ota-5t.gds --rev v0.1 -f svg -o ota.svg # a committed version, as SVG
-riku render sim/ota-5t_tb.raw --expr "ac: a0 = max(db(v(vout)))"
-riku diff HEAD~1 HEAD xschem/ota-5t.sch -f png             # an image of a diff
-riku show 120ee0b layout/ota-5t.gds -f png --theme dark    # what a commit changed
+riku render xschem/ota-5t.sch                                    # the file on disk, as PNG
+riku render layout/ota-5t.gds --rev v0.1 -f svg -o ota.svg       # a committed version, as SVG
+riku render layout/ota-5t.gds --show-devices                     # with the Transistors layer
+riku render layout/ota-5t.gds --rev 120ee0b --net Vout           # one net highlighted (here shorted to Vp)
+riku render sim/ota-5t_tb.raw --analysis ac --signal "v(vout)"   # the signals you choose
+riku diff HEAD~1 HEAD xschem/ota-5t.sch -f png                   # an image of a diff
+riku show 120ee0b layout/ota-5t.gds -f png --theme dark          # what a commit changed
+riku diff v0.1 v1.0 sim/ota-5t_tb.raw -f png                     # the signals that changed most
 ```
 
 ```text
@@ -486,20 +490,34 @@ $ riku render xschem/ota-5t.sch -o /tmp/rikucap/ota.png
 /tmp/rikucap/ota.png
 ```
 
-- **`riku render FILE [--rev REV]`** draws one version: the file on disk (the path as written, no repository needed) or the version in a commit with `--rev`.
+- **`riku render FILE [--rev REV]`** draws one version: the file on disk or the version in a commit with `--rev`.
 - **`diff` and `show` with `-f png|svg`** draw the diff of one file. A file is required.
 - **Output:** the absolute path of the image is printed on stdout. Without `-o`, it goes to the `riku` folder inside the system temp folder (`/tmp/riku/` on Linux), named after the file, the cell and the versions.
 
-| Option | Effect |
-|---|---|
-| `-f, --format` | `render` only: `png` (default) or `svg` |
-| `-o, --output FILE` | Where to write the image |
-| `--size WxH` | Size in pixels, each side between 64 and 16384 (default `1600x1000`) |
-| `--theme light|dark` | Background (default `light`) |
-| `--cell CELL` | Layout cell to draw (default: the top cell) |
-| `--expr EXPR` | Computed waveform signals to draw (`.raw` only); added to those in `.riku.toml` |
+| Option | Commands | Effect |
+|---|---|---|
+| `-f, --format` | `render` | `png` (default) or `svg` (`diff` and `show` take `-f png` or `-f svg`) |
+| `-o, --output FILE` | all | Where to write the image |
+| `--size WxH` | all | Size in pixels, each side between 64 and 16384 (default `1600x1000`) |
+| `--theme light\|dark` | all | Background (default `light`) |
+| `--cell CELL` | all | Layout cell to draw (default: the top cell) |
+| `--show-devices` | `render` | Layouts: also draw the **Transistors** layer (each gate with its model, W and L), as in the viewer |
+| `--net NET` | `render` | Layouts: highlight that net and dim the rest. Use the name of a label (`Vout`), as in the LVS netlist |
+| `--signal NAME` | all | Waveforms: draw this signal (repeatable, any case), as many as you name |
+| `--analysis ANALYSIS` | all | Waveforms: which analysis to draw (`tran`, `ac`, `dc`, `noise`…); the default is the first one with curves |
+| `--expr EXPR` | all | Waveforms: computed signals (`.raw` only), added to those in `.riku.toml`; the ones that give a curve are drawn first |
 
-Waveform images show the signals that changed most (or the first ones, for a single version) and the expressions that produce a curve.
+### What an image shows
+
+| | Shown | Not shown |
+|---|---|---|
+| Schematic | The whole sheet, with the diff colors | — |
+| Layout | The top cell (or `--cell`), whole, with change boxes and labels. With `riku render`: the Transistors layer (`--show-devices`) and one net (`--net`) | In a **diff** image, the Transistors layer and nets: transistor changes, opens and shorts are in the text and JSON diff. Zooming to one area |
+| Waveforms | One analysis (`--analysis`, or the first with curves). The signals you name with `--signal`; otherwise the `--expr` curves first, then up to 3 signals: those that changed most in a diff, or the first ones in the file for a single version (often not the node you care about: name it with `--signal`) | Expressions that give a single number (they are in the text and JSON diff). The operating point (a single point, no curve) |
+
+- **`-r` in `riku render`.** Without `--rev`, the file is read from the current folder, as written; no repository is needed. `-r` still matters: it picks the project whose `.riku.toml` sets the waveform `expressions` and `tolerance` (outside a repository, the defaults are used).
+- **Fonts.** Text is drawn with the system fonts. In a minimal container without fonts (`fonts-dejavu-core` on Debian/Ubuntu), the image comes out without any text.
+- **Errors you can act on.** `--net` on a file without nets (a schematic, a layout from an unknown PDK, a cell over 2 million polygons), a net name that does not exist, an analysis the file does not have (`--analysis op` has a single point) or a signal that is not in the analysis: Riku says so and lists what there is, instead of writing an empty image.
 
 > [!NOTE]
 > With `-f png|svg`, `diff` and `show` exit with 0 when the image is written, even with `--ci`. Use `-f json` to get the change status.

@@ -1164,7 +1164,7 @@ mod tests {
         for (a, b) in [(&um, &nm), (&nm, &um)] {
             let r = diff_gds(a, b).expect("diff");
             assert!(r.geometry.is_empty() && r.cells_added.is_empty() && r.cells_removed.is_empty(), "{r:?}");
-            assert!(r.warnings.iter().any(|w| w.contains("unidad")), "{:?}", r.warnings);
+            assert!(r.warnings.iter().any(|w| w.contains("unit of")), "{:?}", r.warnings);
         }
         // Con un cambio, las áreas salen en µm² igual que entre dos µm.
         let changed = diff_gds(&nm, &fixture_bytes("hier_inv_b.gds")).expect("diff");

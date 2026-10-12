@@ -623,7 +623,7 @@ mod tests {
     fn a_label_off_its_layer_names_nothing() {
         let nl = netlist(inverter(false), &[label("X", (5.0, 5.0), &["locali"])]);
         assert_eq!(nl.label_nets, [None]);
-        assert!(nl.warnings.iter().any(|w| w.contains("de su tipo: X")), "{:?}", nl.warnings);
+        assert!(nl.warnings.iter().any(|w| w.contains("of their type: X")), "{:?}", nl.warnings);
     }
 
     #[test]
