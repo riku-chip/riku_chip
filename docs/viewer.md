@@ -11,11 +11,13 @@ On this page:
 - [Repository-wide diff](#repository-wide-diff)
 - [Viewing a diff](#viewing-a-diff)
 - [Controls](#controls)
+- [Schematics](#schematics)
 - [Transistors and nets](#transistors-and-nets)
 - [Waveforms](#waveforms)
 - [History panel](#history-panel)
 - [Export and reload](#export-and-reload)
 - [LVS view](#lvs-view)
+- [What only the viewer does](#what-only-the-viewer-does)
 - [Settings](#settings)
 - [Window and preferences](#window-and-preferences)
 
@@ -29,7 +31,7 @@ riku gui chip.gds --cell INV               # open a layout at a given cell
 riku diff HEAD~3 HEAD -f visual            # the list of every file that changed between two versions
 riku diff HEAD~1 HEAD chip.gds -f visual   # the diff of one file
 riku diff HEAD amp.sch -f visual           # HEAD against the file on disk
-riku show a3f2b1c -f visual                # everything a commit changed
+riku show HEAD~1 -f visual                 # everything a commit changed
 ```
 
 | Command | Behavior |
@@ -83,11 +85,26 @@ Opening a diff shows the **Views** panel on the left with three views:
 
 | View | Shows |
 |---|---|
-| **Diff** | The new version, with additions in green and removals in red |
+| **Diff** | The new version, with each change marked by color (see [Diff colors](#diff-colors)) |
 | **Before** | The previous version (A) |
 | **After** | The new version (B) |
 
 Switching views keeps the zoom and position, so you can flip between versions of the same area.
+
+### Diff colors
+
+The same colors are used in the viewer and in images (`riku render`, `-f png|svg`):
+
+| Color | Meaning |
+|---|---|
+| Green | Added: a component, a net, or layout area (the **Δ added** layer) |
+| Red | Removed (the **Δ removed** layer in a layout); also the box of a short or an open |
+| Amber | Modified: a parameter, W or L, a net |
+| Light blue | Only moved (cosmetic) |
+| Grey | Another cosmetic change |
+| Amber with a light-blue outer border | Modified **and** moved (viewer only; images draw it amber) |
+
+In a schematic diff, components get a box with their name and nets are drawn as thick lines.
 
 The **Details** panel on the right has:
 
@@ -123,6 +140,15 @@ What counts as a change in each format is described in [formats.md](formats.md).
 
 Keyboard shortcuts are ignored while a text field (search, filter, path) has the focus, so typing `f` in a search box does not fit the view. **Settings → Shortcuts** lists the main ones.
 
+## Schematics
+
+A schematic (`.sch`) opens with its symbols drawn from the project and the PDK (see [configuration.md](configuration.md#xschem-symbols)).
+
+- **What a diff marks.** Components added, removed, renamed or with new parameters get a box with the [diff colors](#diff-colors); a component that only moved is light blue. Nets that appear or disappear (by name) are drawn as thick lines. When the whole sheet was rearranged, **Changes** says so in one line (`the whole schematic (Move All)`, a cosmetic rearrangement) instead of listing every component. Riku compares components, parameters and net names, not pin-by-pin wiring: see [formats.md](formats.md#xschem-schematics-sch).
+- **Hierarchy.** The **Cells** panel lists the schematic and the project sub-schematics it uses. Double-click an instance to open its sub-schematic; in a diff, an instance whose sub-schematic changed is marked `changed inside`.
+- **Details** says where the PDK came from and lists the symbols that were not found (they are drawn as empty boxes, and their pins do not connect).
+- **Symbols** (`.sym`) open in the viewer, but a symbol on its own is not compared: a changed symbol shows in the schematics that use it.
+
 ## Transistors and nets
 
 For layouts from a supported PDK (SKY130, GF180MCU and IHP SG13G2, in GDS, OASIS and Magic), Riku recognizes transistors and nets with the PDK's device rules, without external tools.
@@ -132,9 +158,6 @@ For layouts from a supported PDK (SKY130, GF180MCU and IHP SG13G2, in GDS, OASIS
 
 > [!NOTE]
 > In a cell with more than 2 million flattened polygons (a whole chip), transistors and nets are counted in **Summary** but not drawn, and net highlighting is not available: drawing them requires flattening the cell. Open a sub-cell to see them.
-
-> [!NOTE]
-> In version 0.2.0 the layout **Summary** labels and the name of the transistors layer (**Transistores**) are not translated yet and appear in Spanish.
 
 See [formats.md](formats.md#transistors-and-nets) for how transistors and nets are extracted and compared.
 
@@ -210,6 +233,21 @@ Netgen is optional. The tab runs it only when you click **Compare with Netgen**,
 The result shows the verdict, the device and net counts, the PDK and cell, any warnings, and the lists **Different parameters**, **Nets without a pair** and **Devices without a pair**. Click an item to find it on both sides: in the schematic, a net's wires and pins or a device's outline; in the layout, the net's polygons or the gates of the device (including every transistor Netgen merged in parallel with it). The rest is dimmed and the item is framed. Click it again or press **Esc** to release it. If the layout cannot place a name (a cell too large to compute its nets, or a layout without a known PDK), the panel says so and only the schematic side is highlighted.
 
 In this tab, clicking a layout polygon highlights its net as in the normal view.
+
+## What only the viewer does
+
+Most of what the viewer shows also exists on the command line, for scripts, CI and machines without a display:
+
+| In the viewer | From the command line |
+|---|---|
+| Diff, Before and After views | `riku diff A B FILE -f png` (the diff); `riku render FILE --rev A` and `--rev B` (each side) |
+| Commit graph (**H**) | `riku log --graph` |
+| Transistors layer, one net highlighted | `riku render FILE [--rev REV] --show-devices` and `--net NAME` (one version). In a diff image they are not drawn; transistor changes, opens and shorts are in the text and JSON diff |
+| Waveforms: pick the analysis and the signals | `riku render FILE.raw --analysis ac --signal "v(out)"`, or `riku diff … -f png` with the same options; measurements with `--expr` |
+| **Compare with** another `.raw` outside Git | Not available: commit both runs (a scratch branch is enough) |
+| LVS view (Links, Netgen) | `riku lvs`, `riku lvs --netgen`, `-f json`; no image |
+| **Summary** of a file (polygons, layers, size, transistors, nets) | Not available; `riku diff` and `riku show` (text or `-f json`) report what changed |
+| Zoom to one area | Not available in images; `--cell` picks a cell |
 
 ## Settings
 

@@ -47,11 +47,26 @@ fn too_large(path: &str, size: u64) -> String {
     tr!("blob.too_large", path = path, size = size / (1024 * 1024), limit = LARGE_BLOB_THRESHOLD / (1024 * 1024))
 }
 
+/// Un puntero de Git LFS: en Git está ese texto corto, no el archivo.
+pub fn is_lfs_pointer(bytes: &[u8]) -> bool {
+    bytes.len() < 1024 && bytes.starts_with(b"version https://git-lfs.github.com/spec/")
+}
+
+/// Lo leído, salvo que sea un puntero de LFS: eso no se compara (sería
+/// comparar dos textos de tres líneas como si fueran el layout).
+fn loaded(path: &str, bytes: Vec<u8>) -> Blob {
+    if is_lfs_pointer(&bytes) {
+        Blob::Skipped(tr!("blob.lfs_pointer", path = path))
+    } else {
+        Blob::Bytes(bytes)
+    }
+}
+
 /// `path` en `commit`. Un error de Git que no es del archivo (commit
 /// inexistente, repo roto) se propaga.
 pub fn read_blob<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) -> Result<Blob, GitError> {
     match repo.get_blob(commit, path) {
-        Ok(bytes) => Ok(Blob::Bytes(bytes)),
+        Ok(bytes) => Ok(loaded(path, bytes)),
         Err(GitError::BlobNotFound { .. }) => Ok(Blob::Missing),
         Err(GitError::LargeBlob { path, size }) => Ok(Blob::Skipped(too_large(&path, size as u64))),
         Err(e) => Err(e),
@@ -61,7 +76,7 @@ pub fn read_blob<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) 
 /// Como [`read_blob`], pero todo error queda en el archivo (`log`, donde un
 /// blob suelto no debe tumbar el historial entero).
 pub fn read_blob_or_skip<R: GitRepository + ?Sized>(repo: &R, commit: &str, path: &str) -> Blob {
-    read_blob(repo, commit, path).unwrap_or_else(|e| Blob::Skipped(format!("{path} en {commit}: {e}")))
+    read_blob(repo, commit, path).unwrap_or_else(|e| Blob::Skipped(tr!("blob.read_error", path = path, commit = commit, error = e)))
 }
 
 /// `path` en el working tree, con el mismo límite de tamaño que Git.
@@ -75,7 +90,7 @@ pub fn read_disk(workdir: Option<&Path>, path: &str) -> Blob {
         Ok(_) => {}
     }
     match std::fs::read(&full) {
-        Ok(bytes) => Blob::Bytes(bytes),
+        Ok(bytes) => loaded(path, bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Blob::Missing,
         Err(e) => Blob::Skipped(tr!("blob.unreadable", path = path, error = e)),
     }
@@ -151,6 +166,19 @@ mod tests {
         let big = blob_err(GitError::LargeBlob { path: "big.gds".into(), size: 99 * 1024 * 1024 });
         let why = big.skipped().expect("un blob grande se omite, no es vacío");
         assert!(why.contains("big.gds") && why.contains("99 MB"), "{why}");
+    }
+
+    #[test]
+    fn un_puntero_de_lfs_no_se_compara_y_lo_dice() {
+        let pointer = b"version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 123456\n".to_vec();
+        let mut repo = MockRepo::new();
+        repo.set("HEAD", "chip.gds", Ok(pointer.clone()));
+        let why = read_blob(&repo, "HEAD", "chip.gds").unwrap();
+        assert!(why.skipped().is_some_and(|w| w.contains("chip.gds") && w.contains("LFS")), "{why:?}");
+        // En el disco, si `git lfs` no bajó el archivo, es lo mismo.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("chip.gds"), &pointer).unwrap();
+        assert!(read_disk(Some(dir.path()), "chip.gds").skipped().is_some());
     }
 
     #[test]

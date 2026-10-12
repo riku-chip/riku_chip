@@ -14,9 +14,8 @@ On this page:
 
 ## Known limitations
 
-### Language
+### Text in the viewer
 
-- **Untranslated messages from the layout engine and the kernel.** Warnings produced by `riku-mod-layout` and the core (for example "redes no comparadas en …" for a chip too large to compare, the `antes:`/`después:` prefixes on reader notices, the electrical summary in the layout viewer, some Git errors) are still in Spanish, whatever `RIKU_LANG` says. The CLI, the viewer UI and the module texts in `riku/locales/` are translated.
 - **Letter spacing by font size** cannot be adjusted in egui. Check again with each new egui release.
 
 ### LVS
@@ -117,9 +116,16 @@ Not planned; listed so they are not lost.
   - `.mag`: normalize `timestamp` lines and run `git merge-file`;
   - `.sch`: merge disjoint components, and warn when a Move All is mixed with functional changes;
   - `.gds`/`.oas`: merge cells that are disjoint from the base, and report a conflict when both sides touch the same cell (careful with shared sub-cells and a top cell edited on both branches).
-- Git LFS: Riku sees the pointer, not the file, so it cannot compare versions stored with LFS. Support it, or at least say so clearly. LFS is useful for large GDS files.
+- Git LFS: Riku recognizes an LFS pointer and says the file is not compared (`blob_io::is_lfs_pointer`). Reading the object itself (from `.git/lfs/objects`, or through `git lfs smudge`) would let it compare versions stored with LFS, which is common for large GDS files.
 - Stale derived files after a merge (a `.gds` older than its `.mag`, a `.spice` older than its `.sch`): warn without blocking. Needs `.riku.toml` to declare what is source and what is derived.
 - Commands: `blame --semantic` (who last touched a component or cell), `log --cell`/`--component`, and `log --sim-metric` (a measurement across history).
+- `riku diff --no-index A B`: compare two files outside Git (two simulation runs, two exported layouts), as the viewer's **Compare with** does for `.raw`. Needs rules for Magic sub-cells and project symbols, which today come from the same commit.
+- `riku info FILE [--rev REV]`: the **Summary** the viewer shows (cells, polygons, layers, size, transistors, nets), as text and JSON.
+
+**Images**
+
+- `--bbox X1,Y1,X2,Y2` (or "frame this change") for `riku render` and `-f png|svg`: today an image always shows the whole cell, which makes a small change hard to see in a large layout.
+- The Transistors layer and nets in **diff** images: the diff scene does not carry them today, so `--show-devices` and `--net` work on one version (`riku render`).
 
 **Electrical**
 

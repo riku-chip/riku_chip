@@ -413,12 +413,14 @@ A file that could not be compared is not a command failure: it appears in the no
 An agent that can read images can look at a change instead of parsing it:
 
 ```bash
-riku diff HEAD~1 HEAD xschem/ota-5t.sch -f png       # prints the PNG path
+riku diff HEAD~1 HEAD xschem/ota-5t.sch -f png                     # prints the PNG path
 riku show 120ee0b layout/ota-5t.gds -f png --cell ota-5t
-riku render sim/ota-5t_tb.raw --rev v0.1 -o tb.png   # one version, no diff
+riku render layout/ota-5t.gds --rev 120ee0b --net Vout             # the shorted net, highlighted
+riku render layout/ota-5t.gds --show-devices                       # every transistor with its W and L
+riku render sim/ota-5t_tb.raw --rev v0.1 --analysis ac --signal "v(vout)" -o tb.png
 ```
 
-The path of the image is the only line on stdout. No display or GPU is needed. Options and naming are in [cli.md](cli.md#images-riku-render-and--f-pngsvg). Because the exit code of an image is 0 whenever the image is written, pair it with `-f json --ci` when you also need to know whether the change is functional.
+The path of the image is the only line on stdout. No display or GPU is needed. Options, naming and what an image does and does not show are in [cli.md](cli.md#images-riku-render-and--f-pngsvg). A request that cannot be drawn (a net or signal that does not exist, an analysis the file does not have) fails with a message instead of writing an empty image; for a signal or an analysis, the message lists the ones there are, so an agent can retry with a valid name. Because the exit code of an image is 0 whenever the image is written, pair it with `-f json --ci` when you also need to know whether the change is functional.
 
 ## Non-interactive behavior
 

@@ -30,6 +30,12 @@ Riku reads `.sch` files with its own Xschem parser, so you don't need `xschem` i
 > [!NOTE]
 > Pin connections are not compared one by one. If you rewire a component pin from one existing net to another existing net, and no net name appears or disappears, the change is not reported. Use [`riku lvs`](lvs.md) to check connectivity against the layout.
 
+**Not compared:**
+
+- Pin-by-pin wiring between nets that already exist (see the note above).
+- Graphics and free text (lines, rectangles, arcs, comments), and wires that do not change a net name.
+- A `.sym` file on its own; a changed `.sym` still marks the instances that use it (see [Hierarchy](#hierarchy)).
+
 From the `ota` demo, commit `0f05efe` ("Narrower input pair: M3, M4 W 20u -> 18u"):
 
 ```text
@@ -82,7 +88,9 @@ If every change inside the sub-schematic is cosmetic (for example a Move All), t
 
 You can open `.sym` files in the viewer, but Riku doesn't compare them on their own. `riku show` lists them under "No Riku module". As described above, a changed `.sym` still marks the instances that use it as changed.
 
-Riku needs the symbols to draw a schematic and to work out which pin goes to which net. It looks for them in this order: the project (at the same version), your `.xschemrc`, the PDK selected by `$PDK_ROOT` and `$PDK`, and finally the installed PDK that has the symbols the schematic uses. For the full lookup rules and the variables involved, see [configuration.md](configuration.md). `riku doctor` and the viewer's **Details** panel show where the symbols came from and warn when any are missing.
+Riku needs the symbols to draw a schematic and to work out which pin goes to which net. It looks for them in this order: the project (at the same version), your `.xschemrc`, the PDK selected by `$PDK_ROOT` and `$PDK`, and finally the installed PDK that has the symbols the schematic uses. For the full lookup rules and the variables involved, see [configuration.md](configuration.md#xschem-symbols). `riku doctor` and the viewer's **Details** panel show where the symbols came from and warn when any are missing.
+
+The viewer, images and the LVS netlist use the project's symbols at the same version. The **text and JSON diff** start at `.xschemrc` instead: it is read from the current folder or else your home folder (a project file called `xschemrc`, without the dot, is not read), then `$PDK_ROOT/$PDK`. Parameters are compared the same either way; what can differ is the pin names in the details and the nets of instances whose symbol is not found. Run from the folder that has your `.xschemrc`, or make the project's symbols reachable through it.
 
 ### Errors
 

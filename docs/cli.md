@@ -517,7 +517,7 @@ $ riku render xschem/ota-5t.sch -o /tmp/rikucap/ota.png
 
 - **`-r` in `riku render`.** Without `--rev`, the file is read from the current folder, as written; no repository is needed. `-r` still matters: it picks the project whose `.riku.toml` sets the waveform `expressions` and `tolerance` (outside a repository, the defaults are used).
 - **Fonts.** Text is drawn with the system fonts. In a minimal container without fonts (`fonts-dejavu-core` on Debian/Ubuntu), the image comes out without any text.
-- **Errors you can act on.** `--net` on a file without nets (a schematic, a layout from an unknown PDK, a cell over 2 million polygons), a net name that does not exist, an analysis the file does not have (`--analysis op` has a single point) or a signal that is not in the analysis: Riku says so and lists what there is, instead of writing an empty image.
+- **Errors you can act on.** `--net` on a file without nets (a schematic, a layout from an unknown PDK, a cell over 2 million polygons), a net name that does not exist, an analysis the file does not have (`--analysis op` has a single point) or a signal that is not in the analysis: Riku says so instead of writing an empty image, and for a signal or an analysis it lists the ones there are.
 
 > [!NOTE]
 > With `-f png|svg`, `diff` and `show` exit with 0 when the image is written, even with `--ci`. Use `-f json` to get the change status.

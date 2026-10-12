@@ -190,8 +190,8 @@ With `--ci`, `riku lvs` exits with 0 only when every pair is clean with nothing 
 `riku lvs --suggest` (and every change in the viewer) writes `lvs/<cell>.toml` at the repository root, where `<cell>` is the compared layout cell. This is the file it wrote for the `ota` demo, trimmed:
 
 ```toml
-# Qué transistor del esquemático es cuál del layout (riku: LVS manual).
-# Cada transistor del layout: su modelo y un punto de su compuerta, en µm de la celda.
+# Which schematic transistor is which in the layout (riku: manual LVS).
+# Each layout transistor: its model and a point of its gate, in µm of the cell.
 schema = "riku-lvs-map/v1"
 schematic = "xschem/ota-5t.sch"
 layout = "layout/ota-5t.gds"
@@ -215,7 +215,7 @@ layout = [
 # … one [[bind]] per schematic transistor
 ```
 
-Riku starts the file with a two-line comment. In version 0.2.0 that comment is always written in Spanish; it says "Which schematic transistor is which in the layout (riku: manual LVS). Each layout transistor: its model and a point of its gate, in µm of the cell."
+Riku starts the file with a two-line comment, always in English whatever the language you use, so that people who work in different languages do not rewrite it back and forth. Files written by Riku 0.2.1 or earlier have it in Spanish; they are read the same, and the next `--suggest`, `--update` or change in the viewer rewrites the comment once.
 
 | Field | Meaning |
 |---|---|
@@ -397,4 +397,4 @@ A `riku-lvs-check/v1` result has, per pair, `clean` and `complete` (the two verd
 - **Netgen naming.** In Netgen mode, layout devices are numbered by the extraction, and transistors in parallel are merged, so names and counts differ from the manual LVS.
 
 > [!NOTE]
-> The `inversor` demo (`riku demo inversor`) does not include a links file, and the LVS output its README describes comes from Netgen: `riku log --graph --lvs` uses Netgen, and to see the commit where M9 stopped matching (`riku lvs HEAD~7` in the README) add `--netgen`. Plain `riku lvs` shows the manual LVS, with nothing linked until you run `riku lvs --suggest`.
+> The `inversor` demo (`riku demo inversor`) does not include a links file: the LVS its README shows is Netgen's (`riku log --graph --lvs`, `riku lvs HEAD~7 --netgen`). Plain `riku lvs` there shows the manual LVS, with nothing linked until you run `riku lvs --suggest`.

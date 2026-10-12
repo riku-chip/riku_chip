@@ -3,9 +3,10 @@
 This guide installs Riku, walks through the bundled demo projects, and then points Riku at a design of your
 own. It takes about fifteen minutes.
 
-**On this page:** [Install](#install) · [Check your environment](#check-your-environment) ·
-[Create the demos](#create-the-demos) · [Tour 1: an analog block](#tour-1-an-analog-block-ota) ·
-[Tour 2: a Magic layout](#tour-2-a-magic-layout-inversor) · [Tour 3: a hierarchical GDS](#tour-3-a-hierarchical-gds-sram) ·
+**On this page:** [Install](#install) · [In iic-osic-tools (Docker)](#in-iic-osic-tools-docker) ·
+[Check your environment](#check-your-environment) · [Create the demos](#create-the-demos) ·
+[Tour 1: an analog block](#tour-1-an-analog-block-ota) · [Tour 2: a Magic layout](#tour-2-a-magic-layout-inversor) ·
+[Tour 3: a hierarchical GDS](#tour-3-a-hierarchical-gds-sram) · [Tour 4: LVS in five minutes](#tour-4-lvs-in-five-minutes-ota) ·
 [Your own project](#your-own-project) · [Next steps](#next-steps)
 
 ## Install
@@ -38,6 +39,23 @@ riku completions bash > ~/.local/share/bash-completion/completions/riku
 > - drawing schematic symbols and running the LVS.
 >
 > See [Configuration](configuration.md).
+
+## In iic-osic-tools (Docker)
+
+Riku runs inside the [iic-osic-tools](https://github.com/iic-jku/IIC-OSIC-TOOLS) container like any other tool.
+Pick the PDK with `sak-pdk` first; it sets `PDK_ROOT`, `PDK` and `PDKPATH`, which Riku reads:
+
+```bash
+sak-pdk sky130A
+riku doctor              # the PDK and netgen should show as [ok]
+```
+
+- Every command works without a display. The viewer (`riku open`, `riku gui`, `-f visual`) needs the
+  container's desktop (VNC or X11 forwarding), with `DISPLAY` set.
+- For images without a desktop, use `riku render` or `-f png` (see [Images](cli.md#images-riku-render-and--f-pngsvg)).
+- When the container runs on Windows, the viewer's folder picker also accepts Windows paths (see [Viewer](viewer.md#opening-a-folder)).
+
+Riku speaks Spanish too: `export RIKU_LANG=es` for the command line, **Settings → Language** in the viewer.
 
 ## Check your environment
 
@@ -115,6 +133,52 @@ riku log --graph
 
 Every commit gets a one-line summary per file. The schematic that was only rearranged is marked
 **cosmetic**; the layout commit that shorted two nets says so.
+
+### What Riku sees in a schematic
+
+The last commit renamed a node. A text diff of the `.sch` shows edited coordinates and attributes; Riku
+shows which labels changed and which net appeared and which went away:
+
+```text
+$ riku show HEAD
+…
+File     : xschem/ota-5t.sch
+Changes  : 3
+
+  ~ p17
+      lab: node → tail
+  ~ p18
+      lab: node → tail
+  ~ p19
+      lab: node → tail
+
+  + net:tail
+  - net:node
+```
+
+Riku follows the hierarchy within the same version. Between the two tags, the testbench's load changed,
+and so did the OTA inside its instance `x1`:
+
+```text
+$ riku diff v0.1 v1.0 xschem/ota-5t_tb.sch
+File     : xschem/ota-5t_tb.sch
+Changes  : 2
+
+  ~ C1
+      value: 1p → 2p
+  ~ x1
+      changed inside: xschem/ota-5t.sch
+```
+
+A commit that only moves things around (`riku show 6568371`, "Tidy up the schematic") reports
+`no semantic changes`. Riku compares components, parameters and nets by name, not pin-by-pin wiring;
+see [Formats → Xschem](formats.md#xschem-schematics-sch).
+
+To look at a change without opening a window, ask for an image; Riku prints where it wrote it:
+
+```bash
+riku diff v0.1 v1.0 xschem/ota-5t.sch -f png
+```
 
 ### A schematic change and its effect on the simulation
 
@@ -279,6 +343,37 @@ $ riku show c6cf2ee
 For a large layout, try the `chip` demo (a 9.9 MB GDS with 8,192 bitcells). The first comparison of a
 commit takes a few seconds; Riku caches results, so repeating it is much faster.
 
+## Tour 4: LVS in five minutes (`ota`)
+
+`riku lvs` checks the layout against the schematic with a links file, `lvs/<cell>.toml`, that says which
+schematic transistor is which in the layout. The demo has none yet; `--suggest` writes the links that
+follow without guessing:
+
+```text
+$ cd ~/riku-demos/ota
+$ riku lvs --suggest
+Manual LVS  xschem/ota-5t.sch ↔ layout/ota-5t.gds (ota-5t) · worktree
+  9 links suggested: M4, M3, M6, M7, M8, M9, M1, M2, M5
+  → lvs/ota-5t.toml
+  Linked: 9 of 9 schematic transistors · 24 of 24 in the layout
+  different parameter in M4: W 18 ≠ 19
+  different parameter in M3: W 18 ≠ 19
+  different parameter in M8: W 20 ≠ 19
+  different parameter in M1: W 4 ≠ 2
+  different parameter in M2: W 4 ≠ 2
+  Manual LVS: there are pending items.
+```
+
+Every transistor is linked, and the check finds what the demo's history left behind: the schematic
+widened M1 and M2 to 4 µm, and the layout still has 2 µm. Fix the layout or the schematic, run `riku lvs`
+again, and commit `lvs/ota-5t.toml` with the design so the links travel with it. The viewer shows the same
+links side by side (**LVS** in the top bar), where you link what `--suggest` could not.
+
+> [!NOTE]
+> `riku log --lvs` and `riku status --lvs` use Netgen, not your links file. See [LVS](lvs.md#lvs-in-the-history-log---lvs-and-status---lvs).
+
+The full workflow (moving the layout, history, CI) is in [LVS](lvs.md).
+
 ## Your own project
 
 Riku works in any Git repository that contains `.sch`, `.gds`, `.oas`, `.mag` or `.raw` files. There is
@@ -308,6 +403,7 @@ Paths are relative to where you are, like in Git. A few things are worth setting
 
 ## Next steps
 
+- [Troubleshooting](troubleshooting.md): when something does not work as expected.
 - [Command reference](cli.md): every command and option.
 - [Formats](formats.md): exactly what Riku compares in each file type, and the limits.
 - [Viewer](viewer.md): navigation, shortcuts, waveforms and the LVS view.

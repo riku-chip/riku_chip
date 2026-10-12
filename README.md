@@ -17,7 +17,8 @@ Review changes to schematics, layouts and simulations at the level of the circui
 [Commands](https://github.com/riku-chip/riku_chip/blob/main/docs/cli.md) ·
 [Viewer](https://github.com/riku-chip/riku_chip/blob/main/docs/viewer.md) ·
 [Formats](https://github.com/riku-chip/riku_chip/blob/main/docs/formats.md) ·
-[LVS](https://github.com/riku-chip/riku_chip/blob/main/docs/lvs.md)
+[LVS](https://github.com/riku-chip/riku_chip/blob/main/docs/lvs.md) ·
+[Troubleshooting](https://github.com/riku-chip/riku_chip/blob/main/docs/troubleshooting.md)
 
 </div>
 
@@ -69,12 +70,15 @@ curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/
 This installs the latest release into `~/.local/bin` and verifies its checksum. Variants:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.2.0               # a specific version
+curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sh -s -- v0.2.1               # a specific version
 curl -fsSL https://raw.githubusercontent.com/riku-chip/riku_chip/main/packaging/get.sh | sudo sh -s -- latest --system  # into /usr/local/bin
 ```
 
 The `.tar.gz` and `.deb` packages are also on the [Releases](https://github.com/riku-chip/riku_chip/releases)
 page. To build from source, see [`docs/dev/development.md`](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/development.md).
+In the [iic-osic-tools](https://github.com/iic-jku/IIC-OSIC-TOOLS) container, pick the PDK with `sak-pdk` first
+([details](https://github.com/riku-chip/riku_chip/blob/main/docs/getting-started.md#in-iic-osic-tools-docker)).
+Riku speaks Spanish too: `RIKU_LANG=es` (in the viewer, **Settings → Language**).
 
 ## Try it in a minute
 
@@ -115,8 +119,14 @@ Each demo has a `README.md` with things to try. The [getting started guide](http
 
 ## A quick tour
 
-Riku works on any Git repository: you create and commit with `git`, Riku only reads. Every command also
-works inside the interactive shell (`riku` with no arguments, with Tab completion).
+Riku works on any Git repository: you create and commit with `git`, Riku only reads. There are four ways in:
+
+| Way in | What it gives you |
+|---|---|
+| **Commands** | `riku log`, `show`, `diff`, `status`, `lvs` in your terminal |
+| **Interactive shell** | `riku` with no arguments: the same commands, with Tab completion |
+| **Viewer** | `riku open`: before/after views, history, waveforms and the LVS view (needs a desktop) |
+| **Scripts, CI and AI agents** | `-f json` with versioned schemas and exit codes, and images without a window (`riku render`, `-f png`) |
 
 **`riku log`** — the history, with what changed in each commit. Shorts and opens come first, in red.
 
@@ -183,11 +193,12 @@ Manual LVS  xschem/ota-5t.sch ↔ layout/ota-5t.gds (ota-5t) · worktree
 ```
 
 **`riku open`** — the desktop viewer: before/after views of any diff, the commit graph (press **H**),
-transistors and net highlighting on layouts, waveforms, and a side-by-side LVS view.
+transistors and net highlighting on layouts, waveforms, and a side-by-side LVS view. It needs a desktop;
+inside Docker, see [Getting started](https://github.com/riku-chip/riku_chip/blob/main/docs/getting-started.md#in-iic-osic-tools-docker).
 
 | More commands | |
 |---|---|
-| `riku render FILE -o image.png` | An image (PNG or SVG) of a file or of a version (`--rev`), without a window |
+| `riku render FILE -o image.png` | An image (PNG or SVG) of a file or of a version (`--rev`), without a window: a layout with its transistors (`--show-devices`) or one net (`--net`), the waveforms you choose (`--signal`) |
 | `riku doctor` | Checks the environment: the repository, the PDK and which formats can be compared |
 | `riku demo [--list]` | The example projects |
 | `riku completions bash` | Shell completion for bash, zsh, fish, PowerShell or elvish |
@@ -204,6 +215,7 @@ transistors and net highlighting on layouts, waveforms, and a side-by-side LVS v
 | [Viewer](https://github.com/riku-chip/riku_chip/blob/main/docs/viewer.md) | The desktop viewer |
 | [Formats](https://github.com/riku-chip/riku_chip/blob/main/docs/formats.md) | What is compared in each file format, and the limits |
 | [LVS](https://github.com/riku-chip/riku_chip/blob/main/docs/lvs.md) | Layout versus schematic, at any commit |
+| [Troubleshooting](https://github.com/riku-chip/riku_chip/blob/main/docs/troubleshooting.md) | Common problems and what to do |
 
 For contributors: [CONTRIBUTING.md](https://github.com/riku-chip/riku_chip/blob/main/CONTRIBUTING.md),
 [architecture](https://github.com/riku-chip/riku_chip/blob/main/docs/dev/architecture.md),
@@ -214,7 +226,7 @@ For contributors: [CONTRIBUTING.md](https://github.com/riku-chip/riku_chip/blob/
 
 ## Status
 
-Riku is **alpha**. The three file types work end to end, and the command-line output and JSON schemas are
+Riku is **alpha**. The four formats above work end to end, and the command-line output and JSON schemas are
 versioned. Expect rough edges; [issues](https://github.com/riku-chip/riku_chip/issues) and pull requests
 are welcome.
 

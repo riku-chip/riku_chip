@@ -48,10 +48,10 @@ Magic layout, and the LVS follows the whole history.
 Things to try:
 
 ```bash
-riku log --graph --lvs                 # the history and the LVS of each commit
+riku log --graph --lvs                 # the history and the Netgen LVS of each commit (needs netgen)
 riku show HEAD~8                       # metal2 by its Magic name, not a GDS number
 riku show HEAD~7                       # the NMOS sub-cell got wider: seen from inv, w 2 -> 2.5
-riku lvs HEAD~7                        # ... and the LVS stopped matching (M9 w 2 vs 2.5)
+riku lvs HEAD~7 --netgen               # ... and Netgen says it stopped matching (M9 w 2 vs 2.5)
 riku show HEAD~5                       # ports that changed class (input, output)
 riku show HEAD~4                       # an open: out split in two
 riku show HEAD~3                       # the fix: the two pieces of out join again
@@ -60,7 +60,9 @@ riku diff v0.1 v1.0                    # everything between the first and the fi
 riku gui .                             # the viewer: H for the history, LVS for the cross-probing
 ```
 
-(`HEAD~N` counts back from the merge; `riku log --graph` shows the commits.)
+(`HEAD~N` counts back from the merge; `riku log --graph` shows the commits.
+Plain `riku lvs` is the manual LVS, with links you keep in `lvs/inv.toml`: this
+demo has none, so start them with `riku lvs --suggest`.)
 
 Source: the `demo_sky130A/ana` inverter of
 [iic-osic-tools](https://github.com/iic-jku/iic-osic-tools) (Apache-2.0, see
@@ -256,6 +258,21 @@ def check_show(repo):
     return ok
 
 
+def check_lvs_netgen(repo):
+    """Lo que dice el README de `riku lvs HEAD~7 --netgen` (riku-lvs/v1): las
+    conexiones coinciden y el W de M9 difiere, 2 en el esquemático y 2.5 en el
+    layout."""
+    env = dict(os.environ, RIKU_NO_CACHE="1", RIKU_LANG="en")
+    out = subprocess.run([RIKU, "lvs", "HEAD~7", "--netgen", "-f", "json"], cwd=repo.path, env=env,
+                         capture_output=True, text=True).stdout
+    results = json.loads(out)["results"] if out.strip() else []
+    want = {"name": "w", "schematic": "2", "layout": "2.5"}
+    ok = len(results) == 1 and results[0]["result"] == "property_errors" and any(
+        p["schematic"] == "M9" and want in p["values"] for p in results[0]["properties"])
+    print(f"  riku lvs HEAD~7 --netgen: {'M9 w 2 ≠ 2.5, como dice el README' if ok else 'no coincide con el README'}")
+    return ok
+
+
 def check_magic(repo):
     """La netlist de Riku de cada commit, igual a la que extrae Magic."""
     rc = f"{PDK_ROOT}/sky130A/libs.tech/magic/sky130A.magicrc"
@@ -285,7 +302,8 @@ def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "examples/demos/inversor.bundle"
     repo = build()
     lvs_ok, show_ok, magic_ok = check_lvs(repo), check_show(repo), check_magic(repo)
-    if not (lvs_ok and show_ok and magic_ok):
+    netgen_ok = check_lvs_netgen(repo)
+    if not (lvs_ok and show_ok and magic_ok and netgen_ok):
         raise SystemExit("el demo no da lo esperado: no se escribe el bundle")
     repo.bundle(os.path.abspath(out))
 
