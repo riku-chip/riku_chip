@@ -19,7 +19,7 @@ use viewer_core::CancellationToken;
 use crate::i18n::tr;
 
 /// Qué imagen generar y dónde.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Request {
     pub png: bool,
     /// Archivo de salida; `None` = la carpeta temporal de riku.
@@ -29,6 +29,12 @@ pub struct Request {
     pub dark: bool,
     /// Sub-vista (celda de un layout); `None` = la que elija el formato.
     pub cell: Option<String>,
+    /// `.raw`: las señales a dibujar (vacío = las que elija la imagen).
+    pub signals: Vec<String>,
+    /// `.raw`: el análisis (`tran`, `ac`…); `None` = el primero con curvas.
+    pub analysis: Option<String>,
+    /// Layouts de una versión: capas ocultas y una red resaltada.
+    pub show: svg::Show,
 }
 
 /// Carpeta donde van las imágenes si no se pide otra: `<temp>/riku`.
@@ -70,7 +76,7 @@ pub fn image(
     let name = Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().to_string());
     let style = svg::Style { width: req.width, height: req.height, dark: req.dark, caption: format!("{name}  ·  {label}") };
     let svg_text = if is_raw(path) {
-        raw_svg(path, before.as_deref(), &after, diff, &style)?
+        raw_svg(path, before.as_deref(), &after, diff, req, &style)?
     } else {
         let module =
             modules.for_path(path).or_else(|| modules.detect(&after)).ok_or_else(|| tr!("err.no_module", file = path))?;
@@ -86,7 +92,7 @@ pub fn image(
                 }
             })
             .map_err(|e| e.to_string())?;
-        svg::scene_svg(scene.as_ref(), &style)
+        svg::scene_svg(scene.as_ref(), &style, &req.show).map_err(|e| format!("{path}: {e}"))?
     };
 
     let out = match &req.output {
@@ -110,7 +116,14 @@ fn is_raw(path: &str) -> bool {
 }
 
 #[cfg(feature = "spice")]
-fn raw_svg(path: &str, before: Option<&[u8]>, after: &[u8], diff: &DiffOptions, style: &svg::Style) -> Result<String, String> {
+fn raw_svg(
+    path: &str,
+    before: Option<&[u8]>,
+    after: &[u8],
+    diff: &DiffOptions,
+    req: &Request,
+    style: &svg::Style,
+) -> Result<String, String> {
     use crate::modules::spice::{compare::Tolerance, raw};
     let parse = |b: &[u8]| raw::parse(b).map_err(|e| format!("{path}: {e}"));
     let before = match before {
@@ -119,11 +132,12 @@ fn raw_svg(path: &str, before: Option<&[u8]>, after: &[u8], diff: &DiffOptions, 
     };
     let after = parse(after)?;
     let tol = diff.tolerance.map_or_else(Tolerance::default, |rel| Tolerance { rel, ..Tolerance::default() });
-    Ok(wave::wave_svg(before.as_ref(), &after, &diff.expressions, tol, style))
+    let pick = wave::Pick { signals: &req.signals, analysis: req.analysis.as_deref() };
+    wave::wave_svg(before.as_ref(), &after, &diff.expressions, tol, pick, style).map_err(|e| format!("{path}: {e}"))
 }
 
 #[cfg(not(feature = "spice"))]
-fn raw_svg(path: &str, _: Option<&[u8]>, _: &[u8], _: &DiffOptions, _: &svg::Style) -> Result<String, String> {
+fn raw_svg(path: &str, _: Option<&[u8]>, _: &[u8], _: &DiffOptions, _: &Request, _: &svg::Style) -> Result<String, String> {
     Err(tr!("err.no_image", file = path))
 }
 

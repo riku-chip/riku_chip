@@ -191,6 +191,18 @@ const ANALYSES: [(&str, &str); 9] = [
     ("disto", "distortion"),
 ];
 
+/// Si el análisis `plot_name` es el de `prefix` (`tran`, `ac`…); `None` si
+/// `prefix` no es un prefijo de ngspice.
+pub fn analysis_is(prefix: &str, plot_name: &str) -> Option<bool> {
+    let (_, key) = ANALYSES.iter().find(|(p, _)| prefix.trim().eq_ignore_ascii_case(p))?;
+    Some(plot_name.to_ascii_lowercase().contains(key))
+}
+
+/// Los prefijos de análisis que se aceptan (`op, tran, ac…`).
+pub fn analysis_prefixes() -> String {
+    ANALYSES.iter().map(|(p, _)| *p).collect::<Vec<_>>().join(", ")
+}
+
 impl Expression {
     /// `true` si la expresión se evalúa en el análisis `plot_name`.
     pub fn applies_to(&self, plot_name: &str) -> bool {

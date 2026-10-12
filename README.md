@@ -49,7 +49,7 @@ A new piece of metal shorted two nets. Riku found it from the layout alone, and 
 
 | Format | Files | What Riku reports |
 |---|---|---|
-| **Xschem** | `.sch` (`.sym` in the viewer) | Components added, removed, renamed or with new parameters; nets connected or disconnected; whether a change was only a visual rearrangement |
+| **Xschem** | `.sch` (`.sym` in the viewer) | Components added, removed, renamed or with new parameters; nets that appear or disappear (by name); sub-schematics that changed inside an instance; whether a change was only a visual rearrangement |
 | **GDSII / OASIS** | `.gds`, `.oas` | Which area changed, on which layer and cell, and whether it comes from an instantiated sub-cell. With SKY130, GF180MCU or IHP SG13G2: transistors whose model, W or L changed, and nets that were **opened or shorted** |
 | **Magic** | `.mag` | The same, with Magic's layer names, sub-cells from the same commit, and port changes |
 | **ngspice** | `.raw` | Which signals changed and by how much, separating numerical noise; computed measurements with ngspice syntax |

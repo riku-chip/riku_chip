@@ -29,9 +29,15 @@ riku completions bash > ~/.local/share/bash-completion/completions/riku
 ```
 
 > [!NOTE]
-> Riku does not need Xschem, KLayout or Magic. To recognize transistors and nets in layouts, and to draw
-> schematic symbols, it uses the files of an installed PDK (SKY130, GF180MCU or IHP SG13G2), found through
-> `$PDK_ROOT` and `$PDK`. Without a PDK everything else still works. See [Configuration](configuration.md).
+> Riku does not need Xschem, KLayout or Magic. For **GDS and OASIS** layouts in SKY130, GF180MCU and
+> IHP SG13G2, transistors and nets work without any PDK installed: the rules are built into Riku.
+> An installed PDK (`$PDK_ROOT`, or `/foss/pdks` in iic-osic-tools) is needed for:
+> - transistors and nets in **Magic** (`.mag`) layouts, which are read with the PDK's Magic `.tech`
+>   (without it, a `.mag` diff still shows the geometry; see [Formats](formats.md#where-the-rules-come-from));
+> - the PDK cells a `.mag` uses (for example `sky130_fd_sc_hd__inv_1`): without them they are compared as empty, with a warning;
+> - drawing schematic symbols and running the LVS.
+>
+> See [Configuration](configuration.md).
 
 ## Check your environment
 
@@ -288,8 +294,9 @@ riku log -n 20 --graph       # recent history
 
 Paths are relative to where you are, like in Git. A few things are worth setting up once:
 
-- **The PDK.** Export `PDK_ROOT` and `PDK` (for example `PDK=sky130A`) so Riku can draw symbols and
-  recognize transistors and nets. Riku also reads `.xschemrc`. See [Configuration](configuration.md).
+- **The PDK.** Export `PDK_ROOT` and `PDK` (for example `PDK=sky130A`) so Riku can draw schematic symbols,
+  build the schematic netlist for the LVS, and read Magic layouts (their transistors, nets and PDK cells).
+  GDS/OASIS transistors and nets do not need it. Riku also reads `.xschemrc`. See [Configuration](configuration.md).
 - **Project options.** A `.riku.toml` at the repository root fixes options such as the waveform
   tolerance or expressions to always compare, so everyone (and CI) compares the same way.
 - **LVS.** If your project has a schematic and a layout of the same cell, run `riku lvs --suggest` to start

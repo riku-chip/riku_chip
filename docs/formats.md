@@ -267,7 +267,14 @@ For a layout in **SKY130, GF180MCU or IHP SG13G2** (GDSII, OASIS or Magic), Riku
 
 ### Where the rules come from
 
-Riku has no hand-written tables per PDK. It derives everything from the **Magic `.tech` file of the installed PDK** (under `$PDK_ROOT`). If that PDK isn't installed, it uses a copy of the same rules compiled into Riku. Riku picks the PDK from the layout's layers (and, for Magic, from its type names), not from the file name.
+Riku has no hand-written tables per PDK. It derives everything from the **Magic `.tech` file of the installed PDK** (under `$PDK_ROOT`), and picks the PDK whose `.tech` knows the layout's layers (or, for Magic, its type names).
+
+If no PDK is installed, it uses a copy of the same rules compiled into Riku, and how it picks the PDK depends on the format:
+
+| Without an installed PDK | Transistors and nets |
+|---|---|
+| **GDS / OASIS** | Yes: the PDK is recognized from the layout's drawing layers. |
+| **Magic (`.mag`)** | Only if the file's path names the PDK (`sky130`, `gf180` or `ihp`, as in Magic's generated device cells like `sky130_fd_pr__nfet_g5v0d10v5_H9JWFY.mag`). Any other `.mag` shows its geometry changes, but no transistors or nets. Install the PDK to get them. |
 
 | From the `.tech` | Used for |
 |---|---|

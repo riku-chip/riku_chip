@@ -23,6 +23,16 @@ pub struct Style {
     pub caption: String,
 }
 
+/// Lo que la imagen de un layout muestra además de lo de siempre.
+#[derive(Clone, Debug, Default)]
+pub struct Show {
+    /// Las capas que el visor abre ocultas (la de transistores).
+    pub devices: bool,
+    /// Una red por su nombre (el de la netlist extraída), resaltada sobre el
+    /// resto atenuado.
+    pub net: Option<String>,
+}
+
 /// Alto de la franja del título, en píxeles.
 const CAPTION_H: f64 = 30.0;
 const MARGIN: f64 = 24.0;
@@ -138,8 +148,16 @@ fn scene_bbox(scene: &dyn RenderableScene) -> BoundingBox {
     b
 }
 
-/// La escena como SVG.
-pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
+/// La escena como SVG. Falla si se pide una red que la escena no tiene.
+pub fn scene_svg(scene: &dyn RenderableScene, style: &Style, show: &Show) -> Result<String, String> {
+    // La red pedida, antes de dibujar nada: sin ella no hay imagen.
+    let net = match &show.net {
+        Some(name) => {
+            let probe = scene.net_probe().ok_or_else(|| tr!("image.no_nets"))?;
+            Some(probe.net_named(name).ok_or_else(|| tr!("image.no_net", net = name))?)
+        }
+        None => None,
+    };
     let (w, h) = (style.width, style.height);
     let bg = if style.dark { "#141418" } else { "#fafaf7" };
     let fg = if style.dark { "#e6e6e6" } else { "#1e1e1e" };
@@ -155,7 +173,7 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
     }
     if scene.is_empty() {
         out.push_str("</svg>");
-        return out;
+        return Ok(out);
     }
     // Aire alrededor: la caja de la escena no incluye el ancho de los textos.
     let raw = scene_bbox(scene);
@@ -173,8 +191,13 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
     }
     batch.flush(&mut out);
 
-    // Las capas que el visor abre ocultas (p. ej. "Transistores") tampoco van en la imagen.
-    let hidden: HashSet<Layer> = scene.layer_list().into_iter().filter(|(_, p)| p.hidden).map(|(l, _)| l).collect();
+    // Las capas que el visor abre ocultas (la de transistores) tampoco van en
+    // la imagen, salvo que se pidan.
+    let hidden: HashSet<Layer> = if show.devices {
+        HashSet::new()
+    } else {
+        scene.layer_list().into_iter().filter(|(_, p)| p.hidden).map(|(l, _)| l).collect()
+    };
     let mut labels: Vec<(f64, f64, String, Rgb)> = Vec::new();
     scene.visit(&bbox.inflate(bbox.width().max(bbox.height())), &mut |el| {
         if hidden.contains(&el.layer()) {
@@ -200,6 +223,25 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
     });
     batch.flush(&mut out);
 
+    // La red pedida, como en el visor: el resto atenuado y ella en amarillo.
+    if let Some(hit) = &net {
+        let _ = write!(out, r#"<rect width="{w}" height="{h}" fill="{bg}" fill-opacity="0.7"/>"#);
+        let mut d = String::new();
+        for poly in &hit.outline {
+            for (i, (x, y)) in poly.iter().enumerate() {
+                let (px, py) = xf.p(*x, *y);
+                let _ = write!(d, "{}{px:.1} {py:.1}", if i == 0 { "M" } else { "L" });
+            }
+            d.push('Z');
+        }
+        let _ = write!(
+            out,
+            r##"<path d="{d}" fill="#ffd200" fill-opacity="0.55" stroke="#ffd200" stroke-width="1.2"/><text x="{MARGIN}" y="{:.1}" font-size="13" fill="{fg}">{}</text>"##,
+            h as f64 - 8.0,
+            esc(&tr!("image.net_caption", net = hit.name, polygons = hit.outline.len()))
+        );
+    }
+
     for a in scene.annotations() {
         annotation(&mut out, &xf, a, style.dark);
     }
@@ -213,7 +255,7 @@ pub fn scene_svg(scene: &dyn RenderableScene, style: &Style) -> String {
         );
     }
     out.push_str("</svg>");
-    out
+    Ok(out)
 }
 
 fn stroke_attrs(c: Rgb, width: f64) -> String {
@@ -410,10 +452,40 @@ mod tests {
         s.layers.insert(7, layer("met1", (10, 20, 30), false));
         s.layers.insert(8, layer("Transistores", (200, 100, 50), true));
 
-        let svg = scene_svg(&s, &style());
+        let svg = scene_svg(&s, &style(), &Show::default()).unwrap();
         assert!(svg.contains("#0a141e"), "la capa visible se dibuja");
         assert!(!svg.contains("#c86432"), "la capa oculta no tiene color en la imagen");
         assert!(!svg.contains("W=4 L=0.15"), "ni los textos de la capa oculta");
+
+        // `--show-devices`: también las ocultas.
+        let svg = scene_svg(&s, &style(), &Show { devices: true, net: None }).unwrap();
+        assert!(svg.contains("#c86432") && svg.contains("W=4 L=0.15"));
+    }
+
+    /// Una sola red, `out`, que es un cuadrado.
+    #[derive(Debug)]
+    struct OneNet;
+
+    impl viewer_core::NetProbe for OneNet {
+        fn at(&self, _: f64, _: f64, _: Option<Layer>) -> Option<viewer_core::NetHit> {
+            None
+        }
+        fn net_named(&self, name: &str) -> Option<viewer_core::NetHit> {
+            let outline = vec![vec![(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]];
+            (name == "out").then(|| viewer_core::NetHit { name: name.into(), outline })
+        }
+    }
+
+    #[test]
+    fn a_net_is_highlighted_or_the_reason_is_given() {
+        let mut s = Scene::new();
+        s.push(DrawElement::Rect { x: 0.0, y: 0.0, w: 10.0, h: 5.0, layer: 7, filled: true });
+        let net = |n: &str| Show { devices: false, net: Some(n.into()) };
+        assert!(scene_svg(&s, &style(), &net("out")).is_err(), "sin conectividad no hay redes");
+        s.nets = Some(std::sync::Arc::new(OneNet));
+        let svg = scene_svg(&s, &style(), &net("out")).unwrap();
+        assert!(svg.contains("#ffd200") && svg.contains("fill-opacity=\"0.7\""), "la red resaltada sobre el resto atenuado");
+        assert!(scene_svg(&s, &style(), &net("nada")).unwrap_err().contains("nada"));
     }
 
     #[test]
@@ -437,7 +509,7 @@ mod tests {
             label: "R1 <new>".into(),
             shape: AnnotationShape::Box(BoundingBox::from_points((0.0, 0.0), (10.0, 5.0))),
         });
-        let svg = scene_svg(&s, &style());
+        let svg = scene_svg(&s, &style(), &Show::default()).unwrap();
         assert!(svg.starts_with("<svg") && svg.ends_with("</svg>"));
         assert!(svg.contains("<line") && svg.contains(r##"fill="#0a141e""##));
         assert!(svg.contains("R1 &lt;new&gt;"), "{svg}");
@@ -459,7 +531,7 @@ mod tests {
     fn png_has_the_requested_size() {
         let mut s = Scene::new();
         s.push(DrawElement::Line { x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0, layer: 1 });
-        let png = to_png(&scene_svg(&s, &style())).unwrap();
+        let png = to_png(&scene_svg(&s, &style(), &Show::default()).unwrap()).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
         // Ancho y alto en la cabecera IHDR.
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 400);

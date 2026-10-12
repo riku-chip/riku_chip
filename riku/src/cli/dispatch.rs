@@ -34,12 +34,15 @@ impl From<Changes> for Outcome {
 }
 
 /// Pedido de imagen para `diff`/`show` con `-f png|svg` (`None` con otro formato).
+#[allow(clippy::too_many_arguments)]
 fn image_request(
     format: &OutputFormat,
     output: Option<std::path::PathBuf>,
     cell: Option<String>,
     size: &str,
     theme: ImageTheme,
+    signals: Vec<String>,
+    analysis: Option<String>,
 ) -> Result<Option<crate::export::Request>, String> {
     let png = match format {
         OutputFormat::Png => true,
@@ -47,7 +50,8 @@ fn image_request(
         _ => return Ok(None),
     };
     let (width, height) = crate::export::parse_size(size)?;
-    Ok(Some(crate::export::Request { png, output, width, height, dark: theme == ImageTheme::Dark, cell }))
+    let dark = theme == ImageTheme::Dark;
+    Ok(Some(crate::export::Request { png, output, width, height, dark, cell, signals, analysis, ..Default::default() }))
 }
 
 impl Commands {
@@ -81,9 +85,11 @@ impl Commands {
                 cell,
                 size,
                 theme,
+                signals,
+                analysis,
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
-                let img = image_request(&format, output, cell, &size, theme)?;
+                let img = image_request(&format, output, cell, &size, theme, signals, analysis)?;
                 commands::run_diff(repo, &targets, format, !compact, o, img).map(Outcome::from)
             }
 
@@ -102,13 +108,29 @@ impl Commands {
                 cell,
                 size,
                 theme,
+                signals,
+                analysis,
             } => {
                 let o = Overrides { cosmetic_threshold_um2, tolerance, expressions: exprs, no_cache };
-                let img = image_request(&format, output, cell, &size, theme)?;
+                let img = image_request(&format, output, cell, &size, theme, signals, analysis)?;
                 commands::run_show(repo, &commit, file_path.as_deref(), format, !compact, o, img).map(Outcome::from)
             }
 
-            Commands::Render { file, rev, repo, format, exprs, output, cell, size, theme } => {
+            Commands::Render {
+                file,
+                rev,
+                repo,
+                format,
+                exprs,
+                output,
+                cell,
+                size,
+                theme,
+                signals,
+                analysis,
+                show_devices,
+                net,
+            } => {
                 let (width, height) = crate::export::parse_size(&size)?;
                 let req = crate::export::Request {
                     png: format == ImageFormat::Png,
@@ -117,6 +139,9 @@ impl Commands {
                     height,
                     dark: theme == ImageTheme::Dark,
                     cell,
+                    signals,
+                    analysis,
+                    show: crate::export::svg::Show { devices: show_devices, net },
                 };
                 let o = Overrides { expressions: exprs, ..Overrides::default() };
                 commands::run_render(repo, &file, rev.as_deref(), req, o).map(|_| Outcome::Ok)

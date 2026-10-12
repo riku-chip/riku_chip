@@ -1,7 +1,8 @@
 //! Formas de onda (`.raw`) como SVG: un gráfico por unidad con B continua y
 //! A punteada y, en un diff, el error B − A debajo de cada uno (como la
-//! vista de la GUI). Muestra las señales que más cambiaron (o las primeras,
-//! sin comparación) y las expresiones que den una curva.
+//! vista de la GUI). Muestra las señales pedidas (`--signal`) o, si no, las
+//! expresiones que den una curva y las señales que más cambiaron (o las
+//! primeras, sin comparación), hasta [`MAX_SIGNALS`].
 
 use std::fmt::Write;
 
@@ -35,15 +36,45 @@ fn changed(d: &SignalDiff) -> bool {
     }
 }
 
-pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String], tol: Tolerance, style: &Style) -> String {
+/// Qué dibujar de un `.raw`: señales por nombre (sin distinguir mayúsculas)
+/// y el análisis (`tran`, `ac`…). Vacío = lo que elija la imagen.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Pick<'a> {
+    pub signals: &'a [String],
+    pub analysis: Option<&'a str>,
+}
+
+pub fn wave_svg(
+    before: Option<&RawFile>,
+    after: &RawFile,
+    expressions: &[String],
+    tol: Tolerance,
+    pick: Pick<'_>,
+    style: &Style,
+) -> Result<String, String> {
     let empty = RawFile { plots: Vec::new() };
     let a_file = before.unwrap_or(&empty);
     let pairs = pair_plots(a_file, after);
-    // Primer análisis con curvas (el punto de operación tiene un solo punto).
-    let Some((pair, (ia, ib))) =
-        pairs.iter().copied().enumerate().find(|(_, (_, b))| b.is_some_and(|i| after.plots[i].points() > 1))
-    else {
-        return empty_svg(style, &tr!("image.no_curves"));
+    let with_b = |b: Option<usize>, f: &dyn Fn(&Plot) -> bool| b.is_some_and(|i| f(&after.plots[i]));
+    let found = match pick.analysis {
+        // El análisis pedido: si no está o no tiene curvas, se dice por qué.
+        Some(name) => {
+            if expr::analysis_is(name, "").is_none() {
+                return Err(tr!("image.unknown_analysis", analysis = name, known = expr::analysis_prefixes()));
+            }
+            let is = |p: &Plot| expr::analysis_is(name, &p.name) == Some(true);
+            if !pairs.iter().any(|(_, b)| with_b(*b, &is)) {
+                let available: Vec<&str> = after.plots.iter().map(|p| p.name.as_str()).collect();
+                return Err(tr!("image.no_analysis", analysis = name, available = available.join(", ")));
+            }
+            let curves = pairs.iter().copied().enumerate().find(|(_, (_, b))| with_b(*b, &|p| is(p) && p.points() > 1));
+            Some(curves.ok_or_else(|| tr!("image.analysis_no_curves", analysis = name))?)
+        }
+        // Primer análisis con curvas (el punto de operación tiene un solo punto).
+        None => pairs.iter().copied().enumerate().find(|(_, (_, b))| with_b(*b, &|p| p.points() > 1)),
+    };
+    let Some((pair, (ia, ib))) = found else {
+        return Ok(empty_svg(style, &tr!("image.no_curves")));
     };
     let (pa, pb) = (ia.map(|i| &a_file.plots[i]), ib.map(|i| &after.plots[i]).expect("par con B"));
     let complex = pb.complex;
@@ -55,14 +86,10 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
     let (derived, _) = derived::evaluate(&exprs, a_file, after, tol);
     let derived: Vec<_> = derived.into_iter().filter(|d| d.pair == pair && d.diff.scalar.is_none()).collect();
 
-    // Candidatas con su diff (si hay A) para elegir las que más cambiaron.
+    // Candidatas con su diff (si hay A) para elegir las que más cambiaron:
+    // primero las expresiones (las pidió el usuario), después las señales.
     let diffs = before.map(|_| compare_plot(pa, Some(pb), tol));
     let mut candidates: Vec<(Curve, Option<&SignalDiff>)> = Vec::new();
-    for v in pb.signals() {
-        let a = pa.and_then(|p| p.signal(&v.name).and_then(|s| series(p, s)));
-        let d = diffs.as_ref().and_then(|d| d.signals.iter().find(|s| s.name == v.name));
-        candidates.push((Curve { name: v.name.clone(), unit: v.unit(complex), b: series(pb, v), a }, d));
-    }
     for d in &derived {
         let b = match (&d.b, pb.x()) {
             (Some(Evaluated::Signal(v)), Some(x)) => Some((&x.values[..], v)),
@@ -83,17 +110,41 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
             Some(&d.diff),
         ));
     }
+    let derived_count = candidates.len();
+    for v in pb.signals() {
+        let a = pa.and_then(|p| p.signal(&v.name).and_then(|s| series(p, s)));
+        let d = diffs.as_ref().and_then(|d| d.signals.iter().find(|s| s.name == v.name));
+        candidates.push((Curve { name: v.name.clone(), unit: v.unit(complex), b: series(pb, v), a }, d));
+    }
     let is_diff = before.is_some();
-    let mut chosen: Vec<&(Curve, Option<&SignalDiff>)> = if is_diff && candidates.iter().any(|(_, d)| d.is_some_and(changed)) {
-        let mut v: Vec<_> = candidates.iter().filter(|(_, d)| d.is_some_and(changed)).collect();
-        v.sort_by(|x, y| y.1.map_or(0.0, |d| d.rel()).total_cmp(&x.1.map_or(0.0, |d| d.rel())));
+    let chosen: Vec<&(Curve, Option<&SignalDiff>)> = if !pick.signals.is_empty() {
+        // Las pedidas, en ese orden, y las expresiones que den una curva.
+        let mut v: Vec<_> = candidates[..derived_count].iter().collect();
+        for name in pick.signals {
+            let Some(c) = candidates[derived_count..].iter().find(|(c, _)| c.name.eq_ignore_ascii_case(name.trim())) else {
+                let available: Vec<&str> =
+                    candidates[derived_count..].iter().map(|(c, _)| c.name.as_str()).filter(|n| !is_internal(n)).take(12).collect();
+                return Err(tr!("image.no_signal", signal = name, analysis = pb.name, available = available.join(", ")));
+            };
+            if !v.iter().any(|(x, _)| x.name == c.0.name) {
+                v.push(c);
+            }
+        }
         v
     } else {
-        candidates.iter().filter(|(c, _)| !is_internal(&c.name) || c.name.starts_with('ƒ')).collect()
+        let mut v: Vec<_> = if is_diff && candidates.iter().any(|(_, d)| d.is_some_and(changed)) {
+            let mut v: Vec<_> = candidates.iter().filter(|(_, d)| d.is_some_and(changed)).collect();
+            // Estable: a igual cambio, las expresiones siguen delante.
+            v.sort_by(|x, y| y.1.map_or(0.0, |d| d.rel()).total_cmp(&x.1.map_or(0.0, |d| d.rel())));
+            v
+        } else {
+            candidates.iter().filter(|(c, _)| !is_internal(&c.name) || c.name.starts_with('ƒ')).collect()
+        };
+        v.truncate(MAX_SIGNALS);
+        v
     };
-    chosen.truncate(MAX_SIGNALS);
     if chosen.is_empty() {
-        return empty_svg(style, &tr!("image.no_signals"));
+        return Ok(empty_svg(style, &tr!("image.no_signals")));
     }
 
     // Un grupo por unidad; en diff, cada grupo con su panel de error.
@@ -182,7 +233,7 @@ pub fn wave_svg(before: Option<&RawFile>, after: &RawFile, expressions: &[String
         esc(&format!("{x_name} [{x_unit}]"))
     );
     out.push_str("</svg>");
-    out
+    Ok(out)
 }
 
 fn empty_svg(style: &Style, why: &str) -> String {
@@ -376,10 +427,24 @@ mod tests {
         Style { width: 800, height: 500, dark: false, caption: "tb.raw".into() }
     }
 
+    fn svg(a: Option<&RawFile>, b: &RawFile, exprs: &[String], pick: Pick<'_>) -> Result<String, String> {
+        wave_svg(a, b, exprs, Tolerance::default(), pick, &style())
+    }
+
+    /// Un `.raw` con muchas señales de nivel superior, como un `save all`.
+    fn many(n: usize) -> RawFile {
+        let mut f = raw(vec![0.0, 1.0, 0.0]);
+        for i in 0..n {
+            let values = vec![0.0, i as f64, 0.0];
+            f.plots[0].vars.push(Variable { name: format!("v(n{i})"), kind: "voltage".into(), values, complex: None });
+        }
+        f
+    }
+
     #[test]
     fn diff_draws_both_versions_and_the_error() {
         let (a, b) = (raw(vec![0.0, 1.0, 0.0]), raw(vec![0.0, 1.5, 0.0]));
-        let svg = wave_svg(Some(&a), &b, &[], Tolerance::default(), &style());
+        let svg = svg(Some(&a), &b, &[], Pick::default()).unwrap();
         assert!(svg.contains("stroke-dasharray"), "A punteada");
         assert!(svg.contains("B − A [V]"), "panel de error");
         assert!(svg.contains("v(out)"));
@@ -388,8 +453,31 @@ mod tests {
     #[test]
     fn single_file_and_expressions() {
         let b = raw(vec![0.0, 1.0, 0.0]);
-        let svg = wave_svg(None, &b, &["twice = 2*v(out)".into()], Tolerance::default(), &style());
+        let svg = svg(None, &b, &["twice = 2*v(out)".into()], Pick::default()).unwrap();
         assert!(!svg.contains("stroke-dasharray") && svg.contains("ƒ twice"));
+    }
+
+    #[test]
+    fn an_expression_is_drawn_even_when_the_file_has_many_signals() {
+        let svg = svg(None, &many(5), &["twice = 2*v(out)".into()], Pick::default()).unwrap();
+        assert!(svg.contains("ƒ twice"), "la expresión va antes que las señales del archivo");
+    }
+
+    #[test]
+    fn picked_signals_and_analysis() {
+        let f = many(5);
+        let signals = ["V(N4)".to_string(), "v(out)".to_string()];
+        let svg = svg(None, &f, &[], Pick { signals: &signals, analysis: Some("tran") }).unwrap();
+        assert!(svg.contains("v(n4)") && svg.contains("v(out)") && !svg.contains("v(n0)"));
+        // Errores que se entienden, no una imagen vacía.
+        let missing = ["v(nada)".to_string()];
+        assert!(svg_err(&f, Pick { signals: &missing, analysis: None }).contains("v(nada)"));
+        assert!(svg_err(&f, Pick { signals: &[], analysis: Some("ac") }).contains("Transient Analysis"));
+        assert!(svg_err(&f, Pick { signals: &[], analysis: Some("xyz") }).contains("tran"));
+    }
+
+    fn svg_err(f: &RawFile, pick: Pick<'_>) -> String {
+        svg(None, f, &[], pick).unwrap_err()
     }
 
     #[test]

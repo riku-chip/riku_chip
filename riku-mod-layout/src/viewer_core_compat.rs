@@ -998,6 +998,8 @@ port 1 nsew signal {class}
             GdsBackend::new().load(bytes, Some("sram_16x8_sky130.gds".into()), CancellationToken::new()).await.expect("carga");
         let layer = h.layer_list().into_iter().find(|(_, p)| p.name == DEVICE_LAYER).expect("capa de transistores");
         assert!(layer.1.hidden, "oculta al abrir");
+        // La única oculta: `riku render --show-devices` dibuja las capas ocultas.
+        assert!(h.layer_list().iter().filter(|(_, p)| p.hidden).all(|(l, _)| *l == layer.0));
         // La misma cuenta que KLayout (tools/verify/devices).
         assert!(meta(&h, "Transistores").starts_with("2271 ("), "{}", meta(&h, "Transistores"));
         // Otros layouts sin reglas de PDK: ni capa ni resumen.

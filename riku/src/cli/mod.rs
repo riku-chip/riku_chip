@@ -107,6 +107,10 @@ pub(crate) enum Commands {
         size: String,
         #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
         theme: ImageTheme,
+        #[arg(long = "signal", value_name = "NAME", help = tr!("help.signal"))]
+        signals: Vec<String>,
+        #[arg(long, value_name = "ANALYSIS", help = tr!("help.analysis"))]
+        analysis: Option<String>,
     },
     #[command(about = tr!("help.show"), after_help = tr!("help.examples_show"))]
     Show {
@@ -138,6 +142,10 @@ pub(crate) enum Commands {
         size: String,
         #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
         theme: ImageTheme,
+        #[arg(long = "signal", value_name = "NAME", help = tr!("help.signal"))]
+        signals: Vec<String>,
+        #[arg(long, value_name = "ANALYSIS", help = tr!("help.analysis"))]
+        analysis: Option<String>,
     },
     #[command(about = tr!("help.render"), after_help = tr!("help.examples_render"))]
     Render {
@@ -159,6 +167,14 @@ pub(crate) enum Commands {
         size: String,
         #[arg(long, value_enum, default_value_t = ImageTheme::Light, help = tr!("help.theme"))]
         theme: ImageTheme,
+        #[arg(long = "signal", value_name = "NAME", help = tr!("help.signal"))]
+        signals: Vec<String>,
+        #[arg(long, value_name = "ANALYSIS", help = tr!("help.analysis"))]
+        analysis: Option<String>,
+        #[arg(long = "show-devices", help = tr!("help.show_devices"))]
+        show_devices: bool,
+        #[arg(long, value_name = "NET", help = tr!("help.net"))]
+        net: Option<String>,
     },
     #[cfg(all(feature = "xschem", feature = "layout"))]
     #[command(about = tr!("help.lvs"), after_help = tr!("help.examples_lvs"))]

@@ -242,7 +242,7 @@ impl RikuGuiApp {
             width: (size.x.round() as u32).clamp(800, 16384),
             height: (size.y.round() as u32).clamp(600, 16384),
             dark: ctx.theme() == egui::Theme::Dark,
-            cell: None,
+            ..Default::default()
         };
         let worktree = |path: &Path| {
             let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
