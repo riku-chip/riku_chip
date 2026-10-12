@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **Images you can steer.** `--signal NAME` (repeatable) and `--analysis tran|ac|…` choose what a waveform image draws, in `riku render` and in `diff`/`show -f png|svg`; `--expr` curves are drawn first. `riku render` also takes `--show-devices` (the Transistors layer, with model, W and L) and `--net NAME` (one net highlighted, the rest dimmed). A signal, analysis or net that is not there is an error that says so, instead of an empty image.
+- **Git LFS is recognized.** A file that Git stores as an LFS pointer is reported as `stored with Git LFS … not compared`, instead of "not a layout file".
+- `docs/troubleshooting.md`: common problems and what to do.
+
+### Changed
+
+- **The layout texts follow the language.** The cell summary, the diff layers and changes, and the warnings of the layout engine are in English by default and in Spanish with `RIKU_LANG=es` (or **Settings → Language**). Before, they were always in Spanish.
+- The comment at the top of `lvs/<cell>.toml` is now in English, whatever the language. The next `--suggest`, `--update` or change in the viewer rewrites it once (a comment-only change); files with the old comment are read the same.
+- The `inversor` demo's README says `--netgen` where it shows Netgen's LVS (`riku lvs HEAD~7 --netgen`), and explains that plain `riku lvs` is the manual LVS. Its commits have new hashes.
+- `riku --help` lists `riku demo` and `riku render` among its examples.
+
+### Fixed
+
+- Documentation: the PDK note now says what each format needs (GDS/OASIS transistors and nets work without an installed PDK; Magic needs it); the README no longer claims that Xschem pin connections are compared; the viewer lists the five diff colors; the images section no longer shows an `--expr` example that drew nothing.
+
 ## [0.2.1] - 2026-10-08
 
 ### Added
