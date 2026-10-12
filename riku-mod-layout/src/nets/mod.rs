@@ -448,17 +448,18 @@ pub fn layout_netlist(
     let side = crate::source::collect(bytes, Some(path), files).map_err(message)?.read(None).map_err(message)?;
     let lib = &side.lib;
     let top = match cell {
-        Some(name) => lib.find_cell(name).ok_or_else(|| crate::lang::t!("{path}: has no cell {name}", "{path}: no tiene la celda {name}"))?,
+        Some(name) => lib
+            .find_cell(name)
+            .ok_or_else(|| crate::lang::t!("{path}: has no cell {name}", "{path}: no tiene la celda {name}"))?,
         None => crate::select_top_cell(lib)
             .ok_or_else(|| crate::lang::t!("{path}: has no top cell", "{path}: no tiene una celda top"))?,
     };
-    let rules = devices::rules_for_library(lib, Some(path))
-        .ok_or_else(|| {
-            crate::lang::t!(
-                "{path}: the PDK is not recognized (no transistor rules)",
-                "{path}: no se reconoce el PDK (sin reglas de transistores)"
-            )
-        })?;
+    let rules = devices::rules_for_library(lib, Some(path)).ok_or_else(|| {
+        crate::lang::t!(
+            "{path}: the PDK is not recognized (no transistor rules)",
+            "{path}: no se reconoce el PDK (sin reglas de transistores)"
+        )
+    })?;
     // Por celdas (con la memoria) y aplanada: los mismos nombres que la sonda
     // del visor, que sale de la misma extracción.
     let netlist = if hier::flat_requested() {

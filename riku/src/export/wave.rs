@@ -122,8 +122,12 @@ pub fn wave_svg(
         let mut v: Vec<_> = candidates[..derived_count].iter().collect();
         for name in pick.signals {
             let Some(c) = candidates[derived_count..].iter().find(|(c, _)| c.name.eq_ignore_ascii_case(name.trim())) else {
-                let available: Vec<&str> =
-                    candidates[derived_count..].iter().map(|(c, _)| c.name.as_str()).filter(|n| !is_internal(n)).take(12).collect();
+                let available: Vec<&str> = candidates[derived_count..]
+                    .iter()
+                    .map(|(c, _)| c.name.as_str())
+                    .filter(|n| !is_internal(n))
+                    .take(12)
+                    .collect();
                 return Err(tr!("image.no_signal", signal = name, analysis = pb.name, available = available.join(", ")));
             };
             if !v.iter().any(|(x, _)| x.name == c.0.name) {

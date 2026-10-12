@@ -169,7 +169,10 @@ pub(crate) fn check_acyclic(lib: &Library) -> Result<(), String> {
                         let mut path: Vec<&str> = stack[start..].iter().map(|&(c, _)| cells[c].name()).collect();
                         path.push(cells[child].name());
                         let path = path.join(" → ");
-                        return Err(t!("cell cycle (the file is damaged): {path}", "ciclo de celdas (el archivo está dañado): {path}"));
+                        return Err(t!(
+                            "cell cycle (the file is damaged): {path}",
+                            "ciclo de celdas (el archivo está dañado): {path}"
+                        ));
                     }
                     Mark::Done => {}
                 },
@@ -532,7 +535,9 @@ fn net_changes(
         }
         if !confirmed && !v.is_empty() {
             let cell = &v[0].cell;
-            report.warnings.push(t!("{cell}: nets compared only near the change", "{cell}: redes comparadas solo cerca del cambio"));
+            report
+                .warnings
+                .push(t!("{cell}: nets compared only near the change", "{cell}: redes comparadas solo cerca del cambio"));
         }
         report.nets.extend(v);
     }

@@ -442,9 +442,9 @@ impl ViewerBackend for GdsBackend {
             let cell = match entry.as_deref() {
                 // Celda pedida explicitamente: si no existe es un error, no se
                 // sustituye en silencio por otra.
-                Some(name) => lib
-                    .find_cell(name)
-                    .ok_or_else(|| ViewerError::Backend(t!("the cell '{name}' is not in the file", "la celda '{name}' no existe en el archivo")))?,
+                Some(name) => lib.find_cell(name).ok_or_else(|| {
+                    ViewerError::Backend(t!("the cell '{name}' is not in the file", "la celda '{name}' no existe en el archivo"))
+                })?,
                 // Por defecto: top-cell determinista (alfabetica en empate).
                 // Library vacia o ciclica -> escena vacia (no es error).
                 None => match crate::select_top_cell(&lib) {
@@ -461,7 +461,9 @@ impl ViewerBackend for GdsBackend {
             scene.notices.extend(notices);
             let tops = entries.iter().filter(|e| e.is_root).count();
             // Justo despues de "Celda": cuantas celdas hay para elegir.
-            scene.metadata.insert(1, (crate::lang::pick("Cells", "Celdas").into(), format!("{tops} top / {} total", entries.len())));
+            scene
+                .metadata
+                .insert(1, (crate::lang::pick("Cells", "Celdas").into(), format!("{tops} top / {} total", entries.len())));
             scene.current_entry = Some(cell.name().to_string());
             scene.entries = entries;
             // Índice espacial (culling y nivel de detalle): aquí, fuera del hilo de la UI.

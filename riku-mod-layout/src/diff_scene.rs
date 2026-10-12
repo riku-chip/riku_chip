@@ -112,7 +112,9 @@ pub(crate) fn build_diff_scene(
                 .and_then(crate::select_top_cell)
                 .or_else(|| lib_a.and_then(crate::select_top_cell))
                 .map(|c| c.name().to_string())
-                .ok_or_else(|| ViewerError::Parse(crate::lang::pick("library without top cells", "library sin top cells").into()))?,
+                .ok_or_else(|| {
+                    ViewerError::Parse(crate::lang::pick("library without top cells", "library sin top cells").into())
+                })?,
         },
     };
 
@@ -120,7 +122,12 @@ pub(crate) fn build_diff_scene(
     let (lib, cell) = lib_b
         .and_then(|l| l.find_cell(&name).map(|c| (l, c)))
         .or_else(|| lib_a.and_then(|l| l.find_cell(&name).map(|c| (l, c))))
-        .ok_or_else(|| ViewerError::Backend(t!("the cell '{name}' is not in either version", "la celda '{name}' no existe en ninguna versión")))?;
+        .ok_or_else(|| {
+            ViewerError::Backend(t!(
+                "the cell '{name}' is not in either version",
+                "la celda '{name}' no existe en ninguna versión"
+            ))
+        })?;
     // Sin la información de Magic: el diff marca las redes que cambiaron, no
     // compara nombres con el LVS (la vista de LVS abre la escena sin diff).
     let (mut scene, keys) = vc_scene_from_cell(lib, &cell, path_hint, None);
