@@ -281,7 +281,7 @@ from the same commit.
 A port class change:
 
 ```text
-$ riku show 721c1e3
+$ riku show 79a9166
 File     : layout/inv.mag
 Changes  : 2
 
@@ -296,7 +296,7 @@ Changes  : 2
 A change made inside a sub-cell file, seen from the cell that uses it:
 
 ```text
-$ riku show e08504b
+$ riku show 09f6215
 File     : layout/inv.mag
 Changes  : 19
 
@@ -310,7 +310,7 @@ Changes  : 19
 And a re-save in Magic that only touched timestamps, which a text diff would flag on every file:
 
 ```text
-$ riku show 3a1ee46
+$ riku show ea1ecc8
 File     : layout/inv.mag
   no semantic changes
 …

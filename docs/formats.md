@@ -189,7 +189,7 @@ See [configuration.md](configuration.md) for all cache-related variables.
 Magic stores **one cell per file**, and its layers are **logical, named types** (`ndiff`, `poly`, `locali`, `metal1`) rather than mask layers. Riku compares those types, which are the ones you edit, and doesn't convert them to GDS through the `.tech` file. So a change reads `inv:metal2` instead of a GDS layer number:
 
 ```text
-$ riku show 77de166
+$ riku show 4da992e
 …
     Layout: wider metal2 on out
 
@@ -210,10 +210,10 @@ Riku resolves each `use` line by looking for `<cell>.mag` in this order:
 2. Next to the file that uses the cell, **in the same commit** (or on disk for `riku status`).
 3. The directories in `$RIKU_MAG_PATH` (separated like `PATH`), and the PDK libraries of the file's `tech` line (`$PDK_ROOT/<tech>/libs.ref/*/mag`).
 
-So if you change only a sub-cell file, the change also shows in every file that uses it, in that version. From the `inversor` demo, commit `e08504b` widens the NMOS inside its own sub-cell file:
+So if you change only a sub-cell file, the change also shows in every file that uses it, in that version. From the `inversor` demo, commit `09f6215` widens the NMOS inside its own sub-cell file:
 
 ```text
-$ riku show e08504b
+$ riku show 09f6215
 …
 File     : layout/inv.mag
 Changes  : 19
@@ -250,7 +250,7 @@ Magic types that aren't mask data are not compared: DRC marks and router hints (
 Riku compares each cell's ports by name. It reports ports that were added or removed, and changes to a port's class, use, index, sides or layer. From the `inversor` demo:
 
 ```text
-$ riku show 721c1e3
+$ riku show 79a9166
 …
     Layout: in is an input port, out an output
 
