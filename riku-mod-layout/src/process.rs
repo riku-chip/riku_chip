@@ -163,7 +163,7 @@ fn pdk_label(pdk: Pdk) -> &'static str {
         Pdk::Sky130 => "SKY130",
         Pdk::Gf180 => "GF180MCU",
         Pdk::Ihp => "IHP SG13G2",
-        Pdk::Generic => "genérico",
+        Pdk::Generic => crate::lang::pick("generic", "genérico"),
     }
 }
 

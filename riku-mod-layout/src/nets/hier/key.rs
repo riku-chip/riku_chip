@@ -22,7 +22,8 @@ pub(crate) fn salt(lib: &Library, rules_print: u64, inline: u64) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let mut names: Vec<(u32, u32, String)> = lib.layer_names().into_iter().map(|(t, n)| (t.layer, t.datatype, n)).collect();
     names.sort();
-    (env!("CARGO_PKG_VERSION"), rules_print, inline, (lib.unit() * 1e15).round() as i64, names).hash(&mut h);
+    // El idioma: los avisos de cada celda se guardan escritos en él.
+    (env!("CARGO_PKG_VERSION"), crate::lang::tag(), rules_print, inline, (lib.unit() * 1e15).round() as i64, names).hash(&mut h);
     h.finish()
 }
 

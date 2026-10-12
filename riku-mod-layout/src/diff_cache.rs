@@ -136,7 +136,8 @@ impl DiffCache {
 fn key(kind: &str, inputs: &[&[u8]], params: &str) -> String {
     let half = |seed: u64| {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        (seed, env!("CARGO_PKG_VERSION"), kind, params).hash(&mut h);
+        // El idioma: los avisos guardados están escritos en él.
+        (seed, env!("CARGO_PKG_VERSION"), crate::lang::tag(), kind, params).hash(&mut h);
         for b in inputs {
             b.hash(&mut h);
         }

@@ -55,7 +55,11 @@ pub fn initial(saved: Option<&str>) -> String {
 }
 
 pub fn set(code: &str) {
-    rust_i18n::set_locale(&supported(code).unwrap_or_else(|| DEFAULT.to_string()));
+    let code = supported(code).unwrap_or_else(|| DEFAULT.to_string());
+    // Los textos del módulo de layout (resumen, capas del diff, avisos).
+    #[cfg(feature = "layout")]
+    riku_mod_layout::lang::set_spanish(code == "es");
+    rust_i18n::set_locale(&code);
 }
 
 pub fn current() -> String {

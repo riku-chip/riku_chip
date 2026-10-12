@@ -7,6 +7,7 @@ use gdstk_rs::{sniff_format, Cell, GdsTag, Library, OwnedPolygon};
 use rayon::prelude::*;
 use viewer_core::FileSource;
 
+use crate::lang::t;
 use crate::source::{self, Raw, ReadError};
 use crate::top_cell::is_meta_cell;
 
@@ -99,9 +100,9 @@ pub struct GdsDiffReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GdsError {
-    #[error("{side}: no es un layout GDSII, OASIS ni Magic")]
+    #[error("{side}: {}", crate::lang::pick("not a GDSII, OASIS or Magic layout", "no es un layout GDSII, OASIS ni Magic"))]
     NotGdsii { side: &'static str },
-    #[error("{side}: no se pudo leer el layout: {msg}")]
+    #[error("{side}: {}: {msg}", crate::lang::pick("could not read the layout", "no se pudo leer el layout"))]
     Parse { side: &'static str, msg: String },
 }
 
@@ -167,7 +168,8 @@ pub(crate) fn check_acyclic(lib: &Library) -> Result<(), String> {
                         let start = stack.iter().position(|&(c, _)| c == child).unwrap_or(0);
                         let mut path: Vec<&str> = stack[start..].iter().map(|&(c, _)| cells[c].name()).collect();
                         path.push(cells[child].name());
-                        return Err(format!("ciclo de celdas (el archivo está dañado): {}", path.join(" → ")));
+                        let path = path.join(" → ");
+                        return Err(t!("cell cycle (the file is damaged): {path}", "ciclo de celdas (el archivo está dañado): {path}"));
                     }
                     Mark::Done => {}
                 },
@@ -224,7 +226,7 @@ pub fn diff_layout_sides(
             let mut report = diff_libraries(la.as_ref().map(|s| &*s.lib), lb.as_ref().map(|s| &*s.lib), cfg);
             report.ports =
                 crate::mag::port_changes(la.as_ref().and_then(|s| s.info.as_ref()), lb.as_ref().and_then(|s| s.info.as_ref()));
-            for (label, side) in [("antes", &la), ("después", &lb)] {
+            for (label, side) in [(crate::lang::before(), &la), (crate::lang::after(), &lb)] {
                 if let Some(s) = side {
                     report.warnings.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
                 }
@@ -316,10 +318,10 @@ fn hier_changes(
         })
         .collect();
     if !skipped.is_empty() {
-        report.warnings.push(format!(
-            "redes no comparadas en {} (más de {} millones de polígonos, sin extraer de antes): se comparan en sus sub-celdas; RIKU_FULL_NETS=1 las compara",
-            skipped.join(", "),
-            max / 1_000_000
+        let (cells, millions) = (skipped.join(", "), max / 1_000_000);
+        report.warnings.push(t!(
+            "nets not compared in {cells} (over {millions} million polygons, not extracted before): they are compared in their sub-cells; RIKU_FULL_NETS=1 compares them",
+            "redes no comparadas en {cells} (más de {millions} millones de polígonos, sin extraer de antes): se comparan en sus sub-celdas; RIKU_FULL_NETS=1 las compara"
         ));
     }
     let found = pair.changes(&cells);
@@ -370,10 +372,10 @@ fn device_changes(la: &Library, lb: &Library, path: &str, report: &mut GdsDiffRe
         }
     }
     if !skipped.is_empty() {
-        report.warnings.push(format!(
-            "transistores no comparados en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
-            skipped.join(", "),
-            crate::devices::MAX_POLYGONS / 1_000_000
+        let (cells, millions) = (skipped.join(", "), crate::devices::MAX_POLYGONS / 1_000_000);
+        report.warnings.push(t!(
+            "transistors not compared in {cells} (over {millions} million polygons): they are compared in their sub-cells",
+            "transistores no comparados en {cells} (más de {millions} millones de polígonos): se comparan en sus sub-celdas"
         ));
     }
 }
@@ -529,15 +531,16 @@ fn net_changes(
             continue;
         }
         if !confirmed && !v.is_empty() {
-            report.warnings.push(format!("{}: redes comparadas solo cerca del cambio", v[0].cell));
+            let cell = &v[0].cell;
+            report.warnings.push(t!("{cell}: nets compared only near the change", "{cell}: redes comparadas solo cerca del cambio"));
         }
         report.nets.extend(v);
     }
     if !skipped.is_empty() {
-        report.warnings.push(format!(
-            "redes no comparadas en {} (más de {} millones de polígonos): se comparan en sus sub-celdas",
-            skipped.join(", "),
-            crate::devices::MAX_POLYGONS / 1_000_000
+        let (cells, millions) = (skipped.join(", "), crate::devices::MAX_POLYGONS / 1_000_000);
+        report.warnings.push(t!(
+            "nets not compared in {cells} (over {millions} million polygons): they are compared in their sub-cells",
+            "redes no comparadas en {cells} (más de {millions} millones de polígonos): se comparan en sus sub-celdas"
         ));
     }
 }
@@ -604,7 +607,8 @@ pub(crate) fn diff_gds_with_config(a: &[u8], b: &[u8], cfg: &DiffConfig) -> Resu
 pub(crate) fn read_notes(lib: &Library) -> Vec<String> {
     let Some(code) = lib.read_warning() else { return Vec::new() };
     if code != gdstk_rs::ErrorCode::MissingReference {
-        return vec![format!("el lector de GDS avisó: {}", code.as_str())];
+        let code = code.as_str();
+        return vec![t!("the GDS reader warned: {code}", "el lector de GDS avisó: {code}")];
     }
     let cells: HashSet<&str> = lib.cells().map(|c| c.name()).collect();
     let missing: BTreeSet<&str> = lib
@@ -613,7 +617,11 @@ pub(crate) fn read_notes(lib: &Library) -> Vec<String> {
         .filter(|n| !cells.contains(n))
         .collect();
     let list: Vec<&str> = missing.into_iter().collect();
-    vec![format!("instancias de celdas que no están en el archivo (no se comparan): {}", list.join(", "))]
+    let list = list.join(", ");
+    vec![t!(
+        "instances of cells that are not in the file (not compared): {list}",
+        "instancias de celdas que no están en el archivo (no se comparan): {list}"
+    )]
 }
 
 /// Diff de dos librerías ya leídas (`None` = el archivo no existía de ese
@@ -742,9 +750,10 @@ impl CellDiff {
         self.failed_layers
             .iter()
             .map(|k| {
-                format!(
-                    "{cell}, capa {}/{}: falló la operación booleana (Clipper); el cambio de esa capa puede estar incompleto",
-                    k.layer, k.datatype
+                let (l, d) = (k.layer, k.datatype);
+                t!(
+                    "{cell}, layer {l}/{d}: the boolean operation failed (Clipper); the change on that layer may be incomplete",
+                    "{cell}, capa {l}/{d}: falló la operación booleana (Clipper); el cambio de esa capa puede estar incompleto"
                 )
             })
             .collect()
@@ -1092,7 +1101,7 @@ mod tests {
         assert_eq!(r.cells_added, vec!["TOP".to_string()]);
         assert!(diff_gds(&gds, &gds).unwrap().geometry.is_empty(), "contra sí mismo no cambia nada");
         assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
-        assert!(r.warnings[0].starts_with("después:") && r.warnings[0].contains("IO_PAD"), "{:?}", r.warnings);
+        assert!(r.warnings[0].starts_with("after:") && r.warnings[0].contains("IO_PAD"), "{:?}", r.warnings);
     }
 
     #[test]
@@ -1302,7 +1311,7 @@ mod tests {
         assert_eq!(r.nets.len(), 1, "{:?}", r.nets);
         let n = &r.nets[0];
         assert_eq!((n.cell.as_str(), n.kind, n.before.clone()), ("TOP", NetChangeKind::Short, vec!["A".to_string(), "B".into()]));
-        assert!(r.warnings.iter().all(|w| !w.contains("solo cerca")), "confirmado con la celda entera: {:?}", r.warnings);
+        assert!(r.warnings.iter().all(|w| !w.contains("only near")), "confirmado con la celda entera: {:?}", r.warnings);
     }
 
     #[test]

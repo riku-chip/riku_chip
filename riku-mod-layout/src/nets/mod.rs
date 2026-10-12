@@ -22,6 +22,27 @@ use rayon::prelude::*;
 
 use crate::devices::{self, DeviceRules, LayerPolys, RegionEval};
 
+/// El aviso de una red con varias etiquetas (`a net has more than one name: A, B`).
+pub(crate) fn multiple_names(labels: &[String]) -> String {
+    let list = labels.join(", ");
+    crate::lang::t!("a net has more than one name: {list}", "una red tiene más de un nombre: {list}")
+}
+
+/// Si `w` es un aviso de [`multiple_names`], en cualquier idioma (el visor
+/// los muestra aparte).
+pub(crate) fn is_multiple_names(w: &str) -> bool {
+    w.starts_with("a net has more than one name") || w.starts_with("una red tiene más de un nombre")
+}
+
+/// El aviso de etiquetas que no caen sobre una capa que conduce.
+pub(crate) fn unplaced_labels(labels: &[&str]) -> String {
+    let list = labels.join(", ");
+    crate::lang::t!(
+        "labels outside a conducting layer of their type: {list}",
+        "etiquetas fuera de una capa conductora de su tipo: {list}"
+    )
+}
+
 /// Los tipos cuya región hace falta: los que conducen, los del sustrato y
 /// los que lo excluyen.
 pub(crate) fn wanted_types(rules: &DeviceRules) -> Vec<String> {
@@ -419,17 +440,25 @@ pub fn layout_netlist(
 ) -> Result<LayoutNetlist, String> {
     use crate::source::ReadError;
     let message = |e: ReadError| match e {
-        ReadError::NotLayout => format!("{path}: no es un layout GDSII, OASIS ni Magic"),
+        ReadError::NotLayout => {
+            crate::lang::t!("{path}: not a GDSII, OASIS or Magic layout", "{path}: no es un layout GDSII, OASIS ni Magic")
+        }
         ReadError::Parse(m) => format!("{path}: {m}"),
     };
     let side = crate::source::collect(bytes, Some(path), files).map_err(message)?.read(None).map_err(message)?;
     let lib = &side.lib;
     let top = match cell {
-        Some(name) => lib.find_cell(name).ok_or_else(|| format!("{path}: no tiene la celda {name}"))?,
-        None => crate::select_top_cell(lib).ok_or_else(|| format!("{path}: no tiene una celda top"))?,
+        Some(name) => lib.find_cell(name).ok_or_else(|| crate::lang::t!("{path}: has no cell {name}", "{path}: no tiene la celda {name}"))?,
+        None => crate::select_top_cell(lib)
+            .ok_or_else(|| crate::lang::t!("{path}: has no top cell", "{path}: no tiene una celda top"))?,
     };
     let rules = devices::rules_for_library(lib, Some(path))
-        .ok_or_else(|| format!("{path}: no se reconoce el PDK (sin reglas de transistores)"))?;
+        .ok_or_else(|| {
+            crate::lang::t!(
+                "{path}: the PDK is not recognized (no transistor rules)",
+                "{path}: no se reconoce el PDK (sin reglas de transistores)"
+            )
+        })?;
     // Por celdas (con la memoria) y aplanada: los mismos nombres que la sonda
     // del visor, que sale de la misma extracción.
     let netlist = if hier::flat_requested() {

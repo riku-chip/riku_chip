@@ -16,6 +16,7 @@ use viewer_core::{
 
 use crate::diff_cache::{CellDiffDto, ChangedCells, DiffCache};
 use crate::gds_diff::{changed_cells, diff_cell_as, CellChange, CellDiff, DiffConfig};
+use crate::lang::t;
 use crate::layer_style::{layer_label, layer_names, tag_tuple, LayerNames};
 use crate::process::Process;
 use crate::viewer_core_compat::{list_cells, vc_scene_from_cell};
@@ -24,6 +25,15 @@ use crate::viewer_core_compat::{list_cells, vc_scene_from_cell};
 /// debajo, contorno opaco para ubicar cambios chicos.
 const DIFF_ADDED: (Rgba, Rgba) = (Rgba::new(40, 220, 90, 150), Rgba::new(90, 255, 130, 255));
 const DIFF_REMOVED: (Rgba, Rgba) = (Rgba::new(240, 60, 60, 150), Rgba::new(255, 100, 100, 255));
+
+/// Nombres de las capas del overlay (en el idioma elegido).
+pub(crate) fn added_layer() -> &'static str {
+    crate::lang::pick("Δ added", "Δ añadido")
+}
+
+pub(crate) fn removed_layer() -> &'static str {
+    crate::lang::pick("Δ removed", "Δ eliminado")
+}
 
 /// Lo que se leyó de cada lado (bytes, o los archivos de una jerarquía
 /// Magic) y la cache donde guardar lo que cuesta calcular (celdas cambiadas
@@ -56,7 +66,9 @@ pub(crate) fn build_diff_scene(
     cached: &CachedDiff<'_>,
 ) -> VcResult<VcScene> {
     let Some(base_lib) = lib_b.or(lib_a) else {
-        return Err(ViewerError::Parse("diff sin contenido en ninguno de los dos lados".into()));
+        return Err(ViewerError::Parse(
+            crate::lang::pick("diff with no content on either side", "diff sin contenido en ninguno de los dos lados").into(),
+        ));
     };
 
     // Catalogo: celdas de "after" y, a continuacion, las que solo existian antes.
@@ -100,7 +112,7 @@ pub(crate) fn build_diff_scene(
                 .and_then(crate::select_top_cell)
                 .or_else(|| lib_a.and_then(crate::select_top_cell))
                 .map(|c| c.name().to_string())
-                .ok_or_else(|| ViewerError::Parse("library sin top cells".into()))?,
+                .ok_or_else(|| ViewerError::Parse(crate::lang::pick("library without top cells", "library sin top cells").into()))?,
         },
     };
 
@@ -108,7 +120,7 @@ pub(crate) fn build_diff_scene(
     let (lib, cell) = lib_b
         .and_then(|l| l.find_cell(&name).map(|c| (l, c)))
         .or_else(|| lib_a.and_then(|l| l.find_cell(&name).map(|c| (l, c))))
-        .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en ninguna versión")))?;
+        .ok_or_else(|| ViewerError::Backend(t!("the cell '{name}' is not in either version", "la celda '{name}' no existe en ninguna versión")))?;
     // Sin la información de Magic: el diff marca las redes que cambiaron, no
     // compara nombres con el LVS (la vista de LVS abre la escena sin diff).
     let (mut scene, keys) = vc_scene_from_cell(lib, &cell, path_hint, None);
@@ -135,11 +147,11 @@ pub(crate) fn build_diff_scene(
     let (k_removed, k_added) = (next, next.saturating_add(1));
     scene.layers.insert(
         k_removed,
-        LayerPaint { name: "Δ eliminado".into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1, hidden: false },
+        LayerPaint { name: removed_layer().into(), fill: DIFF_REMOVED.0, stroke: DIFF_REMOVED.1, hidden: false },
     );
     scene
         .layers
-        .insert(k_added, LayerPaint { name: "Δ añadido".into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1, hidden: false });
+        .insert(k_added, LayerPaint { name: added_layer().into(), fill: DIFF_ADDED.0, stroke: DIFF_ADDED.1, hidden: false });
     let polygon = |p: &gdstk_rs::OwnedPolygon, layer| DrawElement::Polygon {
         points: p.points.iter().map(|q| (q.x, q.y)).collect(),
         layer,
@@ -166,15 +178,16 @@ pub(crate) fn build_diff_scene(
     let area_add = diff.geometry.iter().fold(0.0, |acc, g| acc + g.added_area_um2);
     let area_rem = diff.geometry.iter().fold(0.0, |acc, g| acc + g.removed_area_um2);
     let summary = if diff.geometry.is_empty() {
-        "sin cambios geométricos".to_string()
+        crate::lang::pick("no geometry changes", "sin cambios geométricos").to_string()
     } else {
-        format!("{relevant} relevantes · {cosmetic} cosméticos")
+        t!("{relevant} relevant · {cosmetic} cosmetic", "{relevant} relevantes · {cosmetic} cosméticos")
     };
     let mut head = vec![("Diff".to_string(), summary)];
     if !diff.geometry.is_empty() {
-        head.push(("Área".to_string(), format!("+{area_add:.4} / −{area_rem:.4} µm²")));
+        head.push((crate::lang::pick("Area", "Área").to_string(), format!("+{area_add:.4} / −{area_rem:.4} µm²")));
     }
-    head.push(("Cambiadas".to_string(), format!("{} de {} celdas", changed.len(), entries.len())));
+    let (n, total) = (changed.len(), entries.len());
+    head.push((crate::lang::pick("Changed", "Cambiadas").to_string(), t!("{n} of {total} cells", "{n} de {total} celdas")));
     scene.metadata.splice(0..0, head);
     scene.current_entry = Some(name);
     scene.entries = entries;
@@ -195,8 +208,8 @@ fn change_items(diff: &CellDiff, process: &'static Process, unit_factor: f64, na
             let layer = layer_label(tag, &process.layer_spec(tag), names.get(&tag_tuple(tag)).map(String::as_str));
             // Un item por instancia: la posicion distingue las copias.
             let label = match (g.origin_path.get(1), g.instance_at_um) {
-                (Some(sub), Some((x, y))) => format!("{layer} · en {sub} @ ({x:.2}, {y:.2})"),
-                (Some(sub), None) => format!("{layer} · en {sub}"),
+                (Some(sub), Some((x, y))) => t!("{layer} · in {sub} @ ({x:.2}, {y:.2})", "{layer} · en {sub} @ ({x:.2}, {y:.2})"),
+                (Some(sub), None) => t!("{layer} · in {sub}", "{layer} · en {sub}"),
                 (None, _) => layer,
             };
             let kind = match (g.added_polygons > 0, g.removed_polygons > 0) {
@@ -225,7 +238,7 @@ fn change_items(diff: &CellDiff, process: &'static Process, unit_factor: f64, na
 fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem> {
     let item = |kind, what: &str, name: &String| ChangeItem {
         kind,
-        label: format!("celda {what}: {name}"),
+        label: t!("cell {what}: {name}", "celda {what}: {name}"),
         detail: String::new(),
         bbox: None,
         cosmetic: false,
@@ -234,9 +247,11 @@ fn cell_presence_items(changed: &BTreeMap<String, CellChange>) -> Vec<ChangeItem
     changed
         .iter()
         .filter_map(|(name, c)| match c {
-            CellChange::Added => Some(item(ChangeKind::Added, "añadida", name)),
-            CellChange::Removed => Some(item(ChangeKind::Removed, "eliminada", name)),
-            CellChange::Renamed { from } => Some(item(ChangeKind::Modified, "renombrada", &format!("{from} → {name}"))),
+            CellChange::Added => Some(item(ChangeKind::Added, crate::lang::pick("added", "añadida"), name)),
+            CellChange::Removed => Some(item(ChangeKind::Removed, crate::lang::pick("removed", "eliminada"), name)),
+            CellChange::Renamed { from } => {
+                Some(item(ChangeKind::Modified, crate::lang::pick("renamed", "renombrada"), &format!("{from} → {name}")))
+            }
             CellChange::Modified => None,
         })
         .collect()
@@ -281,11 +296,12 @@ pub(crate) fn device_item(c: &crate::devices::DeviceChange) -> ChangeItem {
 /// rojo); un clic encuadra dónde está.
 pub(crate) fn net_item(n: &crate::nets::NetChange) -> ChangeItem {
     use crate::nets::NetChangeKind;
+    let pick = crate::lang::pick;
     let (what, name, error) = match n.kind {
-        NetChangeKind::Short => ("corto", n.after.join(", "), true),
-        NetChangeKind::Open => ("abierto", n.before.join(", "), true),
-        NetChangeKind::Separated => ("corto resuelto", n.before.join(", "), false),
-        NetChangeKind::Renamed => ("red renombrada", n.after.join(", "), false),
+        NetChangeKind::Short => (pick("short", "corto"), n.after.join(", "), true),
+        NetChangeKind::Open => (pick("open", "abierto"), n.before.join(", "), true),
+        NetChangeKind::Separated => (pick("short fixed", "corto resuelto"), n.before.join(", "), false),
+        NetChangeKind::Renamed => (pick("net renamed", "red renombrada"), n.after.join(", "), false),
     };
     let b = n.bbox_um;
     ChangeItem {
@@ -302,8 +318,8 @@ pub(crate) fn net_item(n: &crate::nets::NetChange) -> ChangeItem {
 pub(crate) fn net_annotation(n: &crate::nets::NetChange) -> Option<viewer_core::Annotation> {
     use crate::nets::NetChangeKind;
     let label = match n.kind {
-        NetChangeKind::Short => "corto",
-        NetChangeKind::Open => "abierto",
+        NetChangeKind::Short => crate::lang::pick("short", "corto"),
+        NetChangeKind::Open => crate::lang::pick("open", "abierto"),
         NetChangeKind::Separated | NetChangeKind::Renamed => return None,
     };
     let b = n.bbox_um;
@@ -318,17 +334,18 @@ pub(crate) fn net_annotation(n: &crate::nets::NetChange) -> Option<viewer_core::
 }
 
 pub(crate) fn port_item(p: &crate::mag::PortChange) -> ChangeItem {
+    let port = crate::lang::pick("port", "puerto");
     let (kind, label) = match (&p.before, &p.after) {
-        (None, Some(d)) => (ChangeKind::Added, format!("puerto {} ({})", p.name, d.class.as_deref().unwrap_or("—"))),
-        (Some(_), None) => (ChangeKind::Removed, format!("puerto {}", p.name)),
+        (None, Some(d)) => (ChangeKind::Added, format!("{port} {} ({})", p.name, d.class.as_deref().unwrap_or("—"))),
+        (Some(_), None) => (ChangeKind::Removed, format!("{port} {}", p.name)),
         (Some(x), Some(y)) if x.class != y.class => (
             ChangeKind::Modified,
-            format!("puerto {}: {} → {}", p.name, x.class.as_deref().unwrap_or("—"), y.class.as_deref().unwrap_or("—")),
+            format!("{port} {}: {} → {}", p.name, x.class.as_deref().unwrap_or("—"), y.class.as_deref().unwrap_or("—")),
         ),
-        _ => (ChangeKind::Modified, format!("puerto {}", p.name)),
+        _ => (ChangeKind::Modified, format!("{port} {}", p.name)),
     };
     let detail = match p.after.as_ref().or(p.before.as_ref()) {
-        _ if p.cosmetic => "se movió".to_string(),
+        _ if p.cosmetic => crate::lang::pick("moved", "se movió").to_string(),
         Some(d) => format!("{} {} · {}", d.index, d.usage.as_deref().unwrap_or(""), d.layers.join(",")),
         None => String::new(),
     };

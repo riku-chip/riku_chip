@@ -29,6 +29,7 @@ use viewer_core::{
 
 use crate::diff_cache::DiffCache;
 use crate::diff_scene::{build_diff_scene, port_item, CachedDiff};
+use crate::lang::t;
 use crate::layer_style::{layer_names, tag_tuple, LayerKeys};
 use crate::source::{self, LibCache, Raw, ReadError};
 
@@ -179,13 +180,14 @@ pub(crate) fn vc_scene_from_cell(
     let labels = labels_count;
     let electrical = add_electrical(&mut scene, lib, cell, path_hint, magic, polygons, text_size, &keys);
 
+    let pick = crate::lang::pick;
     scene.metadata = vec![
-        ("Celda".into(), cell.name().to_string()),
+        (pick("Cell", "Celda").into(), cell.name().to_string()),
         ("PDK".into(), keys.process.name.clone()),
-        ("Polígonos".into(), polygons.to_string()),
-        ("Etiquetas".into(), labels.to_string()),
-        ("Capas".into(), scene.layers.len().to_string()),
-        ("Tamaño".into(), format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height())),
+        (pick("Polygons", "Polígonos").into(), polygons.to_string()),
+        (pick("Labels", "Etiquetas").into(), labels.to_string()),
+        (pick("Layers", "Capas").into(), scene.layers.len().to_string()),
+        (pick("Size", "Tamaño").into(), format!("{:.3} × {:.3} µm", scene.bbox.width(), scene.bbox.height())),
     ];
     for (k, v) in electrical {
         scene.metadata.push((k.into(), v));
@@ -208,11 +210,19 @@ fn add_electrical(
 ) -> Vec<(&'static str, String)> {
     let Some(rules) = crate::devices::rules_for_library(lib, path_hint) else { return Vec::new() };
     let big = polygons as u64 > crate::devices::MAX_POLYGONS;
+    let (transistors, nets) = (crate::lang::pick("Transistors", "Transistores"), crate::lang::pick("Nets", "Redes"));
     let nl = if crate::nets::hier::flat_requested() {
         if big {
             return vec![
-                ("Transistores", "no se reconocen en una celda tan grande: abrí una sub-celda".into()),
-                ("Redes", "no calculadas en una celda tan grande".into()),
+                (
+                    transistors,
+                    crate::lang::pick(
+                        "not recognized in a cell this large: open a sub-cell",
+                        "no se reconocen en una celda tan grande: abrí una sub-celda",
+                    )
+                    .into(),
+                ),
+                (nets, crate::lang::pick("not computed in a cell this large", "no calculadas en una celda tan grande").into()),
             ];
         }
         crate::nets::cell_nets(lib, cell, rules, magic)
@@ -222,9 +232,10 @@ fn add_electrical(
         let h = crate::nets::hier::extract(lib, cell, rules, magic, crate::nets::hier::Options::default());
         if big {
             // Dibujarlos pide tenerlos aplanados: solo cuántos hay.
+            let (d, n) = (h.root.deep_devices, h.root.nets.len());
             return vec![
-                ("Transistores", format!("{} (abrí una sub-celda para verlos)", h.root.deep_devices)),
-                ("Redes", format!("{} (abrí una sub-celda para verlas)", h.root.nets.len())),
+                (transistors, t!("{d} (open a sub-cell to see them)", "{d} (abrí una sub-celda para verlos)")),
+                (nets, t!("{n} (open a sub-cell to see them)", "{n} (abrí una sub-celda para verlas)")),
             ];
         }
         h.flatten(true)
@@ -232,12 +243,12 @@ fn add_electrical(
     let mut out = Vec::new();
     let devices: Vec<crate::devices::Device> = nl.devices.iter().map(|(d, _)| d.clone()).collect();
     if let Some(summary) = add_devices(scene, &devices, text_size) {
-        out.push(("Transistores", summary));
+        out.push((transistors, summary));
     }
     if !nl.nets.is_empty() {
-        let named = nl.nets.iter().filter(|n| n.name.is_some()).count();
-        out.push(("Redes", format!("{} ({named} con nombre)", nl.nets.len())));
-        scene.notices.extend(nl.warnings.iter().filter(|w| w.contains("más de un nombre")).cloned());
+        let (total, named) = (nl.nets.len(), nl.nets.iter().filter(|n| n.name.is_some()).count());
+        out.push((nets, t!("{total} ({named} named)", "{total} ({named} con nombre)")));
+        scene.notices.extend(nl.warnings.iter().filter(|w| crate::nets::is_multiple_names(w)).cloned());
         // Las capas de la escena de cada tipo: las del archivo con su nombre
         // (Magic) o las capas GDS donde se dibuja.
         let names = layer_names(lib);
@@ -263,8 +274,10 @@ fn add_electrical(
     out
 }
 
-/// Nombre de la capa con los transistores reconocidos.
-pub(crate) const DEVICE_LAYER: &str = "Transistores";
+/// Nombre de la capa con los transistores reconocidos (en el idioma elegido).
+pub(crate) fn device_layer() -> &'static str {
+    crate::lang::pick("Transistors", "Transistores")
+}
 
 /// La capa "Transistores" (oculta al abrir): la compuerta de cada uno y una
 /// etiqueta con su tipo, W y L. Devuelve el resumen para el panel
@@ -277,7 +290,7 @@ fn add_devices(scene: &mut VcScene, devices: &[crate::devices::Device], text_siz
     scene.layers.insert(
         layer,
         viewer_core::paint::LayerPaint {
-            name: DEVICE_LAYER.into(),
+            name: device_layer().into(),
             fill: viewer_core::paint::Rgba::new(255, 200, 0, 70),
             stroke: viewer_core::paint::Rgba::new(255, 200, 0, 255),
             hidden: true,
@@ -431,7 +444,7 @@ impl ViewerBackend for GdsBackend {
                 // sustituye en silencio por otra.
                 Some(name) => lib
                     .find_cell(name)
-                    .ok_or_else(|| ViewerError::Backend(format!("la celda '{name}' no existe en el archivo")))?,
+                    .ok_or_else(|| ViewerError::Backend(t!("the cell '{name}' is not in the file", "la celda '{name}' no existe en el archivo")))?,
                 // Por defecto: top-cell determinista (alfabetica en empate).
                 // Library vacia o ciclica -> escena vacia (no es error).
                 None => match crate::select_top_cell(&lib) {
@@ -448,7 +461,7 @@ impl ViewerBackend for GdsBackend {
             scene.notices.extend(notices);
             let tops = entries.iter().filter(|e| e.is_root).count();
             // Justo despues de "Celda": cuantas celdas hay para elegir.
-            scene.metadata.insert(1, ("Celdas".into(), format!("{tops} top / {} total", entries.len())));
+            scene.metadata.insert(1, (crate::lang::pick("Cells", "Celdas").into(), format!("{tops} top / {} total", entries.len())));
             scene.current_entry = Some(cell.name().to_string());
             scene.entries = entries;
             // Índice espacial (culling y nivel de detalle): aquí, fuera del hilo de la UI.
@@ -498,21 +511,21 @@ impl ViewerBackend for GdsBackend {
         let scene = tokio::task::spawn_blocking(move || -> VcResult<VcScene> {
             let path = path_hint.as_deref();
             let (ra, rb) = rayon::join(
-                || collect_side(&before, path, files.before.as_deref(), "antes"),
-                || collect_side(&after, path, files.after.as_deref(), "después"),
+                || collect_side(&before, path, files.before.as_deref(), crate::lang::before()),
+                || collect_side(&after, path, files.after.as_deref(), crate::lang::after()),
             );
             let (ra, rb) = (ra?, rb?);
             let read = |raw: &Option<Raw<'_>>, label| {
                 raw.as_ref().map(|r| r.read(Some(&libs)).map_err(|e| read_error(e, label))).transpose()
             };
-            let (a, b) = rayon::join(|| read(&ra, "antes"), || read(&rb, "después"));
+            let (a, b) = rayon::join(|| read(&ra, crate::lang::before()), || read(&rb, crate::lang::after()));
             let (mut a, mut b) = (a?, b?);
-            source::same_unit(ra.as_ref(), &mut a, rb.as_ref(), &mut b).map_err(|e| read_error(e, "antes"))?;
+            source::same_unit(ra.as_ref(), &mut a, rb.as_ref(), &mut b).map_err(|e| read_error(e, crate::lang::before()))?;
             if token.is_cancelled() {
                 return Err(ViewerError::Cancelled);
             }
             let mut notices = Vec::new();
-            for (side, label) in [(&a, "antes"), (&b, "después")] {
+            for (side, label) in [(&a, crate::lang::before()), (&b, crate::lang::after())] {
                 if let Some(s) = side {
                     notices.extend(s.notices.iter().map(|n| format!("{label}: {n}")));
                 }
@@ -731,7 +744,7 @@ port 1 nsew signal {class}
             )
             .await
             .expect("diff de puertos");
-        assert!(h.changes().iter().any(|c| c.label == "puerto A: input → inout"), "{:?}", h.changes());
+        assert!(h.changes().iter().any(|c| c.label == "port A: input → inout"), "{:?}", h.changes());
     }
 
     #[tokio::test]
@@ -850,8 +863,8 @@ port 1 nsew signal {class}
         });
         assert!(!polygon_after_text, "los textos deben ir al final");
         let meta = handle.metadata();
-        assert!(meta.iter().any(|(k, _)| k == "Celda"));
-        let capas: usize = meta.iter().find(|(k, _)| k == "Capas").unwrap().1.parse().unwrap();
+        assert!(meta.iter().any(|(k, _)| k == "Cell"));
+        let capas: usize = meta.iter().find(|(k, _)| k == "Layers").unwrap().1.parse().unwrap();
         assert_eq!(handle.layer_list().len(), capas);
     }
 
@@ -887,7 +900,7 @@ port 1 nsew signal {class}
     async fn default_entry_matches_select_top_cell() {
         let h = load_cell("top_multi.gds", None).await.expect("load");
         assert_eq!(h.current_entry(), Some("ALPHA"));
-        let celdas = h.metadata().iter().find(|(k, _)| k == "Celdas").map(|(_, v)| v.as_str());
+        let celdas = h.metadata().iter().find(|(k, _)| k == "Cells").map(|(_, v)| v.as_str());
         assert_eq!(celdas, Some("3 top / 3 total"));
     }
 
@@ -936,21 +949,21 @@ port 1 nsew signal {class}
     #[tokio::test]
     async fn diff_datatype_change_is_one_removed_and_one_added() {
         let h = diff(Some("datatype_a.gds"), "datatype_b.gds", None).await;
-        assert_eq!(overlay_count(&h, "Δ eliminado"), 1);
-        assert_eq!(overlay_count(&h, "Δ añadido"), 1);
+        assert_eq!(overlay_count(&h, "Δ removed"), 1);
+        assert_eq!(overlay_count(&h, "Δ added"), 1);
         let kinds: Vec<_> = h.changes().iter().map(|c| (c.label.as_str(), c.kind)).collect();
         assert!(kinds.contains(&("1/0", ChangeKind::Removed)), "{kinds:?}");
         assert!(kinds.contains(&("1/1", ChangeKind::Added)), "{kinds:?}");
         assert!(h.changes().iter().all(|c| c.bbox.is_some() && !c.cosmetic));
-        assert_eq!(meta(&h, "Diff"), "2 relevantes · 0 cosméticos");
+        assert_eq!(meta(&h, "Diff"), "2 relevant · 0 cosmetic");
     }
 
     #[tokio::test]
     async fn identical_files_have_no_changes() {
         let h = diff(Some("datatype_a.gds"), "datatype_a.gds", None).await;
         assert!(h.changes().is_empty());
-        assert_eq!(overlay_count(&h, "Δ añadido"), 0);
-        assert_eq!(meta(&h, "Diff"), "sin cambios geométricos");
+        assert_eq!(overlay_count(&h, "Δ added"), 0);
+        assert_eq!(meta(&h, "Diff"), "no geometry changes");
     }
 
     #[tokio::test]
@@ -971,8 +984,8 @@ port 1 nsew signal {class}
         assert_eq!(entries, 2, "celdas cambiadas + XOR de ARR");
         let second = load().await.expect("desde la cache");
         assert_eq!(first.changes(), second.changes());
-        assert_eq!(overlay_count(&first, "Δ añadido"), 6);
-        assert_eq!(overlay_count(&second, "Δ añadido"), 6);
+        assert_eq!(overlay_count(&first, "Δ added"), 6);
+        assert_eq!(overlay_count(&second, "Δ added"), 6);
         assert_eq!(first.entries(), second.entries());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -996,21 +1009,21 @@ port 1 nsew signal {class}
         let bytes = std::fs::read(path).expect("sram");
         let h =
             GdsBackend::new().load(bytes, Some("sram_16x8_sky130.gds".into()), CancellationToken::new()).await.expect("carga");
-        let layer = h.layer_list().into_iter().find(|(_, p)| p.name == DEVICE_LAYER).expect("capa de transistores");
+        let layer = h.layer_list().into_iter().find(|(_, p)| p.name == device_layer()).expect("capa de transistores");
         assert!(layer.1.hidden, "oculta al abrir");
         // La única oculta: `riku render --show-devices` dibuja las capas ocultas.
         assert!(h.layer_list().iter().filter(|(_, p)| p.hidden).all(|(l, _)| *l == layer.0));
         // La misma cuenta que KLayout (tools/verify/devices).
-        assert!(meta(&h, "Transistores").starts_with("2271 ("), "{}", meta(&h, "Transistores"));
+        assert!(meta(&h, "Transistors").starts_with("2271 ("), "{}", meta(&h, "Transistors"));
         // Otros layouts sin reglas de PDK: ni capa ni resumen.
         let plain = diff(None, "hier_inv_a.gds", None).await;
-        assert!(plain.layer_list().iter().all(|(_, p)| p.name != DEVICE_LAYER));
+        assert!(plain.layer_list().iter().all(|(_, p)| p.name != device_layer()));
     }
 
     #[tokio::test]
     async fn a_net_is_known_under_the_cursor() {
         let h = diff(None, "nand2_a.gds", None).await;
-        assert_eq!(meta(&h, "Redes"), "8 (7 con nombre)");
+        assert_eq!(meta(&h, "Nets"), "8 (7 named)");
         let li = h.layer_list().into_iter().find(|(_, p)| p.name.ends_with("67/20")).expect("li1").0;
         let hit = h.net_at(0.685, 1.19, Some(li)).expect("el li de la salida");
         assert_eq!(hit.name, "Y");
@@ -1025,9 +1038,9 @@ port 1 nsew signal {class}
     async fn a_short_comes_first_in_the_changes_and_is_marked() {
         let h = diff(Some("nand2_a.gds"), "nand2_short.gds", None).await;
         let first = &h.changes()[0];
-        assert_eq!((first.label.as_str(), first.detail.as_str(), first.error), ("corto · B = Y", "B, Y → B = Y", true));
+        assert_eq!((first.label.as_str(), first.detail.as_str(), first.error), ("short · B = Y", "B, Y → B = Y", true));
         assert!(first.bbox.is_some(), "un clic encuadra");
-        assert!(h.annotations().iter().any(|a| a.label == "corto"), "con su recuadro");
+        assert!(h.annotations().iter().any(|a| a.label == "short"), "con su recuadro");
         assert!(h.changes()[1..].iter().all(|c| !c.error));
         let same = diff(Some("nand2_a.gds"), "nand2_b.gds", None).await;
         assert!(same.changes().iter().all(|c| !c.error), "un transistor más angosto no es un corto");
@@ -1036,8 +1049,8 @@ port 1 nsew signal {class}
     #[tokio::test]
     async fn renamed_cell_is_shown_as_rename_without_geometry_changes() {
         let h = diff(Some("rename_a.gds"), "rename_b.gds", Some("INV_X1")).await;
-        assert_eq!(overlay_count(&h, "Δ añadido"), 0, "comparada contra su nombre anterior");
-        assert!(h.changes().iter().any(|c| c.label == "celda renombrada: INV → INV_X1"));
+        assert_eq!(overlay_count(&h, "Δ added"), 0, "comparada contra su nombre anterior");
+        assert!(h.changes().iter().any(|c| c.label == "cell renamed: INV → INV_X1"));
         let ids: Vec<&str> = h.entries().iter().map(|e| e.id.as_str()).collect();
         assert!(ids.contains(&"INV_X1") && !ids.contains(&"INV"), "{ids:?}");
         let e = h.entries().iter().find(|e| e.id == "INV_X1").unwrap();
@@ -1047,9 +1060,9 @@ port 1 nsew signal {class}
     #[tokio::test]
     async fn missing_before_means_everything_added() {
         let h = diff(None, "datatype_b.gds", None).await;
-        assert_eq!(overlay_count(&h, "Δ añadido"), 1);
-        assert_eq!(overlay_count(&h, "Δ eliminado"), 0);
-        assert!(h.changes().iter().any(|c| c.label == "celda añadida: TOP"));
+        assert_eq!(overlay_count(&h, "Δ added"), 1);
+        assert_eq!(overlay_count(&h, "Δ removed"), 0);
+        assert!(h.changes().iter().any(|c| c.label == "cell added: TOP"));
     }
 
     #[tokio::test]
@@ -1070,11 +1083,11 @@ port 1 nsew signal {class}
         let marks: Vec<_> = h.entries().iter().map(|e| (e.id.as_str(), e.change)).collect();
         assert_eq!(marks, vec![("TOP", Some(ChangeKind::Modified)), ("INV", Some(ChangeKind::Modified))]);
         assert_eq!(h.current_entry(), Some("TOP"), "top cambiada primero");
-        assert_eq!(meta(&h, "Cambiadas"), "2 de 2 celdas");
+        assert_eq!(meta(&h, "Changed"), "2 of 2 cells");
 
         let same = diff(Some("hier_inv_a.gds"), "hier_inv_a.gds", None).await;
         assert!(same.entries().iter().all(|e| e.change.is_none()));
-        assert_eq!(meta(&same, "Área"), "", "sin cambios no hay fila de área");
+        assert_eq!(meta(&same, "Area"), "", "sin cambios no hay fila de área");
     }
 
     #[test]

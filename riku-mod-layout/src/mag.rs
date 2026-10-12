@@ -43,8 +43,14 @@ pub fn lambda_um(tech: Option<&str>) -> (f64, Option<String>) {
     } else if t.starts_with("sky130") || t.starts_with("ihp") || t.contains("sg13g2") {
         (0.01, None)
     } else {
-        let name = tech.unwrap_or("(sin tech)");
-        (0.01, Some(format!("tecnología de Magic {name} desconocida y sin su .tech en $PDK_ROOT: se usa lambda = 0.01 µm (RIKU_MAG_LAMBDA lo cambia)")))
+        let name = tech.unwrap_or(crate::lang::pick("(no tech)", "(sin tech)"));
+        (
+            0.01,
+            Some(crate::lang::t!(
+                "unknown Magic technology {name} and no .tech for it in $PDK_ROOT: lambda = 0.01 µm is used (RIKU_MAG_LAMBDA changes it)",
+                "tecnología de Magic {name} desconocida y sin su .tech en $PDK_ROOT: se usa lambda = 0.01 µm (RIKU_MAG_LAMBDA lo cambia)"
+            )),
+        )
     }
 }
 
@@ -291,7 +297,11 @@ pub fn notices(info: &MagInfo) -> Vec<String> {
         let mut m = info.missing.clone();
         m.sort();
         m.dedup();
-        out.push(format!("{} celda(s) de Magic sin archivo, comparadas vacías: {}", m.len(), m.join(", ")));
+        let (n, list) = (m.len(), m.join(", "));
+        out.push(crate::lang::t!(
+            "{n} Magic cell(s) without a file, compared as empty: {list}",
+            "{n} celda(s) de Magic sin archivo, comparadas vacías: {list}"
+        ));
     }
     out.extend(info.warnings.iter().cloned());
     out

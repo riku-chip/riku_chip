@@ -105,14 +105,18 @@ pub(crate) fn same_unit(
         return Ok(());
     }
     let (bytes, side, unit, other) = match (ra, rb) {
-        (Some(Raw::Bytes(bytes)), _) => (*bytes, sa, ub, "después"),
-        (_, Some(Raw::Bytes(bytes))) => (*bytes, sb, ua, "antes"),
+        (Some(Raw::Bytes(bytes)), _) => (*bytes, sa, ub, crate::lang::after()),
+        (_, Some(Raw::Bytes(bytes))) => (*bytes, sb, ua, crate::lang::before()),
         _ => return Ok(()), // dos Magic: los dos en µm
     };
     let from = side.lib.unit();
     let lib = Library::from_bytes_any_in_unit(bytes, unit).map_err(|e| ReadError::Parse(e.to_string()))?;
     side.lib = Arc::new(lib);
-    side.notices.push(format!("unidad de {} µm llevada a {} µm, la del lado {other}", from * 1e6, unit * 1e6));
+    let (from, to) = (from * 1e6, unit * 1e6);
+    side.notices.push(crate::lang::t!(
+        "unit of {from} µm converted to {to} µm, the one of the {other} side",
+        "unidad de {from} µm llevada a {to} µm, la del lado {other}"
+    ));
     Ok(())
 }
 

@@ -375,6 +375,12 @@ fn el_archivo_ida_y_vuelta() {
     let text = m.to_text();
     assert!(text.contains("[[bind]]\nschematic = \"M2\""), "{text}");
     assert_eq!(MapFile::parse(&text).unwrap(), m);
+    // Un archivo con la cabecera de antes (en español) se lee igual.
+    let (_, body) = text.split_once("schema =").unwrap();
+    let old = format!(
+        "# Qué transistor del esquemático es cuál del layout (riku: LVS manual).\n# Cada transistor del layout: su modelo y un punto de su compuerta, en µm de la celda.\nschema ={body}"
+    );
+    assert_eq!(MapFile::parse(&old).unwrap(), m);
 }
 
 #[test]

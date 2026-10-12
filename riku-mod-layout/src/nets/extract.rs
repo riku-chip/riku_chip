@@ -466,7 +466,7 @@ pub(crate) fn build_full(
         // El nombre: el primer pin en orden alfabético, o la primera etiqueta.
         net.name = net.labels.iter().find(|t| ports.contains(&(i, (*t).clone()))).or(net.labels.first()).cloned();
         if net.labels.len() > 1 {
-            warnings.push(format!("una red tiene más de un nombre: {}", net.labels.join(", ")));
+            warnings.push(super::multiple_names(&net.labels));
         }
     }
     let mut unplaced: Vec<&str> =
@@ -474,7 +474,7 @@ pub(crate) fn build_full(
     unplaced.sort_unstable();
     unplaced.dedup();
     if !unplaced.is_empty() {
-        warnings.push(format!("etiquetas fuera de una capa conductora de su tipo: {}", unplaced.join(", ")));
+        warnings.push(super::unplaced_labels(&unplaced));
     }
     let devices = devices
         .into_iter()
@@ -489,7 +489,11 @@ pub(crate) fn build_full(
         .map(|(r, e)| {
             let (a, b) = (index[&uf.find(e[0])], index[&uf.find(e[1])]);
             if e.len() > 2 {
-                warnings.push(format!("un resistor {} toca {} redes (se toman dos)", r.model, e.len()));
+                let (model, n) = (&r.model, e.len());
+                warnings.push(crate::lang::t!(
+                    "a resistor {model} touches {n} nets (two are taken)",
+                    "un resistor {model} toca {n} redes (se toman dos)"
+                ));
             }
             (r, [a, b])
         })

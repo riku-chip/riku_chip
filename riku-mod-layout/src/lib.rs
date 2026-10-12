@@ -11,6 +11,7 @@ mod diff_scene;
 mod gds_diff;
 mod hier_walk;
 mod labels;
+pub mod lang;
 mod layer_style;
 pub mod mag;
 mod magic_layers_generated;

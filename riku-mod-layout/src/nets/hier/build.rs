@@ -643,7 +643,7 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
         net.labels.sort();
         net.name = net.labels.iter().find(|t| ports.contains(&(i, (*t).clone()))).or(net.labels.first()).cloned();
         if net.labels.len() > 1 {
-            warnings.push(format!("una red tiene más de un nombre: {}", net.labels.join(", ")));
+            warnings.push(crate::nets::multiple_names(&net.labels));
         }
     }
     let mut unplaced: Vec<&str> =
@@ -651,7 +651,7 @@ fn build_cell(ctx: &Ctx<'_>, cells: &Cells, cell: &Cell<'_>) -> CellNets {
     unplaced.sort_unstable();
     unplaced.dedup();
     if !unplaced.is_empty() {
-        warnings.push(format!("etiquetas fuera de una capa conductora de su tipo: {}", unplaced.join(", ")));
+        warnings.push(crate::nets::unplaced_labels(&unplaced));
     }
 
     let bbox_all = own.pieces.iter().map(|p| bbox(&p.poly)).chain(insts.iter().map(|i| i.bbox)).fold(EMPTY, union_box);

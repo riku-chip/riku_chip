@@ -88,8 +88,10 @@ impl MapFile {
     /// El archivo como texto: un vínculo por bloque, en orden de nombre,
     /// para que el diff de un commit se lea bien.
     pub fn to_text(&self) -> String {
-        let mut out = String::from("# Qué transistor del esquemático es cuál del layout (riku: LVS manual).\n");
-        out.push_str("# Cada transistor del layout: su modelo y un punto de su compuerta, en µm de la celda.\n");
+        // En inglés siempre: el archivo se versiona y lo guardan personas con
+        // distintos idiomas; si dependiera de RIKU_LANG cambiaría con cada una.
+        let mut out = String::from("# Which schematic transistor is which in the layout (riku: manual LVS).\n");
+        out.push_str("# Each layout transistor: its model and a point of its gate, in µm of the cell.\n");
         out.push_str(&format!("schema = {:?}\nschematic = {:?}\nlayout = {:?}\n", self.schema, self.schematic, self.layout));
         if let Some(c) = &self.cell {
             out.push_str(&format!("cell = {c:?}\n"));
